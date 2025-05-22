@@ -1,0 +1,30 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npx esbuild src/main.ts --bundle --outfile=dist/main.js --platform=browser",
+    "serve": "npx esbuild src/main.ts --bundle --outfile=dist/main.js --servedir=. --platform=browser --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peitalin/reveries-passkey.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/peitalin/reveries-passkey/issues"
+  },
+  "homepage": "https://github.com/peitalin/reveries-passkey#readme",
+  "dependencies": {
+    "ethers": "^6.14.1",
+    "porto": "^0.0.23"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.4",
+    "typescript": "^5.8.3"
+  }
+}

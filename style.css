@@ -1,0 +1,36 @@
+body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 50px;
+}
+
+button {
+    padding: 10px 15px;
+    margin: 5px;
+    cursor: pointer;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+}
+
+#connectButton {
+    background-color: #4CAF50;
+    color: white;
+}
+
+#disconnectButton {
+    background-color: #f44336;
+    color: white;
+}
+
+#accountInfo {
+    margin-top: 20px;
+    padding: 10px;
+    border: 1px solid #eee;
+    background-color: #f9f9f9;
+    min-height: 50px;
+    width: 300px;
+    text-align: center;
+    word-wrap: break-word;
+}

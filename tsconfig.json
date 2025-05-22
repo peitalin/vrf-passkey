@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "lib": ["dom", "esnext"],
+    "resolveJsonModule": true // Added for potential JSON imports, common in TS projects
+  },
+  "include": ["src/**/*.ts"]
+}
