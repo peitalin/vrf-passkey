@@ -4,7 +4,17 @@ import { config } from './wagmi'
 import { PasskeyLogin } from './components/PasskeyLogin'
 import './App.css'
 
-const queryClient = new QueryClient()
+console.log('App initializing with wagmi config:', config)
+
+// Configure React Query with default options
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 1000, // 5 seconds
+      refetchOnWindowFocus: false,
+    },
+  },
+})
 
 function App() {
   return (
