@@ -8,5 +8,14 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "@near-js/client": "^2.0.1",
+    "@near-js/keystores-browser": "^2.0.1",
+    "@near-js/keystores-node": "^2.0.1",
+    "@near-js/signers": "^2.0.1",
+    "@near-js/tokens": "^2.0.1",
+    "dotenv": "^16.5.0",
+    "near-seed-phrase": "^0.2.1"
   }
 }

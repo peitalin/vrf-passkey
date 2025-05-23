@@ -78,7 +78,7 @@ button:focus-visible {
   border-radius: 8px;
   transition: border-color 0.25s;
   color: rgba(255, 255, 255, 0.87);
-  width: 100%;
+  width: 480px;
   box-sizing: border-box;
 }
 
@@ -168,7 +168,7 @@ main {
   border-radius: 8px;
   padding: 2rem;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  min-width: 420px;
+  width: 480px;
 }
 
 .auth-buttons {
