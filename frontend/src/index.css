@@ -1,0 +1,424 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+.nav-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 10px;
+}
+
+.styled-input {
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: text;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: border-color 0.25s;
+  color: rgba(255, 255, 255, 0.87);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.styled-input:hover {
+  border-color: #646cff;
+}
+
+.styled-input:focus,
+.styled-input:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+  border-color: #646cff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+  .styled-input {
+    background-color: #f9f9f9;
+    color: #213547;
+  }
+  .styled-input:hover {
+    border-color: #747bff;
+  }
+  .styled-input:focus,
+  .styled-input:focus-visible {
+    border-color: #747bff;
+  }
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+  color: #444;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header {
+  margin-bottom: 2rem;
+}
+
+h1 {
+  font-size: 2.5rem;
+  color: #aaa;
+  margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 2rem;
+  color: #aaa;
+}
+
+h3 {
+  font-size: 1.75rem;
+  color: #444;
+}
+
+.app-description {
+  font-size: 1.1rem;
+  color: #666;
+  margin-bottom: 2rem;
+}
+
+main {
+  flex: 1;
+}
+
+.passkey-container {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  min-width: 420px;
+}
+
+.auth-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+button {
+  cursor: pointer;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 4px;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.signup-button {
+  background-color: #4caf50;
+  color: white;
+}
+
+.signup-button:hover {
+  background-color: #45a049;
+}
+
+.login-button {
+  background-color: #2196f3;
+  color: white;
+}
+
+.login-button:hover {
+  background-color: #0b7dda;
+}
+
+.disconnect-button {
+  background-color: #f44336;
+  color: white;
+  margin-top: 1rem;
+}
+
+.disconnect-button:hover {
+  background-color: #d32f2f;
+}
+
+.sign-button {
+  background-color: #ff9800;
+  color: white;
+  margin: 1rem 0;
+}
+
+.sign-button:hover {
+  background-color: #e68a00;
+}
+
+.account-info {
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background-color: #e8f5e9;
+  border-radius: 4px;
+}
+
+.sign-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: #fff3e0;
+  border-radius: 8px;
+}
+
+.hash-display, .signature-display {
+  margin-top: 1.5rem;
+  text-align: left;
+  word-break: break-all;
+  background-color: #f5f5f5;
+  padding: 1rem;
+  border-radius: 4px;
+  border-left: 4px solid #ff9800;
+}
+
+.hash-value, .signature-value {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.status-message {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background-color: #e3f2fd;
+  border-radius: 4px;
+  border-left: 4px solid #2196f3;
+}
+
+.security-warning {
+  margin: 1rem 0;
+  padding: 1rem;
+  background-color: #fff3cd;
+  border-radius: 4px;
+  border-left: 4px solid #ffc107;
+}
+
+.security-warning p {
+  margin: 0.5rem 0;
+  color: #856404;
+}
+
+.debug-info {
+  margin-top: 2rem;
+  padding: 0.5rem;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  text-align: left;
+  color: #333;
+}
+
+.debug-info p {
+  margin: 0.25rem 0;
+}
+
+.passkey-login-container {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.App {
+  text-align: center;
+}
+
+nav {
+  background-color: #f0f0f0;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+nav ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+
+nav ul li {
+  margin: 0 1rem;
+}
+
+nav ul li a {
+  text-decoration: none;
+  color: #333;
+  font-weight: bold;
+}
+
+nav ul li a:hover {
+  color: #007bff;
+}
+
+/* Styles from original App.css to keep general layout if desired */
+/* Some of these might be redundant or conflict with existing styles in index.css */
+/* Review and reconcile as needed */
+.app-container { /* Duplicate definition, might need merging or removal */
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif; /* index.css uses system-ui */
+}
+
+header { /* Duplicate definition */
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.app-description { /* Duplicate definition */
+  font-size: 1.1em;
+  color: #555; /* Different color from previous .app-description */
+  line-height: 1.6;
+}
+
+.passkey-login-container { /* Duplicate definition */
+  background-color: #f9f9f9;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* There were more styles in App.css. Appending the rest: */
+/* Note: Some of these styles might conflict with or override styles previously defined in index.css or earlier in this appended block. Careful review is recommended. */
+
+/* Styles from the end of App.css that were not fully captured in the initial read */
+.action-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 16px;
+    margin: 0.5rem 0;
+    cursor: pointer;
+    border-radius: 5px;
+    transition-duration: 0.4s;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.action-button:hover {
+    background-color: #0056b3;
+    color: white;
+}
+
+.action-button:disabled {
+    background-color: #cccccc;
+    color: #666666;
+    cursor: not-allowed;
+}
+
+.input-field {
+    width: calc(100% - 22px);
+    padding: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.input-field:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+.error-message {
+    color: #dc3545;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    padding: .75rem 1.25rem;
+    margin-top: 1rem;
+    border: 1px solid transparent;
+    border-radius: .25rem;
+}
+
+.info-message {
+    color: #004085;
+    background-color: #cce5ff;
+    border-color: #b8daff;
+    padding: .75rem 1.25rem;
+    margin-top: 1rem;
+    border: 1px solid transparent;
+    border-radius: .25rem;
+}

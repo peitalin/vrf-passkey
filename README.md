@@ -1,144 +1,49 @@
-# Porto Passkey Login Example with React & Vite
+# Passkey Example Repo
 
-This project demonstrates how to implement passkey-based login for Ethereum accounts in a React application using [Porto](https://porto.sh/) and [Wagmi](https://wagmi.sh/). The application is built with Vite and uses TypeScript.
-
-## Features
-
-- **Passkey Signup**: Create a new passkey to generate an Ethereum account
-- **Passkey Login**: Login with an existing passkey
-- **Message Signing**: Sign messages with your passkey to authenticate transactions
-- **Responsive UI**: Simple and clean interface that works on both desktop and mobile
+This project contains:
+-   `/frontend`: React/Vite frontend application and its Caddyfile.
+-   `/server`: Webauthn backend server.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
-
 - [Node.js](https://nodejs.org/) (v18.x or later recommended)
-- [npm](https://www.npmjs.com/) (comes with Node.js) or [yarn](https://yarnpkg.com/)
+- [pnpm](https://pnpm.io/) (v8.x or later recommended)
+- [Caddy](https://caddyserver.com/docs/install) (for running the frontend with HTTPS via `pnpm dev`)
 
-## Getting Started
+## Setup
+From the root directory, run:
+```bash
+pnpm install-all
+```
+This will install dependencies for the root, `./server`, and `./frontend` directories.
 
-Follow these steps to set up and run the project locally:
+## Running the Application
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd reveries-passkey
-   ```
+All commands should be run from the **root directory** of the project.
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+### Running the Frontend (with Caddy for HTTPS)
 
-3. **Run the development server:**
-   ```bash
-   # Option 1: Run without HTTPS (will use popup fallback)
-   npm run dev
-   
-   # Option 2: Run with HTTPS (required for direct WebAuthn)
-   USE_HTTPS=true npm run dev
-   ```
-
-   The application will be accessible at:
-   - Without HTTPS: `http://localhost:5173`
-   - With HTTPS: `https://localhost:5173`
-
-## HTTPS Setup for WebAuthn
-
-WebAuthn (the technology behind passkeys) requires a secure context (HTTPS) to function correctly. This project provides two options:
-
-### Option 1: Development without HTTPS
-
-When running without HTTPS, Porto will attempt to use a popup fallback for WebAuthn operations. This works in development but is not ideal for production.
-
-### Option 2: Development with HTTPS (Built-in)
-
-For the best experience, run with HTTPS enabled:
+To start the frontend application (which includes Vite and Caddy for HTTPS on `https://example.localhost`):
 
 ```bash
-USE_HTTPS=true npm run dev
+pnpm dev
 ```
 
-This uses `vite-plugin-mkcert` to automatically generate a trusted self-signed SSL certificate for `localhost`. You may need to:
+This will:
+1.  Print "starting app on https://example.localhost"
+2.  Start the Caddy server (reverse proxying to Vite).
+3.  Start the Vite development server.
 
-1. Accept the certificate warning in your browser
-2. Grant permission to install the local CA (Certificate Authority) if prompted
+Access the frontend at `https://example.localhost`.
 
-If you encounter any issues with HTTPS, ensure that the local CA provided by `mkcert` is trusted by your system and browser.
+### Running the Backend Server
 
-### Option 3: Using Caddy as a Reverse Proxy
+To start the backend Node.js/Express server:
 
-Another great option for HTTPS during development is to use [Caddy](https://caddyserver.com/) as a reverse proxy in front of your dev server.
+```bash
+pnpm server
+```
 
-1. **Install Caddy**: Follow the [installation instructions](https://caddyserver.com/docs/install) for your platform
-
-2. **Create a Caddyfile** in your project root with the following content:
-   ```
-   example.localhost {
-     reverse_proxy localhost:5173
-   }
-   ```
-
-3. **Start your dev server** in one terminal:
-   ```bash
-   npm run dev
-   ```
-
-4. **Start Caddy** in another terminal:
-   ```bash
-   caddy run
-   # or for background mode
-   caddy start
-   ```
-
-5. **Visit** your application at `https://example.localhost`
-
-This approach has several advantages:
-- Automatic HTTPS with valid certificates
-- No browser warnings or security exceptions
-- Works for all WebAuthn/Passkey operations
-- No need to modify the Vite configuration
-
-## Usage Instructions
-
-1. **Sign Up with Passkey**:
-   - Click the "Sign Up with Passkey" button
-   - Follow your browser's prompts to create a new passkey
-   - This creates a new Ethereum account linked to your passkey
-
-2. **Login with Passkey**:
-   - Click the "Login with Passkey" button
-   - Select your passkey when prompted by your browser
-   - Your Ethereum address will be displayed upon successful login
-
-3. **Sign Messages**:
-   - After logging in, click "Create and Sign Hash"
-   - A message will be hashed and signed with your passkey
-   - The hash and signature will be displayed
-
-4. **Disconnect**:
-   - Click the "Disconnect" button to end your session
-
-## Project Structure
-
-- `src/App.tsx`: Main application component, sets up Wagmi providers
-- `src/components/PasskeyLogin.tsx`: React component implementing the passkey functionality
-- `src/wagmi.ts`: Wagmi configuration, including the Porto connector setup
-- `vite.config.ts`: Vite configuration, including optional HTTPS setup
-- `src/App.css`: Styling for the application
-
-## Notes
-
-- Passkeys are stored in your browser/device's secure storage
-- Your passkey never leaves your device
-- The Ethereum account is derived from your passkey credentials
-- No private keys are exposed or transmitted
-
-## Credits
-
-Built with:
-- [Porto](https://porto.sh/) - WebAuthn-based Ethereum accounts
-- [Wagmi](https://wagmi.sh/) - React Hooks for Ethereum
-- [React](https://reactjs.org/) - UI framework
-- [Vite](https://vitejs.dev/) - Build tool and development server
+This will:
+1.  Build the server TypeScript code (output to `server/dist`).
+2.  Start the server, typically listening on `http://localhost:3001` (as configured in `server/src/index.ts`).

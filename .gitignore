@@ -1,24 +1,26 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Node modules
+/node_modules
+/frontend/node_modules
+/server/node_modules
 
-node_modules
-dist
-dist-ssr
+# Environment variables (if any)
+/frontend/.env
+/server/.env
+
+# Database files
+/server/database.sqlite
+/server/database.sqlite-journal
+/server/database.sqlite-wal
+/server/database.sqlite-shm
+
+# Build output
+/frontend/dist
+/frontend/dist-ssr
+/server/dist
+
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
