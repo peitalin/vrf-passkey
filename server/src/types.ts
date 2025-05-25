@@ -27,4 +27,35 @@ export interface StoredAuthenticator {
   // BackedUp is an important property for passkeys to indicate if they are synced across devices.
   // simplewebauthn's verifyRegistrationResponse can provide this as `credentialBackedUp`.
   backedUp: boolean;
+  derivedNearPublicKey?: string | null; // The NEAR public key derived from this passkey
+}
+
+// Types for PasskeyController Smart Contract interaction
+
+export enum ActionType {
+  CreateAccount = "CreateAccount",
+  DeployContract = "DeployContract",
+  FunctionCall = "FunctionCall",
+  Transfer = "Transfer",
+  Stake = "Stake",
+  AddKey = "AddKey",
+  DeleteKey = "DeleteKey",
+  DeleteAccount = "DeleteAccount",
+}
+
+// Interface for the arguments expected by the contract's execute_actions method
+export interface SerializableActionArgs {
+  action_type: ActionType;
+  receiver_id?: string;
+  method_name?: string;
+  args?: string; // Base64 encoded string of JSON args
+  deposit?: string; // yoctoNEAR as string (e.g., "1000000000000000000000000")
+  gas?: string; // Gas as string (e.g., "30000000000000")
+  amount?: string; // yoctoNEAR as string, for Transfer
+  public_key?: string; // For AddKey, DeleteKey, Stake
+  allowance?: string; // yoctoNEAR as string, for AddKey (FunctionCallAccessKey)
+  method_names?: string[]; // For AddKey (FunctionCallAccessKey)
+  code?: string; // Base64 encoded string of contract code, for DeployContract
+  stake?: string; // yoctoNEAR as string, for Stake
+  beneficiary_id?: string; // For DeleteAccount
 }

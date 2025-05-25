@@ -13,10 +13,16 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@near-js/client": "^2.0.1",
+    "@near-js/crypto": "^2.0.1",
+    "@near-js/keystores": "^2.0.1",
+    "@near-js/types": "^2.0.1",
     "@simplewebauthn/server": "^9.0.3",
     "better-sqlite3": "^11.10.0",
+    "bs58": "^6.0.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "near-api-js": "^6.0.1"
   },
   "devDependencies": {
     "@simplewebauthn/types": "^12.0.0",

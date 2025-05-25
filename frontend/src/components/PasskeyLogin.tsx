@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { SERVER_URL } from '../config'
 import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils'
 import type { ServerRegistrationOptions, ServerAuthenticationOptions } from '../types'
-import { nearService } from '../near'
-
 
 export function PasskeyLogin() {
   const [username, setUsername] = useState('')
@@ -11,10 +9,7 @@ export function PasskeyLogin() {
   const [isPasskeyLoggedIn, setIsPasskeyLoggedIn] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [isSecureContext, setIsSecureContext] = useState(() => window.isSecureContext);
-
-  // State for NEAR keys
-  const [nearPublicKey, setNearPublicKey] = useState<string | null>(null);
-  const [nearSecretKey, setNearSecretKey] = useState<string | null>(null); // WARNING: Storing secret keys in state/localStorage is insecure for production
+  const [serverDerivedNearPK, setServerDerivedNearPK] = useState<string | null | undefined>(null);
 
   useEffect(() => {
     const prevUsername = localStorage.getItem('prevPasskeyUsername');
@@ -22,11 +17,6 @@ export function PasskeyLogin() {
       setUsername(prevUsername);
       if (localStorage.getItem(`passkeyCredential_${prevUsername}`)) {
         setIsPasskeyRegistered(true);
-        // If user was previously logged in & passkey exists, try to load their NEAR keys
-        const storedNearPK = localStorage.getItem(`nearPublicKey_${prevUsername}`);
-        const storedNearSK = localStorage.getItem(`nearSecretKey_${prevUsername}`); // WARNING: Insecure
-        if (storedNearPK) setNearPublicKey(storedNearPK);
-        if (storedNearSK) setNearSecretKey(storedNearSK);
       }
     }
   }, []);
@@ -43,24 +33,11 @@ export function PasskeyLogin() {
     setStatusMessage(`Starting passkey registration for ${username}...`);
     localStorage.setItem('prevPasskeyUsername', username);
 
-    let generatedNearKeys: { publicKey: string; secretKey: string } | null = null;
-    try {
-      generatedNearKeys = nearService.generateSeedPhrase();
-      setNearPublicKey(generatedNearKeys.publicKey);
-      setNearSecretKey(generatedNearKeys.secretKey); // WARNING: Insecure
-      setStatusMessage(`Generated NEAR key pair for ${username}. Public Key: ${generatedNearKeys.publicKey}. Proceeding with passkey registration...`);
-    } catch (keyError) {
-      console.error("Error generating NEAR key pair:", keyError);
-      setStatusMessage(`Failed to generate NEAR key pair: ${keyError instanceof Error ? keyError.message : String(keyError)}. Passkey registration aborted.`);
-      return;
-    }
-
     try {
       const regOptionsResponse = await fetch(`${SERVER_URL}/generate-registration-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send the generated NEAR public key as the username for the passkey, or associate it differently on your server
-        body: JSON.stringify({ username /* or generatedNearKeys.publicKey if server expects that */ }),
+        body: JSON.stringify({ username }),
       });
 
       if (!regOptionsResponse.ok) {
@@ -73,10 +50,7 @@ export function PasskeyLogin() {
         challenge: bufferDecode(options.challenge),
         user: {
           ...options.user,
-          // The user ID for WebAuthn should be stable. If `username` can change, this might be an issue.
-          // It's often derived from an immutable user ID from your backend.
-          // For now, using the `username` from input, which we also use for localStorage keying.
-          id: bufferDecode(options.user.id), // Server provides this, derived from username
+          id: new TextEncoder().encode(options.user.id),
         },
         excludeCredentials: options.excludeCredentials?.map(cred => ({
           ...cred,
@@ -94,8 +68,6 @@ export function PasskeyLogin() {
 
       if (!credential || !(credential.response instanceof AuthenticatorAttestationResponse)) {
         setStatusMessage('Passkey registration cancelled or failed at browser level (no attestation response).');
-        setNearPublicKey(null); // Clear keys if passkey reg fails
-        setNearSecretKey(null);
         return;
       }
 
@@ -103,7 +75,6 @@ export function PasskeyLogin() {
       const verificationResponse = await fetch(`${SERVER_URL}/verify-registration`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send username and attestation. Server should associate this with the user (and implicitly the NEAR keys if username is the link)
         body: JSON.stringify({ username, attestationResponse: attestationResponseJSON }),
       });
       const verificationData = await verificationResponse.json();
@@ -112,28 +83,14 @@ export function PasskeyLogin() {
           id: credential.id,
           rawId: bufferEncode(credential.rawId),
         }));
-        // Store NEAR keys in localStorage, associated with the username
-        if (generatedNearKeys) {
-            localStorage.setItem(`nearPublicKey_${username}`, generatedNearKeys.publicKey);
-            localStorage.setItem(`nearSecretKey_${username}`, generatedNearKeys.secretKey); // WARNING: Insecure
-        }
         setIsPasskeyRegistered(true);
         setIsPasskeyLoggedIn(true);
-        // setUsername(username); // username is already set
-        setStatusMessage(`Passkey registered for ${username} and linked with generated NEAR keys!`);
+        setStatusMessage(`Passkey registered for ${username}!`);
       } else {
-        setNearPublicKey(null); // Clear keys if verification fails
-        setNearSecretKey(null);
-        localStorage.removeItem(`nearPublicKey_${username}`);
-        localStorage.removeItem(`nearSecretKey_${username}`);
         throw new Error(verificationData.error || 'Passkey verification failed on server.');
       }
     } catch (error) {
       console.error('Passkey registration error:', error);
-      setNearPublicKey(null); // Clear keys on any error during this block
-      setNearSecretKey(null);
-      localStorage.removeItem(`nearPublicKey_${username}`);
-      localStorage.removeItem(`nearSecretKey_${username}`);
       let errorMessage = "Registration failed";
       if (error instanceof Error) errorMessage += `: ${error.message}`;
       else errorMessage += `: ${String(error)}`;
@@ -149,13 +106,12 @@ export function PasskeyLogin() {
       return;
     }
     setStatusMessage('Attempting passkey login...');
-    setNearPublicKey(null); // Clear any existing keys before attempting login
-    setNearSecretKey(null);
+
     try {
       const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(username ? { username } : {}), // Server should respond based on discoverable credentials if username is not sent
+        body: JSON.stringify(username ? { username } : {}),
       });
       if (!authOptionsResponse.ok) {
         const errorData = await authOptionsResponse.json().catch(() => ({ error: 'Failed to fetch authentication options' }));
@@ -190,29 +146,16 @@ export function PasskeyLogin() {
       const verificationData = await verificationResponse.json();
       if (verificationResponse.ok && verificationData.verified) {
         const loggedInUsername = verificationData.username;
+        const derivedPkFromServer = verificationData.derivedNearPublicKey;
+
         if (!loggedInUsername) {
           throw new Error("Server did not return a username on successful login.");
         }
-        setUsername(loggedInUsername); // Update username to what server verified
+        setUsername(loggedInUsername);
         setIsPasskeyLoggedIn(true);
-        setStatusMessage(`Successfully logged in as ${loggedInUsername} with your passkey!`);
+        setServerDerivedNearPK(derivedPkFromServer);
+        setStatusMessage(`Successfully logged in as ${loggedInUsername} with your passkey! Server-derived NEAR PK: ${derivedPkFromServer || 'Not provided'}`);
         localStorage.setItem('prevPasskeyUsername', loggedInUsername);
-
-        // Retrieve NEAR keys from localStorage for the loggedInUsername
-        const storedNearPK = localStorage.getItem(`nearPublicKey_${loggedInUsername}`);
-        const storedNearSK = localStorage.getItem(`nearSecretKey_${loggedInUsername}`); // WARNING: Insecure
-        if (storedNearPK) {
-          setNearPublicKey(storedNearPK);
-        } else {
-          setStatusMessage(prev => prev + " (No NEAR Public Key found for this user. Was it registered?)");
-        }
-        if (storedNearSK) {
-          setNearSecretKey(storedNearSK);
-        } else {
-          // No need to double message if PK is also missing
-          if(storedNearPK) setStatusMessage(prev => prev + " (No NEAR Secret Key found. Cannot sign transactions.)");
-        }
-
       } else {
         setIsPasskeyLoggedIn(false);
         throw new Error(verificationData.error || 'Passkey authentication failed on server.');
@@ -235,30 +178,33 @@ export function PasskeyLogin() {
 
   const handlePasskeyLogout = useCallback(async () => {
     setIsPasskeyLoggedIn(false);
-    setNearPublicKey(null); // Clear NEAR keys on logout
-    setNearSecretKey(null);
+    setServerDerivedNearPK(null);
     setStatusMessage('Logged out successfully from Passkey.');
-    // Optionally, clear keys from localStorage too, but user might want them if they log back in
-    // localStorage.removeItem(`nearPublicKey_${username}`);
-    // localStorage.removeItem(`nearSecretKey_${username}`);
   }, [setIsPasskeyLoggedIn, setStatusMessage]);
 
-  const handleSignNearTransaction = () => {
-    if (!nearSecretKey) {
-        setStatusMessage("Cannot sign: NEAR secret key not available.");
-        return;
+  const handleMockServerAction = () => {
+    if (!serverDerivedNearPK) {
+      const errorMessage = 'Cannot perform mock server action: No server-derived NEAR PK available.';
+      setStatusMessage(errorMessage);
+      alert(errorMessage);
+      console.warn('Mock server action attempted, but no serverDerivedNearPK is set.');
+      return;
     }
-    // Placeholder for actual NEAR transaction signing logic using nearSecretKey
-    // This would involve using @near-js libraries to construct and sign a transaction.
-    // For now, we'll just simulate it.
-    setStatusMessage(`Simulating signing a NEAR transaction with Secret Key: ${nearSecretKey.substring(0,15)}...`);
-    console.log("Simulating signing with NEAR Secret Key:", nearSecretKey);
-    // In a real scenario:
-    // 1. Create a KeyPair from secretKey: `KeyPair.fromString(nearSecretKey)`
-    // 2. Get/create a Connection object (provider + signer with this KeyPair)
-    // 3. Create an Account object using this connection and the associated nearPublicKey (or accountId derived from it)
-    // 4. Construct transaction actions
-    // 5. Call account.signAndSendTransaction(...)
+
+    const randomNumber = Math.floor(Math.random() * 1000000);
+    const mockTransactionId = `mock-tx-${Date.now()}-${randomNumber}`;
+
+    const mockActionDetails = {
+      transactionId: mockTransactionId,
+      action: 'transfer',
+      params: { to: 'bob.near', amount: '1 NEAR', memo: `Order #${randomNumber}` },
+      authorizedByPasskeyLinkedNearPK: serverDerivedNearPK,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log('Simulating server-authorized action with details:', mockActionDetails);
+    alert(`Simulating server-authorized action with details: ${JSON.stringify(mockActionDetails)}`);
+    setStatusMessage(`Mock server action initiated. Server would use NEAR PK: ${serverDerivedNearPK} to authorize this. Check console.`);
   };
 
   if (!isSecureContext) {
@@ -279,15 +225,16 @@ export function PasskeyLogin() {
         <h3>Passkey Authenticated</h3>
         <p>Welcome, {username}!</p>
         <p>Your passkey is ready.</p>
-        {nearPublicKey && (
+        {serverDerivedNearPK && (
           <div className="near-key-info" style={{margin: '1rem 0', padding: '0.5rem', border: '1px solid #eee', fontSize: '0.9em'}}>
-            <p>Associated NEAR Public Key: {nearPublicKey}</p>
-            {/* <p>Associated NEAR Secret Key: {nearSecretKey ? `${nearSecretKey.substring(0,15)}... (INSECURE - for demo only)` : 'Not available'}</p> */}
-            {nearSecretKey &&
-                <button onClick={handleSignNearTransaction} className="action-button" style={{backgroundColor: '#ffc107', color: 'black', marginTop: '0.5rem'}}>
-                    Sign Dummy NEAR Transaction
-                </button>
-            }
+            <p>Server-Derived NEAR Public Key: <strong>{serverDerivedNearPK}</strong></p>
+            <button
+              onClick={handleMockServerAction}
+              className="action-button"
+              style={{backgroundColor: '#ffc107', color: 'black', marginTop: '0.5rem'}}
+            >
+              Mock Server-Authorized Action
+            </button>
           </div>
         )}
         <button onClick={handlePasskeyLogout} className="action-button">Logout with Passkey</button>
@@ -297,7 +244,7 @@ export function PasskeyLogin() {
   } else {
     return (
       <div className="passkey-container">
-        <h3>Passkey Authentication with NEAR Key Generation</h3>
+        <h3>Passkey Authentication with NEAR</h3>
         <div>
           <input
             type="text"
@@ -307,25 +254,18 @@ export function PasskeyLogin() {
               setUsername(newUsername);
               if (localStorage.getItem(`passkeyCredential_${newUsername}`)) {
                 setIsPasskeyRegistered(true);
-                 // Try to load keys if username changes and passkey exists for new username
-                const storedNearPK = localStorage.getItem(`nearPublicKey_${newUsername}`);
-                const storedNearSK = localStorage.getItem(`nearSecretKey_${newUsername}`);
-                setNearPublicKey(storedNearPK);
-                setNearSecretKey(storedNearSK);
               } else {
                 setIsPasskeyRegistered(false);
-                setNearPublicKey(null);
-                setNearSecretKey(null);
               }
             }}
-            placeholder="Enter username for passkey & NEAR account"
+            placeholder="Enter username for passkey"
             className="styled-input"
           />
         </div>
         <div className="auth-buttons">
           <button onClick={handlePasskeyRegister} className="action-button"
-            disabled={!username || isPasskeyRegistered}>
-            {isPasskeyRegistered && username ? `Passkey Registered` : `Register Passkey & Gen NEAR Keys`}
+            disabled={!username || !isSecureContext || isPasskeyRegistered}>
+            Register Passkey
           </button>
           <button onClick={handlePasskeyLogin} className="action-button"
             disabled={!username || !isPasskeyRegistered}>
@@ -335,14 +275,6 @@ export function PasskeyLogin() {
         {isPasskeyRegistered && <p style={{fontSize: '0.8em'}}>Passkey registered for '{username}'. Try Login.</p>}
 
         {statusMessage && <p className="status-message" style={{marginTop: '1rem'}}>{statusMessage}</p>}
-
-        <div className="debug-info" style={{marginTop: '1rem'}}>
-          <p>Username: {username}</p>
-          <p>Passkey Registered for '{username}': {isPasskeyRegistered ? 'Yes' : 'No'}</p>
-          <p>Passkey Logged In: {isPasskeyLoggedIn ? 'Yes' : 'No'}</p>
-          <p>Generated/Loaded NEAR Public Key: {nearPublicKey || 'No'}</p>
-          <p>Generated/Loaded NEAR Secret Key: {nearSecretKey ? 'Available (INSECURE - for demo)' : 'No'}</p>
-        </div>
       </div>
     );
   }
