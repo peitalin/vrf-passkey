@@ -168,7 +168,7 @@ The contract needs to store the following:
 
 ### 3. Transaction Execution Method (Callable by Trusted Relayer)
 
-*   **`execute_actions(&mut self, passkey_pk_used: PublicKey, actions_to_execute: Vec<SerializableAction>)`**
+*   **`execute_delegated_actions(&mut self, passkey_pk_used: PublicKey, actions_to_execute: Vec<SerializableAction>)`**
     *   **Purpose:** The core method that executes NEAR actions on behalf of this account (`env::current_account_id()`), authorized by a passkey (whose use was verified by the server).
     *   **Parameters:**
         *   `passkey_pk_used: PublicKey`: The derived NEAR public key corresponding to the passkey the user authenticated with.
@@ -186,7 +186,7 @@ The contract needs to store the following:
         // Assuming SerializableAction and ActionType are defined as in section III
 
         // In impl PasskeyControlledAccount
-        pub fn execute_actions(
+        pub fn execute_delegated_actions(
             &mut self,
             passkey_pk_used: PublicKey,
             actions_to_execute: Vec<SerializableAction>,
@@ -225,7 +225,7 @@ The contract needs to store the following:
         }
         ```
 
-## III. Serializable Action Struct (Helper for `execute_actions`)
+## III. Serializable Action Struct (Helper for `execute_delegated_actions`)
 
 To pass complex actions as parameters from the server (likely as JSON) to the smart contract, you'll need a helper struct that can be serialized and deserialized (e.g., with Borsh for storage/internal and Serde for JSON).
 
@@ -281,11 +281,11 @@ pub struct SerializableAction {
 3.  **Transaction Execution (User Action):**
     *   User initiates an action on your frontend (e.g., "send 0.1 NEAR to `bob.near`").
     *   Frontend prepares the transaction details and obtains a WebAuthn assertion from the user for this specific intent (challenge should be tied to transaction details).
-    *   Frontend sends the WebAuthn assertion and the `SerializableAction` (e.g., `{ type: Transfer, receiver: "bob.near", amount: "100000000000000000000000" }` for 0.1 NEAR) to the server.
+    *   Frontend sends the WebAuthn assertion and the `SerializableAction` (e.g., `{ type: Transfer, receiver: "bob.near", amount: "1000000000000000000000" }` for 0.001 NEAR) to the server.
     *   Server verifies the WebAuthn assertion against the stored COSE public key for the user.
-    *   If valid, the server (as `trusted_relayer_account_id`) calls the `execute_actions` method on `alice.your-app.near`.
+    *   If valid, the server (as `trusted_relayer_account_id`) calls the `execute_delegated_actions` method on `alice.your-app.near`.
         *   Parameters: `passkey_pk_used = derived_near_pk_alice`, `actions_to_execute = [the_serializable_action_for_transfer]`.
-    *   The `execute_actions` method on `alice.your-app.near` contract:
+    *   The `execute_delegated_actions` method on `alice.your-app.near` contract:
         *   Verifies the caller is the `trusted_relayer_account_id`.
         *   Verifies `derived_near_pk_alice` is in its `registered_passkey_pks`.
         *   Constructs and dispatches a NEAR promise: `Promise::new("bob.near").transfer(0.1 NEAR_equivalent_in_yoctoNEAR)`.
