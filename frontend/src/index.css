@@ -24,10 +24,6 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
 }
 
 h1 {
@@ -67,6 +63,14 @@ button:focus-visible {
   padding: 10px;
 }
 
+
+.greeting-controls {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  margin-top: 10px;
+}
+
 .styled-input {
   padding: 0.6em 1.2em;
   font-size: 1em;
@@ -78,7 +82,8 @@ button:focus-visible {
   border-radius: 8px;
   transition: border-color 0.25s;
   color: rgba(255, 255, 255, 0.87);
-  width: 480px;
+  width: 100%;
+  height: 40px;
   box-sizing: border-box;
 }
 
@@ -118,19 +123,17 @@ button:focus-visible {
 
 #root {
   max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  margin-top: 67px; /* height of nav bar */
   color: #444;
 }
 
-.app-container {
+main {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  max-width: 800px;
+  justify-content: center;
+  align-items: center;
   margin: 0 auto;
-  padding: 2rem;
+  text-align: center;
 }
 
 header {
@@ -151,16 +154,6 @@ h2 {
 h3 {
   font-size: 1.75rem;
   color: #444;
-}
-
-.app-description {
-  font-size: 1.1rem;
-  color: #666;
-  margin-bottom: 2rem;
-}
-
-main {
-  flex: 1;
 }
 
 .passkey-container {
@@ -304,7 +297,6 @@ button {
 nav {
   background-color: #f0f0f0;
   padding: 1rem;
-  margin-bottom: 1rem;
 }
 
 nav ul {
@@ -421,4 +413,134 @@ header { /* Duplicate definition */
     margin-top: 1rem;
     border: 1px solid transparent;
     border-radius: .25rem;
+}
+
+/* Navbar Styles */
+.navbar-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background-color: #333;
+  color: white;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+
+.navbar-title {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.navbar-user-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.navbar-pk {
+  font-size: 0.8em;
+  opacity: 0.8;
+  font-family: monospace;
+}
+
+.navbar-logout-button {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  /* cursor: pointer; (already on button tag by default/browser style) */
+}
+
+.navbar-logout-button:hover {
+  background: #d32f2f; /* Add a hover effect consistent with other buttons */
+}
+
+/* PasskeyLogin Component Styles */
+
+.greeting-controls-box {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #f9f9f9;
+  position: relative; /* For absolute positioning of refresh icon */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch; /* Make children take full width */
+}
+
+.refresh-icon-button {
+  background: none;
+  border: none;
+  padding: 5px;
+  cursor: pointer;
+  color: #007bff;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.on-chain-greeting-box {
+  background-color: #fff3cd;
+  color: #856404;
+  padding: 10px;
+  border: 1px solid #ffeeba;
+  border-radius: 4px;
+  text-align: left;
+  width: 100%; /* Ensure it takes full width of parent */
+  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  margin-right: 0; /* Was 40px, remove if refresh icon is not overlapping or handled by parent padding */
+}
+
+.on-chain-greeting-box p {
+  margin: 0;
+}
+
+.on-chain-greeting-box p + p {
+  margin-top: 0.25em;
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.last-tx-display {
+  font-size: 0.85rem;
+  margin: 0.5rem;
+  margin-bottom: 0rem;
+  text-align: left;
+  width: 100%; /* Align with other full-width elements */
+  box-sizing: border-box;
+}
+
+.tx-link {
+  font-family: monospace;
+  /* Styling for links within toasts is separate; this can be for general tx links */
+}
+
+.tx-message {
+  display: block;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.greeting-input-group {
+  display: flex; /* Keep as row for input + button */
+  flex-direction: row; /* Explicitly row */
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.greeting-input-group .styled-input {
+  flex-grow: 1; /* Input takes available space */
+  margin-right: 10px; /* Space between input and button */
+  /* width: auto; /* Remove fixed/percentage width if using flex-grow */
+}
+
+.greeting-input-group .action-button {
+  flex-shrink: 0; /* Button does not shrink */
+  width: auto; /* Let button size by its content and padding */
 }

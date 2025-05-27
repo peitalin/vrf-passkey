@@ -1,210 +1,180 @@
-import { useState, useEffect, useCallback } from 'react'
-import { SERVER_URL } from '../config'
-import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils'
-import type { ServerRegistrationOptions, ServerAuthenticationOptions } from '../types'
+import { useState, useEffect } from 'react'
+import { usePasskeyContext } from '../contexts/PasskeyContext'
+import toast from 'react-hot-toast'
+import { ActionType, type SerializableActionArgs } from '../types'
+import { RefreshIcon } from './RefreshIcon'
+
+const HELLO_NEAR_CONTRACT_ID = 'cyan-loong.testnet'
+
+// Helper to shorten strings like TxIDs or PKs
+const shortenString = (str: string | null | undefined, headChars = 6, tailChars = 4) => {
+  if (!str) return '';
+  if (str.length <= headChars + tailChars + 2) return str; // If already short or has a prefix like "ed25519:"
+  const prefixIndex = str.indexOf(':');
+  if (prefixIndex > -1 && prefixIndex < headChars) { // Handle prefixes like ed25519:
+    return `${str.substring(0, prefixIndex + 1 + headChars)}...${str.substring(str.length - tailChars)}`;
+  }
+  return `${str.substring(0, headChars)}...${str.substring(str.length - tailChars)}`;
+};
+
+interface LastTxDetails {
+  id: string;
+  link: string;
+  message?: string; // Optional: if you want to store the greeting set
+}
 
 export function PasskeyLogin() {
-  const [username, setUsername] = useState('')
-  const [isPasskeyRegistered, setIsPasskeyRegistered] = useState(false)
-  const [isPasskeyLoggedIn, setIsPasskeyLoggedIn] = useState(false)
-  const [statusMessage, setStatusMessage] = useState('')
-  const [isSecureContext, setIsSecureContext] = useState(() => window.isSecureContext);
-  const [serverDerivedNearPK, setServerDerivedNearPK] = useState<string | null | undefined>(null);
+  const {
+    isLoggedIn,
+    username,
+    serverDerivedNearPK,
+    isProcessing,
+    currentGreeting,
+    setUsernameState,
+    registerPasskey,
+    loginPasskey,
+    executeServerAction,
+    fetchCurrentGreeting,
+    logoutPasskey,
+  } = usePasskeyContext();
+
+  const [localUsernameInput, setLocalUsernameInput] = useState('');
+  const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
+  const [customGreetingInput, setCustomGreetingInput] = useState('Hello from Passkey App!');
+  const [isSecureContext] = useState(() => window.isSecureContext);
+  const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   useEffect(() => {
-    const prevUsername = localStorage.getItem('prevPasskeyUsername');
-    if (prevUsername) {
-      setUsername(prevUsername);
-      if (localStorage.getItem(`passkeyCredential_${prevUsername}`)) {
-        setIsPasskeyRegistered(true);
+    if (username) {
+      setLocalUsernameInput(username);
+      if (localStorage.getItem(`passkeyCredential_${username}`)) {
+        setIsPasskeyRegisteredForLocalInput(true);
+      }
+    } else {
+      const prevUsername = localStorage.getItem('prevPasskeyUsername');
+      if (prevUsername) {
+        setLocalUsernameInput(prevUsername);
+        if (localStorage.getItem(`passkeyCredential_${prevUsername}`)) {
+          setIsPasskeyRegisteredForLocalInput(true);
+        }
       }
     }
-  }, []);
+  }, [username]);
 
-  const handlePasskeyRegister = async () => {
-    if (!username) {
-      setStatusMessage('Username is required to register a passkey.');
-      return;
-    }
-    if (!isSecureContext) {
-      setStatusMessage('Passkey operations require a secure context (HTTPS or localhost).');
-      return;
-    }
-    setStatusMessage(`Starting passkey registration for ${username}...`);
-    localStorage.setItem('prevPasskeyUsername', username);
-
-    try {
-      const regOptionsResponse = await fetch(`${SERVER_URL}/generate-registration-options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-      });
-
-      if (!regOptionsResponse.ok) {
-        const errorData = await regOptionsResponse.json().catch(() => ({ error: 'Failed to fetch registration options' }));
-        throw new Error(errorData.error || `Server responded with ${regOptionsResponse.status}`);
-      }
-      const options: ServerRegistrationOptions = await regOptionsResponse.json();
-      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
-        ...options,
-        challenge: bufferDecode(options.challenge),
-        user: {
-          ...options.user,
-          id: new TextEncoder().encode(options.user.id),
-        },
-        excludeCredentials: options.excludeCredentials?.map(cred => ({
-          ...cred,
-          id: bufferDecode(cred.id),
-          transports: cred.transports as AuthenticatorTransport[] | undefined,
-        })),
-        authenticatorSelection: options.authenticatorSelection || {
-          residentKey: "required",
-          userVerification: "preferred",
-        },
-      };
-      const credential = await navigator.credentials.create({
-        publicKey: publicKeyCredentialCreationOptions,
-      }) as PublicKeyCredential | null;
-
-      if (!credential || !(credential.response instanceof AuthenticatorAttestationResponse)) {
-        setStatusMessage('Passkey registration cancelled or failed at browser level (no attestation response).');
-        return;
-      }
-
-      const attestationResponseJSON = publicKeyCredentialToJSON(credential);
-      const verificationResponse = await fetch(`${SERVER_URL}/verify-registration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, attestationResponse: attestationResponseJSON }),
-      });
-      const verificationData = await verificationResponse.json();
-      if (verificationResponse.ok && verificationData.verified) {
-        localStorage.setItem(`passkeyCredential_${username}`, JSON.stringify({
-          id: credential.id,
-          rawId: bufferEncode(credential.rawId),
-        }));
-        setIsPasskeyRegistered(true);
-        setIsPasskeyLoggedIn(true);
-        setStatusMessage(`Passkey registered for ${username}!`);
-      } else {
-        throw new Error(verificationData.error || 'Passkey verification failed on server.');
-      }
-    } catch (error) {
-      console.error('Passkey registration error:', error);
-      let errorMessage = "Registration failed";
-      if (error instanceof Error) errorMessage += `: ${error.message}`;
-      else errorMessage += `: ${String(error)}`;
-      setStatusMessage(errorMessage);
-      setIsPasskeyRegistered(false);
-      setIsPasskeyLoggedIn(false);
+  const handleLocalUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newUsername = e.target.value;
+    setLocalUsernameInput(newUsername);
+    setUsernameState(newUsername);
+    if (localStorage.getItem(`passkeyCredential_${newUsername}`)) {
+      setIsPasskeyRegisteredForLocalInput(true);
+    } else {
+      setIsPasskeyRegisteredForLocalInput(false);
     }
   };
 
-  const handlePasskeyLogin = useCallback(async () => {
-    if (!isSecureContext) {
-      setStatusMessage('Passkey operations require a secure context (HTTPS or localhost).');
+  const onRegister = async () => {
+    if (!localUsernameInput.trim()) {
+      toast.error('Please enter a username to register.');
       return;
     }
-    setStatusMessage('Attempting passkey login...');
-
-    try {
-      const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(username ? { username } : {}),
-      });
-      if (!authOptionsResponse.ok) {
-        const errorData = await authOptionsResponse.json().catch(() => ({ error: 'Failed to fetch authentication options' }));
-        throw new Error(errorData.error || `Server responded with ${authOptionsResponse.status}`);
-      }
-      const options: ServerAuthenticationOptions = await authOptionsResponse.json();
-      const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
-        challenge: bufferDecode(options.challenge),
-        rpId: options.rpId,
-        allowCredentials: options.allowCredentials?.map(cred => ({
-          ...cred,
-          id: bufferDecode(cred.id),
-          transports: cred.transports as AuthenticatorTransport[] | undefined,
-        })),
-        userVerification: options.userVerification || "preferred",
-        timeout: options.timeout || 60000,
-      };
-      const assertion = await navigator.credentials.get({
-        publicKey: publicKeyCredentialRequestOptions,
-      }) as PublicKeyCredential | null;
-      if (!assertion) {
-        setStatusMessage('Passkey login cancelled or no assertion received from browser.');
-        setIsPasskeyLoggedIn(false);
-        return;
-      }
-      const assertionResponseJSON = publicKeyCredentialToJSON(assertion);
-      const verificationResponse = await fetch(`${SERVER_URL}/verify-authentication`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(assertionResponseJSON),
-      });
-      const verificationData = await verificationResponse.json();
-      if (verificationResponse.ok && verificationData.verified) {
-        const loggedInUsername = verificationData.username;
-        const derivedPkFromServer = verificationData.derivedNearPublicKey;
-
-        if (!loggedInUsername) {
-          throw new Error("Server did not return a username on successful login.");
-        }
-        setUsername(loggedInUsername);
-        setIsPasskeyLoggedIn(true);
-        setServerDerivedNearPK(derivedPkFromServer);
-        setStatusMessage(`Successfully logged in as ${loggedInUsername} with your passkey! Server-derived NEAR PK: ${derivedPkFromServer || 'Not provided'}`);
-        localStorage.setItem('prevPasskeyUsername', loggedInUsername);
-      } else {
-        setIsPasskeyLoggedIn(false);
-        throw new Error(verificationData.error || 'Passkey authentication failed on server.');
-      }
-    } catch (loginError) {
-      console.error('Passkey login error:', loginError);
-      setIsPasskeyLoggedIn(false);
-      let displayMessage = "Login failed";
-      if (loginError instanceof Error) {
-        displayMessage += `: ${loginError.message}`;
-        if (loginError.name === 'NotAllowedError') {
-          displayMessage = 'Passkey operation not allowed or cancelled. Check browser/security settings or if a passkey exists for the username.';
-        }
-      } else {
-        displayMessage += `: ${String(loginError)}`;
-      }
-      setStatusMessage(displayMessage);
+    const toastId = toast.loading('Registering passkey...', { style: { background: '#2196F3', color: 'white' } });
+    const result = await registerPasskey(localUsernameInput.trim());
+    if (result.success) {
+      toast.success(`Registered and logged in as ${localUsernameInput.trim()}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+      setLastTxDetails(null);
+    } else {
+      toast.error(result.error || 'Registration failed.', { id: toastId });
     }
-  }, [username, isSecureContext, setStatusMessage, setUsername, setIsPasskeyLoggedIn]);
+  };
 
-  const handlePasskeyLogout = useCallback(async () => {
-    setIsPasskeyLoggedIn(false);
-    setServerDerivedNearPK(null);
-    setStatusMessage('Logged out successfully from Passkey.');
-  }, [setIsPasskeyLoggedIn, setStatusMessage]);
+  const onLogin = async () => {
+    const userToAttemptLogin = localUsernameInput.trim();
+    const toastId = toast.loading(
+      `Attempting login${userToAttemptLogin ? ' for ' + userToAttemptLogin : ' (discoverable passkey)'}...`,
+      { style: { background: '#2196F3', color: 'white' } }
+    );
+    const result = await loginPasskey(userToAttemptLogin || undefined);
+    if (result.success) {
+      toast.success(`Logged in as ${result.loggedInUsername || userToAttemptLogin}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+      setLastTxDetails(null);
+    } else {
+      toast.error(result.error || 'Login failed.', { id: toastId });
+    }
+  };
 
-  const handleMockServerAction = () => {
-    if (!serverDerivedNearPK) {
-      const errorMessage = 'Cannot perform mock server action: No server-derived NEAR PK available.';
-      setStatusMessage(errorMessage);
-      alert(errorMessage);
-      console.warn('Mock server action attempted, but no serverDerivedNearPK is set.');
+  const onFetchGreeting = async () => {
+    const toastId = toast.loading('Refreshing greeting...', { style: { background: '#2196F3', color: 'white' } });
+    const result = await fetchCurrentGreeting();
+    if (result.success) {
+      toast.success('Greeting refreshed!', { id: toastId, style: { background: '#2196F3', color: 'white' } });
+    } else {
+      toast.error(result.error || "Failed to refresh greeting", { id: toastId });
+    }
+  };
+
+  const onExecuteAction = async () => {
+    if (!customGreetingInput.trim()) {
+      toast.error("Please enter a greeting message.");
+      return;
+    }
+    if (!username) {
+      toast.error("Cannot execute action: User not logged in.");
       return;
     }
 
-    const randomNumber = Math.floor(Math.random() * 1000000);
-    const mockTransactionId = `mock-tx-${Date.now()}-${randomNumber}`;
-
-    const mockActionDetails = {
-      transactionId: mockTransactionId,
-      action: 'transfer',
-      params: { to: 'bob.near', amount: '1 NEAR', memo: `Order #${randomNumber}` },
-      authorizedByPasskeyLinkedNearPK: serverDerivedNearPK,
-      timestamp: new Date().toISOString(),
+    const actionToExecute: SerializableActionArgs = {
+      action_type: ActionType.FunctionCall,
+      receiver_id: HELLO_NEAR_CONTRACT_ID,
+      method_name: 'set_greeting',
+      gas: "30000000000000",
+      deposit: "0",
     };
 
-    console.log('Simulating server-authorized action with details:', mockActionDetails);
-    alert(`Simulating server-authorized action with details: ${JSON.stringify(mockActionDetails)}`);
-    setStatusMessage(`Mock server action initiated. Server would use NEAR PK: ${serverDerivedNearPK} to authorize this. Check console.`);
+    let toastId = '';
+    setLastTxDetails(null);
+
+    await executeServerAction(
+      actionToExecute,
+      username,
+      customGreetingInput,
+      {
+        beforeDispatch: () => {
+          toastId = toast.loading('Dispatching Set Greeting action...', { style: { background: '#2196F3', color: 'white' } });
+        },
+        afterDispatch: (success, data) => {
+          if (success && data?.transactionId) {
+            const txLink = `https://testnet.nearblocks.io/txns/${data.transactionId}`;
+            const shortTxId = shortenString(data.transactionId, 10, 6);
+            const greetingSet = (actionToExecute.method_name === 'set_greeting') ? customGreetingInput.trim() : null;
+            const successMessage = `Set Greeting to "${greetingSet}" successful!`;
+
+            setLastTxDetails({
+              id: data.transactionId,
+              link: txLink,
+              message: greetingSet ? `Set to: "${greetingSet}"` : undefined
+            });
+
+            const successContent = (
+              <span>
+                {successMessage} Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>.
+                Result: {data?.successValue || '(No value)'}
+              </span>
+            );
+            toast.success(successContent, {
+              id: toastId,
+              duration: 8000,
+              style: { background: '#4CAF50', color: 'white' }
+            });
+          } else if (success) {
+            toast.success(`Action successful! ${data?.successValue || '(No value)'}`, { id: toastId, duration: 6000, style: { background: '#4CAF50', color: 'white' } });
+            setLastTxDetails({ id: 'N/A', link: '#', message: data?.successValue || 'Success, no TxID' });
+          } else {
+            toast.error(data?.error || 'Action failed.', { id: toastId });
+            setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
+          }
+        }
+      }
+    );
   };
 
   if (!isSecureContext) {
@@ -219,63 +189,85 @@ export function PasskeyLogin() {
     );
   }
 
-  if (isPasskeyLoggedIn) {
-    return (
-      <div className="passkey-container">
-        <h3>Passkey Authenticated</h3>
-        <p>Welcome, {username}!</p>
-        <p>Your passkey is ready.</p>
-        {serverDerivedNearPK && (
-          <div className="near-key-info" style={{margin: '1rem 0', padding: '0.5rem', border: '1px solid #eee', fontSize: '0.9em'}}>
-            <p>Server-Derived NEAR Public Key: <strong>{serverDerivedNearPK}</strong></p>
-            <button
-              onClick={handleMockServerAction}
-              className="action-button"
-              style={{backgroundColor: '#ffc107', color: 'black', marginTop: '0.5rem'}}
-            >
-              Mock Server-Authorized Action
-            </button>
+  return (
+    <div className="passkey-container">
+      <h3>Passkey Authentication with NEAR</h3>
+      {!isLoggedIn ? (
+        <>
+          <div>
+            <input
+              type="text"
+              value={localUsernameInput}
+              onChange={handleLocalUsernameChange}
+              placeholder="Enter username for passkey"
+              className="styled-input"
+            />
           </div>
-        )}
-        <button onClick={handlePasskeyLogout} className="action-button">Logout with Passkey</button>
-        {statusMessage && <p className="status-message">{statusMessage}</p>}
-      </div>
-    );
-  } else {
-    return (
-      <div className="passkey-container">
-        <h3>Passkey Authentication with NEAR</h3>
-        <div>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => {
-              const newUsername = e.target.value;
-              setUsername(newUsername);
-              if (localStorage.getItem(`passkeyCredential_${newUsername}`)) {
-                setIsPasskeyRegistered(true);
-              } else {
-                setIsPasskeyRegistered(false);
-              }
-            }}
-            placeholder="Enter username for passkey"
-            className="styled-input"
-          />
-        </div>
-        <div className="auth-buttons">
-          <button onClick={handlePasskeyRegister} className="action-button"
-            disabled={!username || !isSecureContext || isPasskeyRegistered}>
-            Register Passkey
-          </button>
-          <button onClick={handlePasskeyLogin} className="action-button"
-            disabled={!username || !isPasskeyRegistered}>
-            Login with Passkey
-          </button>
-        </div>
-        {isPasskeyRegistered && <p style={{fontSize: '0.8em'}}>Passkey registered for '{username}'. Try Login.</p>}
+          <div className="auth-buttons">
+            <button onClick={onRegister} className="action-button"
+              disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>
+              Register Passkey
+            </button>
+            <button onClick={onLogin} className="action-button"
+              disabled={(!localUsernameInput && isPasskeyRegisteredForLocalInput && !isProcessing) ? false : (!localUsernameInput || isProcessing)}>
+              {localUsernameInput ? 'Login with Passkey' : 'Login (enter username or try discoverable)'}
+            </button>
+            {!localUsernameInput && (
+              <button onClick={() => loginPasskey()} className="action-button"
+                      disabled={isProcessing || isPasskeyRegisteredForLocalInput}>
+                Login with Discoverable Passkey
+              </button>
+            )}
+          </div>
+          {isPasskeyRegisteredForLocalInput && localUsernameInput && <p style={{fontSize: '0.8em'}}>Passkey registered for '{localUsernameInput}'. Try Login.</p>}
+        </>
+      ) : (
+        <>
+          {serverDerivedNearPK && (
+            <div className="greeting-controls-box">
+              <h4>Manage Greeting on {HELLO_NEAR_CONTRACT_ID}</h4>
 
-        {statusMessage && <p className="status-message" style={{marginTop: '1rem'}}>{statusMessage}</p>}
-      </div>
-    );
-  }
+              <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
+                <RefreshIcon size={22} />
+              </button>
+
+              {currentGreeting && (
+                <div className="on-chain-greeting-box">
+                  <p><strong>On-Chain Greeting:</strong></p>
+                  <p>"{currentGreeting}"</p>
+                </div>
+              )}
+
+              {lastTxDetails && lastTxDetails.id !== 'N/A' && (
+                <div className="last-tx-display">
+                  <span>Last Set Greeting Tx: </span>
+                  <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer" title={lastTxDetails.id} className="tx-link">
+                    {shortenString(lastTxDetails.id, 10, 6)}
+                  </a>
+                  {lastTxDetails.message && <span className="tx-message">{lastTxDetails.message}</span>}
+                </div>
+              )}
+
+              <div className="greeting-input-group">
+                <input
+                  type="text"
+                  value={customGreetingInput}
+                  onChange={(e) => setCustomGreetingInput(e.target.value)}
+                  placeholder="Enter new greeting"
+                  className="styled-input" /* Keep styled-input for consistency, greeting-input-group handles layout */
+                />
+                <button
+                  onClick={onExecuteAction}
+                  className="action-button" /* Keep action-button for base styling */
+                  disabled={isProcessing || !customGreetingInput.trim()}
+                >
+                  {isProcessing ? 'Processing...' : 'Set New Greeting'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }

@@ -24,8 +24,8 @@ export const bufferDecode = (value: string): ArrayBuffer => {
     const buffer = new Uint8Array(decodedString.length);
     for (let i = 0; i < decodedString.length; i++) {
       buffer[i] = decodedString.charCodeAt(i);
-    }
-    return buffer.buffer;
+  }
+  return buffer.buffer;
   } catch (e) {
     // Enhanced logging
     console.error(
