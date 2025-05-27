@@ -7,6 +7,7 @@ export interface User {
   id: string; // A unique identifier for the user (e.g., the username itself or a UUID)
   username: string;
   currentChallenge?: string; // To store the challenge for the current WebAuthn operation
+  derpAccountId?: string; // Added for Option 1 client-managed account
 }
 
 /**
@@ -28,6 +29,7 @@ export interface StoredAuthenticator {
   // simplewebauthn's verifyRegistrationResponse can provide this as `credentialBackedUp`.
   backedUp: boolean;
   derivedNearPublicKey?: string | null; // The NEAR public key derived from this passkey
+  clientManagedNearPublicKey?: string; // Client-generated NEAR public key for Option 1, ed25519 string
 }
 
 // Types for PasskeyController Smart Contract interaction
@@ -43,7 +45,7 @@ export enum ActionType {
   DeleteAccount = "DeleteAccount",
 }
 
-// Interface for the arguments expected by the contract's execute_actions method
+// Interface for the arguments expected by the contract's execute_delegated_actions method
 export interface SerializableActionArgs {
   action_type: ActionType;
   receiver_id?: string;
@@ -58,4 +60,15 @@ export interface SerializableActionArgs {
   code?: string; // Base64 encoded string of contract code, for DeployContract
   stake?: string; // yoctoNEAR as string, for Stake
   beneficiary_id?: string; // For DeleteAccount
+  // Fields for CreateAccount action (if part of SerializableActionArgs)
+  new_account_id?: string; // For CreateAccount if receiver_id is ambiguous
+  new_account_public_key?: string; // For CreateAccount
+  new_account_deposit?: string; // For CreateAccount initial deposit
+}
+
+// For action challenge store
+export interface StoredActionChallengeData {
+    actionDetails: SerializableActionArgs;
+    expectedCredentialID?: string; // Optional: if challenge is tied to a specific passkey
+    // any other relevant data to verify against during execute-action
 }
