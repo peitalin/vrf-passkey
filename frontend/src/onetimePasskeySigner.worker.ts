@@ -1,4 +1,4 @@
-// frontend/src/passkeyCrypto.worker.ts
+// frontend/src/onetimePasskeySigner.worker.ts
 import { KeyPair, PublicKey, type KeyPairString } from '@near-js/crypto';
 import { serialize } from 'borsh';
 import {
@@ -19,14 +19,49 @@ import init, {
   decrypt_data_aes_gcm
 } from '../wasm-worker/pkg/passkey_crypto_worker.js';
 
-// Initialize WASM module once
-let wasmInitialized = false;
+// Cache name for WASM module
+const WASM_CACHE_NAME = 'passkey-wasm-v1';
+const WASM_MODULE_URL = new URL('../wasm-worker/pkg/passkey_crypto_worker_bg.wasm', import.meta.url).href;
 
-async function ensureWasmInitialized() {
-  if (!wasmInitialized) {
-    await init();
-    wasmInitialized = true;
+// Initialize WASM module with caching
+async function initializeWasmWithCache() {
+  console.log('WORKER: Initializing WASM module with cache support');
+
+  try {
+    // Try to get the WASM module from cache
+    const cache = await caches.open(WASM_CACHE_NAME);
+    const cachedResponse = await cache.match(WASM_MODULE_URL);
+
+    if (cachedResponse) {
+      console.log('WORKER: Loading WASM from cache');
+      const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
+      await init(wasmModule);
+      console.log('WORKER: WASM module initialized from cache');
+      return;
+    }
+
+    // If not in cache, fetch and cache it
+    console.log('WORKER: WASM not in cache, fetching...');
+    const response = await fetch(WASM_MODULE_URL);
+
+    // Clone the response before using it
+    const responseToCache = response.clone();
+
+    // Compile the module
+    const wasmModule = await WebAssembly.compileStreaming(response);
+
+    // Cache the response for future use
+    await cache.put(WASM_MODULE_URL, responseToCache);
+    console.log('WORKER: WASM module cached');
+
+    // Initialize with the compiled module
+    await init(wasmModule);
     console.log('WORKER: WASM module initialized');
+
+  } catch (error) {
+    console.error('WORKER: Failed to initialize WASM with cache, falling back to default init:', error);
+    // Fallback to default initialization
+    await init();
   }
 }
 
@@ -121,12 +156,27 @@ interface DecryptAndSignTransactionMessage {
 
 type WorkerMessage = EncryptPrivateKeyMessage | DecryptAndSignTransactionMessage;
 
-// Main message handler
+// Track if we've processed a message
+let messageProcessed = false;
+
+// Main message handler - ONE TIME USE
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
+  // Ensure we only process one message
+  if (messageProcessed) {
+    console.warn('WORKER: Attempted to process multiple messages in one-time worker');
+    self.postMessage({
+      type: 'ERROR',
+      payload: { error: 'Worker has already processed a message' }
+    });
+    return;
+  }
+
+  messageProcessed = true;
   const { type, payload } = event.data;
 
   try {
-    await ensureWasmInitialized();
+    // Initialize WASM with caching
+    await initializeWasmWithCache();
 
     switch (type) {
       case 'ENCRYPT_PRIVATE_KEY':
@@ -149,6 +199,10 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       type: 'ERROR',
       payload: { error: error.message || 'Unknown error occurred' }
     });
+  } finally {
+    // Self-terminate after processing
+    console.log('WORKER: Self-terminating after processing message');
+    self.close();
   }
 };
 

@@ -9,7 +9,6 @@ use hkdf::Hkdf;
 use sha2::{Sha256, Digest};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::Deserialize;
-use std::fmt;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
