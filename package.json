@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "(cd frontend && pnpm dev)",
     "server": "(cd server && pnpm build && pnpm start)",
-    "install-all": "pnpm install && (cd server && pnpm install) && (cd frontend && pnpm install)"
+    "install-all": "pnpm install && (cd server && pnpm install) && (cd frontend && pnpm install)",
+    "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

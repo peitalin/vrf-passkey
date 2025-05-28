@@ -7,13 +7,15 @@ import { getTestnetRpcProvider, view } from '@near-js/client';
 import type { Provider } from '@near-js/providers';
 import { Near, Account, KeyPair, keyStores } from 'near-api-js';
 
-// Configuration (replace with your actual values or from a config file)
-const NEAR_NETWORK_ID = 'testnet';
-const RPC_NODE_URL = 'https://rpc.testnet.near.org';
-const PASSKEY_CONTROLLER_CONTRACT_ID = 'passkey-controller.testnet';
-const DEFAULT_GAS_STRING = "300000000000000"; // Gas as a string for flexibility, convert to BigInt when needed
+import {
+  RPC_NODE_URL,
+  PASSKEY_CONTROLLER_CONTRACT_ID,
+  DEFAULT_GAS_STRING,
+  HELLO_NEAR_CONTRACT_ID
+} from '../config';
 
-const HELLO_NEAR_CONTRACT_ID = 'cyan-loong.testnet';
+
+
 let frontendRpcProvider: Provider;
 
 // Helper to convert ArrayBuffer to string (UTF-8)
@@ -107,43 +109,29 @@ interface PasskeyContextProviderProps {
 }
 
 export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [serverDerivedNearPK, setServerDerivedNearPK] = useState<string | null>(null);
   const [derpAccountId, setDerpAccountId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>('Context loaded.');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
-  const passkeyCryptoWorkerRef = useRef<Worker | null>(null);
+  // Remove the persistent worker reference - we'll create new workers on demand
+  // const passkeyCryptoWorkerRef = useRef<Worker | null>(null);
 
-  // Initialize Worker
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !passkeyCryptoWorkerRef.current) {
-        passkeyCryptoWorkerRef.current = new Worker(new URL('../passkeyCrypto.worker.ts', import.meta.url), { type: 'module' });
-        console.log("PasskeyCryptoWorker initialized.");
-        // Optional: Initial ready message from worker
-        passkeyCryptoWorkerRef.current.onmessage = (event: MessageEvent) => {
-            if (event.data.type === 'WORKER_READY') {
-                console.log("Worker reported ready.");
-                setStatusMessage("Crypto worker ready.");
-            } else if (event.data.type === 'CRYPTO_ERROR') {
-                console.error("Worker crypto init error:", event.data.payload.error);
-                setStatusMessage(`Worker Init Error: ${event.data.payload.error}`);
-            }
-        };
-        passkeyCryptoWorkerRef.current.onerror = (errEvent: ErrorEvent) => {
-            console.error("Worker failed to initialize or unhandled error. Full event:", errEvent);
-            const errorMessage = errEvent.message || `Worker error at ${errEvent.filename}:${errEvent.lineno}. Check browser console & network tab for worker script loading issues. Ensure correct MIME type.`;
-            setStatusMessage(`Worker Failed: ${errorMessage}`);
-        };
-    }
-    return () => {
-      passkeyCryptoWorkerRef.current?.terminate();
-      passkeyCryptoWorkerRef.current = null;
-      console.log("PasskeyCryptoWorker terminated.");
-    };
-  }, []);
+  // Remove the worker initialization useEffect since we'll create workers on demand
+  // useEffect(() => { ... }, []);
+
+  // Helper function to create a new one-time worker
+  const createOneTimeWorker = (): Worker => {
+    const worker = new Worker(
+      new URL('../onetimePasskeySigner.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    console.log("One-time PasskeyCryptoWorker created.");
+    return worker;
+  };
 
   const getRpcProvider = () => {
     if (!frontendRpcProvider) {
@@ -204,10 +192,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     if (!window.isSecureContext || !crypto.subtle || !crypto.getRandomValues) {
       return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost) and Web Crypto API.', derivedNearPublicKey: null, derpAccountId: null };
     }
-    if (!passkeyCryptoWorkerRef.current) {
-      setStatusMessage('Crypto worker not initialized for registration.');
-      return { success: false, error: 'Crypto worker not initialized.', derivedNearPublicKey: null, derpAccountId: null };
-    }
     setIsProcessing(true);
     localStorage.setItem('prevPasskeyUsername', currentUsername);
     setStatusMessage('Registering passkey...');
@@ -264,7 +248,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           console.log(`Client generated NEAR PK for ${userDerpAccountIdToUse}: ${generatedNearPublicKeyForChain}. Will attempt on-chain registration.`);
           setStatusMessage(`Client NEAR PK: ${generatedNearPublicKeyForChain}. Contacting crypto worker for encryption...`);
 
-          passkeyCryptoWorkerRef.current.postMessage({
+          const worker = createOneTimeWorker();
+          worker.postMessage({
             type: 'ENCRYPT_PRIVATE_KEY',
             payload: {
               passkeyAttestationResponse: publicKeyCredentialToJSON(credential),
@@ -275,16 +260,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
           // This Promise now correctly wraps the entire async flow including worker and server call
           return new Promise(async (resolve, reject) => {
-            if (!passkeyCryptoWorkerRef.current) {
-              setIsProcessing(false);
-              return reject({ success: false, error: "Worker became unavailable.", derivedNearPublicKey: null, derpAccountId: null });
-            }
-
             const specificMessageHandler = async (event: MessageEvent) => {
-                if (passkeyCryptoWorkerRef.current) {
-                    passkeyCryptoWorkerRef.current.onmessage = null;
-                    passkeyCryptoWorkerRef.current.onerror = null;
-                }
                 const { type: workerMsgType, payload: workerPayload } = event.data;
                 if (workerMsgType === 'ENCRYPTION_SUCCESS') {
                     setStatusMessage('Local NEAR key encrypted and stored. Associating with account on server...');
@@ -332,17 +308,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                 }
             };
             const specificErrorHandler = (errEvent: ErrorEvent) => {
-                if (passkeyCryptoWorkerRef.current) {
-                    passkeyCryptoWorkerRef.current.onmessage = null;
-                    passkeyCryptoWorkerRef.current.onerror = null;
-                }
                 console.error("Worker error during encryption setup:", errEvent);
                 setStatusMessage(`Worker Error: ${errEvent.message}`);
                 setIsProcessing(false);
                 reject({ success: false, error: errEvent.message, derivedNearPublicKey: null, derpAccountId: null });
             };
-            passkeyCryptoWorkerRef.current.onmessage = specificMessageHandler;
-            passkeyCryptoWorkerRef.current.onerror = specificErrorHandler;
+            worker.onmessage = specificMessageHandler;
+            worker.onerror = specificErrorHandler;
           });
         } else {
           setStatusMessage('Passkey registered. Existing local NEAR key found.');
@@ -534,13 +506,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       return;
     }
 
-    if (!passkeyCryptoWorkerRef.current) {
-        setStatusMessage('Crypto worker not initialized.');
-        setIsProcessing(false);
-        callbacks?.afterDispatch?.(false, { error: "Crypto worker not initialized for direct action." });
-        return;
-    }
-
     try {
       const passkeyChallenge = new Uint8Array(32);
       crypto.getRandomValues(passkeyChallenge);
@@ -573,7 +538,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const blockInfo = await provider.block({ finality: 'final' });
       const blockHash = blockInfo.header.hash;
 
-      passkeyCryptoWorkerRef.current.postMessage({
+      const worker = createOneTimeWorker();
+      worker.postMessage({
         type: 'DECRYPT_AND_SIGN_TRANSACTION',
         payload: {
           derpAccountId,
@@ -589,11 +555,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       });
 
       const handleWorkerResponse = async (event: MessageEvent) => {
-        if (passkeyCryptoWorkerRef.current) {
-            passkeyCryptoWorkerRef.current.onmessage = null;
-            passkeyCryptoWorkerRef.current.onerror = null;
-        }
-
         const { type: workerMsgType, payload: workerPayload } = event.data;
 
         if (workerMsgType === 'SIGNATURE_SUCCESS') {
@@ -646,20 +607,14 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       };
 
       const handleWorkerError = (errEvent: ErrorEvent) => {
-        if (passkeyCryptoWorkerRef.current) {
-            passkeyCryptoWorkerRef.current.onmessage = null;
-            passkeyCryptoWorkerRef.current.onerror = null;
-        }
         console.error("Worker error:", errEvent);
         setStatusMessage(`Worker Error: ${errEvent.message}`);
         setIsProcessing(false);
         callbacks?.afterDispatch?.(false, { error: errEvent.message });
       };
 
-      if (passkeyCryptoWorkerRef.current) {
-        passkeyCryptoWorkerRef.current.onmessage = handleWorkerResponse;
-        passkeyCryptoWorkerRef.current.onerror = handleWorkerError;
-      }
+      worker.onmessage = handleWorkerResponse;
+      worker.onerror = handleWorkerError;
 
     } catch (error: any) {
       console.error('Execute direct action error:', error);

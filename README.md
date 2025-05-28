@@ -9,6 +9,14 @@ This project contains:
 - [Node.js](https://nodejs.org/) (v18.x or later recommended)
 - [pnpm](https://pnpm.io/) (v8.x or later recommended)
 - [Caddy](https://caddyserver.com/docs/install) (for running the frontend with HTTPS via `pnpm dev`)
+- [Rust](https://www.rust-lang.org/tools/install) (for building the WASM module)
+- [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) (for building the WASM module)
+
+### Installing wasm-pack
+
+```bash
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+```
 
 ## Setup
 From the root directory, run:
@@ -16,6 +24,16 @@ From the root directory, run:
 pnpm install-all
 ```
 This will install dependencies for the root, `./server`, and `./frontend` directories.
+
+### Building the WASM Module
+
+Before running the frontend, you need to build the WASM module for secure key derivation:
+
+```bash
+pnpm build-wasm
+```
+
+This will build the WASM module located in `frontend/wasm-worker` and output the generated files to `frontend/wasm-worker/pkg`.
 
 ## Running the Application
 

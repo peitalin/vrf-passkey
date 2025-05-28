@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { HomePage } from './pages/HomePage';
+import TestOnetimeWorker from './pages/TestOnetimeWorker';
 import { Navbar } from './components/Navbar';
 import { PasskeyContextProvider } from './contexts/PasskeyContext';
 import './index.css';
@@ -16,11 +18,16 @@ if (typeof (window as any).global === 'undefined') {
 function App() {
   return (
     <React.StrictMode>
-      <PasskeyContextProvider>
-        <Toaster position="bottom-center" reverseOrder={false} />
-        <Navbar />
-        <HomePage />
-      </PasskeyContextProvider>
+      <BrowserRouter>
+        <PasskeyContextProvider>
+          <Toaster position="bottom-center" reverseOrder={false} />
+          <Navbar />
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/test-onetime-worker" element={<TestOnetimeWorker />} />
+          </Routes>
+        </PasskeyContextProvider>
+      </BrowserRouter>
     </React.StrictMode>
   );
 }
