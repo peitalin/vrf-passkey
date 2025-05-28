@@ -265,10 +265,11 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           setStatusMessage(`Client NEAR PK: ${generatedNearPublicKeyForChain}. Contacting crypto worker for encryption...`);
 
           passkeyCryptoWorkerRef.current.postMessage({
-            type: 'ENCRYPT_PRIVATE_KEY_WITH_ATTESTATION',
+            type: 'ENCRYPT_PRIVATE_KEY',
             payload: {
               passkeyAttestationResponse: publicKeyCredentialToJSON(credential),
               nearPrivateKeyString: nearPrivateKeyString,
+              derpAccountId: userDerpAccountIdToUse!,
             }
           });
 
@@ -286,9 +287,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                 }
                 const { type: workerMsgType, payload: workerPayload } = event.data;
                 if (workerMsgType === 'ENCRYPTION_SUCCESS') {
-                    localStorage.setItem(`encrypted_near_key_${userDerpAccountIdToUse!}`, JSON.stringify(workerPayload));
-                    setStatusMessage('Local NEAR key encrypted. Associating with account on server...');
-                    console.log('Encrypted key info stored for', userDerpAccountIdToUse, workerPayload);
+                    setStatusMessage('Local NEAR key encrypted and stored. Associating with account on server...');
+                    console.log('Encrypted key stored for', userDerpAccountIdToUse);
 
                     try {
                         const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
@@ -305,6 +305,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                             setStatusMessage('Passkey registered, local key encrypted, and NEAR PK associated on-chain.');
                             setDerpAccountId(userDerpAccountIdToUse!);
                             localStorage.setItem('derpAccountId', userDerpAccountIdToUse!);
+                            // Store the client NEAR public key for later use
+                            localStorage.setItem(`client_near_pk_${userDerpAccountIdToUse!}`, generatedNearPublicKeyForChain!);
                             setIsLoggedIn(true);
                             setUsername(currentUsername);
                             setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey);
@@ -314,17 +316,15 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                             setIsProcessing(false);
                             resolve({ success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse });
                         } else {
-                            localStorage.removeItem(`encrypted_near_key_${userDerpAccountIdToUse!}`); // Clean up if association fails
                             throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with server.');
                         }
                     } catch (associationError: any) {
-                        localStorage.removeItem(`encrypted_near_key_${userDerpAccountIdToUse!}`); // Clean up if association fails
                         console.error('Error associating client NEAR PK:', associationError);
                         setStatusMessage(`Error associating NEAR PK: ${associationError.message}`);
                         setIsProcessing(false);
                         reject({ success: false, error: associationError.message, derivedNearPublicKey: null, derpAccountId: null });
                     }
-                } else if (workerMsgType === 'ENCRYPTION_FAILURE' || workerMsgType === 'CRYPTO_ERROR') {
+                } else if (workerMsgType === 'ENCRYPTION_FAILURE' || workerMsgType === 'CRYPTO_ERROR' || workerMsgType === 'ERROR') {
                     console.error('WORKER: Encryption failed or crypto error:', workerPayload.error);
                     setStatusMessage(`Encryption Error: ${workerPayload.error}`);
                     setIsProcessing(false);
@@ -349,13 +349,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           // If key already exists, we still need to set the main user states
           setDerpAccountId(userDerpAccountIdToUse!);
           localStorage.setItem('derpAccountId', userDerpAccountIdToUse!);
-          setIsLoggedIn(true);
+        setIsLoggedIn(true);
           setUsername(currentUsername);
           setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey);
           if (tempCredentialStore) { // Use stored credential
             localStorage.setItem(`passkeyCredential_${currentUsername}`, JSON.stringify({ id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) }));
           }
-          setIsProcessing(false);
+        setIsProcessing(false);
           return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse };
         }
       } else {
@@ -555,20 +555,36 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         throw new Error('Passkey authentication cancelled or failed for action.');
       }
 
-      const encryptedKeyInfoString = localStorage.getItem(`encrypted_near_key_${derpAccountId}`);
-      if (!encryptedKeyInfoString) {
-        setStatusMessage('Encrypted NEAR key not found. Please register/setup key for this account first.');
-        setIsProcessing(false);
-        callbacks?.afterDispatch?.(false, {error: 'Encrypted NEAR key not found for direct action.'});
-        return;
+      // Get access key info for nonce and block hash
+      const provider = getRpcProvider();
+      const publicKeyStr = localStorage.getItem(`client_near_pk_${derpAccountId}`);
+      if (!publicKeyStr) {
+        throw new Error('Client NEAR public key not found in localStorage');
       }
-      const encryptedKeyInfo = JSON.parse(encryptedKeyInfoString);
+
+      const accessKeyInfo = await provider.query({
+        request_type: 'view_access_key',
+        finality: 'final',
+        account_id: derpAccountId,
+        public_key: publicKeyStr,
+      });
+
+      const nonce = (accessKeyInfo as any).nonce + 1;
+      const blockInfo = await provider.block({ finality: 'final' });
+      const blockHash = blockInfo.header.hash;
 
       passkeyCryptoWorkerRef.current.postMessage({
-        type: 'DECRYPT_PRIVATE_KEY_WITH_ASSERTION',
+        type: 'DECRYPT_AND_SIGN_TRANSACTION',
         payload: {
-          encryptedNearPrivateKeyInfo: encryptedKeyInfo,
-          passkeyAssertionResponse: publicKeyCredentialToJSON(passkeyAssertion)
+          derpAccountId,
+          passkeyAssertionResponse: publicKeyCredentialToJSON(passkeyAssertion),
+          receiverId: PASSKEY_CONTROLLER_CONTRACT_ID,
+          contractMethodName: "execute_direct_actions",
+          contractArgs: { action_to_execute: serializableActionForContract },
+          gasAmount: DEFAULT_GAS_STRING,
+          depositAmount: "0",
+          nonce: nonce.toString(),
+          blockHash: blockHash,
         }
       });
 
@@ -580,57 +596,52 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
         const { type: workerMsgType, payload: workerPayload } = event.data;
 
-        if (workerMsgType === 'DECRYPTION_SUCCESS') {
-          const { decryptedPrivateKeyString } = workerPayload;
-          setStatusMessage('Key decrypted. Preparing transaction...');
+        if (workerMsgType === 'SIGNATURE_SUCCESS') {
+          setStatusMessage('Transaction signed. Sending to network...');
 
           try {
-            if (!derpAccountId) {
-                throw new Error("DERP Account ID is null, cannot proceed.");
-            }
-            const keyPair = KeyPair.fromString(decryptedPrivateKeyString);
+            const signedTransactionBorsh = new Uint8Array(workerPayload.signedTransactionBorsh);
 
-            const keyStore = new keyStores.InMemoryKeyStore();
-            await keyStore.setKey(NEAR_NETWORK_ID, derpAccountId, keyPair);
-
-            const nearConfig = {
-              networkId: NEAR_NETWORK_ID,
-              keyStore,
-              nodeUrl: RPC_NODE_URL,
-            };
-            const near = new Near(nearConfig);
-            const account = await near.account(derpAccountId);
-
-            const result = await account.functionCall({
-              contractId: PASSKEY_CONTROLLER_CONTRACT_ID,
-              methodName: "execute_direct_actions",
-              args: { action_to_execute: serializableActionForContract },
-              gas: BigInt(DEFAULT_GAS_STRING),
+            // Send transaction using fetch directly to the RPC endpoint
+            const rpcResponse = await fetch(RPC_NODE_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'dontcare',
+                method: 'broadcast_tx_commit',
+                params: [Buffer.from(signedTransactionBorsh).toString('base64')]
+              })
             });
+
+            const result = await rpcResponse.json();
+            if (result.error) {
+              throw new Error(result.error.message || 'RPC error');
+            }
 
             console.log("Direct action transaction sent:", result);
             setStatusMessage('Direct action successful!');
 
-            setIsProcessing(false);
-            callbacks?.afterDispatch?.(true, result);
+            // If it was a set_greeting action, fetch the new greeting
+            if (serializableActionForContract.method_name === 'set_greeting') {
+              await fetchCurrentGreeting();
+            }
 
-          } catch (signSendError: any) {
-            console.error("Error signing/sending direct transaction:", signSendError);
-            setStatusMessage(`Transaction Error: ${signSendError.message}`);
             setIsProcessing(false);
-            callbacks?.afterDispatch?.(false, { error: signSendError.message });
+            callbacks?.afterDispatch?.(true, result.result);
+
+          } catch (sendError: any) {
+            console.error("Error sending transaction:", sendError);
+            setStatusMessage(`Transaction Error: ${sendError.message}`);
+            setIsProcessing(false);
+            callbacks?.afterDispatch?.(false, { error: sendError.message });
           }
 
-        } else if (workerMsgType === 'DECRYPTION_FAILURE') {
-          console.error('WORKER: Decryption failed:', workerPayload.error);
-          setStatusMessage(`Decryption Error: ${workerPayload.error}`);
+        } else if (workerMsgType === 'SIGNATURE_FAILURE' || workerMsgType === 'ERROR') {
+          console.error('WORKER: Signing failed:', workerPayload.error);
+          setStatusMessage(`Signing Error: ${workerPayload.error}`);
           setIsProcessing(false);
           callbacks?.afterDispatch?.(false, { error: workerPayload.error });
-        } else if (workerMsgType === 'CRYPTO_ERROR') {
-            console.error("Worker crypto API error:", workerPayload.error);
-            setStatusMessage(`Worker Crypto Error: ${workerPayload.error}`);
-            setIsProcessing(false);
-            callbacks?.afterDispatch?.(false, { error: workerPayload.error });
         }
       };
 

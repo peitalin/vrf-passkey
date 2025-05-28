@@ -7,6 +7,10 @@
 /frontend/.env
 /server/.env
 
+# WASM worker
+/frontend/wasm-worker/pkg
+/frontend/wasm-worker/target
+
 # Database files
 /server/database.sqlite
 /server/database.sqlite-journal

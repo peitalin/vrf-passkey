@@ -11,238 +11,312 @@ import {
 import nearApiJs from "near-api-js";
 import { sha256 } from 'js-sha256';
 
-// Helper to convert base64url to ArrayBuffer (used by Web Crypto API)
-function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+// Import WASM module
+// @ts-ignore - WASM module types
+import init, {
+  derive_encryption_key_from_webauthn_js,
+  encrypt_data_aes_gcm,
+  decrypt_data_aes_gcm
+} from '../wasm-worker/pkg/passkey_crypto_worker.js';
+
+// Initialize WASM module once
+let wasmInitialized = false;
+
+async function ensureWasmInitialized() {
+  if (!wasmInitialized) {
+    await init();
+    wasmInitialized = true;
+    console.log('WORKER: WASM module initialized');
   }
-  return bytes.buffer;
 }
 
-// Helper to convert ArrayBuffer to base64url string
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
+// IndexedDB helper functions
+const DB_NAME = 'PasskeyNearKeys';
+const DB_VERSION = 1;
+const STORE_NAME = 'encryptedKeys';
+
+interface EncryptedKeyData {
+  derpAccountId: string;
+  encryptedData: string;
+  iv: string;
+  timestamp: number;
 }
 
-// PLACEHOLDER: Securely derive encryption key from WebAuthn response
-// This function should be robust enough for both attestation and assertion if inputs are handled carefully.
-async function deriveEncryptionKeyFromWebAuthnResponse(webAuthnResponse: any, operationContext: 'registration' | 'authentication'): Promise<CryptoKey> {
-  console.warn(`WORKER: Using insecure key derivation for demo (${operationContext}). IMPLEMENT SECURE KDF.`);
-  // IMPORTANT: This derivation is NOT secure for production.
-  // Use clientDataJSON.challenge and parts of attestationObject (for registration)
-  // or authenticatorData/signature (for assertion) in a strong KDF (e.g., HKDF).
+async function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-  // webAuthnResponse is the object from publicKeyCredentialToJSON(),
-  // so webAuthnResponse.response.clientDataJSON is a base64url STRING.
-  const b64ClientData = webAuthnResponse.response.clientDataJSON;
-  if (typeof b64ClientData !== 'string') {
-    throw new Error('WORKER: Expected clientDataJSON to be a base64url string from publicKeyCredentialToJSON.');
-  }
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
 
-  let clientDataJSONStr;
-  try {
-      clientDataJSONStr = new TextDecoder().decode(base64UrlToArrayBuffer(b64ClientData));
-  } catch (e) {
-      console.error("WORKER: Failed to decode base64url clientDataJSON string:", b64ClientData, e);
-      throw new Error("WORKER: Could not decode clientDataJSON string.");
-  }
-
-  const clientData = JSON.parse(clientDataJSONStr);
-  const challenge = clientData.challenge;
-
-  const encoder = new TextEncoder();
-  // DEMO ONLY: This input must be cryptographically strong and unique per operation/user.
-  const saltSuffix = operationContext === 'registration' ? "_REG_SALT_DEMO" : "_AUTH_SALT_DEMO";
-  const simplisticInputForKeyMaterial = encoder.encode(challenge.slice(0, 16) + saltSuffix);
-
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    simplisticInputForKeyMaterial,
-    'PBKDF2',
-    false,
-    ['deriveKey']
-  );
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: encoder.encode('worker-kdf-salt'), iterations: 100000, hash: 'SHA-256' },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'derpAccountId' });
+      }
+    };
+  });
 }
 
-// Encrypts data (e.g., a NEAR private key string)
-async function encryptData(plainTextData: string, encryptionKey: CryptoKey): Promise<{ encryptedData: string; iv: string }> {
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // AES-GCM recommended IV size
-  const encodedData = new TextEncoder().encode(plainTextData);
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv },
-    encryptionKey,
-    encodedData
-  );
-  return {
-    encryptedData: arrayBufferToBase64Url(encryptedBuffer),
-    iv: arrayBufferToBase64Url(iv.buffer),
+async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
+  const db = await openDB();
+  const transaction = db.transaction([STORE_NAME], 'readwrite');
+  const store = transaction.objectStore(STORE_NAME);
+
+  return new Promise((resolve, reject) => {
+    const request = store.put(data);
+    request.onsuccess = () => {
+      db.close();
+      resolve();
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function getEncryptedKey(derpAccountId: string): Promise<EncryptedKeyData | null> {
+  const db = await openDB();
+  const transaction = db.transaction([STORE_NAME], 'readonly');
+  const store = transaction.objectStore(STORE_NAME);
+
+  return new Promise((resolve, reject) => {
+    const request = store.get(derpAccountId);
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result || null);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+// Message types
+interface EncryptPrivateKeyMessage {
+  type: 'ENCRYPT_PRIVATE_KEY';
+  payload: {
+    passkeyAttestationResponse: any; // publicKeyCredentialToJSON output
+    nearPrivateKeyString: string;
+    derpAccountId: string;
   };
 }
 
-// Decrypts data (e.g., a NEAR private key string)
-async function decryptData(encryptedDataB64: string, ivB64: string, encryptionKey: CryptoKey): Promise<string> {
-  const encryptedData = base64UrlToArrayBuffer(encryptedDataB64);
-  const iv = base64UrlToArrayBuffer(ivB64);
-  const decryptedDataBuffer = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: iv },
-    encryptionKey,
-    encryptedData
-  );
-  return new TextDecoder().decode(decryptedDataBuffer);
+interface DecryptAndSignTransactionMessage {
+  type: 'DECRYPT_AND_SIGN_TRANSACTION';
+  payload: {
+    derpAccountId: string;
+    passkeyAssertionResponse: any; // publicKeyCredentialToJSON output
+    receiverId: string;
+    contractMethodName: string;
+    contractArgs: any;
+    gasAmount: string;
+    depositAmount: string;
+    nonce: string;
+    blockHash: string; // base64 string
+  };
 }
 
-self.onmessage = async (event: MessageEvent) => {
+type WorkerMessage = EncryptPrivateKeyMessage | DecryptAndSignTransactionMessage;
+
+// Main message handler
+self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type, payload } = event.data;
 
-  if (!crypto || !crypto.subtle || !TextEncoder || !TextDecoder || typeof atob === 'undefined' || typeof btoa === 'undefined') {
-    self.postMessage({ type: 'CRYPTO_ERROR', payload: { error: 'Essential crypto/encoding APIs not available in worker.' }});
-    return;
+  try {
+    await ensureWasmInitialized();
+
+    switch (type) {
+      case 'ENCRYPT_PRIVATE_KEY':
+        await handleEncryptPrivateKey(payload);
+        break;
+
+      case 'DECRYPT_AND_SIGN_TRANSACTION':
+        await handleDecryptAndSignTransaction(payload);
+        break;
+
+      default:
+        self.postMessage({
+          type: 'ERROR',
+          payload: { error: `Unknown message type: ${type}` }
+        });
+    }
+  } catch (error: any) {
+    console.error('WORKER: Error processing message:', error);
+    self.postMessage({
+      type: 'ERROR',
+      payload: { error: error.message || 'Unknown error occurred' }
+    });
   }
+};
 
-  if (type === 'ENCRYPT_PRIVATE_KEY_WITH_ATTESTATION') {
-    try {
-      const {
-        passkeyAttestationResponse, // Raw AuthenticatorAttestationResponse from navigator.credentials.create()
-        nearPrivateKeyString,       // Plaintext NEAR private key string to encrypt
-      } = payload;
+async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payload']) {
+  const { passkeyAttestationResponse, nearPrivateKeyString, derpAccountId } = payload;
 
-      if (!passkeyAttestationResponse || !nearPrivateKeyString) {
-        throw new Error('WORKER: Missing attestation response or private key string for encryption.');
-      }
+  try {
+    // The passkeyAttestationResponse from publicKeyCredentialToJSON has this structure:
+    // { id, rawId, response: { clientDataJSON, attestationObject, ... }, type }
+    // We need to pass just the response object to the WASM function
 
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthnResponse(passkeyAttestationResponse, 'registration');
-      const encryptedKeyInfo = await encryptData(nearPrivateKeyString, encryptionKey);
-
-      self.postMessage({
-        type: 'ENCRYPTION_SUCCESS',
-        payload: encryptedKeyInfo, // { encryptedData: string (base64url), iv: string (base64url) }
-      });
-
-    } catch (error: any) {
-      console.error('WORKER: Error encrypting private key:', error);
-      self.postMessage({ type: 'ENCRYPTION_FAILURE', payload: { error: error.message || 'Encryption error' } });
+    if (!passkeyAttestationResponse.response) {
+      throw new Error('Invalid attestation response structure - missing response property');
     }
 
-  } else if (type === 'DECRYPT_AND_SIGN_TRANSACTION') { // New message type for full signing
-    try {
-      const {
-        encryptedNearPrivateKeyInfo,
-        passkeyAssertionResponse,
+    // Transform field names to match WASM expectations (clientDataJSON -> clientDataJson)
+    const wasmCompatibleResponse = {
+      clientDataJson: passkeyAttestationResponse.response.clientDataJSON,
+      attestationObject: passkeyAttestationResponse.response.attestationObject,
+    };
+
+    // Derive encryption key from WebAuthn response
+    const encryptionKey = derive_encryption_key_from_webauthn_js(
+      JSON.stringify(wasmCompatibleResponse),
+      'registration'
+    );
+
+    // Encrypt the NEAR private key
+    const encryptedJson = encrypt_data_aes_gcm(nearPrivateKeyString, encryptionKey);
+    const encrypted = JSON.parse(encryptedJson);
+
+    // Store in IndexedDB
+    await storeEncryptedKey({
+      derpAccountId,
+      encryptedData: encrypted.encrypted_data_b64u,
+      iv: encrypted.iv_b64u,
+      timestamp: Date.now()
+    });
+
+    self.postMessage({
+      type: 'ENCRYPTION_SUCCESS',
+      payload: {
         derpAccountId,
-        receiverId,
-        contractMethodName, // Renamed for clarity from contractMethodForPasskeyController
-        contractArgs,       // Renamed for clarity from contractArgsForPasskeyController
-        gasAmount,          // Renamed for clarity from actionGas
-        depositAmount,      // Renamed for clarity from actionDeposit
-        nonce,
-        blockHash,        // base64 string of block hash bytes (from main thread's access key query)
-      } = payload;
-
-      if (!encryptedNearPrivateKeyInfo || !passkeyAssertionResponse || !derpAccountId || !receiverId || !contractMethodName || !contractArgs || typeof nonce === 'undefined' || !blockHash || typeof gasAmount === 'undefined' || typeof depositAmount === 'undefined') {
-        throw new Error('WORKER: Missing critical data for decryption and signing.');
+        stored: true
       }
+    });
 
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthnResponse(passkeyAssertionResponse, 'authentication');
-      const decryptedPrivateKeyString = await decryptData(
-        encryptedNearPrivateKeyInfo.encryptedData,
-        encryptedNearPrivateKeyInfo.iv,
-        encryptionKey
-      );
-
-      // Ensure decryptedPrivateKeyString is in "ed25519:BASE58_PV_KEY" format for KeyPair.fromString
-      const keyPair = KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
-      const publicKey = keyPair.getPublicKey();
-
-      // Construct the action(s) for the transaction
-      // Here, we are calling a method on the PasskeyController (receiverId)
-      const actions: Action[] = [
-        nearApiJs.transactions.functionCall(
-          contractMethodName,
-          Buffer.from(JSON.stringify(contractArgs)),
-          BigInt(gasAmount),
-          BigInt(depositAmount)
-        )
-      ];
-
-      // Use nearApiJs.transactions.createTransaction if it's preferred due to main import
-      const transaction = nearApiJs.transactions.createTransaction(
-        derpAccountId, // Signer
-        publicKey,     // Signer's public key
-        receiverId,    // Receiver of this transaction (PasskeyController)
-        BigInt(nonce), // Nonce must be BigInt
-        actions,       // Array of Action objects
-        Buffer.from(blockHash, 'base64') // Decoded block hash bytes
-      );
-
-      // Access schema via nearApiJs.transactions if available, or specific class static property
-      const schemaToUse = nearApiJs.transactions.SCHEMA; // Assuming SCHEMA is re-exported here
-      if (!schemaToUse || !schemaToUse.Transaction || !schemaToUse.SignedTransaction) {
-          // Fallback or error if SCHEMA structure isn't as expected
-          // This might happen if nearApiJs.transactions.SCHEMA is not the collection of schemas
-          // or if Transaction/SignedTransaction are not direct keys.
-          // For now, we'll assume the direct SCHEMA import from @near-js/transactions was more direct.
-          // Re-importing it specifically for serialize if nearApiJs.transactions.SCHEMA is problematic.
-          console.warn("Using direct SCHEMA import for serialization as nearApiJs.transactions.SCHEMA seems incomplete.")
-          const { SCHEMA: directSchema } = await import('@near-js/transactions'); // Dynamic import for schema
-          const serializedTx = serialize(directSchema.Transaction, transaction);
-          const hash = new Uint8Array(sha256.array(serializedTx));
-          const signatureFromKeyPair = keyPair.sign(hash);
-          const nearSignature = new Signature({ keyType: publicKey.keyType, data: signatureFromKeyPair.signature });
-          const signedTransaction = new SignedTransaction({ transaction: transaction, signature: nearSignature });
-          const serializedSignedTx = serialize(directSchema.SignedTransaction, signedTransaction);
-
-          self.postMessage({
-            type: 'SIGNATURE_SUCCESS',
-            payload: {
-              signedTransactionBorsh: Array.from(serializedSignedTx),
-            },
-          });
-          return; // Exit after this path
-      }
-
-      const serializedTx = serialize(schemaToUse.Transaction, transaction);
-      const hash = new Uint8Array(sha256.array(serializedTx));
-      const signatureFromKeyPair = keyPair.sign(hash);
-
-      const nearSignature = new Signature({
-        keyType: publicKey.keyType,
-        data: signatureFromKeyPair.signature
-      });
-
-      const signedTransaction = new SignedTransaction({
-        transaction: transaction,
-        signature: nearSignature
-      });
-
-      const serializedSignedTx = serialize(schemaToUse.SignedTransaction, signedTransaction);
-
-      self.postMessage({
-        type: 'SIGNATURE_SUCCESS',
-        payload: {
-          signedTransactionBorsh: Array.from(serializedSignedTx),
-        },
-      });
-
-    } catch (error: any) {
-      console.error('WORKER: Error decrypting/signing transaction:', error);
-      self.postMessage({ type: 'SIGNATURE_FAILURE', payload: { error: error.message || 'Decryption/Signing error' } });
-    }
-  } else {
-    console.warn('WORKER: Received unknown message type:', type);
-    self.postMessage({ type: 'UNKNOWN_MESSAGE_TYPE', payload: { receivedType: type } });
+  } catch (error: any) {
+    console.error('WORKER: Encryption failed:', error);
+    self.postMessage({
+      type: 'ENCRYPTION_FAILURE',
+      payload: { error: error.message || 'Encryption failed' }
+    });
   }
+}
+
+async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactionMessage['payload']) {
+  const {
+    derpAccountId,
+    passkeyAssertionResponse,
+    receiverId,
+    contractMethodName,
+    contractArgs,
+    gasAmount,
+    depositAmount,
+    nonce,
+    blockHash
+  } = payload;
+
+  try {
+    // Retrieve encrypted key from IndexedDB
+    const encryptedKeyData = await getEncryptedKey(derpAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${derpAccountId}`);
+    }
+
+    // The passkeyAssertionResponse from publicKeyCredentialToJSON has this structure:
+    // { id, rawId, response: { clientDataJSON, signature, authenticatorData, ... }, type }
+    // We need to pass just the response object to the WASM function
+
+    if (!passkeyAssertionResponse.response) {
+      throw new Error('Invalid assertion response structure - missing response property');
+    }
+
+    // Transform field names to match WASM expectations (clientDataJSON -> clientDataJson)
+    const wasmCompatibleResponse = {
+      clientDataJson: passkeyAssertionResponse.response.clientDataJSON,
+      signature: passkeyAssertionResponse.response.signature,
+      authenticatorData: passkeyAssertionResponse.response.authenticatorData,
+      userHandle: passkeyAssertionResponse.response.userHandle,
+    };
+
+    // Derive decryption key from WebAuthn response
+    const decryptionKey = derive_encryption_key_from_webauthn_js(
+      JSON.stringify(wasmCompatibleResponse),
+      'authentication'
+    );
+
+    // Decrypt the NEAR private key
+    const decryptedPrivateKeyString = decrypt_data_aes_gcm(
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv,
+      decryptionKey
+    );
+
+    // Create KeyPair from decrypted private key
+    const keyPair = KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
+    const publicKey = keyPair.getPublicKey();
+
+    // Construct the action(s) for the transaction
+    const actions: Action[] = [
+      nearApiJs.transactions.functionCall(
+        contractMethodName,
+        Buffer.from(JSON.stringify(contractArgs)),
+        BigInt(gasAmount),
+        BigInt(depositAmount)
+      )
+    ];
+
+    // Create the transaction
+    const transaction = nearApiJs.transactions.createTransaction(
+      derpAccountId,     // Signer
+      publicKey,         // Signer's public key
+      receiverId,        // Receiver of this transaction
+      BigInt(nonce),     // Nonce must be BigInt
+      actions,           // Array of Action objects
+      Buffer.from(blockHash, 'base64') // Decoded block hash bytes
+    );
+
+    // Serialize and sign the transaction
+    const serializedTx = serialize(SCHEMA.Transaction, transaction);
+    const hash = new Uint8Array(sha256.array(serializedTx));
+    const signatureFromKeyPair = keyPair.sign(hash);
+
+    // Create the signed transaction
+    const nearSignature = new Signature({
+      keyType: publicKey.keyType,
+      data: signatureFromKeyPair.signature
+    });
+
+    const signedTransaction = new SignedTransaction({
+      transaction: transaction,
+      signature: nearSignature
+    });
+
+    // Serialize the signed transaction
+    const serializedSignedTx = serialize(SCHEMA.SignedTransaction, signedTransaction);
+
+    self.postMessage({
+      type: 'SIGNATURE_SUCCESS',
+      payload: {
+        signedTransactionBorsh: Array.from(serializedSignedTx),
+        derpAccountId
+      }
+    });
+
+  } catch (error: any) {
+    console.error('WORKER: Decryption/signing failed:', error);
+    self.postMessage({
+      type: 'SIGNATURE_FAILURE',
+      payload: { error: error.message || 'Decryption/signing failed' }
+    });
+  }
+}
+
+// Export types for use in main thread
+export type {
+  WorkerMessage,
+  EncryptPrivateKeyMessage,
+  DecryptAndSignTransactionMessage
 };
