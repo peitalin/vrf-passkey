@@ -3,8 +3,8 @@ import { usePasskeyContext } from '../contexts/PasskeyContext'
 import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './RefreshIcon'
-
-const HELLO_NEAR_CONTRACT_ID = 'cyan-loong.testnet'
+import { webAuthnManager } from '../security/WebAuthnManager'
+import { HELLO_NEAR_CONTRACT_ID } from '../config'
 
 // Helper to shorten strings like TxIDs or PKs
 const shortenString = (str: string | null | undefined, headChars = 6, tailChars = 4) => {
@@ -45,28 +45,31 @@ export function PasskeyLogin() {
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   useEffect(() => {
-    if (username) {
-      setLocalUsernameInput(username);
-      if (localStorage.getItem(`passkeyCredential_${username}`)) {
-        setIsPasskeyRegisteredForLocalInput(true);
-      }
-    } else {
-      const prevUsername = localStorage.getItem('prevPasskeyUsername');
-      if (prevUsername) {
-        setLocalUsernameInput(prevUsername);
-        if (localStorage.getItem(`passkeyCredential_${prevUsername}`)) {
-          setIsPasskeyRegisteredForLocalInput(true);
+    const loadUserData = async () => {
+      if (username) {
+        setLocalUsernameInput(username);
+        const hasCredential = await webAuthnManager.hasPasskeyCredential(username);
+        setIsPasskeyRegisteredForLocalInput(hasCredential);
+      } else {
+        const prevUsername = await webAuthnManager.getLastUsedUsername();
+        if (prevUsername) {
+          setLocalUsernameInput(prevUsername);
+          const hasCredential = await webAuthnManager.hasPasskeyCredential(prevUsername);
+          setIsPasskeyRegisteredForLocalInput(hasCredential);
         }
       }
-    }
+    };
+
+    loadUserData();
   }, [username]);
 
-  const handleLocalUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocalUsernameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newUsername = e.target.value;
     setLocalUsernameInput(newUsername);
     setUsernameState(newUsername);
-    if (localStorage.getItem(`passkeyCredential_${newUsername}`)) {
-      setIsPasskeyRegisteredForLocalInput(true);
+    if (newUsername) {
+      const hasCredential = await webAuthnManager.hasPasskeyCredential(newUsername);
+      setIsPasskeyRegisteredForLocalInput(hasCredential);
     } else {
       setIsPasskeyRegisteredForLocalInput(false);
     }
@@ -80,7 +83,22 @@ export function PasskeyLogin() {
     const toastId = toast.loading('Registering passkey...', { style: { background: '#2196F3', color: 'white' } });
     const result = await registerPasskey(localUsernameInput.trim());
     if (result.success) {
-      toast.success(`Registered and logged in as ${localUsernameInput.trim()}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+      if (result.transactionId) {
+        const txLink = `https://testnet.nearblocks.io/txns/${result.transactionId}`;
+        const shortTxId = shortenString(result.transactionId, 10, 6);
+        const successContent = (
+          <span>
+            Registered and logged in as {localUsernameInput.trim()}! Account association Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
+          </span>
+        );
+        toast.success(successContent, {
+          id: toastId,
+          duration: 8000,
+          style: { background: '#4CAF50', color: 'white' }
+        });
+      } else {
+        toast.success(`Registered and logged in as ${localUsernameInput.trim()}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+      }
       setLastTxDetails(null);
     } else {
       toast.error(result.error || 'Registration failed.', { id: toastId });
@@ -223,7 +241,14 @@ export function PasskeyLogin() {
         </>
       ) : (
         <>
-          {serverDerivedNearPK && (
+          <div className="user-info-box">
+            <h4>Logged in as: {username}</h4>
+            <button onClick={logoutPasskey} className="action-button logout-button">
+              Logout
+            </button>
+          </div>
+
+          {serverDerivedNearPK ? (
             <div className="greeting-controls-box">
               <h4>Manage Greeting on {HELLO_NEAR_CONTRACT_ID}</h4>
 
@@ -264,6 +289,11 @@ export function PasskeyLogin() {
                   {isProcessing ? 'Processing...' : 'Set New Greeting'}
                 </button>
               </div>
+            </div>
+          ) : (
+            <div className="info-box">
+              <p>✅ Passkey registered successfully!</p>
+              <p>Server-derived NEAR public key not available for greeting functionality.</p>
             </div>
           )}
         </>

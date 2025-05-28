@@ -544,3 +544,70 @@ header { /* Duplicate definition */
   flex-shrink: 0; /* Button does not shrink */
   width: auto; /* Let button size by its content and padding */
 }
+
+/* User Info Box - shown when logged in */
+.user-info-box {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background-color: #e8f5e9;
+  border-radius: 8px;
+  border-left: 4px solid #4caf50;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.user-info-box h4 {
+  margin: 0;
+  color: #2e7d32;
+  font-size: 1.1rem;
+}
+
+.logout-button {
+  background-color: #f44336 !important;
+  color: white !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.9rem !important;
+  width: auto !important;
+  margin: 0 !important;
+}
+
+.logout-button:hover {
+  background-color: #d32f2f !important;
+}
+
+/* Info Box - for general information messages */
+.info-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #e3f2fd;
+  border-radius: 8px;
+  border-left: 4px solid #2196f3;
+  text-align: left;
+}
+
+.info-box p {
+  margin: 0.5rem 0;
+  color: #1565c0;
+}
+
+.info-box p:first-child {
+  margin-top: 0;
+}
+
+.info-box p:last-child {
+  margin-bottom: 0;
+}
+
+/* Toast transaction link styling */
+.toast-tx-link {
+  color: #ffffff !important;
+  text-decoration: underline !important;
+  font-family: monospace;
+  font-weight: bold;
+}
+
+.toast-tx-link:hover {
+  color: #e0e0e0 !important;
+  text-decoration: underline !important;
+}

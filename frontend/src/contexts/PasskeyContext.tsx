@@ -6,6 +6,7 @@ import { ActionType, type ServerRegistrationOptions, type ServerAuthenticationOp
 import { getTestnetRpcProvider, view } from '@near-js/client';
 import type { Provider } from '@near-js/providers';
 import { Near, Account, KeyPair, keyStores } from 'near-api-js';
+import { webAuthnManager } from '../security/WebAuthnManager';
 
 import {
   RPC_NODE_URL,
@@ -84,7 +85,7 @@ export interface ExecuteActionCallbacks {
 interface PasskeyContextType extends PasskeyState {
   setUsernameState: (username: string) => void;
   setDerpAccountIdState: (accountId: string) => void;
-  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }>;
+  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
   loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }>;
   logoutPasskey: () => void;
   executeServerAction: (
@@ -123,15 +124,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   // Remove the worker initialization useEffect since we'll create workers on demand
   // useEffect(() => { ... }, []);
 
-  // Helper function to create a new one-time worker
-  const createOneTimeWorker = (): Worker => {
-    const worker = new Worker(
-      new URL('../onetimePasskeySigner.worker.ts', import.meta.url),
-      { type: 'module' }
-    );
-    console.log("One-time PasskeyCryptoWorker created.");
-    return worker;
-  };
 
   const getRpcProvider = () => {
     if (!frontendRpcProvider) {
@@ -169,14 +161,22 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   }, []);
 
   useEffect(() => {
-    const prevUsername = localStorage.getItem('prevPasskeyUsername');
-    const prevDerpAccountId = localStorage.getItem('derpAccountId');
-    if (prevUsername) {
-      setUsername(prevUsername);
-    }
-    if (prevDerpAccountId) {
-      setDerpAccountId(prevDerpAccountId);
-    }
+    const loadUserData = async () => {
+      try {
+        const lastUsername = await webAuthnManager.getLastUsedUsername();
+        if (lastUsername) {
+          setUsername(lastUsername);
+          const userData = await webAuthnManager.getUserData(lastUsername);
+          if (userData?.derpAccountId) {
+            setDerpAccountId(userData.derpAccountId);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      }
+    };
+
+    loadUserData();
   }, []);
 
   useEffect(() => {
@@ -185,47 +185,50 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting]);
 
-  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }> => {
+  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }> => {
     if (!currentUsername) {
-      return { success: false, error: 'Username is required for registration.', derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: 'Username is required for registration.', derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
     }
     if (!window.isSecureContext || !crypto.subtle || !crypto.getRandomValues) {
-      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost) and Web Crypto API.', derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost) and Web Crypto API.', derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
     }
     setIsProcessing(true);
-    localStorage.setItem('prevPasskeyUsername', currentUsername);
+
+    // Store username in IndexedDB
+    await webAuthnManager.storeUserData({
+      username: currentUsername,
+      lastUpdated: Date.now()
+    });
+
     setStatusMessage('Registering passkey...');
 
     let userDerpAccountIdToUse: string | null = null;
     let generatedNearPublicKeyForChain: string | null = null;
     let serverWebAuthnVerifyData: any = null;
-    let tempCredentialStore: PublicKeyCredential | null = null; // To store credential for use in Promise
+    let tempCredentialStore: PublicKeyCredential | null = null;
+    let challengeId: string | null = null;
 
     try {
-      const regOptionsResponse = await fetch(`${SERVER_URL}/generate-registration-options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: currentUsername }),
-      });
-      if (!regOptionsResponse.ok) {
-        const errorData = await regOptionsResponse.json().catch(() => ({ error: 'Failed to fetch reg options' }));
-        throw new Error(errorData.error || `Server error ${regOptionsResponse.status}`);
-      }
-      const options: ServerRegistrationOptions & { derpAccountId?: string } = await regOptionsResponse.json();
+      // Get registration options from server via WebAuthnManager
+      const {
+        options,
+        challengeId
+      } = await webAuthnManager.getRegistrationOptions(currentUsername);
       userDerpAccountIdToUse = options.derpAccountId || `${currentUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}.passkeyfactory.testnet`;
 
       const pkCreationOpts: PublicKeyCredentialCreationOptions = {
         ...options,
-        challenge: bufferDecode(options.challenge),
+        challenge: bufferDecode(options.challenge), // Use server challenge
         user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
         excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
         authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
       };
+
       const credential = await navigator.credentials.create({ publicKey: pkCreationOpts }) as PublicKeyCredential | null;
       if (!credential || !(credential.response instanceof AuthenticatorAttestationResponse)) {
         throw new Error('Passkey creation cancelled or failed in browser.');
       }
-      tempCredentialStore = credential; // Store for later use in promise
+      tempCredentialStore = credential;
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
@@ -240,95 +243,112 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
             userDerpAccountIdToUse = serverWebAuthnVerifyData.derpAccountId;
         }
 
-        if (!localStorage.getItem(`encrypted_near_key_${userDerpAccountIdToUse!}`)) {
-          const newNearKeyPair = KeyPair.fromRandom('ed25519');
-          const nearPrivateKeyString = newNearKeyPair.toString();
-          generatedNearPublicKeyForChain = newNearKeyPair.getPublicKey().toString();
+        // Check if encrypted key already exists
+        const hasExistingKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdToUse!);
 
-          console.log(`Client generated NEAR PK for ${userDerpAccountIdToUse}: ${generatedNearPublicKeyForChain}. Will attempt on-chain registration.`);
-          setStatusMessage(`Client NEAR PK: ${generatedNearPublicKeyForChain}. Contacting crypto worker for encryption...`);
+        if (!hasExistingKey) {
+          console.log(`No existing encrypted key found for ${userDerpAccountIdToUse}. Will generate new key in secure worker.`);
+          setStatusMessage(`Generating new NEAR key pair securely...`);
 
-          const worker = createOneTimeWorker();
-          worker.postMessage({
-            type: 'ENCRYPT_PRIVATE_KEY',
-            payload: {
-              passkeyAttestationResponse: publicKeyCredentialToJSON(credential),
-              nearPrivateKeyString: nearPrivateKeyString,
+          // Use WebAuthnManager for secure registration (key generation happens in WASM)
+          const registrationResult = await webAuthnManager.secureRegistration(
+            publicKeyCredentialToJSON(credential),
+            {
               derpAccountId: userDerpAccountIdToUse!,
-            }
-          });
+            },
+            challengeId
+          );
 
-          // This Promise now correctly wraps the entire async flow including worker and server call
-          return new Promise(async (resolve, reject) => {
-            const specificMessageHandler = async (event: MessageEvent) => {
-                const { type: workerMsgType, payload: workerPayload } = event.data;
-                if (workerMsgType === 'ENCRYPTION_SUCCESS') {
-                    setStatusMessage('Local NEAR key encrypted and stored. Associating with account on server...');
-                    console.log('Encrypted key stored for', userDerpAccountIdToUse);
+          if (registrationResult.success) {
+            // Get the generated public key from the registration result
+            generatedNearPublicKeyForChain = registrationResult.publicKey;
 
-                    try {
-                        const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                username: currentUsername,
-                                derpAccountId: userDerpAccountIdToUse!,
-                                clientNearPublicKey: generatedNearPublicKeyForChain!
-                            }),
-                        });
-                        const associatePkData = await associatePkResponse.json();
-                        if (associatePkResponse.ok && associatePkData.success) {
-                            setStatusMessage('Passkey registered, local key encrypted, and NEAR PK associated on-chain.');
-                            setDerpAccountId(userDerpAccountIdToUse!);
-                            localStorage.setItem('derpAccountId', userDerpAccountIdToUse!);
-                            // Store the client NEAR public key for later use
-                            localStorage.setItem(`client_near_pk_${userDerpAccountIdToUse!}`, generatedNearPublicKeyForChain!);
-                            setIsLoggedIn(true);
-                            setUsername(currentUsername);
-                            setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey);
-                            if (tempCredentialStore) { // Use stored credential
-                                localStorage.setItem(`passkeyCredential_${currentUsername}`, JSON.stringify({ id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) }));
-                            }
-                            setIsProcessing(false);
-                            resolve({ success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse });
-                        } else {
-                            throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with server.');
-                        }
-                    } catch (associationError: any) {
-                        console.error('Error associating client NEAR PK:', associationError);
-                        setStatusMessage(`Error associating NEAR PK: ${associationError.message}`);
-                        setIsProcessing(false);
-                        reject({ success: false, error: associationError.message, derivedNearPublicKey: null, derpAccountId: null });
-                    }
-                } else if (workerMsgType === 'ENCRYPTION_FAILURE' || workerMsgType === 'CRYPTO_ERROR' || workerMsgType === 'ERROR') {
-                    console.error('WORKER: Encryption failed or crypto error:', workerPayload.error);
-                    setStatusMessage(`Encryption Error: ${workerPayload.error}`);
-                    setIsProcessing(false);
-                    reject({ success: false, error: workerPayload.error, derivedNearPublicKey: null, derpAccountId: null });
-                }
-            };
-            const specificErrorHandler = (errEvent: ErrorEvent) => {
-                console.error("Worker error during encryption setup:", errEvent);
-                setStatusMessage(`Worker Error: ${errEvent.message}`);
+            setStatusMessage('NEAR key generated and encrypted securely. Associating with account on server...');
+            console.log('Encrypted key stored for', userDerpAccountIdToUse, 'with public key:', generatedNearPublicKeyForChain);
+
+            try {
+              const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  username: currentUsername,
+                  derpAccountId: userDerpAccountIdToUse!,
+                  clientNearPublicKey: generatedNearPublicKeyForChain!
+                }),
+              });
+              const associatePkData = await associatePkResponse.json();
+
+              console.log('Associate PK API response:', associatePkData);
+
+              if (associatePkResponse.ok && associatePkData.success) {
+                // Check for various possible transaction ID field names
+                const transactionId = associatePkData.transactionId ||
+                                    associatePkData.txId ||
+                                    associatePkData.transaction_id ||
+                                    associatePkData.txHash ||
+                                    associatePkData.transaction_hash ||
+                                    associatePkData.tx_hash ||
+                                    null;
+
+                console.log('Extracted transaction ID:', transactionId);
+
+                setStatusMessage('Passkey registered, local key encrypted, and NEAR PK associated on-chain.');
+                setDerpAccountId(userDerpAccountIdToUse!);
+
+                // Store user data in IndexedDB
+                await webAuthnManager.storeUserData({
+                  username: currentUsername,
+                  derpAccountId: userDerpAccountIdToUse!,
+                  clientNearPublicKey: generatedNearPublicKeyForChain!,
+                  passkeyCredential: tempCredentialStore ? {
+                    id: tempCredentialStore.id,
+                    rawId: bufferEncode(tempCredentialStore.rawId)
+                  } : undefined,
+                  lastUpdated: Date.now()
+                });
+
+                setIsLoggedIn(true);
+                setUsername(currentUsername);
+                setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || generatedNearPublicKeyForChain);
                 setIsProcessing(false);
-                reject({ success: false, error: errEvent.message, derivedNearPublicKey: null, derpAccountId: null });
-            };
-            worker.onmessage = specificMessageHandler;
-            worker.onerror = specificErrorHandler;
-          });
+                return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId: transactionId };
+              } else {
+                throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with server.');
+              }
+            } catch (associationError: any) {
+              console.error('Error associating client NEAR PK:', associationError);
+              setStatusMessage(`Error associating NEAR PK: ${associationError.message}`);
+              setIsProcessing(false);
+              return { success: false, error: associationError.message, derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
+            }
+          } else {
+            throw new Error('Secure registration failed');
+          }
         } else {
           setStatusMessage('Passkey registered. Existing local NEAR key found.');
-          // If key already exists, we still need to set the main user states
           setDerpAccountId(userDerpAccountIdToUse!);
-          localStorage.setItem('derpAccountId', userDerpAccountIdToUse!);
-        setIsLoggedIn(true);
+
+          // Get existing user data to retrieve the client public key
+          const existingUserData = await webAuthnManager.getUserData(currentUsername);
+          const existingClientPublicKey = existingUserData?.clientNearPublicKey;
+
+          // Store user data in IndexedDB
+          await webAuthnManager.storeUserData({
+            username: currentUsername,
+            derpAccountId: userDerpAccountIdToUse!,
+            clientNearPublicKey: existingClientPublicKey,
+            passkeyCredential: tempCredentialStore ? {
+              id: tempCredentialStore.id,
+              rawId: bufferEncode(tempCredentialStore.rawId)
+            } : undefined,
+            lastUpdated: Date.now()
+          });
+
+          setIsLoggedIn(true);
           setUsername(currentUsername);
-          setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey);
-          if (tempCredentialStore) { // Use stored credential
-            localStorage.setItem(`passkeyCredential_${currentUsername}`, JSON.stringify({ id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) }));
-          }
-        setIsProcessing(false);
-          return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse };
+          setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || existingClientPublicKey);
+          setIsProcessing(false);
+          return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId: null };
         }
       } else {
         throw new Error(serverWebAuthnVerifyData.error || 'Passkey verification failed by server.');
@@ -337,7 +357,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       console.error('Registration error:', err);
       setStatusMessage(`Registration Error: ${err.message}`);
       setIsProcessing(false);
-      return { success: false, error: err.message, derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: err.message, derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
     }
   }, [setDerpAccountId, setUsername, setIsLoggedIn, setServerDerivedNearPK, setStatusMessage, setIsProcessing]);
 
@@ -389,15 +409,28 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         setIsLoggedIn(true);
         setServerDerivedNearPK(verifyData.derivedNearPublicKey);
 
-        const userDerpAccountIdFromLogin = verifyData.derpAccountId || options.derpAccountId || localStorage.getItem('derpAccountId') || `${bufferEncode(assertion.rawId).toLowerCase().substring(0,32)}.passkeyfactory.testnet`;
+        // Get existing user data or create new
+        let userData = await webAuthnManager.getUserData(loggedInUser);
+        const userDerpAccountIdFromLogin = verifyData.derpAccountId || options.derpAccountId || userData?.derpAccountId || `${bufferEncode(assertion.rawId).toLowerCase().substring(0,32)}.passkeyfactory.testnet`;
+
         setDerpAccountId(userDerpAccountIdFromLogin);
-        localStorage.setItem('prevPasskeyUsername', loggedInUser);
-        if (userDerpAccountIdFromLogin) localStorage.setItem('derpAccountId', userDerpAccountIdFromLogin);
+
+        // Update user data in IndexedDB
+        await webAuthnManager.storeUserData({
+          username: loggedInUser,
+          derpAccountId: userDerpAccountIdFromLogin,
+          clientNearPublicKey: userData?.clientNearPublicKey || verifyData.clientManagedNearPublicKey,
+          passkeyCredential: userData?.passkeyCredential,
+          lastUpdated: Date.now()
+        });
 
         if (verifyData.clientManagedNearPublicKey) {
             console.log("Logged in. Server knows client-managed PK:", verifyData.clientManagedNearPublicKey, "for derp ID:", userDerpAccountIdFromLogin);
-        } else if (localStorage.getItem(`encrypted_near_key_${userDerpAccountIdFromLogin}`)){
-            console.log("Logged in. Found local encrypted key for derp ID:", userDerpAccountIdFromLogin, "but server did not return an associated clientManagedNearPublicKey.");
+        } else {
+            const hasEncryptedKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdFromLogin);
+            if (hasEncryptedKey) {
+                console.log("Logged in. Found local encrypted key for derp ID:", userDerpAccountIdFromLogin, "but server did not return an associated clientManagedNearPublicKey.");
+            }
         }
 
         setStatusMessage('Login successful.');
@@ -490,7 +523,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting, setStatusMessage]);
 
-
   const executeDirectActionViaWorker = useCallback(async (
     serializableActionForContract: SerializableActionArgs,
     callbacks?: ExecuteActionCallbacks
@@ -507,13 +539,15 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
 
     try {
-      const passkeyChallenge = new Uint8Array(32);
-      crypto.getRandomValues(passkeyChallenge);
+      // Get authentication options from server via WebAuthnManager
+      const { options, challengeId } = await webAuthnManager.getAuthenticationOptions(username);
 
       const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-        challenge: passkeyChallenge,
-        userVerification: "required",
-        timeout: 60000,
+        challenge: bufferDecode(options.challenge), // Use server challenge
+        rpId: options.rpId,
+        allowCredentials: options.allowCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
+        userVerification: options.userVerification || "required",
+        timeout: options.timeout || 60000,
       };
       const passkeyAssertion = await navigator.credentials.get({ publicKey: pkRequestOpts }) as PublicKeyCredential | null;
       if (!passkeyAssertion || !(passkeyAssertion.response instanceof AuthenticatorAssertionResponse)) {
@@ -522,9 +556,12 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
       // Get access key info for nonce and block hash
       const provider = getRpcProvider();
-      const publicKeyStr = localStorage.getItem(`client_near_pk_${derpAccountId}`);
+
+      // Get client NEAR public key from IndexedDB
+      const userData = await webAuthnManager.getUserData(username);
+      const publicKeyStr = userData?.clientNearPublicKey;
       if (!publicKeyStr) {
-        throw new Error('Client NEAR public key not found in localStorage');
+        throw new Error('Client NEAR public key not found in user data');
       }
 
       const accessKeyInfo = await provider.query({
@@ -538,12 +575,11 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const blockInfo = await provider.block({ finality: 'final' });
       const blockHash = blockInfo.header.hash;
 
-      const worker = createOneTimeWorker();
-      worker.postMessage({
-        type: 'DECRYPT_AND_SIGN_TRANSACTION',
-        payload: {
+      // Use WebAuthnManager for secure transaction signing
+      const signingResult = await webAuthnManager.secureTransactionSigning(
+        publicKeyCredentialToJSON(passkeyAssertion),
+        {
           derpAccountId,
-          passkeyAssertionResponse: publicKeyCredentialToJSON(passkeyAssertion),
           receiverId: PASSKEY_CONTROLLER_CONTRACT_ID,
           contractMethodName: "execute_direct_actions",
           contractArgs: { action_to_execute: serializableActionForContract },
@@ -551,70 +587,41 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           depositAmount: "0",
           nonce: nonce.toString(),
           blockHash: blockHash,
-        }
+        },
+        challengeId
+      );
+
+      setStatusMessage('Transaction signed. Sending to network...');
+
+      const signedTransactionBorsh = new Uint8Array(signingResult.signedTransactionBorsh);
+
+      // Send transaction using fetch directly to the RPC endpoint
+      const rpcResponse = await fetch(RPC_NODE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'some_id',
+          method: 'broadcast_tx_commit',
+          params: [Buffer.from(signedTransactionBorsh).toString('base64')]
+        })
       });
 
-      const handleWorkerResponse = async (event: MessageEvent) => {
-        const { type: workerMsgType, payload: workerPayload } = event.data;
+      const result = await rpcResponse.json();
+      if (result.error) {
+        throw new Error(result.error.message || 'RPC error');
+      }
 
-        if (workerMsgType === 'SIGNATURE_SUCCESS') {
-          setStatusMessage('Transaction signed. Sending to network...');
+      console.log("Direct action transaction sent:", result);
+      setStatusMessage('Direct action successful!');
 
-          try {
-            const signedTransactionBorsh = new Uint8Array(workerPayload.signedTransactionBorsh);
+      // If it was a set_greeting action, fetch the new greeting
+      if (serializableActionForContract.method_name === 'set_greeting') {
+        await fetchCurrentGreeting();
+      }
 
-            // Send transaction using fetch directly to the RPC endpoint
-            const rpcResponse = await fetch(RPC_NODE_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 'dontcare',
-                method: 'broadcast_tx_commit',
-                params: [Buffer.from(signedTransactionBorsh).toString('base64')]
-              })
-            });
-
-            const result = await rpcResponse.json();
-            if (result.error) {
-              throw new Error(result.error.message || 'RPC error');
-            }
-
-            console.log("Direct action transaction sent:", result);
-            setStatusMessage('Direct action successful!');
-
-            // If it was a set_greeting action, fetch the new greeting
-            if (serializableActionForContract.method_name === 'set_greeting') {
-              await fetchCurrentGreeting();
-            }
-
-            setIsProcessing(false);
-            callbacks?.afterDispatch?.(true, result.result);
-
-          } catch (sendError: any) {
-            console.error("Error sending transaction:", sendError);
-            setStatusMessage(`Transaction Error: ${sendError.message}`);
-            setIsProcessing(false);
-            callbacks?.afterDispatch?.(false, { error: sendError.message });
-          }
-
-        } else if (workerMsgType === 'SIGNATURE_FAILURE' || workerMsgType === 'ERROR') {
-          console.error('WORKER: Signing failed:', workerPayload.error);
-          setStatusMessage(`Signing Error: ${workerPayload.error}`);
-          setIsProcessing(false);
-          callbacks?.afterDispatch?.(false, { error: workerPayload.error });
-        }
-      };
-
-      const handleWorkerError = (errEvent: ErrorEvent) => {
-        console.error("Worker error:", errEvent);
-        setStatusMessage(`Worker Error: ${errEvent.message}`);
-        setIsProcessing(false);
-        callbacks?.afterDispatch?.(false, { error: errEvent.message });
-      };
-
-      worker.onmessage = handleWorkerResponse;
-      worker.onerror = handleWorkerError;
+      setIsProcessing(false);
+      callbacks?.afterDispatch?.(true, result.result);
 
     } catch (error: any) {
       console.error('Execute direct action error:', error);

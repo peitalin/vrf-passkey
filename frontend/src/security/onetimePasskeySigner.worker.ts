@@ -1,4 +1,3 @@
-// frontend/src/onetimePasskeySigner.worker.ts
 import { KeyPair, PublicKey, type KeyPairString } from '@near-js/crypto';
 import { serialize } from 'borsh';
 import {
@@ -11,17 +10,22 @@ import {
 import nearApiJs from "near-api-js";
 import { sha256 } from 'js-sha256';
 
-// Import WASM module
+// Import WASM binary directly as URL
 // @ts-ignore - WASM module types
-import init, {
+import init, * as wasmModule from '../../wasm-worker/pkg/passkey_crypto_worker.js';
+// @ts-ignore - WASM binary import
+import wasmUrl from '../../wasm-worker/pkg/passkey_crypto_worker_bg.wasm?url';
+// ?url: lets Vite treat WASM file as a URL asset, which it serves with the correct MIME type
+
+const {
   derive_encryption_key_from_webauthn_js,
   encrypt_data_aes_gcm,
-  decrypt_data_aes_gcm
-} from '../wasm-worker/pkg/passkey_crypto_worker.js';
+  decrypt_data_aes_gcm,
+  generate_and_encrypt_near_keypair
+} = wasmModule;
 
 // Cache name for WASM module
 const WASM_CACHE_NAME = 'passkey-wasm-v1';
-const WASM_MODULE_URL = new URL('../wasm-worker/pkg/passkey_crypto_worker_bg.wasm', import.meta.url).href;
 
 // Initialize WASM module with caching
 async function initializeWasmWithCache() {
@@ -30,19 +34,19 @@ async function initializeWasmWithCache() {
   try {
     // Try to get the WASM module from cache
     const cache = await caches.open(WASM_CACHE_NAME);
-    const cachedResponse = await cache.match(WASM_MODULE_URL);
+    const cachedResponse = await cache.match(wasmUrl);
 
     if (cachedResponse) {
       console.log('WORKER: Loading WASM from cache');
       const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
-      await init(wasmModule);
+      await init({ module: wasmModule });
       console.log('WORKER: WASM module initialized from cache');
       return;
     }
 
     // If not in cache, fetch and cache it
     console.log('WORKER: WASM not in cache, fetching...');
-    const response = await fetch(WASM_MODULE_URL);
+    const response = await fetch(wasmUrl);
 
     // Clone the response before using it
     const responseToCache = response.clone();
@@ -51,16 +55,16 @@ async function initializeWasmWithCache() {
     const wasmModule = await WebAssembly.compileStreaming(response);
 
     // Cache the response for future use
-    await cache.put(WASM_MODULE_URL, responseToCache);
+    await cache.put(wasmUrl, responseToCache);
     console.log('WORKER: WASM module cached');
 
-    // Initialize with the compiled module
-    await init(wasmModule);
+    // Initialize with the compiled module using modern object syntax
+    await init({ module: wasmModule });
     console.log('WORKER: WASM module initialized');
 
   } catch (error) {
     console.error('WORKER: Failed to initialize WASM with cache, falling back to default init:', error);
-    // Fallback to default initialization
+    // Fallback to default initialization (no parameters needed for default)
     await init();
   }
 }
@@ -134,7 +138,6 @@ interface EncryptPrivateKeyMessage {
   type: 'ENCRYPT_PRIVATE_KEY';
   payload: {
     passkeyAttestationResponse: any; // publicKeyCredentialToJSON output
-    nearPrivateKeyString: string;
     derpAccountId: string;
   };
 }
@@ -207,12 +210,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 };
 
 async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payload']) {
-  const { passkeyAttestationResponse, nearPrivateKeyString, derpAccountId } = payload;
+  const { passkeyAttestationResponse, derpAccountId } = payload;
 
   try {
-    // The passkeyAttestationResponse from publicKeyCredentialToJSON has this structure:
-    // { id, rawId, response: { clientDataJSON, attestationObject, ... }, type }
-    // We need to pass just the response object to the WASM function
 
     if (!passkeyAttestationResponse.response) {
       throw new Error('Invalid attestation response structure - missing response property');
@@ -224,21 +224,41 @@ async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payloa
       attestationObject: passkeyAttestationResponse.response.attestationObject,
     };
 
-    // Derive encryption key from WebAuthn response
-    const encryptionKey = derive_encryption_key_from_webauthn_js(
+    // Generate NEAR key pair and encrypt it in WASM
+    const resultJson = generate_and_encrypt_near_keypair(
       JSON.stringify(wasmCompatibleResponse),
       'registration'
     );
 
-    // Encrypt the NEAR private key
-    const encryptedJson = encrypt_data_aes_gcm(nearPrivateKeyString, encryptionKey);
-    const encrypted = JSON.parse(encryptedJson);
+    console.log('WORKER: WASM function returned:', typeof resultJson, resultJson);
+
+    // Check if resultJson is already an object or a string
+    let result;
+    if (typeof resultJson === 'string') {
+      result = JSON.parse(resultJson);
+    } else {
+      // If it's already an object, use it directly
+      result = resultJson;
+    }
+
+    console.log('WORKER: Parsed result:', result);
+
+    // result.encryptedPrivateKey should be a JSON string from WASM, parse it
+    let encryptedPrivateKey;
+    if (typeof result.encryptedPrivateKey === 'string') {
+      encryptedPrivateKey = JSON.parse(result.encryptedPrivateKey);
+    } else {
+      // If it's already an object, use it directly
+      encryptedPrivateKey = result.encryptedPrivateKey;
+    }
+
+    console.log('WORKER: Encrypted private key:', encryptedPrivateKey);
 
     // Store in IndexedDB
     await storeEncryptedKey({
       derpAccountId,
-      encryptedData: encrypted.encrypted_data_b64u,
-      iv: encrypted.iv_b64u,
+      encryptedData: encryptedPrivateKey.encrypted_data_b64u,
+      iv: encryptedPrivateKey.iv_b64u,
       timestamp: Date.now()
     });
 
@@ -246,6 +266,7 @@ async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payloa
       type: 'ENCRYPTION_SUCCESS',
       payload: {
         derpAccountId,
+        publicKey: result.publicKey,
         stored: true
       }
     });

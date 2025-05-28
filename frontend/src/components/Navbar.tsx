@@ -1,14 +1,8 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { usePasskeyContext } from '../contexts/PasskeyContext'; // Import the context hook
 import toast from 'react-hot-toast'; // Import toast
 
-// NavbarProps interface can be removed if no props are passed directly anymore
-// interface NavbarProps {
-//   username?: string | null;
-//   serverDerivedNearPK?: string | null;
-//   isLoggedIn: boolean;
-//   onLogout: () => void;
-// }
 
 const shortPK = (pk: string | null | undefined, len = 8) => {
   if (!pk) return '';
@@ -28,7 +22,24 @@ export const Navbar: React.FC = () => { // No direct props needed
 
   return (
     <nav className="navbar-container">
-      <div className="navbar-title">Passkey NEAR App</div>
+      <div className="navbar-title">
+        <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+          Passkey NEAR App
+        </Link>
+      </div>
+
+      <div className="navbar-links" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+        <Link to="/" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
+          Home
+        </Link>
+        <Link to="/test-onetime-worker" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
+          Worker Test
+        </Link>
+        <Link to="/test-webauthn-manager" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
+          Security Test
+        </Link>
+      </div>
+
       {isLoggedIn && (
         <div className="navbar-user-info">
           {username && <span>Welcome, {username}</span>}

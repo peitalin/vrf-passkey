@@ -1,7 +1,6 @@
-
 export const SERVER_URL = 'http://localhost:3001';
 
-export const WASM_WORKER_FILENAME = 'onetimePasskeySigner.worker.ts';
+export const WASM_WORKER_FILENAME = './onetimePasskeySigner.worker.ts';
 
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
 export const PASSKEY_CONTROLLER_CONTRACT_ID = 'passkey-controller.testnet';

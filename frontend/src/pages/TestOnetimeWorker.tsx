@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { WASM_WORKER_FILENAME } from '../config';
+
+// Use the same pattern as WebAuthnManager
+const WASM_WORKER_URL = new URL('../security/onetimePasskeySigner.worker.ts', import.meta.url);
 
 const TestOnetimeWorker: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
@@ -25,7 +27,7 @@ const TestOnetimeWorker: React.FC = () => {
 
       try {
         const worker = new Worker(
-          new URL('../onetimePasskeySigner.worker.ts', import.meta.url),
+          WASM_WORKER_URL,
           { type: 'module' }
         );
 
@@ -107,7 +109,7 @@ const TestOnetimeWorker: React.FC = () => {
 
       logResult('\nTesting cache performance...');
       const start1 = performance.now();
-      const worker1 = new Worker(new URL('../onetimePasskeySigner.worker.ts', import.meta.url), { type: 'module' });
+      const worker1 = new Worker(WASM_WORKER_URL, { type: 'module' });
       await new Promise(resolve => {
         worker1.onmessage = resolve;
         worker1.postMessage({ type: 'TEST', payload: {} });
@@ -115,7 +117,7 @@ const TestOnetimeWorker: React.FC = () => {
       const time1 = performance.now() - start1;
 
       const start2 = performance.now();
-      const worker2 = new Worker(new URL('../onetimePasskeySigner.worker.ts', import.meta.url), { type: 'module' });
+      const worker2 = new Worker(WASM_WORKER_URL, { type: 'module' });
       await new Promise(resolve => {
         worker2.onmessage = resolve;
         worker2.postMessage({ type: 'TEST', payload: {} });
