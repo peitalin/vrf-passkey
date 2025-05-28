@@ -9,6 +9,9 @@ use hkdf::Hkdf;
 use sha2::{Sha256, Digest};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::Deserialize;
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use getrandom::getrandom;
+use bs58;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -246,6 +249,79 @@ pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes:
         .map_err(|e| JsValue::from_str(&format!("Decryption error: {}", e)))?;
 
     String::from_utf8(decrypted_bytes).map_err(|e| JsValue::from_str(&format!("UTF-8 decoding error: {}", e)))
+}
+
+// Generate a new NEAR key pair
+#[wasm_bindgen]
+pub fn generate_near_keypair() -> Result<String, JsValue> {
+    console_log!("RUST: Generating new NEAR key pair");
+
+    // Generate random bytes for the private key
+    let mut private_key_bytes = [0u8; 32];
+    getrandom(&mut private_key_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to generate random bytes: {}", e)))?;
+
+    // Create signing key from random bytes
+    let signing_key = SigningKey::from_bytes(&private_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    // Encode private key in NEAR format: "ed25519:BASE58_PRIVATE_KEY"
+    let private_key_b58 = bs58::encode(&private_key_bytes).into_string();
+    let private_key_near_format = format!("ed25519:{}", private_key_b58);
+
+    // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
+    let public_key_bytes = verifying_key.to_bytes();
+    let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
+    let public_key_near_format = format!("ed25519:{}", public_key_b58);
+
+    // Return as JSON
+    let result = format!(
+        r#"{{"privateKey": "{}", "publicKey": "{}"}}"#,
+        private_key_near_format,
+        public_key_near_format
+    );
+
+    console_log!("RUST: Generated NEAR key pair with public key: {}", public_key_near_format);
+    Ok(result)
+}
+
+// Generate NEAR key pair and immediately encrypt it
+#[wasm_bindgen]
+pub fn generate_and_encrypt_near_keypair(
+    js_webauthn_inner_response_json_str: &str,
+    operation_context_str: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: Generating and encrypting new NEAR key pair");
+
+    // Generate the key pair
+    let keypair_json = generate_near_keypair()?;
+
+    // Parse to extract private key
+    let keypair_data: serde_json::Value = serde_json::from_str(&keypair_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse generated keypair: {}", e)))?;
+
+    let private_key = keypair_data["privateKey"].as_str()
+        .ok_or_else(|| JsValue::from_str("Failed to extract private key from generated keypair"))?;
+
+    let public_key = keypair_data["publicKey"].as_str()
+        .ok_or_else(|| JsValue::from_str("Failed to extract public key from generated keypair"))?;
+
+    // Derive encryption key from WebAuthn response
+    let encryption_key = derive_encryption_key_core(js_webauthn_inner_response_json_str, operation_context_str)
+        .map_err(|e| JsValue::from(e))?;
+
+    // Encrypt the private key
+    let encrypted_result = encrypt_data_aes_gcm(private_key, &encryption_key)?;
+
+    // Return combined result
+    let result = format!(
+        r#"{{"publicKey": "{}", "encryptedPrivateKey": {}}}"#,
+        public_key,
+        encrypted_result
+    );
+
+    console_log!("RUST: Successfully generated and encrypted NEAR key pair");
+    Ok(result)
 }
 
 #[cfg(test)]
