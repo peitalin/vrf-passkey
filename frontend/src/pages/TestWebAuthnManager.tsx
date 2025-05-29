@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { webAuthnManager } from '../security/WebAuthnManager';
+import bs58 from 'bs58';
 
 const TestWebAuthnManager: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
@@ -57,9 +58,10 @@ const TestWebAuthnManager: React.FC = () => {
         try {
           // This should fail because the challenge expired
           await webAuthnManager.secureRegistration(
+            'testuser',
             { response: { clientDataJSON: 'test', attestationObject: 'test' } },
             { derpAccountId: 'test' },
-            result.challengeId
+            result.challengeId,
           );
           logResult('ERROR: Expired challenge was accepted!', true);
         } catch (error: any) {
@@ -83,9 +85,10 @@ const TestWebAuthnManager: React.FC = () => {
       // First attempt should fail due to invalid data, but should consume the challenge
       try {
         await webAuthnManager.secureRegistration(
+          'testuser',
           { response: { clientDataJSON: 'invalid', attestationObject: 'invalid' } },
           { derpAccountId: 'test' },
-          result.challengeId
+          result.challengeId,
         );
       } catch (error: any) {
         logResult(`First attempt failed as expected: ${error.message}`);
@@ -94,9 +97,10 @@ const TestWebAuthnManager: React.FC = () => {
       // Second attempt should fail because challenge was already used
       try {
         await webAuthnManager.secureRegistration(
+          'testuser',
           { response: { clientDataJSON: 'invalid', attestationObject: 'invalid' } },
           { derpAccountId: 'test' },
-          result.challengeId
+          result.challengeId,
         );
         logResult('ERROR: Used challenge was accepted again!', true);
       } catch (error: any) {
@@ -119,6 +123,7 @@ const TestWebAuthnManager: React.FC = () => {
 
       try {
         await webAuthnManager.secureTransactionSigning(
+          'testuser',
           { response: { clientDataJSON: 'test', signature: 'test', authenticatorData: 'test' } },
           {
             derpAccountId: 'test',
@@ -128,7 +133,7 @@ const TestWebAuthnManager: React.FC = () => {
             gasAmount: '1000000',
             depositAmount: '0',
             nonce: '1',
-            blockHash: 'test'
+            blockHashBytes: Array.from(bs58.decode('test'))
           },
           regResult.challengeId
         );
@@ -153,9 +158,10 @@ const TestWebAuthnManager: React.FC = () => {
       const startTime = Date.now();
       try {
         await webAuthnManager.secureRegistration(
+          'testuser',
           { response: { clientDataJSON: 'invalid_base64', attestationObject: 'invalid_base64' } },
           { derpAccountId: 'test' },
-          result.challengeId
+          result.challengeId,
         );
       } catch (error: any) {
         const duration = Date.now() - startTime;

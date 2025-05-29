@@ -15,6 +15,8 @@ interface UserData {
     rawId: string;
   };
   lastUpdated: number;
+  originalClientDataJsonForKdf?: string;
+  originalAttestationObjectForKdf?: string;
 }
 
 // Types for WebAuthn operations
@@ -39,7 +41,7 @@ interface SigningPayload {
   gasAmount: string;
   depositAmount: string;
   nonce: string;
-  blockHash: string;
+  blockHashBytes: number[];
 }
 
 interface WorkerResponse {
@@ -342,15 +344,16 @@ export class WebAuthnManager {
    * Secure registration flow: WebAuthn + WASM worker encryption
    */
   async secureRegistration(
+    username: string,
     passkeyAttestationResponse: any,
     payload: RegistrationPayload,
     challengeId: string
-  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string }> {
+  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string; originalClientDataJsonForKdf: string; originalAttestationObjectForKdf: string }> {
     try {
       // Validate and consume the challenge
       const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
 
-      console.log('WebAuthnManager: Starting secure registration');
+      console.log('WebAuthnManager: Starting secure registration for user:', username);
 
       // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
@@ -366,10 +369,33 @@ export class WebAuthnManager {
 
       if (response.type === 'ENCRYPTION_SUCCESS') {
         console.log('WebAuthnManager: Registration successful');
+        // Store the original KDF inputs along with other user data
+        const existingUserData = await this.getUserData(username); // Use username to fetch existing data
+        console.log(`WebAuthnManager: secureRegistration - Storing KDF inputs for user ${username}:`, {
+          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
+          originalAttestationObjectForKdf: response.payload.originalAttestationObject
+        });
+        await this.storeUserData({
+          ...(existingUserData || {}), // Spread existing data if any
+          username: username, // Ensure username is set/updated
+          derpAccountId: payload.derpAccountId,
+          clientNearPublicKey: response.payload.publicKey,
+          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
+          originalAttestationObjectForKdf: response.payload.originalAttestationObject,
+          lastUpdated: Date.now(),
+          // passkeyCredential will be updated by the calling context (PasskeyContext) if needed
+        });
+
+        // Verify immediately after storing
+        const verifiedUserData = await this.getUserData(username);
+        console.log(`WebAuthnManager: secureRegistration - UserData for ${username} immediately after storing KDF inputs:`, verifiedUserData);
+
         return {
           success: true,
           derpAccountId: response.payload.derpAccountId,
-          publicKey: response.payload.publicKey
+          publicKey: response.payload.publicKey,
+          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
+          originalAttestationObjectForKdf: response.payload.originalAttestationObject,
         };
       } else {
         throw new Error(response.payload?.error || 'Encryption failed');
@@ -385,6 +411,7 @@ export class WebAuthnManager {
    * Secure signing flow: WebAuthn + WASM worker decryption/signing
    */
   async secureTransactionSigning(
+    username: string,
     passkeyAssertionResponse: any,
     payload: SigningPayload,
     challengeId: string
@@ -393,7 +420,14 @@ export class WebAuthnManager {
       // Validate and consume the challenge
       const challenge = this.validateAndConsumeChallenge(challengeId, 'authentication');
 
-      console.log('WebAuthnManager: Starting secure transaction signing');
+      console.log('WebAuthnManager: Starting secure transaction signing for user:', username);
+
+      // Retrieve the stored original KDF inputs using username
+      const userData = await this.getUserData(username);
+      console.log(`WebAuthnManager: secureTransactionSigning - Retrieved userData for ${username}:`, userData);
+      if (!userData || !userData.originalClientDataJsonForKdf || !userData.originalAttestationObjectForKdf) {
+        throw new Error(`Missing original KDF inputs for decryption for user ${username}.`);
+      }
 
       // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
@@ -410,7 +444,9 @@ export class WebAuthnManager {
           gasAmount: payload.gasAmount,
           depositAmount: payload.depositAmount,
           nonce: payload.nonce,
-          blockHash: payload.blockHash,
+          blockHashBytes: payload.blockHashBytes,
+          originalClientDataJsonForKdf: userData.originalClientDataJsonForKdf,
+          originalAttestationObjectForKdf: userData.originalAttestationObjectForKdf,
         }
       });
 

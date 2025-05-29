@@ -72,3 +72,16 @@ export interface StoredActionChallengeData {
     expectedCredentialID?: string; // Optional: if challenge is tied to a specific passkey
     // any other relevant data to verify against during execute-action
 }
+
+// Result type for NearClient.createAccount method
+export interface CreateAccountResult {
+  success: boolean;
+  message: string;
+  result?: { // Present on success
+    accountId: string;
+    publicKey: string;
+    // transactionOutcome?: any; // Optionally include full transaction outcome if needed
+  };
+  error?: any; // Present on failure, can be an Error object or other structured error info
+  details?: string; // Additional details for errors, similar to how it's used in API responses
+}

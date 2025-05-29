@@ -16,7 +16,7 @@ import type {
 import type { User, StoredAuthenticator, SerializableActionArgs } from './types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import type { AuthenticatorTransport } from '@simplewebauthn/types';
-import { initNear, addPasskeyPk, executeActions, getGreeting, setGreeting } from './nearService';
+import { nearClient } from './nearService';
 import { deriveNearPublicKeyFromCOSE } from './keyDerivation';
 import { actionChallengeStore } from './challengeStore';
 import { createHash, randomBytes } from 'crypto';
@@ -107,17 +107,36 @@ app.get('/', (req: Request, res: Response) => {
 app.post('/generate-registration-options', async (req: Request, res: Response) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username is required' });
+
+  const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID;
+  if (!RELAYER_ACCOUNT_ID) {
+    console.error('RELAYER_ACCOUNT_ID environment variable is not set for /generate-registration-options.');
+    // This is a server configuration issue, so we might not want to expose it directly to client,
+    // but it will prevent proper account association later.
+    return res.status(500).json({ error: 'Server configuration error prevents registration option generation.' });
+  }
+
   try {
     let user: User | undefined = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
-    // For Option 1, we can suggest a derpAccountId pattern or let client decide and inform us via /associate-account-pk
-    const potentialDerpAccountId = `${username.toLowerCase().replace(/[^a-z0-9]/g, '')}.passkeyfactory.testnet`; // Example
+
+    // Construct potentialDerpAccountId as a subaccount of the relayer
+    const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32); // Sanitize and shorten
+    const potentialDerpAccountId = `${sanitizedUsername}.${RELAYER_ACCOUNT_ID}`;
 
     if (!user) {
-      user = { id: `user_${Date.now()}_${username}`, username, derpAccountId: potentialDerpAccountId }; // Store potential derpId
+      user = { id: `user_${Date.now()}_${username}`, username, derpAccountId: potentialDerpAccountId };
       db.prepare('INSERT INTO users (id, username, derpAccountId) VALUES (?, ?, ?)').run(user.id, user.username, user.derpAccountId);
-    } else if (!user.derpAccountId) {
-      db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?').run(potentialDerpAccountId, user.id);
-      user.derpAccountId = potentialDerpAccountId;
+    } else {
+      // Update derpAccountId if it's missing or doesn't match the new subaccount format
+      if (!user.derpAccountId || !user.derpAccountId.endsWith(`.${RELAYER_ACCOUNT_ID}`)) {
+        db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?').run(potentialDerpAccountId, user.id);
+        user.derpAccountId = potentialDerpAccountId;
+      } else {
+        // If it already exists and is a subaccount of the relayer, respect it.
+        // However, if the username part has changed, or relayer itself has changed, we might want to update.
+        // For now, if it follows the sub.relayer.id pattern, keep it, otherwise update to new suggestion.
+        // This logic could be refined based on exact requirements for derpAccountId stability vs. reflecting current relayer.
+      }
     }
 
     const rawAuthenticators: any[] = db.prepare('SELECT * FROM authenticators WHERE userId = ?').all(user.id);
@@ -149,8 +168,7 @@ app.post('/generate-registration-options', async (req: Request, res: Response) =
       supportedAlgorithmIDs: [-7, -257],
     });
     db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?').run(options.challenge, user.id);
-    console.log('Generated registration options for:', username, JSON.stringify(options, null, 2));
-    // Return derpAccountId to the client so it knows what account its generated key will be for
+    console.log('Generated registration options for:', username, 'Suggested derpAccountId:', user.derpAccountId, JSON.stringify(options, null, 2));
     return res.json({ ...options, derpAccountId: user.derpAccountId });
   } catch (e: any) {
     console.error('Error generating registration options:', e);
@@ -218,47 +236,77 @@ app.post('/api/associate-account-pk', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Username, derpAccountId, and clientNearPublicKey are required.' });
   }
 
+  const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID;
+  if (!RELAYER_ACCOUNT_ID) {
+    console.error('RELAYER_ACCOUNT_ID environment variable is not set.');
+    return res.status(500).json({ error: 'Server configuration error: Relayer account ID not set.' });
+  }
+
+  // Validate that derpAccountId is a subaccount of the relayer account
+  if (!derpAccountId.endsWith(`.${RELAYER_ACCOUNT_ID}`)) {
+    return res.status(400).json({
+      error: `Invalid derpAccountId: '${derpAccountId}'. Account must be a subaccount of the relayer '${RELAYER_ACCOUNT_ID}'. (e.g., yourname.${RELAYER_ACCOUNT_ID})`
+    });
+  }
+
   try {
-    // 1. Validate user (optional, but good practice)
     const user: User | undefined = db.prepare('SELECT id, derpAccountId FROM users WHERE username = ?').get(username) as User | undefined;
     if (!user) {
       return res.status(404).json({ error: `User '${username}' not found.` });
     }
-    // Optionally, verify that the provided derpAccountId matches what the server expects for this user
     if (user.derpAccountId !== derpAccountId) {
-        console.warn(`Potential derpAccountId mismatch for ${username}. Server expected: ${user.derpAccountId}, client provided: ${derpAccountId}`);
-        // Decide on policy: error out, or update server record, or just log.
-        // For now, we'll proceed but this could be a security check.
+        console.warn(`Potential derpAccountId mismatch for ${username}. Server expected: ${user.derpAccountId}, client provided: ${derpAccountId}. Proceeding with client provided ID.`);
+        // db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?').run(derpAccountId, user.id);
     }
 
-    // 2. Validate clientNearPublicKey format
     let nearPublicKeyToRegister: PublicKey;
     try {
       nearPublicKeyToRegister = PublicKey.fromString(clientNearPublicKey);
-      // We could also check keyPair.getPublicKey().keyType === KeyType.ED25519 if we only want ed25519
     } catch (keyError: any) {
       console.error("Invalid clientNearPublicKey format:", clientNearPublicKey, keyError);
       return res.status(400).json({ error: `Invalid clientNearPublicKey format: ${keyError.message}` });
     }
 
-    // 3. Register this client-generated public key with the PasskeyController contract
-    await addPasskeyPk(nearPublicKeyToRegister.toString()); // addPasskeyPk expects a string
-    console.log(`Successfully registered client-generated NEAR PK ${clientNearPublicKey} for ${derpAccountId} on PasskeyController.`);
+    // Check if account exists, create if not
+    try {
+      const accountExists = await nearClient.checkAccountExists(derpAccountId);
+      if (!accountExists) {
+        console.log(`Account ${derpAccountId} does not exist. Attempting to create...`);
+        const creationResult = await nearClient.createAccount(derpAccountId, clientNearPublicKey);
+        if (!creationResult.success) {
+          console.error(`Failed to create account ${derpAccountId}:`, creationResult.message, creationResult.error);
+          return res.status(500).json({
+            success: false,
+            error: `Failed to automatically create account '${derpAccountId}'.`,
+            details: creationResult,
+          });
+        }
+        console.log(`Account ${derpAccountId} created successfully.`);
+      } else {
+        console.log(`Account ${derpAccountId} already exists.`);
+      }
+    } catch (checkOrCreateError: any) {
+        console.error(`Error during account existence check or creation for ${derpAccountId}:`, checkOrCreateError);
+        return res.status(500).json({
+            success: false,
+            error: `Error during account check/creation for '${derpAccountId}': ${checkOrCreateError.message}`
+        });
+    }
 
-    // 4. (Optional) Store this clientManagedNearPublicKey against the user's authenticator or user record
-    // This requires identifying which authenticator this key corresponds to if multiple exist,
-    // or associating it directly with the user if a user has one primary derpAccountId.
-    // For simplicity, let's assume one primary derpAccountId per user for now and store it with the user or a primary authenticator.
-    // If storing with authenticator, you might need credentialID from client.
-    // For now, let's try to update the most recently registered authenticator for the user.
+    // Register the public key with the PasskeyController contract
+    await nearClient.addPasskeyPk(nearPublicKeyToRegister.toString());
+    console.log(`Successfully registered client-generated NEAR PK ${clientNearPublicKey} for ${derpAccountId} on PasskeyController via nearClient.`);
+
     const stmt = db.prepare('UPDATE authenticators SET clientManagedNearPublicKey = ? WHERE userId = ? ORDER BY registered DESC LIMIT 1');
     const info = stmt.run(clientNearPublicKey, user.id);
     if (info.changes === 0) {
         console.warn(`No authenticator found for user ${username} to associate clientManagedNearPublicKey, or no update made.`);
-        // This isn't necessarily an error for the flow if the PK is registered on-chain, but good to note.
     }
 
-    return res.json({ success: true, message: `Client NEAR public key ${clientNearPublicKey} associated and registered on-chain for ${derpAccountId}.` });
+    return res.json({
+      success: true,
+      message: `Client NEAR public key ${clientNearPublicKey} associated with ${derpAccountId}. Account checked/created and PK registered on-chain.`,
+    });
 
   } catch (error: any) {
     console.error('Error in /api/associate-account-pk:', error);
@@ -590,8 +638,8 @@ app.post('/api/execute-action', async (req: Request, res: Response) => {
     if (verification.verified && verification.authenticationInfo) {
       db.prepare('UPDATE authenticators SET counter = ? WHERE credentialID = ?').run(verification.authenticationInfo.newCounter, authenticator.credentialID);
 
-      // Use the COSE-derived key for this server-orchestrated action
-      const transactionOutcome = await executeActions(authenticator.derivedNearPublicKey, storedActionDetails);
+      // Use nearClient for executing actions
+      const transactionOutcome = await nearClient.executeActions(authenticator.derivedNearPublicKey, storedActionDetails);
 
       if (transactionOutcome && transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
         let successValue = '';
@@ -617,23 +665,59 @@ app.post('/api/execute-action', async (req: Request, res: Response) => {
   }
 });
 
+// New endpoint for creating NEAR accounts using the relay account
+app.post('/api/create-account', async (req: Request, res: Response) => {
+  const { accountId, publicKey, isTestnet } = req.body;
+
+  if (!accountId || !publicKey) {
+    return res.status(400).json({ error: 'accountId and publicKey are required.' });
+  }
+  console.log("/api/create-account: creating account: ", accountId, "with public key", publicKey);
+
+  try {
+    // Use nearClient for creating account
+    // The initialBalance can be passed as a third argument if needed, otherwise uses default in nearClient
+    const result = await nearClient.createAccount(accountId, publicKey);
+    console.log("Account creation result from nearClient:", result);
+
+    if (result.success) {
+        return res.json({
+            success: true,
+            message: result.message || 'Account created successfully.',
+            result: result.result
+        });
+    } else {
+        // If nearClient.createAccount returns a specific structure on failure, adapt here
+        return res.status(500).json({
+            success: false,
+            error: result.message || 'Account creation failed via nearClient.',
+            details: result.error // Or result.details if that's what nearClient provides
+        });
+    }
+
+  } catch (error: any) {
+    console.error("Error in /api/create-account endpoint:", error);
+    return res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to create account due to an unexpected server error in endpoint.'
+    });
+  }
+});
+
 // Global error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(err.stack);
   res.status(500).send('Something broke!');
 });
 
-// Initialize NEAR and start the server
-initNear()
-  .then(async () => {
-    console.log('NEAR initialized successfully.');
-    app.listen(port, () => {
-      console.log(`Server listening on http://localhost:${port}`);
-      console.log(`Relying Party ID: ${rpID}`);
-      console.log(`Expected Frontend Origin: ${expectedOrigin}`);
-    });
-  })
-  .catch(error => {
-    console.error("Failed to initialize NEAR connection or start server:", error);
-    process.exit(1);
+app.listen(port, () => {
+  console.log(`Server listening on http://localhost:${port}`);
+  console.log(`Relying Party ID: ${rpID}`);
+  console.log(`Expected Frontend Origin: ${expectedOrigin}`);
+
+  nearClient.getTrustedRelayer().then((relayer: string) => {
+    console.log(`NearClient connected, PasskeyController trusted relayer: ${relayer}`)
+  }).catch((err: Error) => {
+    console.error("NearClient initial check failed (non-blocking server start):", err);
   });
+});

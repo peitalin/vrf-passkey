@@ -5,9 +5,9 @@ import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils'
 import { ActionType, type ServerRegistrationOptions, type ServerAuthenticationOptions, type SerializableActionArgs } from '../types';
 import { getTestnetRpcProvider, view } from '@near-js/client';
 import type { Provider } from '@near-js/providers';
-import { Near, Account, KeyPair, keyStores } from 'near-api-js';
 import { webAuthnManager } from '../security/WebAuthnManager';
-
+import { checkAccountExists } from '../utils/nearAccount';
+import bs58 from 'bs58';
 import {
   RPC_NODE_URL,
   PASSKEY_CONTROLLER_CONTRACT_ID,
@@ -118,12 +118,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
-  // Remove the persistent worker reference - we'll create new workers on demand
-  // const passkeyCryptoWorkerRef = useRef<Worker | null>(null);
-
-  // Remove the worker initialization useEffect since we'll create workers on demand
-  // useEffect(() => { ... }, []);
-
 
   const getRpcProvider = () => {
     if (!frontendRpcProvider) {
@@ -194,7 +188,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
     setIsProcessing(true);
 
-    // Store username in IndexedDB
     await webAuthnManager.storeUserData({
       username: currentUsername,
       lastUpdated: Date.now()
@@ -202,23 +195,25 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     setStatusMessage('Registering passkey...');
 
-    let userDerpAccountIdToUse: string | null = null;
+    let userDerpAccountIdToUse: string; // Ensure this is always set
     let generatedNearPublicKeyForChain: string | null = null;
     let serverWebAuthnVerifyData: any = null;
     let tempCredentialStore: PublicKeyCredential | null = null;
     let challengeId: string | null = null;
+    const RELAYER_PARENT_ACCOUNT = 'cyan-loong.testnet'; // Define the fixed relayer parent account
 
     try {
-      // Get registration options from server via WebAuthnManager
-      const {
-        options,
-        challengeId
-      } = await webAuthnManager.getRegistrationOptions(currentUsername);
-      userDerpAccountIdToUse = options.derpAccountId || `${currentUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}.passkeyfactory.testnet`;
+      const { options, challengeId: serverChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
+      challengeId = serverChallengeId;
+
+      // Frontend constructs the derpAccountId, ignoring server suggestion for this specific format requirement
+      const sanitizedUsername = currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32); // Sanitize and shorten username
+      userDerpAccountIdToUse = `${sanitizedUsername}.${RELAYER_PARENT_ACCOUNT}`;
+      console.log(`Frontend constructed derpAccountId: ${userDerpAccountIdToUse} (ignoring server suggestion: ${options.derpAccountId})`);
 
       const pkCreationOpts: PublicKeyCredentialCreationOptions = {
         ...options,
-        challenge: bufferDecode(options.challenge), // Use server challenge
+        challenge: bufferDecode(options.challenge),
         user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
         excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
         authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
@@ -239,31 +234,25 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       serverWebAuthnVerifyData = await verifyResponse.json();
 
       if (verifyResponse.ok && serverWebAuthnVerifyData.verified) {
-        if (serverWebAuthnVerifyData.derpAccountId) {
-            userDerpAccountIdToUse = serverWebAuthnVerifyData.derpAccountId;
-        }
+        // Even if serverWebAuthnVerifyData.derpAccountId exists, we stick to userDerpAccountIdToUse constructed by frontend
+        console.log(`Server verification successful. Using frontend-defined derpAccountId: ${userDerpAccountIdToUse}`);
 
-        // Check if encrypted key already exists
-        const hasExistingKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdToUse!);
+        const hasExistingKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdToUse);
 
         if (!hasExistingKey) {
           console.log(`No existing encrypted key found for ${userDerpAccountIdToUse}. Will generate new key in secure worker.`);
           setStatusMessage(`Generating new NEAR key pair securely...`);
 
-          // Use WebAuthnManager for secure registration (key generation happens in WASM)
           const registrationResult = await webAuthnManager.secureRegistration(
+            currentUsername,
             publicKeyCredentialToJSON(credential),
-            {
-              derpAccountId: userDerpAccountIdToUse!,
-            },
+            { derpAccountId: userDerpAccountIdToUse },
             challengeId
           );
 
           if (registrationResult.success) {
-            // Get the generated public key from the registration result
             generatedNearPublicKeyForChain = registrationResult.publicKey;
-
-            setStatusMessage('NEAR key generated and encrypted securely. Associating with account on server...');
+            setStatusMessage('NEAR key generated and encrypted. Associating with account...');
             console.log('Encrypted key stored for', userDerpAccountIdToUse, 'with public key:', generatedNearPublicKeyForChain);
 
             try {
@@ -272,38 +261,28 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   username: currentUsername,
-                  derpAccountId: userDerpAccountIdToUse!,
+                  derpAccountId: userDerpAccountIdToUse,
                   clientNearPublicKey: generatedNearPublicKeyForChain!
                 }),
               });
               const associatePkData = await associatePkResponse.json();
-
               console.log('Associate PK API response:', associatePkData);
 
               if (associatePkResponse.ok && associatePkData.success) {
-                // Check for various possible transaction ID field names
-                const transactionId = associatePkData.transactionId ||
-                                    associatePkData.txId ||
-                                    associatePkData.transaction_id ||
-                                    associatePkData.txHash ||
-                                    associatePkData.transaction_hash ||
-                                    associatePkData.tx_hash ||
-                                    null;
-
+                const transactionId = associatePkData.transactionId || associatePkData.txId || null;
                 console.log('Extracted transaction ID:', transactionId);
+                setStatusMessage('Passkey registered, key encrypted, account associated.');
+                setDerpAccountId(userDerpAccountIdToUse);
 
-                setStatusMessage('Passkey registered, local key encrypted, and NEAR PK associated on-chain.');
-                setDerpAccountId(userDerpAccountIdToUse!);
+                // Fetch the most recent user data (which should now include KDF inputs from secureRegistration)
+                const currentWebAuthnUserData = await webAuthnManager.getUserData(currentUsername);
 
-                // Store user data in IndexedDB
                 await webAuthnManager.storeUserData({
+                  ...(currentWebAuthnUserData || {}), // Spread existing data (including KDF inputs)
                   username: currentUsername,
-                  derpAccountId: userDerpAccountIdToUse!,
+                  derpAccountId: userDerpAccountIdToUse,
                   clientNearPublicKey: generatedNearPublicKeyForChain!,
-                  passkeyCredential: tempCredentialStore ? {
-                    id: tempCredentialStore.id,
-                    rawId: bufferEncode(tempCredentialStore.rawId)
-                  } : undefined,
+                  passkeyCredential: tempCredentialStore ? { id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) } : undefined,
                   lastUpdated: Date.now()
                 });
 
@@ -311,9 +290,9 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                 setUsername(currentUsername);
                 setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || generatedNearPublicKeyForChain);
                 setIsProcessing(false);
-                return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId: transactionId };
+                return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId };
               } else {
-                throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with server.');
+                throw new Error(associatePkData.error || 'Failed to associate client NEAR PK.');
               }
             } catch (associationError: any) {
               console.error('Error associating client NEAR PK:', associationError);
@@ -322,31 +301,29 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
               return { success: false, error: associationError.message, derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
             }
           } else {
-            throw new Error('Secure registration failed');
+            const errorMessage = (registrationResult as { error?: string }).error || 'Secure registration (key generation/encryption) failed without specific error.';
+            throw new Error(errorMessage);
           }
-        } else {
+        } else { // hasExistingKey is true
           setStatusMessage('Passkey registered. Existing local NEAR key found.');
-          setDerpAccountId(userDerpAccountIdToUse!);
+          setDerpAccountId(userDerpAccountIdToUse);
 
-          // Get existing user data to retrieve the client public key
-          const existingUserData = await webAuthnManager.getUserData(currentUsername);
-          const existingClientPublicKey = existingUserData?.clientNearPublicKey;
+          // Fetch the most recent user data (which should now include KDF inputs from secureRegistration)
+          const currentWebAuthnUserData = await webAuthnManager.getUserData(currentUsername);
 
-          // Store user data in IndexedDB
           await webAuthnManager.storeUserData({
+            ...(currentWebAuthnUserData || {}), // Spread existing data (including KDF inputs)
             username: currentUsername,
-            derpAccountId: userDerpAccountIdToUse!,
-            clientNearPublicKey: existingClientPublicKey,
-            passkeyCredential: tempCredentialStore ? {
-              id: tempCredentialStore.id,
-              rawId: bufferEncode(tempCredentialStore.rawId)
-            } : undefined,
+            derpAccountId: userDerpAccountIdToUse,
+            clientNearPublicKey: currentWebAuthnUserData?.clientNearPublicKey, // Keep existing client PK if already there
+            passkeyCredential: tempCredentialStore ? { id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) } : undefined,
             lastUpdated: Date.now()
+            // KDF inputs would be preserved here if they existed from a previous full registration
           });
 
           setIsLoggedIn(true);
           setUsername(currentUsername);
-          setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || existingClientPublicKey);
+          setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || currentWebAuthnUserData?.clientNearPublicKey);
           setIsProcessing(false);
           return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId: null };
         }
@@ -415,12 +392,18 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
         setDerpAccountId(userDerpAccountIdFromLogin);
 
-        // Update user data in IndexedDB
+        // Fetch the most up-to-date user data, which might include KDF inputs from a previous registration
+        const currentLocalUserData = await webAuthnManager.getUserData(loggedInUser);
+
+        // Update user data in IndexedDB, preserving existing fields like KDF inputs
         await webAuthnManager.storeUserData({
-          username: loggedInUser,
-          derpAccountId: userDerpAccountIdFromLogin,
-          clientNearPublicKey: userData?.clientNearPublicKey || verifyData.clientManagedNearPublicKey,
-          passkeyCredential: userData?.passkeyCredential,
+          ...(currentLocalUserData || {}), // Spread existing local data first
+          username: loggedInUser, // Ensure username is correct
+          derpAccountId: userDerpAccountIdFromLogin, // Update with value from login/server
+          clientNearPublicKey: currentLocalUserData?.clientNearPublicKey || verifyData.clientManagedNearPublicKey, // Prefer existing, then server
+          passkeyCredential: currentLocalUserData?.passkeyCredential, // Preserve existing passkey credential info
+          // KDF inputs (originalClientDataJsonForKdf, originalAttestationObjectForKdf)
+          // will be preserved if they were in currentLocalUserData
           lastUpdated: Date.now()
         });
 
@@ -530,17 +513,22 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     callbacks?.beforeDispatch?.();
     setIsProcessing(true);
     setStatusMessage('Processing direct action...');
+    console.log('[Direct Action] Initiating...', { serializableActionForContract });
 
     if (!isLoggedIn || !username || !derpAccountId) {
-      setStatusMessage('User not logged in or DERP account ID not set.');
+      const errorMsg = 'User not logged in or DERP account ID not set for direct action.';
+      console.error('[Direct Action] Error:', errorMsg, { isLoggedIn, username, derpAccountId });
+      setStatusMessage(errorMsg);
       setIsProcessing(false);
-      callbacks?.afterDispatch?.(false, { error: "User not logged in or DERP account ID missing for direct action." });
+      callbacks?.afterDispatch?.(false, { error: errorMsg });
       return;
     }
+    console.log('[Direct Action] User state validated:', { isLoggedIn, username, derpAccountId });
 
     try {
-      // Get authentication options from server via WebAuthnManager
+      console.log('[Direct Action] Getting authentication options for user:', username);
       const { options, challengeId } = await webAuthnManager.getAuthenticationOptions(username);
+      console.log('[Direct Action] Authentication options received:', { options, challengeId });
 
       const pkRequestOpts: PublicKeyCredentialRequestOptions = {
         challenge: bufferDecode(options.challenge), // Use server challenge
@@ -549,53 +537,66 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         userVerification: options.userVerification || "required",
         timeout: options.timeout || 60000,
       };
+      console.log('[Direct Action] Requesting passkey assertion with options:', pkRequestOpts);
       const passkeyAssertion = await navigator.credentials.get({ publicKey: pkRequestOpts }) as PublicKeyCredential | null;
       if (!passkeyAssertion || !(passkeyAssertion.response instanceof AuthenticatorAssertionResponse)) {
+        console.error('[Direct Action] Passkey authentication cancelled or failed.');
         throw new Error('Passkey authentication cancelled or failed for action.');
       }
+      console.log('[Direct Action] Passkey assertion received:', passkeyAssertion);
 
-      // Get access key info for nonce and block hash
       const provider = getRpcProvider();
-
-      // Get client NEAR public key from IndexedDB
+      console.log('[Direct Action] Fetching user data for public key...');
       const userData = await webAuthnManager.getUserData(username);
       const publicKeyStr = userData?.clientNearPublicKey;
       if (!publicKeyStr) {
+        console.error('[Direct Action] Client NEAR public key not found in user data for user:', username);
         throw new Error('Client NEAR public key not found in user data');
       }
+      console.log('[Direct Action] Client NEAR public key found:', publicKeyStr);
 
+      console.log('[Direct Action] Fetching access key info for:', derpAccountId, publicKeyStr);
       const accessKeyInfo = await provider.query({
         request_type: 'view_access_key',
         finality: 'final',
         account_id: derpAccountId,
         public_key: publicKeyStr,
       });
+      console.log('[Direct Action] Access key info received:', accessKeyInfo);
 
       const nonce = (accessKeyInfo as any).nonce + 1;
+      console.log('[Direct Action] Fetching latest block info...');
       const blockInfo = await provider.block({ finality: 'final' });
-      const blockHash = blockInfo.header.hash;
+      const blockHashString = blockInfo.header.hash;
+      const blockHashBytes = Array.from(bs58.decode(blockHashString));
+      console.log('[Direct Action] Nonce and blockHash (base58) ready:', { nonce, blockHashString });
 
-      // Use WebAuthnManager for secure transaction signing
+      console.log('[Direct Action] Calling secureTransactionSigning in WebAuthnManager for a direct call...');
+      const signingPayload = {
+        derpAccountId,
+        receiverId: serializableActionForContract.receiver_id, // Use actual receiver
+        contractMethodName: serializableActionForContract.method_name, // Use actual method
+        contractArgs: JSON.parse(serializableActionForContract.args), // Parse args string to object for worker
+        gasAmount: serializableActionForContract.gas || DEFAULT_GAS_STRING,
+        depositAmount: serializableActionForContract.deposit || "0",
+        nonce: nonce.toString(),
+        blockHashString: blockHashString,
+        blockHashBytes: blockHashBytes,
+      };
+      console.log('[Direct Action] Signing payload:', signingPayload);
+
       const signingResult = await webAuthnManager.secureTransactionSigning(
+        username,
         publicKeyCredentialToJSON(passkeyAssertion),
-        {
-          derpAccountId,
-          receiverId: PASSKEY_CONTROLLER_CONTRACT_ID,
-          contractMethodName: "execute_direct_actions",
-          contractArgs: { action_to_execute: serializableActionForContract },
-          gasAmount: DEFAULT_GAS_STRING,
-          depositAmount: "0",
-          nonce: nonce.toString(),
-          blockHash: blockHash,
-        },
+        signingPayload,
         challengeId
       );
+      console.log('[Direct Action] Secure transaction signing result:', signingResult);
 
       setStatusMessage('Transaction signed. Sending to network...');
-
       const signedTransactionBorsh = new Uint8Array(signingResult.signedTransactionBorsh);
+      console.log('[Direct Action] Broadcasting transaction to RPC node:', RPC_NODE_URL);
 
-      // Send transaction using fetch directly to the RPC endpoint
       const rpcResponse = await fetch(RPC_NODE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -606,25 +607,29 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           params: [Buffer.from(signedTransactionBorsh).toString('base64')]
         })
       });
+      console.log('[Direct Action] RPC response status:', rpcResponse.status);
 
       const result = await rpcResponse.json();
+      console.log('[Direct Action] RPC response JSON:', result);
       if (result.error) {
-        throw new Error(result.error.message || 'RPC error');
+        console.error('[Direct Action] RPC error:', result.error);
+        throw new Error(result.error.data?.message || result.error.message || 'RPC error'); // Access nested message if present
       }
 
-      console.log("Direct action transaction sent:", result);
+      console.log("[Direct Action] Transaction sent successfully:", result);
       setStatusMessage('Direct action successful!');
 
-      // If it was a set_greeting action, fetch the new greeting
       if (serializableActionForContract.method_name === 'set_greeting') {
+        console.log('[Direct Action] Action was set_greeting, fetching new greeting...');
         await fetchCurrentGreeting();
       }
 
       setIsProcessing(false);
-      callbacks?.afterDispatch?.(true, result.result);
+      callbacks?.afterDispatch?.(true, result.result); // result.result contains the FinalExecutionOutcome
+      console.log('[Direct Action] Completed successfully.');
 
     } catch (error: any) {
-      console.error('Execute direct action error:', error);
+      console.error('[Direct Action] Error during execution:', error);
       setStatusMessage(`Error: ${error.message}`);
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: error.message });

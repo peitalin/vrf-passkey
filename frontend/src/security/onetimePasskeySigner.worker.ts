@@ -5,9 +5,8 @@ import {
   SignedTransaction,
   createTransaction,
   Action,
-  Signature,
+  Signature
 } from '@near-js/transactions';
-import nearApiJs from "near-api-js";
 import { sha256 } from 'js-sha256';
 
 // Import WASM binary directly as URL
@@ -153,7 +152,9 @@ interface DecryptAndSignTransactionMessage {
     gasAmount: string;
     depositAmount: string;
     nonce: string;
-    blockHash: string; // base64 string
+    blockHashBytes: number[]; // Changed from blockHash: string
+    originalClientDataJsonForKdf: string;
+    originalAttestationObjectForKdf: string;
   };
 }
 
@@ -267,7 +268,9 @@ async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payloa
       payload: {
         derpAccountId,
         publicKey: result.publicKey,
-        stored: true
+        stored: true,
+        originalClientDataJson: passkeyAttestationResponse.response.clientDataJSON,
+        originalAttestationObject: passkeyAttestationResponse.response.attestationObject,
       }
     });
 
@@ -290,7 +293,9 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
     gasAmount,
     depositAmount,
     nonce,
-    blockHash
+    blockHashBytes,
+    originalClientDataJsonForKdf,
+    originalAttestationObjectForKdf
   } = payload;
 
   try {
@@ -300,26 +305,16 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
       throw new Error(`No encrypted key found for account: ${derpAccountId}`);
     }
 
-    // The passkeyAssertionResponse from publicKeyCredentialToJSON has this structure:
-    // { id, rawId, response: { clientDataJSON, signature, authenticatorData, ... }, type }
-    // We need to pass just the response object to the WASM function
-
-    if (!passkeyAssertionResponse.response) {
-      throw new Error('Invalid assertion response structure - missing response property');
-    }
-
-    // Transform field names to match WASM expectations (clientDataJSON -> clientDataJson)
-    const wasmCompatibleResponse = {
-      clientDataJson: passkeyAssertionResponse.response.clientDataJSON,
-      signature: passkeyAssertionResponse.response.signature,
-      authenticatorData: passkeyAssertionResponse.response.authenticatorData,
-      userHandle: passkeyAssertionResponse.response.userHandle,
+    // Construct the KDF input object using the original registration data
+    const wasmCompatibleResponseForKdf = {
+      clientDataJson: originalClientDataJsonForKdf,
+      attestationObject: originalAttestationObjectForKdf,
     };
 
-    // Derive decryption key from WebAuthn response
+    // Derive decryption key using "registration" context and original registration data
     const decryptionKey = derive_encryption_key_from_webauthn_js(
-      JSON.stringify(wasmCompatibleResponse),
-      'authentication'
+      JSON.stringify(wasmCompatibleResponseForKdf),
+      'registration'
     );
 
     // Decrypt the NEAR private key
@@ -334,23 +329,29 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
     const publicKey = keyPair.getPublicKey();
 
     // Construct the action(s) for the transaction
+    // The schema expects an object where the key itself is the discriminator (e.g., "functionCall")
+    // The linter expects an "enum" field due to its TypeScript definition of Action,
+    // but runtime Borsh serialization (based on previous errors) requires the structure below.
     const actions: Action[] = [
-      nearApiJs.transactions.functionCall(
-        contractMethodName,
-        Buffer.from(JSON.stringify(contractArgs)),
-        BigInt(gasAmount),
-        BigInt(depositAmount)
-      )
+      ({
+        // No explicit "enum" field. The key "functionCall" acts as the discriminator.
+        functionCall: {
+            methodName: contractMethodName,
+            args: Buffer.from(JSON.stringify(contractArgs)),
+            gas: BigInt(gasAmount),
+            deposit: BigInt(depositAmount)
+        }
+      } as any) // Asserting this specific object to 'any' to satisfy linter while matching runtime
     ];
 
     // Create the transaction
-    const transaction = nearApiJs.transactions.createTransaction(
+    const transaction = createTransaction(
       derpAccountId,     // Signer
       publicKey,         // Signer's public key
       receiverId,        // Receiver of this transaction
       BigInt(nonce),     // Nonce must be BigInt
       actions,           // Array of Action objects
-      Buffer.from(blockHash, 'base64') // Decoded block hash bytes
+      Buffer.from(blockHashBytes) // Use Buffer.from(blockHashBytes)
     );
 
     // Serialize and sign the transaction

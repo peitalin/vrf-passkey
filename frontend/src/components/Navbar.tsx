@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { usePasskeyContext } from '../contexts/PasskeyContext'; // Import the context hook
-import toast from 'react-hot-toast'; // Import toast
+import { usePasskeyContext } from '../contexts/PasskeyContext';
+import toast from 'react-hot-toast';
 
 
 const shortPK = (pk: string | null | undefined, len = 8) => {
@@ -10,11 +10,11 @@ const shortPK = (pk: string | null | undefined, len = 8) => {
   return `${pk.substring(0, pk.indexOf(':') + 1 + len)}...${pk.substring(pk.length - len)}`;
 };
 
-export const Navbar: React.FC = () => { // No direct props needed
+export const Navbar: React.FC = () => {
   const { isLoggedIn, username, serverDerivedNearPK, logoutPasskey } = usePasskeyContext();
 
   const handleLogout = () => {
-    logoutPasskey(); // Call context logout function
+    logoutPasskey();
     toast.success('Logged out successfully!', {
       style: { background: '#2196F3', color: 'white' }
     });
@@ -37,6 +37,9 @@ export const Navbar: React.FC = () => { // No direct props needed
         </Link>
         <Link to="/test-webauthn-manager" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
           Security Test
+        </Link>
+        <Link to="/test-near-account" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
+          NEAR Account Test
         </Link>
       </div>
 

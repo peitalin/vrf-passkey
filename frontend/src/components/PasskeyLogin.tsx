@@ -4,18 +4,9 @@ import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './RefreshIcon'
 import { webAuthnManager } from '../security/WebAuthnManager'
+import { shortenString } from '../utils/strings'
 import { HELLO_NEAR_CONTRACT_ID } from '../config'
 
-// Helper to shorten strings like TxIDs or PKs
-const shortenString = (str: string | null | undefined, headChars = 6, tailChars = 4) => {
-  if (!str) return '';
-  if (str.length <= headChars + tailChars + 2) return str; // If already short or has a prefix like "ed25519:"
-  const prefixIndex = str.indexOf(':');
-  if (prefixIndex > -1 && prefixIndex < headChars) { // Handle prefixes like ed25519:
-    return `${str.substring(0, prefixIndex + 1 + headChars)}...${str.substring(str.length - tailChars)}`;
-  }
-  return `${str.substring(0, headChars)}...${str.substring(str.length - tailChars)}`;
-};
 
 interface LastTxDetails {
   id: string;
@@ -33,7 +24,7 @@ export function PasskeyLogin() {
     setUsernameState,
     registerPasskey,
     loginPasskey,
-    executeServerAction,
+    executeDirectActionViaWorker,
     fetchCurrentGreeting,
     logoutPasskey,
   } = usePasskeyContext();
@@ -83,21 +74,40 @@ export function PasskeyLogin() {
     const toastId = toast.loading('Registering passkey...', { style: { background: '#2196F3', color: 'white' } });
     const result = await registerPasskey(localUsernameInput.trim());
     if (result.success) {
+      let successMessage = `Registered and logged in as ${localUsernameInput.trim()}!`;
+      let toastDuration = 6000;
+
+      if (result.derpAccountId && result.derivedNearPublicKey) {
+        successMessage += `\nAccount ID: ${result.derpAccountId}\nClient PK: ${shortenString(result.derivedNearPublicKey, 10, 10)}`;
+        toastDuration = 8000; // Longer duration if more info
+      }
+
       if (result.transactionId) {
         const txLink = `https://testnet.nearblocks.io/txns/${result.transactionId}`;
         const shortTxId = shortenString(result.transactionId, 10, 6);
         const successContent = (
           <span>
-            Registered and logged in as {localUsernameInput.trim()}! Account association Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
+            {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
+            Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
           </span>
         );
         toast.success(successContent, {
           id: toastId,
-          duration: 8000,
+          duration: toastDuration, // Use updated duration
           style: { background: '#4CAF50', color: 'white' }
         });
       } else {
-        toast.success(`Registered and logged in as ${localUsernameInput.trim()}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+        // If no transactionId, but we have accountId and PK, still show them
+        const successContentNoTx = (
+            <span>
+                {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
+            </span>
+        );
+        toast.success(successContentNoTx, {
+            id: toastId,
+            duration: toastDuration, // Use updated duration
+            style: { background: '#4CAF50', color: 'white' }
+        });
       }
       setLastTxDetails(null);
     } else {
@@ -130,7 +140,7 @@ export function PasskeyLogin() {
     }
   };
 
-  const onExecuteAction = async () => {
+  const onExecuteDirectAction = async () => {
     if (!customGreetingInput.trim()) {
       toast.error("Please enter a greeting message.");
       return;
@@ -140,10 +150,13 @@ export function PasskeyLogin() {
       return;
     }
 
+    const newGreetingMessage = `${customGreetingInput.trim()} (updated: ${new Date().toLocaleTimeString()})`;
+
     const actionToExecute: SerializableActionArgs = {
       action_type: ActionType.FunctionCall,
       receiver_id: HELLO_NEAR_CONTRACT_ID,
       method_name: 'set_greeting',
+      args: JSON.stringify({ greeting: newGreetingMessage }),
       gas: "30000000000000",
       deposit: "0",
     };
@@ -151,31 +164,29 @@ export function PasskeyLogin() {
     let toastId = '';
     setLastTxDetails(null);
 
-    await executeServerAction(
+    await executeDirectActionViaWorker(
       actionToExecute,
-      username,
-      customGreetingInput,
       {
         beforeDispatch: () => {
-          toastId = toast.loading('Dispatching Set Greeting action...', { style: { background: '#2196F3', color: 'white' } });
+          toastId = toast.loading('Dispatching Set Greeting (Direct Action)... ', { style: { background: '#2196F3', color: 'white' } });
         },
         afterDispatch: (success, data) => {
-          if (success && data?.transactionId) {
-            const txLink = `https://testnet.nearblocks.io/txns/${data.transactionId}`;
-            const shortTxId = shortenString(data.transactionId, 10, 6);
-            const greetingSet = (actionToExecute.method_name === 'set_greeting') ? customGreetingInput.trim() : null;
-            const successMessage = `Set Greeting to "${greetingSet}" successful!`;
+          if (success && data?.transaction_outcome?.id) {
+            const txId = data.transaction_outcome.id;
+            const txLink = `https://testnet.nearblocks.io/txns/${txId}`;
+            const shortTxId = shortenString(txId, 10, 6);
+            const greetingSet = newGreetingMessage;
+            const successMessage = `Set Greeting to "${greetingSet}" (Direct) successful!`;
 
             setLastTxDetails({
-              id: data.transactionId,
+              id: txId,
               link: txLink,
-              message: greetingSet ? `Set to: "${greetingSet}"` : undefined
+              message: `Set to: "${greetingSet}"`
             });
 
             const successContent = (
               <span>
                 {successMessage} Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>.
-                Result: {data?.successValue || '(No value)'}
               </span>
             );
             toast.success(successContent, {
@@ -184,10 +195,10 @@ export function PasskeyLogin() {
               style: { background: '#4CAF50', color: 'white' }
             });
           } else if (success) {
-            toast.success(`Action successful! ${data?.successValue || '(No value)'}`, { id: toastId, duration: 6000, style: { background: '#4CAF50', color: 'white' } });
-            setLastTxDetails({ id: 'N/A', link: '#', message: data?.successValue || 'Success, no TxID' });
+            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: '#4CAF50', color: 'white' } });
+            setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
           } else {
-            toast.error(data?.error || 'Action failed.', { id: toastId });
+            toast.error(data?.error || 'Direct Action failed.', { id: toastId });
             setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
           }
         }
@@ -282,11 +293,11 @@ export function PasskeyLogin() {
                   className="styled-input" /* Keep styled-input for consistency, greeting-input-group handles layout */
                 />
                 <button
-                  onClick={onExecuteAction}
+                  onClick={onExecuteDirectAction}
                   className="action-button" /* Keep action-button for base styling */
                   disabled={isProcessing || !customGreetingInput.trim()}
                 >
-                  {isProcessing ? 'Processing...' : 'Set New Greeting'}
+                  {isProcessing ? 'Processing...' : 'Set New Greeting (Direct)'}
                 </button>
               </div>
             </div>
