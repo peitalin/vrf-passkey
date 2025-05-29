@@ -34,9 +34,12 @@ export function PasskeyLogin() {
   const [customGreetingInput, setCustomGreetingInput] = useState('Hello from Passkey App!');
   const [isSecureContext] = useState(() => window.isSecureContext);
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
+  const [hasManuallyClearedInput, setHasManuallyClearedInput] = useState(false);
 
   useEffect(() => {
     const loadUserData = async () => {
+      if (hasManuallyClearedInput) return; // Don't override manual clearing
+
       if (username) {
         setLocalUsernameInput(username);
         const hasCredential = await webAuthnManager.hasPasskeyCredential(username);
@@ -52,16 +55,19 @@ export function PasskeyLogin() {
     };
 
     loadUserData();
-  }, [username]);
+  }, [username, hasManuallyClearedInput]);
 
   const handleLocalUsernameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newUsername = e.target.value;
     setLocalUsernameInput(newUsername);
-    setUsernameState(newUsername);
+    setUsernameState(newUsername); // Keep context in sync if needed, or remove if only local state matters
+
     if (newUsername) {
+      setHasManuallyClearedInput(false); // User is typing, not clearing
       const hasCredential = await webAuthnManager.hasPasskeyCredential(newUsername);
       setIsPasskeyRegisteredForLocalInput(hasCredential);
     } else {
+      setHasManuallyClearedInput(true); // User has cleared the input
       setIsPasskeyRegisteredForLocalInput(false);
     }
   };
