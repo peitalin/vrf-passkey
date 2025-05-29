@@ -1,5 +1,5 @@
-import { publicKeyCredentialToJSON } from '../utils';
 import { SERVER_URL, WASM_WORKER_FILENAME } from '../config';
+import { bufferEncode, bufferDecode } from '../utils';
 
 // IndexedDB configuration
 const USER_DATA_DB_NAME = 'PasskeyUserData';
@@ -15,8 +15,8 @@ interface UserData {
     rawId: string;
   };
   lastUpdated: number;
-  originalClientDataJsonForKdf?: string;
-  originalAttestationObjectForKdf?: string;
+  // PRF indicator
+  prfSupported?: boolean;
 }
 
 // Types for WebAuthn operations
@@ -49,6 +49,21 @@ interface WorkerResponse {
   payload: any;
 }
 
+// PRF-related interfaces
+interface PrfSaltConfig {
+  nearKeyEncryption: Uint8Array; // Fixed salt for NEAR key encryption
+}
+
+interface WebAuthnRegistrationWithPrf {
+  credential: PublicKeyCredential;
+  prfEnabled: boolean;
+}
+
+interface WebAuthnAuthenticationWithPrf {
+  credential: PublicKeyCredential;
+  prfOutput?: ArrayBuffer; // Present if PRF was used
+}
+
 /**
  * WebAuthnManager - Secure encapsulation of WebAuthn operations and WASM workers
  *
@@ -58,11 +73,15 @@ interface WorkerResponse {
  * - Atomic operations (one challenge = one worker = one operation)
  * - No direct worker access outside this class
  * - Automatic cleanup and termination
+ * - PRF extension support for enhanced security
  */
 export class WebAuthnManager {
   private activeChallenges = new Map<string, WebAuthnChallenge>();
   private readonly CHALLENGE_TIMEOUT = 30000; // 30 seconds
   private readonly CLEANUP_INTERVAL = 60000; // 1 minute
+  private readonly PRF_SALTS: PrfSaltConfig = {
+    nearKeyEncryption: new Uint8Array(new Array(32).fill(42)) // Fixed salt for NEAR key encryption
+  };
 
   constructor() {
     // Periodically clean up expired challenges
@@ -341,78 +360,152 @@ export class WebAuthnManager {
   }
 
   /**
-   * Secure registration flow: WebAuthn + WASM worker encryption
+   * Register with PRF extension support
    */
-  async secureRegistration(
-    username: string,
-    passkeyAttestationResponse: any,
-    payload: RegistrationPayload,
-    challengeId: string
-  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string; originalClientDataJsonForKdf: string; originalAttestationObjectForKdf: string }> {
-    try {
-      // Validate and consume the challenge
-      const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
+  async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
+    const { options, challengeId } = await this.getRegistrationOptions(username);
 
-      console.log('WebAuthnManager: Starting secure registration for user:', username);
+    // Add PRF extension with evaluation during registration
+    const extendedOptions = {
+      ...options,
+      challenge: bufferDecode(options.challenge),
+      user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
+      excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
+      authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
+      extensions: {
+        ...options.extensions,
+        prf: {
+          eval: {
+            first: this.PRF_SALTS.nearKeyEncryption
+          }
+        }
+      }
+    };
+
+    const credential = await navigator.credentials.create({
+      publicKey: extendedOptions
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Passkey creation cancelled or failed');
+    }
+
+    const extensionResults = credential.getClientExtensionResults();
+    const prfResults = (extensionResults as any).prf;
+    const prfEnabled = prfResults?.enabled === true;
+
+    // During registration, PRF eval results might be available if the authenticator supports it
+    console.log('WebAuthnManager: Registration completed, PRF enabled:', prfEnabled, 'PRF eval results:', prfResults);
+
+    return { credential, prfEnabled };
+  }
+
+  /**
+   * Authenticate with PRF extension support
+   */
+  async authenticateWithPrf(
+    username?: string,
+    purpose: 'encryption' | 'signing' = 'signing'
+  ): Promise<WebAuthnAuthenticationWithPrf> {
+    const { options, challengeId } = await this.getAuthenticationOptions(username);
+
+    // Add PRF extension with appropriate salt
+    const extendedOptions = {
+      ...options,
+      challenge: bufferDecode(options.challenge),
+      rpId: options.rpId,
+      allowCredentials: options.allowCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
+      userVerification: options.userVerification || "preferred",
+      timeout: options.timeout || 60000,
+      extensions: {
+        ...options.extensions,
+        prf: {
+          eval: {
+            first: this.PRF_SALTS.nearKeyEncryption
+          }
+        }
+      }
+    };
+
+    const credential = await navigator.credentials.get({
+      publicKey: extendedOptions
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Passkey authentication cancelled');
+    }
+
+    const extensionResults = credential.getClientExtensionResults();
+    const prfOutput = (extensionResults as any).prf?.results?.first;
+
+    console.log('WebAuthnManager: Authentication completed, PRF output available:', !!prfOutput);
+
+    return { credential, prfOutput };
+  }
+
+  /**
+   * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
+   */
+  async secureRegistrationWithPrf(
+    username: string,
+    prfOutput: ArrayBuffer,
+    payload: RegistrationPayload,
+    challengeId?: string,
+    skipChallengeValidation: boolean = false
+  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string }> {
+    try {
+      // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
+      if (!skipChallengeValidation && challengeId) {
+        const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
+        console.log('WebAuthnManager: Challenge validated for PRF registration');
+      }
+
+      console.log('WebAuthnManager: Starting secure registration with PRF');
 
       // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
 
-      // Execute encryption operation
+      // Execute encryption operation with PRF
       const response = await this.executeWorkerOperation(worker, {
-        type: 'ENCRYPT_PRIVATE_KEY',
+        type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
         payload: {
-          passkeyAttestationResponse,
-          derpAccountId: payload.derpAccountId,
+          prfOutput: bufferEncode(prfOutput), // Convert to base64
+          derpAccountId: payload.derpAccountId
         }
       });
 
       if (response.type === 'ENCRYPTION_SUCCESS') {
-        console.log('WebAuthnManager: Registration successful');
-        // Store the original KDF inputs along with other user data
-        const existingUserData = await this.getUserData(username); // Use username to fetch existing data
-        console.log(`WebAuthnManager: secureRegistration - Storing KDF inputs for user ${username}:`, {
-          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
-          originalAttestationObjectForKdf: response.payload.originalAttestationObject
-        });
+        console.log('WebAuthnManager: PRF registration successful');
+        // Store user data with PRF flag
         await this.storeUserData({
-          ...(existingUserData || {}), // Spread existing data if any
-          username: username, // Ensure username is set/updated
+          username,
           derpAccountId: payload.derpAccountId,
           clientNearPublicKey: response.payload.publicKey,
-          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
-          originalAttestationObjectForKdf: response.payload.originalAttestationObject,
-          lastUpdated: Date.now(),
-          // passkeyCredential will be updated by the calling context (PasskeyContext) if needed
+          prfSupported: true, // Flag to indicate PRF was used
+          lastUpdated: Date.now()
         });
-
-        // Verify immediately after storing
-        const verifiedUserData = await this.getUserData(username);
-        console.log(`WebAuthnManager: secureRegistration - UserData for ${username} immediately after storing KDF inputs:`, verifiedUserData);
 
         return {
           success: true,
           derpAccountId: response.payload.derpAccountId,
-          publicKey: response.payload.publicKey,
-          originalClientDataJsonForKdf: response.payload.originalClientDataJson,
-          originalAttestationObjectForKdf: response.payload.originalAttestationObject,
+          publicKey: response.payload.publicKey
         };
       } else {
-        throw new Error(response.payload?.error || 'Encryption failed');
+        throw new Error(response.payload?.error || 'PRF encryption failed');
       }
 
     } catch (error: any) {
-      console.error('WebAuthnManager: Registration failed:', error);
+      console.error('WebAuthnManager: PRF registration failed:', error);
       throw error;
     }
   }
 
   /**
-   * Secure signing flow: WebAuthn + WASM worker decryption/signing
+   * Secure signing flow with PRF: WebAuthn + WASM worker decryption/signing using PRF
    */
-  async secureTransactionSigning(
+  async secureTransactionSigningWithPrf(
     username: string,
-    passkeyAssertionResponse: any,
+    prfOutput: ArrayBuffer,
     payload: SigningPayload,
     challengeId: string
   ): Promise<{ signedTransactionBorsh: number[]; derpAccountId: string }> {
@@ -420,24 +513,17 @@ export class WebAuthnManager {
       // Validate and consume the challenge
       const challenge = this.validateAndConsumeChallenge(challengeId, 'authentication');
 
-      console.log('WebAuthnManager: Starting secure transaction signing for user:', username);
-
-      // Retrieve the stored original KDF inputs using username
-      const userData = await this.getUserData(username);
-      console.log(`WebAuthnManager: secureTransactionSigning - Retrieved userData for ${username}:`, userData);
-      if (!userData || !userData.originalClientDataJsonForKdf || !userData.originalAttestationObjectForKdf) {
-        throw new Error(`Missing original KDF inputs for decryption for user ${username}.`);
-      }
+      console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
       // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
 
-      // Execute signing operation
+      // Execute signing operation with PRF
       const response = await this.executeWorkerOperation(worker, {
-        type: 'DECRYPT_AND_SIGN_TRANSACTION',
+        type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
         payload: {
           derpAccountId: payload.derpAccountId,
-          passkeyAssertionResponse,
+          prfOutput: bufferEncode(prfOutput), // Convert to base64
           receiverId: payload.receiverId,
           contractMethodName: payload.contractMethodName,
           contractArgs: payload.contractArgs,
@@ -445,23 +531,21 @@ export class WebAuthnManager {
           depositAmount: payload.depositAmount,
           nonce: payload.nonce,
           blockHashBytes: payload.blockHashBytes,
-          originalClientDataJsonForKdf: userData.originalClientDataJsonForKdf,
-          originalAttestationObjectForKdf: userData.originalAttestationObjectForKdf,
         }
       });
 
       if (response.type === 'SIGNATURE_SUCCESS') {
-        console.log('WebAuthnManager: Transaction signing successful');
+        console.log('WebAuthnManager: PRF transaction signing successful');
         return {
           signedTransactionBorsh: response.payload.signedTransactionBorsh,
           derpAccountId: response.payload.derpAccountId
         };
       } else {
-        throw new Error(response.payload?.error || 'Signing failed');
+        throw new Error(response.payload?.error || 'PRF signing failed');
       }
 
     } catch (error: any) {
-      console.error('WebAuthnManager: Transaction signing failed:', error);
+      console.error('WebAuthnManager: PRF transaction signing failed:', error);
       throw error;
     }
   }

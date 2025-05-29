@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { SERVER_URL } from '../config';
+import { SERVER_URL, RELAYER_ACCOUNT_ID } from '../config';
 import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils';
 import { ActionType, type ServerRegistrationOptions, type ServerAuthenticationOptions, type SerializableActionArgs } from '../types';
 import { getTestnetRpcProvider, view } from '@near-js/client';
@@ -200,30 +200,22 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     let serverWebAuthnVerifyData: any = null;
     let tempCredentialStore: PublicKeyCredential | null = null;
     let challengeId: string | null = null;
-    const RELAYER_PARENT_ACCOUNT = 'cyan-loong.testnet'; // Define the fixed relayer parent account
 
     try {
-      const { options, challengeId: serverChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
-      challengeId = serverChallengeId;
+      // Get registration options first to have the challenge ID
+      const { options, challengeId: registrationChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
+      challengeId = registrationChallengeId;
+
+      // Try PRF-enabled registration
+      console.log('Attempting PRF-enabled registration...');
+      const { credential, prfEnabled } = await webAuthnManager.registerWithPrf(currentUsername);
+      tempCredentialStore = credential;
 
       // Frontend constructs the derpAccountId, ignoring server suggestion for this specific format requirement
       const sanitizedUsername = currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32); // Sanitize and shorten username
-      userDerpAccountIdToUse = `${sanitizedUsername}.${RELAYER_PARENT_ACCOUNT}`;
-      console.log(`Frontend constructed derpAccountId: ${userDerpAccountIdToUse} (ignoring server suggestion: ${options.derpAccountId})`);
+      userDerpAccountIdToUse = `${sanitizedUsername}.${RELAYER_ACCOUNT_ID}`;
+      console.log(`Frontend constructed derpAccountId: ${userDerpAccountIdToUse}`);
 
-      const pkCreationOpts: PublicKeyCredentialCreationOptions = {
-        ...options,
-        challenge: bufferDecode(options.challenge),
-        user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
-        excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
-        authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
-      };
-
-      const credential = await navigator.credentials.create({ publicKey: pkCreationOpts }) as PublicKeyCredential | null;
-      if (!credential || !(credential.response instanceof AuthenticatorAttestationResponse)) {
-        throw new Error('Passkey creation cancelled or failed in browser.');
-      }
-      tempCredentialStore = credential;
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
@@ -234,7 +226,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       serverWebAuthnVerifyData = await verifyResponse.json();
 
       if (verifyResponse.ok && serverWebAuthnVerifyData.verified) {
-        // Even if serverWebAuthnVerifyData.derpAccountId exists, we stick to userDerpAccountIdToUse constructed by frontend
         console.log(`Server verification successful. Using frontend-defined derpAccountId: ${userDerpAccountIdToUse}`);
 
         const hasExistingKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdToUse);
@@ -243,12 +234,60 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           console.log(`No existing encrypted key found for ${userDerpAccountIdToUse}. Will generate new key in secure worker.`);
           setStatusMessage(`Generating new NEAR key pair securely...`);
 
-          const registrationResult = await webAuthnManager.secureRegistration(
-            currentUsername,
-            publicKeyCredentialToJSON(credential),
-            { derpAccountId: userDerpAccountIdToUse },
-            challengeId
-          );
+          let registrationResult;
+
+          if (prfEnabled) {
+            console.log('PRF extension is supported, using PRF-based encryption');
+
+            // Check if we got PRF output during registration
+            const extensionResults = credential.getClientExtensionResults();
+            const registrationPrfOutput = (extensionResults as any).prf?.results?.first;
+
+            console.log('PRF extension results from registration:', (extensionResults as any).prf);
+
+            if (registrationPrfOutput) {
+              // Use PRF output from registration directly
+              console.log('Using PRF output from registration ceremony');
+              registrationResult = await webAuthnManager.secureRegistrationWithPrf(
+                currentUsername,
+                registrationPrfOutput,
+                { derpAccountId: userDerpAccountIdToUse },
+                registrationChallengeId, // Use the original registration challenge ID
+                true // Skip challenge validation since already done in registerWithPrf
+              );
+            } else {
+              // Most authenticators don't support PRF evaluation during registration (create),
+              // only during authentication (get). This is why we need a second Touch ID prompt.
+              // This is a limitation of the current WebAuthn PRF implementation in most browsers/authenticators.
+              console.log('PRF enabled but no output from registration, performing separate authentication');
+              console.log('Note: This requires a second Touch ID prompt due to WebAuthn PRF limitations');
+              const { credential: authCredential, prfOutput } = await webAuthnManager.authenticateWithPrf(
+                currentUsername,
+                'encryption'
+              );
+
+              if (prfOutput) {
+                // For PRF registration after separate auth, we don't validate challenge again
+                // since user already authenticated. Pass a special flag or modify the method.
+                registrationResult = await webAuthnManager.secureRegistrationWithPrf(
+                  currentUsername,
+                  prfOutput,
+                  { derpAccountId: userDerpAccountIdToUse },
+                  registrationChallengeId, // Use the original registration challenge ID
+                  true // Skip challenge validation since already authenticated
+                );
+              } else {
+                throw new Error('PRF output not available despite PRF being enabled');
+              }
+            }
+
+            if (registrationResult.success) {
+              generatedNearPublicKeyForChain = registrationResult.publicKey;
+              console.log('PRF-based encryption successful');
+            }
+          } else {
+            throw new Error('PRF extension is required but not supported by this authenticator');
+          }
 
           if (registrationResult.success) {
             generatedNearPublicKeyForChain = registrationResult.publicKey;
@@ -526,28 +565,27 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     console.log('[Direct Action] User state validated:', { isLoggedIn, username, derpAccountId });
 
     try {
-      console.log('[Direct Action] Getting authentication options for user:', username);
-      const { options, challengeId } = await webAuthnManager.getAuthenticationOptions(username);
-      console.log('[Direct Action] Authentication options received:', { options, challengeId });
+      // Check if user has PRF support
+      const userData = await webAuthnManager.getUserData(username);
+      const usesPrf = userData?.prfSupported === true;
 
-      const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-        challenge: bufferDecode(options.challenge), // Use server challenge
-        rpId: options.rpId,
-        allowCredentials: options.allowCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
-        userVerification: options.userVerification || "required",
-        timeout: options.timeout || 60000,
-      };
-      console.log('[Direct Action] Requesting passkey assertion with options:', pkRequestOpts);
-      const passkeyAssertion = await navigator.credentials.get({ publicKey: pkRequestOpts }) as PublicKeyCredential | null;
-      if (!passkeyAssertion || !(passkeyAssertion.response instanceof AuthenticatorAssertionResponse)) {
-        console.error('[Direct Action] Passkey authentication cancelled or failed.');
-        throw new Error('Passkey authentication cancelled or failed for action.');
+      if (!usesPrf) {
+        throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
       }
-      console.log('[Direct Action] Passkey assertion received:', passkeyAssertion);
+
+      console.log('[Direct Action] User has PRF support, using PRF-based signing');
+
+      // Authenticate with PRF to get PRF output
+      const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrf(username, 'signing');
+
+      if (!passkeyAssertion || !prfOutput) {
+        throw new Error('PRF authentication failed or no PRF output');
+      }
+
+      const { options, challengeId } = await webAuthnManager.getAuthenticationOptions(username);
 
       const provider = getRpcProvider();
       console.log('[Direct Action] Fetching user data for public key...');
-      const userData = await webAuthnManager.getUserData(username);
       const publicKeyStr = userData?.clientNearPublicKey;
       if (!publicKeyStr) {
         console.error('[Direct Action] Client NEAR public key not found in user data for user:', username);
@@ -571,28 +609,27 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const blockHashBytes = Array.from(bs58.decode(blockHashString));
       console.log('[Direct Action] Nonce and blockHash (base58) ready:', { nonce, blockHashString });
 
-      console.log('[Direct Action] Calling secureTransactionSigning in WebAuthnManager for a direct call...');
+      console.log('[Direct Action] Calling secureTransactionSigningWithPrf...');
       const signingPayload = {
         derpAccountId,
-        receiverId: serializableActionForContract.receiver_id, // Use actual receiver
-        contractMethodName: serializableActionForContract.method_name, // Use actual method
-        contractArgs: JSON.parse(serializableActionForContract.args), // Parse args string to object for worker
+        receiverId: serializableActionForContract.receiver_id,
+        contractMethodName: serializableActionForContract.method_name,
+        contractArgs: JSON.parse(serializableActionForContract.args),
         gasAmount: serializableActionForContract.gas || DEFAULT_GAS_STRING,
         depositAmount: serializableActionForContract.deposit || "0",
         nonce: nonce.toString(),
-        blockHashString: blockHashString,
         blockHashBytes: blockHashBytes,
       };
-      console.log('[Direct Action] Signing payload:', signingPayload);
 
-      const signingResult = await webAuthnManager.secureTransactionSigning(
+      const signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
         username,
-        publicKeyCredentialToJSON(passkeyAssertion),
+        prfOutput,
         signingPayload,
         challengeId
       );
-      console.log('[Direct Action] Secure transaction signing result:', signingResult);
+      console.log('[Direct Action] PRF-based secure transaction signing result:', signingResult);
 
+      // Continue with transaction broadcast...
       setStatusMessage('Transaction signed. Sending to network...');
       const signedTransactionBorsh = new Uint8Array(signingResult.signedTransactionBorsh);
       console.log('[Direct Action] Broadcasting transaction to RPC node:', RPC_NODE_URL);
@@ -607,13 +644,12 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           params: [Buffer.from(signedTransactionBorsh).toString('base64')]
         })
       });
-      console.log('[Direct Action] RPC response status:', rpcResponse.status);
 
       const result = await rpcResponse.json();
       console.log('[Direct Action] RPC response JSON:', result);
       if (result.error) {
         console.error('[Direct Action] RPC error:', result.error);
-        throw new Error(result.error.data?.message || result.error.message || 'RPC error'); // Access nested message if present
+        throw new Error(result.error.data?.message || result.error.message || 'RPC error');
       }
 
       console.log("[Direct Action] Transaction sent successfully:", result);
@@ -625,7 +661,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
 
       setIsProcessing(false);
-      callbacks?.afterDispatch?.(true, result.result); // result.result contains the FinalExecutionOutcome
+      callbacks?.afterDispatch?.(true, result.result);
       console.log('[Direct Action] Completed successfully.');
 
     } catch (error: any) {

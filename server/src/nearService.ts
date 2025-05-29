@@ -7,13 +7,6 @@ import {
   Account,
   LocalAccountCreator
 } from '@near-js/accounts';
-import {
-    FunctionCall,
-    createTransaction,
-    type Transaction,
-    type SignedTransaction,
-    type Action
-} from '@near-js/transactions';
 import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
 import { InMemoryKeyStore } from '@near-js/keystores';
 import type { KeyStore } from '@near-js/keystores';
@@ -21,12 +14,11 @@ import type { Signer } from '@near-js/signers';
 import type { Provider } from '@near-js/providers';
 import { type SerializableActionArgs, type CreateAccountResult } from './types';
 
-
 const PASSKEY_CONTROLLER_CONTRACT_ID = process.env.PASSKEY_CONTROLLER_CONTRACT_ID!;
 const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
 const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
-const HELLO_NEAR_CONTRACT_ID = 'cyan-loong.testnet'; // For the test functions
+const HELLO_NEAR_CONTRACT_ID = process.env.HELLO_NEAR_CONTRACT_ID!; // For the test functions
 const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org'; // Define RPC URL
 
 class NearClient {
@@ -188,7 +180,7 @@ class NearClient {
   async createAccount(
     accountId: string,
     publicKeyString: string,
-    initialBalance: bigint = BigInt('20000000000000000000000') // Changed to 0.05 NEAR
+    initialBalance: bigint = BigInt('20000000000000000000000') // Changed to 0.02 NEAR
   ): Promise<CreateAccountResult> {
     await this._ensureSignerAndRelayerAccount();
     console.log(`NearClient: Creating account ${accountId} with public key ${publicKeyString} and balance ${initialBalance.toString()} yoctoNEAR`);

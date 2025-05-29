@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SERVER_URL } from '../config';
+import { SERVER_URL, RELAYER_ACCOUNT_ID } from '../config';
 
 interface CreateAccountResult {
   success: boolean;
@@ -21,7 +21,7 @@ const TestNearAccount: React.FC = () => {
   const testCreateAccount = async () => {
     setIsLoading(true);
     setResult(null);
-    const testAccountId = `test-${Date.now()}.cyan-loong.testnet`;
+    const testAccountId = `test-${Date.now()}.${RELAYER_ACCOUNT_ID}`;
     // Using a valid, unique public key for testing is important if the key itself is registered or checked.
     // For basic account creation, a correctly formatted key is usually sufficient.
     // This example public key is for illustration. Replace if a specific key is needed for your test setup.

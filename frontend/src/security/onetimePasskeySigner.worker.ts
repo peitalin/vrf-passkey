@@ -17,10 +17,10 @@ import wasmUrl from '../../wasm-worker/pkg/passkey_crypto_worker_bg.wasm?url';
 // ?url: lets Vite treat WASM file as a URL asset, which it serves with the correct MIME type
 
 const {
-  derive_encryption_key_from_webauthn_js,
   encrypt_data_aes_gcm,
   decrypt_data_aes_gcm,
-  generate_and_encrypt_near_keypair
+  derive_encryption_key_from_prf,
+  generate_and_encrypt_near_keypair_with_prf
 } = wasmModule;
 
 // Cache name for WASM module
@@ -132,33 +132,30 @@ async function getEncryptedKey(derpAccountId: string): Promise<EncryptedKeyData 
   });
 }
 
-// Message types
-interface EncryptPrivateKeyMessage {
-  type: 'ENCRYPT_PRIVATE_KEY';
+interface EncryptPrivateKeyWithPrfMessage {
+  type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF';
   payload: {
-    passkeyAttestationResponse: any; // publicKeyCredentialToJSON output
+    prfOutput: string; // Base64-encoded PRF output
     derpAccountId: string;
   };
 }
 
-interface DecryptAndSignTransactionMessage {
-  type: 'DECRYPT_AND_SIGN_TRANSACTION';
+interface DecryptAndSignTransactionWithPrfMessage {
+  type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF';
   payload: {
     derpAccountId: string;
-    passkeyAssertionResponse: any; // publicKeyCredentialToJSON output
+    prfOutput: string; // Base64-encoded PRF output
     receiverId: string;
     contractMethodName: string;
     contractArgs: any;
     gasAmount: string;
     depositAmount: string;
     nonce: string;
-    blockHashBytes: number[]; // Changed from blockHash: string
-    originalClientDataJsonForKdf: string;
-    originalAttestationObjectForKdf: string;
+    blockHashBytes: number[];
   };
 }
 
-type WorkerMessage = EncryptPrivateKeyMessage | DecryptAndSignTransactionMessage;
+type WorkerMessage = EncryptPrivateKeyWithPrfMessage | DecryptAndSignTransactionWithPrfMessage;
 
 // Track if we've processed a message
 let messageProcessed = false;
@@ -183,12 +180,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     await initializeWasmWithCache();
 
     switch (type) {
-      case 'ENCRYPT_PRIVATE_KEY':
-        await handleEncryptPrivateKey(payload);
+      case 'ENCRYPT_PRIVATE_KEY_WITH_PRF':
+        await handleEncryptPrivateKeyWithPrf(payload);
         break;
 
-      case 'DECRYPT_AND_SIGN_TRANSACTION':
-        await handleDecryptAndSignTransaction(payload);
+      case 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF':
+        await handleDecryptAndSignTransactionWithPrf(payload);
         break;
 
       default:
@@ -210,50 +207,34 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   }
 };
 
-async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payload']) {
-  const { passkeyAttestationResponse, derpAccountId } = payload;
+async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfMessage['payload']) {
+  const { prfOutput, derpAccountId } = payload;
 
   try {
+    // Generate and encrypt key pair using PRF-derived key
+    const resultJson = generate_and_encrypt_near_keypair_with_prf(prfOutput);
 
-    if (!passkeyAttestationResponse.response) {
-      throw new Error('Invalid attestation response structure - missing response property');
-    }
-
-    // Transform field names to match WASM expectations (clientDataJSON -> clientDataJson)
-    const wasmCompatibleResponse = {
-      clientDataJson: passkeyAttestationResponse.response.clientDataJSON,
-      attestationObject: passkeyAttestationResponse.response.attestationObject,
-    };
-
-    // Generate NEAR key pair and encrypt it in WASM
-    const resultJson = generate_and_encrypt_near_keypair(
-      JSON.stringify(wasmCompatibleResponse),
-      'registration'
-    );
-
-    console.log('WORKER: WASM function returned:', typeof resultJson, resultJson);
+    console.log('WORKER: WASM PRF function returned:', typeof resultJson, resultJson);
 
     // Check if resultJson is already an object or a string
     let result;
     if (typeof resultJson === 'string') {
       result = JSON.parse(resultJson);
     } else {
-      // If it's already an object, use it directly
       result = resultJson;
     }
 
-    console.log('WORKER: Parsed result:', result);
+    console.log('WORKER: Parsed PRF result:', result);
 
     // result.encryptedPrivateKey should be a JSON string from WASM, parse it
     let encryptedPrivateKey;
     if (typeof result.encryptedPrivateKey === 'string') {
       encryptedPrivateKey = JSON.parse(result.encryptedPrivateKey);
     } else {
-      // If it's already an object, use it directly
       encryptedPrivateKey = result.encryptedPrivateKey;
     }
 
-    console.log('WORKER: Encrypted private key:', encryptedPrivateKey);
+    console.log('WORKER: Encrypted private key (PRF):', encryptedPrivateKey);
 
     // Store in IndexedDB
     await storeEncryptedKey({
@@ -269,33 +250,29 @@ async function handleEncryptPrivateKey(payload: EncryptPrivateKeyMessage['payloa
         derpAccountId,
         publicKey: result.publicKey,
         stored: true,
-        originalClientDataJson: passkeyAttestationResponse.response.clientDataJSON,
-        originalAttestationObject: passkeyAttestationResponse.response.attestationObject,
+        // No KDF inputs to return when using PRF!
       }
     });
-
   } catch (error: any) {
-    console.error('WORKER: Encryption failed:', error);
+    console.error('WORKER: PRF encryption failed:', error);
     self.postMessage({
       type: 'ENCRYPTION_FAILURE',
-      payload: { error: error.message || 'Encryption failed' }
+      payload: { error: error.message || 'PRF encryption failed' }
     });
   }
 }
 
-async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactionMessage['payload']) {
+async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTransactionWithPrfMessage['payload']) {
   const {
     derpAccountId,
-    passkeyAssertionResponse,
+    prfOutput,
     receiverId,
     contractMethodName,
     contractArgs,
     gasAmount,
     depositAmount,
     nonce,
-    blockHashBytes,
-    originalClientDataJsonForKdf,
-    originalAttestationObjectForKdf
+    blockHashBytes
   } = payload;
 
   try {
@@ -305,17 +282,12 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
       throw new Error(`No encrypted key found for account: ${derpAccountId}`);
     }
 
-    // Construct the KDF input object using the original registration data
-    const wasmCompatibleResponseForKdf = {
-      clientDataJson: originalClientDataJsonForKdf,
-      attestationObject: originalAttestationObjectForKdf,
-    };
+    // Fixed parameters must match those used during encryption
+    const INFO = "near-key-encryption";
+    const HKDF_SALT = "";
 
-    // Derive decryption key using "registration" context and original registration data
-    const decryptionKey = derive_encryption_key_from_webauthn_js(
-      JSON.stringify(wasmCompatibleResponseForKdf),
-      'registration'
-    );
+    // Derive decryption key from PRF output
+    const decryptionKey = derive_encryption_key_from_prf(prfOutput, INFO, HKDF_SALT);
 
     // Decrypt the NEAR private key
     const decryptedPrivateKeyString = decrypt_data_aes_gcm(
@@ -329,19 +301,15 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
     const publicKey = keyPair.getPublicKey();
 
     // Construct the action(s) for the transaction
-    // The schema expects an object where the key itself is the discriminator (e.g., "functionCall")
-    // The linter expects an "enum" field due to its TypeScript definition of Action,
-    // but runtime Borsh serialization (based on previous errors) requires the structure below.
     const actions: Action[] = [
       ({
-        // No explicit "enum" field. The key "functionCall" acts as the discriminator.
         functionCall: {
             methodName: contractMethodName,
             args: Buffer.from(JSON.stringify(contractArgs)),
             gas: BigInt(gasAmount),
             deposit: BigInt(depositAmount)
         }
-      } as any) // Asserting this specific object to 'any' to satisfy linter while matching runtime
+      } as any) // Type assertion for Borsh compatibility
     ];
 
     // Create the transaction
@@ -382,10 +350,10 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
     });
 
   } catch (error: any) {
-    console.error('WORKER: Decryption/signing failed:', error);
+    console.error('WORKER: PRF decryption/signing failed:', error);
     self.postMessage({
       type: 'SIGNATURE_FAILURE',
-      payload: { error: error.message || 'Decryption/signing failed' }
+      payload: { error: error.message || 'PRF decryption/signing failed' }
     });
   }
 }
@@ -393,6 +361,6 @@ async function handleDecryptAndSignTransaction(payload: DecryptAndSignTransactio
 // Export types for use in main thread
 export type {
   WorkerMessage,
-  EncryptPrivateKeyMessage,
-  DecryptAndSignTransactionMessage
+  EncryptPrivateKeyWithPrfMessage,
+  DecryptAndSignTransactionWithPrfMessage
 };

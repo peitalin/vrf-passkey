@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { HomePage } from './pages/HomePage';
 import TestOnetimeWorker from './pages/TestOnetimeWorker';
-import TestWebAuthnManager from './pages/TestWebAuthnManager';
 import TestNearAccount from './pages/TestNearAccount';
 import { Navbar } from './components/Navbar';
 import { PasskeyContextProvider } from './contexts/PasskeyContext';
@@ -27,7 +26,6 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/test-onetime-worker" element={<TestOnetimeWorker />} />
-            <Route path="/test-webauthn-manager" element={<TestWebAuthnManager />} />
             <Route path="/test-near-account" element={<TestNearAccount />} />
           </Routes>
         </PasskeyContextProvider>

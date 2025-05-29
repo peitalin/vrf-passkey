@@ -35,9 +35,6 @@ export const Navbar: React.FC = () => {
         <Link to="/test-onetime-worker" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
           Worker Test
         </Link>
-        <Link to="/test-webauthn-manager" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
-          Security Test
-        </Link>
         <Link to="/test-near-account" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
           NEAR Account Test
         </Link>

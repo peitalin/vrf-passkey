@@ -6,3 +6,4 @@ export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
 export const PASSKEY_CONTROLLER_CONTRACT_ID = 'passkey-controller.testnet';
 export const DEFAULT_GAS_STRING = "300000000000000"; // Gas as a string for flexibility, convert to BigInt when needed
 export const HELLO_NEAR_CONTRACT_ID = 'cyan-loong.testnet';
+export const RELAYER_ACCOUNT_ID = 'cyan-loong.testnet';
