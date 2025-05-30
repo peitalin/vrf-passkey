@@ -21,6 +21,8 @@ import { deriveNearPublicKeyFromCOSE } from './keyDerivation';
 import { actionChallengeStore } from './challengeStore';
 import { createHash, randomBytes } from 'crypto';
 import { PublicKey } from '@near-js/crypto';
+import { generateRegistrationOptions as simpleWebAuthnGenerateRegistrationOptions } from '@simplewebauthn/server';
+import { JsonRpcProvider } from 'near-api-js/lib/providers'; // For provider.query
 
 const app: Express = express();
 const port = process.env.PORT || 3001;
@@ -102,6 +104,27 @@ app.get('/', (req: Request, res: Response) => {
 // Executes a NEAR transaction using the derived key from passkey.
 // Requires passkey authentication before executing the action.
 
+// Define an interface for contract arguments for clarity
+interface ContractGenerateRegistrationOptionsArgs {
+  rp_name: string;
+  rp_id: string;
+  user_name: string;
+  user_id: Buffer | null; // Changed to Buffer for clarity with near-api-js
+  challenge: Buffer | null; // Changed to Buffer for clarity with near-api-js
+  user_display_name: string | null;
+  timeout: number | null;
+  attestation_type: string | null;
+  exclude_credentials: { id: string; type: string; transports?: string[] }[] | null;
+  authenticator_selection: ({
+    authenticator_attachment?: string;
+    resident_key?: string; // Corrected to snake_case
+    require_resident_key?: boolean;
+    user_verification?: string; // Corrected to snake_case
+  }) | null;
+  extensions: ({ cred_props?: boolean; }) | null;
+  supported_algorithm_ids: number[] | null;
+  preferred_authenticator_type: string | null;
+}
 
 // --- WebAuthn Registration Routes ---
 app.post('/generate-registration-options', async (req: Request, res: Response) => {
@@ -111,65 +134,98 @@ app.post('/generate-registration-options', async (req: Request, res: Response) =
   const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID;
   if (!RELAYER_ACCOUNT_ID) {
     console.error('RELAYER_ACCOUNT_ID environment variable is not set for /generate-registration-options.');
-    // This is a server configuration issue, so we might not want to expose it directly to client,
-    // but it will prevent proper account association later.
     return res.status(500).json({ error: 'Server configuration error prevents registration option generation.' });
   }
 
   try {
     let user: User | undefined = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
-
-    // Construct potentialDerpAccountId as a subaccount of the relayer
-    const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32); // Sanitize and shorten
+    const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
     const potentialDerpAccountId = `${sanitizedUsername}.${RELAYER_ACCOUNT_ID}`;
 
     if (!user) {
       user = { id: `user_${Date.now()}_${username}`, username, derpAccountId: potentialDerpAccountId };
       db.prepare('INSERT INTO users (id, username, derpAccountId) VALUES (?, ?, ?)').run(user.id, user.username, user.derpAccountId);
     } else {
-      // Update derpAccountId if it's missing or doesn't match the new subaccount format
       if (!user.derpAccountId || !user.derpAccountId.endsWith(`.${RELAYER_ACCOUNT_ID}`)) {
         db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?').run(potentialDerpAccountId, user.id);
         user.derpAccountId = potentialDerpAccountId;
-      } else {
-        // If it already exists and is a subaccount of the relayer, respect it.
-        // However, if the username part has changed, or relayer itself has changed, we might want to update.
-        // For now, if it follows the sub.relayer.id pattern, keep it, otherwise update to new suggestion.
-        // This logic could be refined based on exact requirements for derpAccountId stability vs. reflecting current relayer.
       }
     }
 
     const rawAuthenticators: any[] = db.prepare('SELECT * FROM authenticators WHERE userId = ?').all(user.id);
-    const userAuthenticators: StoredAuthenticator[] = rawAuthenticators.map(auth => ({
+    const userAuthenticatorsForExclusion: { id: string; type: 'public-key'; transports?: AuthenticatorTransport[] }[] = rawAuthenticators.map(auth => ({
       credentialID: auth.credentialID,
       credentialPublicKey: auth.credentialPublicKey,
       counter: auth.counter,
       transports: auth.transports ? JSON.parse(auth.transports) : [],
-      userId: auth.userId,
-      name: auth.name,
-      registered: new Date(auth.registered),
-      lastUsed: auth.lastUsed ? new Date(auth.lastUsed) : undefined,
-      backedUp: auth.backedUp === 1,
-      derivedNearPublicKey: auth.derivedNearPublicKey,
-      clientManagedNearPublicKey: auth.clientManagedNearPublicKey,
+      id: auth.credentialID,
+      type: 'public-key',
     }));
-    const options = await generateRegistrationOptions({
-      rpName,
-      rpID,
-      userID: user.id,
-      userName: user.username,
-      userDisplayName: user.username,
-      excludeCredentials: userAuthenticators.map(auth => ({
-        id: isoBase64URL.toBuffer(auth.credentialID),
+
+    console.log(`Calling webauthn-contract.testnet for registration options for user: ${user.username}, userID: ${user.id}`);
+
+    const contractArgs: ContractGenerateRegistrationOptionsArgs = {
+      rp_name: rpName,
+      rp_id: rpID,
+      user_name: user.username,
+      user_id: Buffer.from(user.id, 'utf8'),
+      challenge: null,
+      user_display_name: user.username,
+      timeout: 60000,
+      attestation_type: "none",
+      exclude_credentials: userAuthenticatorsForExclusion.map(auth => ({
+        id: auth.id,
         type: 'public-key',
-        transports: auth.transports as AuthenticatorTransport[],
+        transports: auth.transports?.map(t => String(t)),
       })),
-      authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-      supportedAlgorithmIDs: [-7, -257],
-    });
-    db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?').run(options.challenge, user.id);
-    console.log('Generated registration options for:', username, 'Suggested derpAccountId:', user.derpAccountId, JSON.stringify(options, null, 2));
-    return res.json({ ...options, derpAccountId: user.derpAccountId });
+      authenticator_selection: {
+        resident_key: 'required', // Corrected to snake_case
+        user_verification: 'preferred', // Corrected to snake_case
+      },
+      extensions: null,
+      supported_algorithm_ids: [-7, -257],
+      preferred_authenticator_type: null,
+    };
+
+    let contractResponse;
+    try {
+      // Use near-api-js provider.query for view calls directly
+      // Ensure your nearClient or a near-api-js connection object is available
+      // This assumes a JsonRpcProvider is accessible, e.g., via nearClient.provider
+      const provider = nearClient.getProvider() as JsonRpcProvider; // Or: new JsonRpcProvider({ url: NEAR_RPC_URL });
+      const rawResult: any = await provider.query({
+        request_type: 'call_function',
+        account_id: 'webauthn-contract.testnet',
+        method_name: 'generate_registration_options',
+        args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
+        finality: 'optimistic',
+      });
+
+      if (rawResult.error) {
+        throw new Error(`Contract call error: ${rawResult.error}`);
+      }
+      if (!rawResult.result || rawResult.result.length === 0) {
+        throw new Error('Empty result from contract call');
+      }
+      contractResponse = JSON.parse(Buffer.from(rawResult.result).toString());
+
+    } catch (e: any) {
+      console.error('Error calling contract generate_registration_options:', e);
+      return res.status(500).json({ error: `Failed to call contract: ${e.message}` });
+    }
+
+    if (!contractResponse || !contractResponse.options) {
+      console.error('Invalid response from contract generate_registration_options:', contractResponse);
+      return res.status(500).json({ error: 'Invalid response from registration options contract call' });
+    }
+
+    const optionsFromContract = contractResponse.options;
+    const derpAccountIdFromContract = contractResponse.derpAccountId;
+
+    db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?').run(optionsFromContract.challenge, user.id);
+    console.log('Generated registration options via contract for:', username, 'Suggested derpAccountId:', derpAccountIdFromContract, JSON.stringify(optionsFromContract, null, 2));
+    return res.json({ ...optionsFromContract, derpAccountId: derpAccountIdFromContract });
+
   } catch (e: any) {
     console.error('Error generating registration options:', e);
     return res.status(500).json({ error: e.message || 'Failed to generate registration options' });

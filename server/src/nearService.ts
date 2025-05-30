@@ -45,6 +45,10 @@ class NearClient {
     console.log(`NearClient initialized with RPC URL: ${NEAR_RPC_URL}`);
   }
 
+  public getProvider(): Provider {
+    return this.rpcProvider;
+  }
+
   private async _ensureSignerAndRelayerAccount(): Promise<void> {
     if (this.isInitialized) {
       return;
