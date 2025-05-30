@@ -23,6 +23,7 @@
 /frontend/dist-ssr
 /server/dist
 /webauthn-contract/target
+/target
 
 *.local
 
