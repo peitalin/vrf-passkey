@@ -29,8 +29,11 @@ class NearClient {
   private isInitialized = false;
 
   constructor() {
-    if (!PASSKEY_CONTROLLER_CONTRACT_ID || !RELAYER_ACCOUNT_ID || !RELAYER_PRIVATE_KEY) {
-      throw new Error('Missing NEAR environment variables for passkey controller or relayer.');
+    if (!RELAYER_ACCOUNT_ID || !RELAYER_PRIVATE_KEY) {
+      throw new Error('Missing NEAR environment variables for relayer account.');
+    }
+    if (!PASSKEY_CONTROLLER_CONTRACT_ID) {
+      throw new Error('Missing NEAR environment variables for passkey controller.');
     }
     this.keyStore = new InMemoryKeyStore();
     if (!RELAYER_PRIVATE_KEY.startsWith('ed25519:')) {
@@ -55,7 +58,7 @@ class NearClient {
     this.relayerAccount = new Account(RELAYER_ACCOUNT_ID, this.rpcProvider, this.signer);
     this.isInitialized = true;
     console.log(`NearClient signer and relayer account initialized for network: ${NEAR_NETWORK_ID}, relayer: ${RELAYER_ACCOUNT_ID}`);
-    console.log(`Passkey Controller Contract ID: ${PASSKEY_CONTROLLER_CONTRACT_ID}`);
+    // console.log(`Passkey Controller Contract ID: ${PASSKEY_CONTROLLER_CONTRACT_ID}`);
   }
 
   private async _executeFunctionCallAction(receiverId: string, methodName: string, args: Record<string, any>, gas: bigint, deposit: bigint): Promise<any> {
@@ -76,15 +79,15 @@ class NearClient {
     }
   }
 
-  async isPasskeyPkRegistered(passkeyPk: string): Promise<boolean> {
-    await this._ensureSignerAndRelayerAccount();
-    return view({
-      account: PASSKEY_CONTROLLER_CONTRACT_ID,
-      method: 'is_passkey_pk_registered',
-      args: { passkey_pk: passkeyPk },
-      deps: { rpcProvider: this.rpcProvider },
-    });
-  }
+  // async isPasskeyPkRegistered(passkeyPk: string): Promise<boolean> {
+  //   await this._ensureSignerAndRelayerAccount();
+  //   return view({
+  //     account: PASSKEY_CONTROLLER_CONTRACT_ID,
+  //     method: 'is_passkey_pk_registered',
+  //     args: { passkey_pk: passkeyPk },
+  //     deps: { rpcProvider: this.rpcProvider },
+  //   });
+  // }
 
   async getTrustedRelayer(): Promise<string> {
     await this._ensureSignerAndRelayerAccount();
@@ -96,57 +99,57 @@ class NearClient {
     });
   }
 
-  async getOwnerId(): Promise<string> {
-    await this._ensureSignerAndRelayerAccount();
-    return view({
-      account: PASSKEY_CONTROLLER_CONTRACT_ID,
-      method: 'get_owner_id',
-      args: {},
-      deps: { rpcProvider: this.rpcProvider },
-    });
-  }
+  // async getOwnerId(): Promise<string> {
+  //   await this._ensureSignerAndRelayerAccount();
+  //   return view({
+  //     account: PASSKEY_CONTROLLER_CONTRACT_ID,
+  //     method: 'get_owner_id',
+  //     args: {},
+  //     deps: { rpcProvider: this.rpcProvider },
+  //   });
+  // }
 
-  async addPasskeyPk(passkeyPk: string): Promise<any> {
-    await this._ensureSignerAndRelayerAccount();
-    return this._executeFunctionCallAction(
-      PASSKEY_CONTROLLER_CONTRACT_ID,
-      'add_passkey_pk',
-      { passkey_pk: passkeyPk },
-      BigInt('30000000000000'),
-      BigInt('0')
-    );
-  }
+  // async addPasskeyPk(passkeyPk: string): Promise<any> {
+  //   await this._ensureSignerAndRelayerAccount();
+  //   return this._executeFunctionCallAction(
+  //     PASSKEY_CONTROLLER_CONTRACT_ID,
+  //     'add_passkey_pk',
+  //     { passkey_pk: passkeyPk },
+  //     BigInt('30000000000000'),
+  //     BigInt('0')
+  //   );
+  // }
 
-  async removePasskeyPk(passkeyPk: string): Promise<any> {
-    await this._ensureSignerAndRelayerAccount();
-    return this._executeFunctionCallAction(
-      PASSKEY_CONTROLLER_CONTRACT_ID,
-      'remove_passkey_pk',
-      { passkey_pk: passkeyPk },
-      BigInt('30000000000000'),
-      BigInt('0')
-    );
-  }
+  // async removePasskeyPk(passkeyPk: string): Promise<any> {
+  //   await this._ensureSignerAndRelayerAccount();
+  //   return this._executeFunctionCallAction(
+  //     PASSKEY_CONTROLLER_CONTRACT_ID,
+  //     'remove_passkey_pk',
+  //     { passkey_pk: passkeyPk },
+  //     BigInt('30000000000000'),
+  //     BigInt('0')
+  //   );
+  // }
 
-  async executeActions(
-    passkeyPkUsed: string,
-    actionToExecute: SerializableActionArgs
-  ): Promise<any> {
-    await this._ensureSignerAndRelayerAccount();
+  // async executeActions(
+  //   passkeyPkUsed: string,
+  //   actionToExecute: SerializableActionArgs
+  // ): Promise<any> {
+  //   await this._ensureSignerAndRelayerAccount();
 
-    const argsForContractMethod = {
-      passkey_pk_used: passkeyPkUsed,
-      action_to_execute: actionToExecute
-    };
+  //   const argsForContractMethod = {
+  //     passkey_pk_used: passkeyPkUsed,
+  //     action_to_execute: actionToExecute
+  //   };
 
-    return this._executeFunctionCallAction(
-      PASSKEY_CONTROLLER_CONTRACT_ID,
-      'execute_delegated_actions',
-      argsForContractMethod,
-      BigInt('300000000000000'),
-      BigInt('0')
-    );
-  }
+  //   return this._executeFunctionCallAction(
+  //     PASSKEY_CONTROLLER_CONTRACT_ID,
+  //     'execute_delegated_actions',
+  //     argsForContractMethod,
+  //     BigInt('300000000000000'),
+  //     BigInt('0')
+  //   );
+  // }
 
   async getGreeting(): Promise<string> {
     await this._ensureSignerAndRelayerAccount();

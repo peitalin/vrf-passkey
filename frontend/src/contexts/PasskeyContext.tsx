@@ -10,7 +10,6 @@ import { checkAccountExists } from '../utils/nearAccount';
 import bs58 from 'bs58';
 import {
   RPC_NODE_URL,
-  PASSKEY_CONTROLLER_CONTRACT_ID,
   DEFAULT_GAS_STRING,
   WEBAUTHN_CONTRACT_ID
 } from '../config';
@@ -88,7 +87,7 @@ interface PasskeyContextType extends PasskeyState {
   registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
   loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }>;
   logoutPasskey: () => void;
-  executeServerAction: (
+  executeDelegateActionViaServer: (
     actionToExecute: SerializableActionArgs,
     currentUsername: string,
     customGreeting?: string,
@@ -478,7 +477,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setStatusMessage('Logged out.');
   }, [setStatusMessage]);
 
-  const executeServerAction = useCallback(async (
+  const executeDelegateActionViaServer = useCallback(async (
     actionToExecute: SerializableActionArgs,
     currentUsernameForAction: string,
     customGreeting?: string,
@@ -523,7 +522,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       if (!assertion) throw new Error('Action confirmation cancelled.');
 
       const passkeyAssert = publicKeyCredentialToJSON(assertion);
-      const execResp = await fetch(`${SERVER_URL}/api/execute-action`, {
+      const execResp = await fetch(`${SERVER_URL}/api/execute-delegate-action`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: currentUsernameForAction, passkeyAssertion: passkeyAssert, actionToExecute: finalAction })
       });
@@ -685,7 +684,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     registerPasskey,
     loginPasskey,
     logoutPasskey,
-    executeServerAction,
+    executeDelegateActionViaServer,
     executeDirectActionViaWorker,
     fetchCurrentGreeting,
   };

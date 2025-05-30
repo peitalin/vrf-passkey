@@ -70,7 +70,7 @@ export interface SerializableActionArgs {
 export interface StoredActionChallengeData {
     actionDetails: SerializableActionArgs;
     expectedCredentialID?: string; // Optional: if challenge is tied to a specific passkey
-    // any other relevant data to verify against during execute-action
+    // any other relevant data to verify against during execute-delegate-action
 }
 
 // Result type for NearClient.createAccount method

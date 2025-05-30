@@ -98,7 +98,7 @@ app.get('/', (req: Request, res: Response) => {
 // Verifies a passkey authentication assertion.
 // Returns session info on success.
 //
-// POST /api/execute-action
+// POST /api/execute-delegate-action
 // Executes a NEAR transaction using the derived key from passkey.
 // Requires passkey authentication before executing the action.
 
@@ -294,8 +294,8 @@ app.post('/api/associate-account-pk', async (req: Request, res: Response) => {
     }
 
     // Register the public key with the PasskeyController contract
-    await nearClient.addPasskeyPk(nearPublicKeyToRegister.toString());
-    console.log(`Successfully registered client-generated NEAR PK ${clientNearPublicKey} for ${derpAccountId} on PasskeyController via nearClient.`);
+    // await nearClient.addPasskeyPk(nearPublicKeyToRegister.toString());
+    // console.log(`Successfully registered client-generated NEAR PK ${clientNearPublicKey} for ${derpAccountId} on PasskeyController via nearClient.`);
 
     const stmt = db.prepare('UPDATE authenticators SET clientManagedNearPublicKey = ? WHERE userId = ? ORDER BY registered DESC LIMIT 1');
     const info = stmt.run(clientNearPublicKey, user.id);
@@ -559,111 +559,111 @@ app.post('/api/action-challenge', async (req: Request, res: Response) => {
   }
 });
 
-// Refactor /api/execute-action
-app.post('/api/execute-action', async (req: Request, res: Response) => {
-  const { username, passkeyAssertion, actionToExecute } = req.body as {
-    username: string;
-    passkeyAssertion: AuthenticationResponseJSON;
-    actionToExecute: SerializableActionArgs;
-  };
+// // Refactor /api/execute-delegate-action
+// app.post('/api/execute-delegate-action', async (req: Request, res: Response) => {
+//   const { username, passkeyAssertion, actionToExecute } = req.body as {
+//     username: string;
+//     passkeyAssertion: AuthenticationResponseJSON;
+//     actionToExecute: SerializableActionArgs;
+//   };
 
-  if (!username || !passkeyAssertion || !actionToExecute) {
-    return res.status(400).json({ error: 'Username, passkeyAssertion, and actionToExecute are required.' });
-  }
+//   if (!username || !passkeyAssertion || !actionToExecute) {
+//     return res.status(400).json({ error: 'Username, passkeyAssertion, and actionToExecute are required.' });
+//   }
 
-  try {
-    let clientChallenge: string;
-    let clientSignedPayload: any;
-    try {
-      const clientDataJSONBuffer = isoBase64URL.toBuffer(passkeyAssertion.response.clientDataJSON);
-      const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
-      clientChallenge = clientData.challenge;
-      if (!clientChallenge) {
-        return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON from assertion.' });
-      }
-      clientSignedPayload = JSON.parse(Buffer.from(isoBase64URL.toBuffer(clientChallenge)).toString('utf8'));
-    } catch (parseError) {
-      return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON or challenge format.' });
-    }
+//   try {
+//     let clientChallenge: string;
+//     let clientSignedPayload: any;
+//     try {
+//       const clientDataJSONBuffer = isoBase64URL.toBuffer(passkeyAssertion.response.clientDataJSON);
+//       const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
+//       clientChallenge = clientData.challenge;
+//       if (!clientChallenge) {
+//         return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON from assertion.' });
+//       }
+//       clientSignedPayload = JSON.parse(Buffer.from(isoBase64URL.toBuffer(clientChallenge)).toString('utf8'));
+//     } catch (parseError) {
+//       return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON or challenge format.' });
+//     }
 
-    const storedChallengeData = await actionChallengeStore.validateAndConsumeActionChallenge(clientChallenge);
-    if (!storedChallengeData) {
-      return res.status(400).json({ verified: false, error: 'Action challenge invalid, expired, or already used.' });
-    }
-    const { actionDetails: storedActionDetails, expectedCredentialID } = storedChallengeData;
+//     const storedChallengeData = await actionChallengeStore.validateAndConsumeActionChallenge(clientChallenge);
+//     if (!storedChallengeData) {
+//       return res.status(400).json({ verified: false, error: 'Action challenge invalid, expired, or already used.' });
+//     }
+//     const { actionDetails: storedActionDetails, expectedCredentialID } = storedChallengeData;
 
-    const currentActionHash = createHash('sha256').update(JSON.stringify(actionToExecute)).digest('hex');
-    if (currentActionHash !== clientSignedPayload.actionHash) {
-      console.warn('Action mismatch! Current action does not match action signed in challenge.', { currentActionHash, signedPayload: clientSignedPayload });
-      return res.status(400).json({ verified: false, error: 'Action details mismatch. The signed action does not match the requested action.'});
-    }
-    if (expectedCredentialID && passkeyAssertion.id !== expectedCredentialID) {
-        return res.status(400).json({ verified: false, error: 'Passkey credential ID mismatch.'});
-    }
+//     const currentActionHash = createHash('sha256').update(JSON.stringify(actionToExecute)).digest('hex');
+//     if (currentActionHash !== clientSignedPayload.actionHash) {
+//       console.warn('Action mismatch! Current action does not match action signed in challenge.', { currentActionHash, signedPayload: clientSignedPayload });
+//       return res.status(400).json({ verified: false, error: 'Action details mismatch. The signed action does not match the requested action.'});
+//     }
+//     if (expectedCredentialID && passkeyAssertion.id !== expectedCredentialID) {
+//         return res.status(400).json({ verified: false, error: 'Passkey credential ID mismatch.'});
+//     }
 
-    const rawAuth: any | undefined = db.prepare('SELECT *, derivedNearPublicKey FROM authenticators WHERE credentialID = ?').get(passkeyAssertion.id);
-    if (!rawAuth) {
-      return res.status(404).json({ error: `Authenticator '${passkeyAssertion.id}' not found.` });
-    }
-    const authenticator: StoredAuthenticator = {
-        credentialID: rawAuth.credentialID,
-        credentialPublicKey: rawAuth.credentialPublicKey,
-        counter: rawAuth.counter,
-        transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : [],
-        userId: rawAuth.userId,
-        name: rawAuth.name,
-        registered: new Date(rawAuth.registered),
-        lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,
-        backedUp: rawAuth.backedUp === 1,
-        derivedNearPublicKey: rawAuth.derivedNearPublicKey,
-    };
-    if (!authenticator.derivedNearPublicKey) {
-      return res.status(500).json({ error: 'User authenticator is missing COSE-derived NEAR public key for this action flow.'});
-    }
+//     const rawAuth: any | undefined = db.prepare('SELECT *, derivedNearPublicKey FROM authenticators WHERE credentialID = ?').get(passkeyAssertion.id);
+//     if (!rawAuth) {
+//       return res.status(404).json({ error: `Authenticator '${passkeyAssertion.id}' not found.` });
+//     }
+//     const authenticator: StoredAuthenticator = {
+//         credentialID: rawAuth.credentialID,
+//         credentialPublicKey: rawAuth.credentialPublicKey,
+//         counter: rawAuth.counter,
+//         transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : [],
+//         userId: rawAuth.userId,
+//         name: rawAuth.name,
+//         registered: new Date(rawAuth.registered),
+//         lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,
+//         backedUp: rawAuth.backedUp === 1,
+//         derivedNearPublicKey: rawAuth.derivedNearPublicKey,
+//     };
+//     if (!authenticator.derivedNearPublicKey) {
+//       return res.status(500).json({ error: 'User authenticator is missing COSE-derived NEAR public key for this action flow.'});
+//     }
 
-    const verification = await verifyAuthenticationResponse({
-      response: passkeyAssertion,
-      expectedChallenge: clientChallenge,
-      expectedOrigin,
-      expectedRPID: rpID,
-      authenticator: {
-        credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
-        credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-        counter: authenticator.counter as number,
-        transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-      },
-      requireUserVerification: true,
-    });
+//     const verification = await verifyAuthenticationResponse({
+//       response: passkeyAssertion,
+//       expectedChallenge: clientChallenge,
+//       expectedOrigin,
+//       expectedRPID: rpID,
+//       authenticator: {
+//         credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
+//         credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+//         counter: authenticator.counter as number,
+//         transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+//       },
+//       requireUserVerification: true,
+//     });
 
-    if (verification.verified && verification.authenticationInfo) {
-      db.prepare('UPDATE authenticators SET counter = ? WHERE credentialID = ?').run(verification.authenticationInfo.newCounter, authenticator.credentialID);
+//     if (verification.verified && verification.authenticationInfo) {
+//       db.prepare('UPDATE authenticators SET counter = ? WHERE credentialID = ?').run(verification.authenticationInfo.newCounter, authenticator.credentialID);
 
-      // Use nearClient for executing actions
-      const transactionOutcome = await nearClient.executeActions(authenticator.derivedNearPublicKey, storedActionDetails);
+//       // Use nearClient for executing actions
+//       const transactionOutcome = await nearClient.executeActions(authenticator.derivedNearPublicKey, storedActionDetails);
 
-      if (transactionOutcome && transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
-        let successValue = '';
-        if (transactionOutcome.status.SuccessValue && transactionOutcome.status.SuccessValue !== '') {
-          try { successValue = Buffer.from(transactionOutcome.status.SuccessValue, 'base64').toString('utf-8'); } catch (e) { successValue = transactionOutcome.status.SuccessValue; }
-        }
-        console.log("transactionOutcome", transactionOutcome)
-        return res.json({ success: true, message: 'Action executed successfully.', transactionId: transactionOutcome.transaction_outcome?.id, successValue });
-      } else if (transactionOutcome && transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'Failure' in transactionOutcome.status) {
-        console.log("transactionOutcome", transactionOutcome)
-        return res.status(500).json({ success: false, error: 'Action execution failed on-chain.', details: transactionOutcome.status.Failure });
-      } else {
-        console.log("transactionOutcome", transactionOutcome)
-        return res.json({ success: true, message: 'Action sent, but final status is unclear.', transactionOutcome });
-      }
-    } else {
-      const errorMessage = (verification as any).error?.message || 'Passkey assertion verification failed';
-      return res.status(400).json({ verified: false, error: errorMessage });
-    }
-  } catch (error: any) {
-    console.error('Error in /api/execute-action:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to execute action due to an unexpected server error.' });
-  }
-});
+//       if (transactionOutcome && transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
+//         let successValue = '';
+//         if (transactionOutcome.status.SuccessValue && transactionOutcome.status.SuccessValue !== '') {
+//           try { successValue = Buffer.from(transactionOutcome.status.SuccessValue, 'base64').toString('utf-8'); } catch (e) { successValue = transactionOutcome.status.SuccessValue; }
+//         }
+//         console.log("transactionOutcome", transactionOutcome)
+//         return res.json({ success: true, message: 'Action executed successfully.', transactionId: transactionOutcome.transaction_outcome?.id, successValue });
+//       } else if (transactionOutcome && transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'Failure' in transactionOutcome.status) {
+//         console.log("transactionOutcome", transactionOutcome)
+//         return res.status(500).json({ success: false, error: 'Action execution failed on-chain.', details: transactionOutcome.status.Failure });
+//       } else {
+//         console.log("transactionOutcome", transactionOutcome)
+//         return res.json({ success: true, message: 'Action sent, but final status is unclear.', transactionOutcome });
+//       }
+//     } else {
+//       const errorMessage = (verification as any).error?.message || 'Passkey assertion verification failed';
+//       return res.status(400).json({ verified: false, error: errorMessage });
+//     }
+//   } catch (error: any) {
+//     console.error('Error in /api/execute-delegate-action:', error);
+//     return res.status(500).json({ success: false, error: error.message || 'Failed to execute action due to an unexpected server error.' });
+//   }
+// });
 
 // New endpoint for creating NEAR accounts using the relay account
 app.post('/api/create-account', async (req: Request, res: Response) => {
