@@ -18,7 +18,7 @@ const PASSKEY_CONTROLLER_CONTRACT_ID = process.env.PASSKEY_CONTROLLER_CONTRACT_I
 const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
 const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
-const HELLO_NEAR_CONTRACT_ID = process.env.HELLO_NEAR_CONTRACT_ID!; // For the test functions
+const WEBAUTHN_CONTRACT_ID = process.env.WEBAUTHN_CONTRACT_ID!; // For the test functions
 const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org'; // Define RPC URL
 
 class NearClient {
@@ -150,10 +150,10 @@ class NearClient {
 
   async getGreeting(): Promise<string> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Calling get_greeting on ${HELLO_NEAR_CONTRACT_ID}`);
+    console.log(`NearClient: Calling get_greeting on ${WEBAUTHN_CONTRACT_ID}`);
     try {
       const result = await view({
-        account: HELLO_NEAR_CONTRACT_ID,
+        account: WEBAUTHN_CONTRACT_ID,
         method: 'get_greeting',
         args: {},
         deps: { rpcProvider: this.rpcProvider },
@@ -167,9 +167,9 @@ class NearClient {
 
   async setGreeting(greeting: string): Promise<any> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Calling set_greeting on ${HELLO_NEAR_CONTRACT_ID} with greeting: "${greeting}"`);
+    console.log(`NearClient: Calling set_greeting on ${WEBAUTHN_CONTRACT_ID} with greeting: "${greeting}"`);
     return this._executeFunctionCallAction(
-      HELLO_NEAR_CONTRACT_ID,
+      WEBAUTHN_CONTRACT_ID,
       'set_greeting',
       { greeting: greeting },
       BigInt('30000000000000'),

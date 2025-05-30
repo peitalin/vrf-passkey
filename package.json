@@ -5,7 +5,9 @@
     "dev": "(cd frontend && pnpm dev)",
     "server": "(cd server && pnpm build && pnpm start)",
     "install-all": "pnpm install && (cd server && pnpm install) && (cd frontend && pnpm install)",
-    "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)"
+    "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)",
+    "deploy-contract": "(cd webauthn-contract && sh ./deploy.sh)",
+    "upgrade-contract": "(cd webauthn-contract && sh ./upgrade.sh)"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

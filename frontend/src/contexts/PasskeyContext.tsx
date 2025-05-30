@@ -12,7 +12,7 @@ import {
   RPC_NODE_URL,
   PASSKEY_CONTROLLER_CONTRACT_ID,
   DEFAULT_GAS_STRING,
-  HELLO_NEAR_CONTRACT_ID
+  WEBAUTHN_CONTRACT_ID
 } from '../config';
 
 
@@ -138,7 +138,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     try {
       const provider = getRpcProvider();
       const result = await view({
-        account: HELLO_NEAR_CONTRACT_ID,
+        account: WEBAUTHN_CONTRACT_ID,
         method: 'get_greeting',
         args: {},
         deps: { rpcProvider: provider }

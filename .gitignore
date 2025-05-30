@@ -6,6 +6,7 @@
 # Environment variables (if any)
 /frontend/.env
 /server/.env
+/webauthn-contract/.env
 
 # WASM worker
 /frontend/wasm-worker/pkg
@@ -21,6 +22,7 @@
 /frontend/dist
 /frontend/dist-ssr
 /server/dist
+/webauthn-contract/target
 
 *.local
 

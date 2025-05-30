@@ -5,7 +5,7 @@ import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './RefreshIcon'
 import { webAuthnManager } from '../security/WebAuthnManager'
 import { shortenString } from '../utils/strings'
-import { HELLO_NEAR_CONTRACT_ID } from '../config'
+import { WEBAUTHN_CONTRACT_ID } from '../config'
 
 
 interface LastTxDetails {
@@ -160,7 +160,7 @@ export function PasskeyLogin() {
 
     const actionToExecute: SerializableActionArgs = {
       action_type: ActionType.FunctionCall,
-      receiver_id: HELLO_NEAR_CONTRACT_ID,
+      receiver_id: WEBAUTHN_CONTRACT_ID,
       method_name: 'set_greeting',
       args: JSON.stringify({ greeting: newGreetingMessage }),
       gas: "30000000000000",
@@ -267,7 +267,7 @@ export function PasskeyLogin() {
 
           {serverDerivedNearPK ? (
             <div className="greeting-controls-box">
-              <h4>Manage Greeting on {HELLO_NEAR_CONTRACT_ID}</h4>
+              <h4>Manage Greeting on {WEBAUTHN_CONTRACT_ID}</h4>
 
               <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
                 <RefreshIcon size={22} />
