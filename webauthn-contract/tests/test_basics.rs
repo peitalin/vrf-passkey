@@ -48,6 +48,9 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
     let user_id_bytes = vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16];
     let challenge_bytes = vec![10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160];
 
+    let user_id_b64_for_json = TEST_BASE64_URL_ENGINE.encode(&user_id_bytes);
+    let challenge_b64_for_json = TEST_BASE64_URL_ENGINE.encode(&challenge_bytes);
+
     let user_display_name = "Custom Name".to_string();
     let custom_timeout = 120000u64;
     let custom_attestation = "direct".to_string();
@@ -62,29 +65,29 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
         require_resident_key: Some(true),
         user_verification: Some("required".to_string()),
     };
-    let custom_extensions = AuthenticationExtensionsClientInputsJSON {
-        cred_props: Some(true) // JS always sets/overrides this
+    let custom_extensions_json = AuthenticationExtensionsClientInputsJSON {
+        cred_props: Some(false) // Contract logic should override this to Some(true)
     };
-    let custom_alg_ids = vec![-7, -36];
-    let custom_pref_auth_type = "securityKey".to_string();
+    let custom_alg_ids_vec = vec![-7, -36];
+    let custom_pref_auth_type_str = "securityKey".to_string();
 
     let args = json!({
-        "rp_name": rp_name,
-        "rp_id": rp_id,
-        "user_name": user_name_for_entity,
-        "user_id": Some(user_id_bytes.clone()),      // Pass base64 string for Option<Vec<u8>>
-        "challenge": Some(challenge_bytes.clone()),  // Pass base64 string for Option<Vec<u8>>
-        "user_display_name": Some(user_display_name),
+        "rp_name": rp_name.clone(),
+        "rp_id": rp_id.clone(),
+        "user_name": user_name_for_entity.clone(),
+        "user_id": user_id_b64_for_json.clone(),
+        "challenge": Some(challenge_b64_for_json.clone()),
+        "user_display_name": Some(user_display_name.clone()),
         "timeout": Some(custom_timeout),
-        "attestation_type": Some(custom_attestation),
-        "exclude_credentials": Some(custom_exclude),
-        "authenticator_selection": Some(custom_auth_selection),
-        "extensions": Some(custom_extensions),
-        "supported_algorithm_ids": Some(custom_alg_ids),
-        "preferred_authenticator_type": Some(custom_pref_auth_type),
+        "attestation_type": Some(custom_attestation.clone()),
+        "exclude_credentials": Some(custom_exclude.clone()),
+        "authenticator_selection": Some(custom_auth_selection.clone()),
+        "extensions": Some(custom_extensions_json.clone()),
+        "supported_algorithm_ids": Some(custom_alg_ids_vec.clone()),
+        "preferred_authenticator_type": Some(custom_pref_auth_type_str.clone()),
     });
 
-    println!("Sending registration options args: {}\n", args.to_string());
+    println!("Sending registration options args (test_basics.rs): {}\n", args.to_string());
 
     let registration_options_outcome = user_account
         .call(contract.id(), "generate_registration_options")
@@ -99,8 +102,8 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
 
     // Assert key fields from the response
     assert_eq!(response_json["rp"]["name"].as_str(), Some("My Passkey App"));
-    assert_eq!(response_json["user"]["id"].as_str(), Some(TEST_BASE64_URL_ENGINE.encode(&user_id_bytes).as_str()));
-    assert_eq!(response_json["challenge"].as_str(), Some(TEST_BASE64_URL_ENGINE.encode(&challenge_bytes).as_str()));
+    assert_eq!(response_json["user"]["id"].as_str(), Some(user_id_b64_for_json.as_str()));
+    assert_eq!(response_json["challenge"].as_str(), Some(challenge_b64_for_json.as_str()));
     assert_eq!(response_json["authenticatorSelection"]["requireResidentKey"].as_bool(), Some(true));
     assert_eq!(response_json["extensions"]["credProps"].as_bool(), Some(true));
     assert_eq!(response_json["derpAccountId"].as_str(), Some(format!("{}.{}", user_name_for_entity, "webauthn-contract.testnet").as_str()));
