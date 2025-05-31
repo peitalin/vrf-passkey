@@ -49,6 +49,10 @@ class NearClient {
     return this.rpcProvider;
   }
 
+  public getRelayerAccount(): Account {
+    return this.relayerAccount;
+  }
+
   private async _ensureSignerAndRelayerAccount(): Promise<void> {
     if (this.isInitialized) {
       return;
