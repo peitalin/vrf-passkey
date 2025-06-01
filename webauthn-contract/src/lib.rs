@@ -1,12 +1,12 @@
-use near_sdk::{env, log, near};
+use near_sdk::{env, log, near, Promise};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use serde_cbor::Value as CborValue;
 use bs58;
-use std::collections::BTreeMap;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::ecdsa::signature::Verifier;
 use p256::PublicKey as P256PublicKey;
+use ed25519_dalek::{SigningKey as Ed25519SigningKey, VerifyingKey as Ed25519VerifyingKey};
 
 // Constants for default challenge and userID sizes ( mimicking JS defaults if different from full random_seed)
 const DEFAULT_CHALLENGE_SIZE: usize = 16;
@@ -37,7 +37,7 @@ pub struct PubKeyCredParam {
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
-#[derive(Debug, Clone, PartialEq)] // Added PartialEq
+#[derive(Debug, Clone, PartialEq)]
 pub enum AuthenticatorTransport {
     #[serde(rename = "usb")]
     Usb,
@@ -129,11 +129,72 @@ pub struct RegistrationOptionsWithDerpIdJSON {
     pub derp_account_id: Option<String>,
 }
 
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub struct RegistrationResponseJSON {
+    pub id: String,
+    pub raw_id: String,
+    pub response: AttestationResponse,
+    pub authenticator_attachment: Option<String>,
+    pub type_: String,
+}
+
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub struct AttestationResponse {
+    pub client_data_json: String,
+    pub attestation_object: String,
+    pub transports: Option<Vec<String>>,
+}
+
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub struct VerifiedRegistrationResponse {
+    pub verified: bool,
+    pub registration_info: Option<RegistrationInfo>,
+}
+
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub struct RegistrationInfo {
+    pub credential_id: Vec<u8>,
+    pub credential_public_key: Vec<u8>,
+    pub counter: u32,
+    pub derived_near_public_key: String,
+    pub user_id: String,
+}
+
+// WebAuthn verification structures
+#[derive(serde::Deserialize, Debug)]
+struct ClientDataJSON {
+    #[serde(rename = "type")]
+    type_: String,
+    challenge: String,
+    origin: String,
+    #[serde(rename = "crossOrigin", default)]
+    cross_origin: bool,
+}
+
+#[derive(Debug)]
+struct AuthenticatorData {
+    rp_id_hash: Vec<u8>,
+    flags: u8,
+    counter: u32,
+    attested_credential_data: Option<AttestedCredentialData>,
+}
+
+#[derive(Debug)]
+struct AttestedCredentialData {
+    aaguid: Vec<u8>,
+    credential_id: Vec<u8>,
+    credential_public_key: Vec<u8>,
+}
+
 #[near(contract_state)]
 pub struct WebAuthnContract {
     greeting: String,
     contract_name: String,
-    current_challenge: Option<String>,
+    // current_challenge: Option<String>,
 }
 
 impl Default for WebAuthnContract {
@@ -141,7 +202,7 @@ impl Default for WebAuthnContract {
         Self {
             greeting: "Hello".to_string(),
             contract_name: "webauthn-contract.testnet".to_string(),
-            current_challenge: None,
+            // current_challenge: None,
         }
     }
 }
@@ -154,7 +215,7 @@ impl WebAuthnContract {
         Self {
             contract_name,
             greeting: "Hello".to_string(),
-            current_challenge: None,
+            // current_challenge: None,
         }
     }
 
@@ -181,6 +242,22 @@ impl WebAuthnContract {
         seed.into_iter().take(DEFAULT_CHALLENGE_SIZE).collect() // Or full seed if preferred
     }
 
+    /// YIELD-RESUME REGISTRATION FLOW (CONCEPTUAL FUTURE IMPLEMENTATION)
+    /// This demonstrates how yield-resume could eliminate server-side challenge storage:
+    ///
+    /// Benefits of this approach:
+    /// - Serverless Webauthn: No server-side challenge storage needed
+    /// - Challenge is private in the contract state during yield
+    /// - More decentralized architecture
+    /// - Automatic timeout handling (200 blocks ≈ 20 minutes)
+
+    /*
+    // Future yield-resume methods to implement:
+    pub fn start_registration(&mut self, username: String) -> Promise { ... }
+    pub fn resume_registration(&mut self, data_id: CryptoHash, ...) -> Promise { ... }
+    #[private] pub fn finish_registration(&mut self) -> VerifiedRegistrationResponse { ... }
+    */
+
     pub fn generate_registration_options(
         &mut self,
         rp_name: String,
@@ -202,7 +279,7 @@ impl WebAuthnContract {
             let bytes = self.generate_challenge_bytes();
             BASE64_URL_ENGINE.encode(&bytes)
         });
-        self.current_challenge = Some(final_challenge_b64url.clone());
+        // self.current_challenge = Some(final_challenge_b64url.clone());
 
         let final_user_id_b64url = user_id;
 
@@ -380,35 +457,24 @@ impl WebAuthnContract {
                         let hash_bytes = env::sha256(&p256_pk_material);
                         log!("SHA-256 hash of P-256 x||y (len {}): {:?}", hash_bytes.len(), hash_bytes);
 
-                        // The SHA-256 hash (32 bytes) is used as the seed for an Ed25519 key pair.
-                        // near_sdk::PublicKey::new_ed25519 expects the Ed25519 public key itself, not a seed.
-                        // We need to perform Ed25519 key generation from this seed.
-                        // The `near_crypto` crate handles this, but direct access might be tricky in pure SDK.
-                        // For now, this shows the derivation of the seed.
-                        // To complete this, one would typically use a crypto library that can produce
-                        // an Ed25519 public key from a 32-byte seed.
-                        // Since we can't easily generate a new keypair from seed directly with `near_sdk::PublicKey` alone
-                        // and return its public key, this part needs careful consideration for on-chain execution.
-                        // A common pattern for this specific P256->Ed25519 derivation is to treat the hash *as if* it were an Ed25519 public key.
-                        // This is NOT cryptographically sound for generating a *new pair* but is what some systems do for *deterministic derivation*.
-                        // However, the original TS code generates a keypair from this seed.
-                        // For on-chain, if you cannot generate a keypair, you might need a precompile or accept this limitation.
-                        // The most direct translation of the TS logic (which generates a new keypair from this hash as seed)
-                        // is not straightforwardly available in `near-sdk` without pulling in more of `near-crypto` or equivalent.
-                        // Let's assume for now that the *hash itself* is what is used to construct the Ed25519 PublicKey object,
-                        // which is a simplification/approximation of what the TS code does (where it forms a full keypair).
-                        // This part might need adjustment based on how the corresponding private key operations are handled.
-                        // If this derived key is only for identification and verification (not signing by contract), using the hash directly might be an option.
-
-                        // Create an Ed25519 public key from the 32-byte hash (seed).
-                        // This treats the seed as the public key bytes directly.
+                        // Generate Ed25519 keypair from the SHA-256 hash seed
+                        // This properly derives an Ed25519 public key from the 32-byte seed
                         if hash_bytes.len() == 32 {
-                            // Prefix with 0x00 for Ed25519 curve type
+                            // Convert hash to fixed-size array for ed25519-dalek
+                            let mut seed = [0u8; 32];
+                            seed.copy_from_slice(&hash_bytes);
+
+                            // Generate Ed25519 signing key from seed
+                            let signing_key = Ed25519SigningKey::from_bytes(&seed);
+                            let verifying_key = signing_key.verifying_key();
+
+                            // Convert to NEAR public key format
+                            let ed25519_pk_bytes = verifying_key.to_bytes();
                             let mut key_data = vec![0x00]; // Ed25519 curve type prefix
-                            key_data.extend_from_slice(&hash_bytes);
+                            key_data.extend_from_slice(&ed25519_pk_bytes);
                             let near_pk_str = bs58::encode(&key_data).into_string();
                             let near_pk_full = format!("ed25519:{}", near_pk_str);
-                            log!("Derived Ed25519 PK from P-256 (using hash as PK): {}", near_pk_full);
+                            log!("Derived Ed25519 PK from P-256 seed: {}", near_pk_full);
                             Some(near_pk_full)
                         } else {
                             log!("Hash of P-256 material was not 32 bytes.");
@@ -426,6 +492,263 @@ impl WebAuthnContract {
                 None
             }
         }
+    }
+
+    /// Public method to verify registration response
+    pub fn verify_registration_response_internal(
+        &self,
+        attestation_response: RegistrationResponseJSON,
+        expected_challenge: String,
+        expected_origin: String,
+        expected_rp_id: String,
+        require_user_verification: bool
+    ) -> VerifiedRegistrationResponse {
+        log!("Contract verification of registration response");
+        log!("Expected challenge: {}", expected_challenge);
+        log!("Expected origin: {}", expected_origin);
+        log!("Expected RP ID: {}", expected_rp_id);
+
+        // Steps:
+        // 1. Parse and validate clientDataJSON
+        // 2. Verify challenge matches expected_challenge
+        // 3. Verify origin matches expected_origin
+        // 4. Parse and validate attestationObject
+        // 5. Verify attestation signature using existing helper methods
+        // 6. Extract credential public key
+        // 7. Derive NEAR public key from COSE format
+
+        // Step 1: Parse and validate clientDataJSON
+        let client_data_json_bytes = match BASE64_URL_ENGINE.decode(&attestation_response.response.client_data_json) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log!("Failed to decode clientDataJSON from base64url");
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        let client_data: ClientDataJSON = match serde_json::from_slice(&client_data_json_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to parse clientDataJSON: {}", e);
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        // Step 2: Verify challenge matches expected_challenge
+        if client_data.challenge != expected_challenge {
+            log!("Challenge mismatch: expected {}, got {}", expected_challenge, client_data.challenge);
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Step 3: Verify origin matches expected_origin
+        if client_data.origin != expected_origin {
+            log!("Origin mismatch: expected {}, got {}", expected_origin, client_data.origin);
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Verify type is "webauthn.create"
+        if client_data.type_ != "webauthn.create" {
+            log!("Invalid type: expected webauthn.create, got {}", client_data.type_);
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Step 4: Parse and validate attestationObject
+        let attestation_object_bytes = match BASE64_URL_ENGINE.decode(&attestation_response.response.attestation_object) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log!("Failed to decode attestationObject from base64url");
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        let attestation_object: CborValue = match serde_cbor::from_slice(&attestation_object_bytes) {
+            Ok(obj) => obj,
+            Err(e) => {
+                log!("Failed to parse attestationObject CBOR: {}", e);
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        // Extract components from attestationObject
+        let (auth_data_bytes, att_stmt, fmt) = match self.parse_attestation_object(&attestation_object) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to parse attestation object: {}", e);
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        // Parse authenticator data
+        let auth_data = match self.parse_authenticator_data(&auth_data_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to parse authenticator data: {}", e);
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        // Verify RP ID hash
+        let expected_rp_id_hash = env::sha256(expected_rp_id.as_bytes());
+        if auth_data.rp_id_hash != expected_rp_id_hash {
+            log!("RP ID hash mismatch");
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Check user verification if required
+        if require_user_verification && (auth_data.flags & 0x04) == 0 {
+            log!("User verification required but not performed");
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Verify user presence (UP flag must be set)
+        if (auth_data.flags & 0x01) == 0 {
+            log!("User presence flag not set");
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        // Verify attested credential data present (AT flag must be set)
+        if (auth_data.flags & 0x40) == 0 {
+            log!("Attested credential data flag not set");
+            return VerifiedRegistrationResponse { verified: false, registration_info: None };
+        }
+
+        let attested_cred_data = match auth_data.attested_credential_data {
+            Some(data) => data,
+            None => {
+                log!("No attested credential data found");
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        // Step 5: Verify attestation signature
+        let client_data_hash = env::sha256(&client_data_json_bytes);
+        match self.verify_attestation_signature(&att_stmt, &auth_data_bytes, &client_data_hash, &attested_cred_data.credential_public_key, &fmt) {
+            Ok(true) => log!("Attestation signature verified successfully"),
+            Ok(false) => {
+                log!("Attestation signature verification failed");
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+            Err(e) => {
+                log!("Error verifying attestation signature: {}", e);
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        }
+
+        // Step 6: Derive NEAR public key from COSE format
+        let derived_near_public_key = match self.derive_near_pk_from_cose(attested_cred_data.credential_public_key.clone()) {
+            Some(pk) => pk,
+            None => {
+                log!("Failed to derive NEAR public key from COSE credential public key");
+                return VerifiedRegistrationResponse { verified: false, registration_info: None };
+            }
+        };
+
+        log!("Registration verification successful");
+        VerifiedRegistrationResponse {
+            verified: true,
+            registration_info: Some(RegistrationInfo {
+                credential_id: attested_cred_data.credential_id,
+                credential_public_key: attested_cred_data.credential_public_key,
+                counter: auth_data.counter,
+                derived_near_public_key,
+                user_id: attestation_response.id, // Use the credential ID as user ID
+            })
+        }
+    }
+
+    fn parse_attestation_object(&self, attestation_object: &CborValue) -> Result<(Vec<u8>, CborValue, String), String> {
+        if let CborValue::Map(map) = attestation_object {
+            // Extract authData (required)
+            let auth_data = map
+                .get(&CborValue::Text("authData".to_string()))
+                .ok_or("Missing authData in attestation object")?;
+
+            let auth_data_bytes = if let CborValue::Bytes(bytes) = auth_data {
+                bytes.clone()
+            } else {
+                return Err("authData must be bytes".to_string());
+            };
+
+            // Extract fmt (required)
+            let fmt = map
+                .get(&CborValue::Text("fmt".to_string()))
+                .ok_or("Missing fmt in attestation object")?;
+
+            let fmt_string = if let CborValue::Text(s) = fmt {
+                s.clone()
+            } else {
+                return Err("fmt must be text".to_string());
+            };
+
+            // Extract attStmt (required)
+            let att_stmt = map
+                .get(&CborValue::Text("attStmt".to_string()))
+                .ok_or("Missing attStmt in attestation object")?
+                .clone();
+
+            Ok((auth_data_bytes, att_stmt, fmt_string))
+        } else {
+            Err("Attestation object must be a CBOR map".to_string())
+        }
+    }
+
+    fn parse_authenticator_data(&self, auth_data_bytes: &[u8]) -> Result<AuthenticatorData, String> {
+        if auth_data_bytes.len() < 37 {
+            return Err("Authenticator data too short".to_string());
+        }
+
+        // Parse fixed-length portion
+        let rp_id_hash = auth_data_bytes[0..32].to_vec();
+        let flags = auth_data_bytes[32];
+        let counter = u32::from_be_bytes([
+            auth_data_bytes[33],
+            auth_data_bytes[34],
+            auth_data_bytes[35],
+            auth_data_bytes[36]
+        ]);
+
+        let mut offset = 37;
+        let mut attested_credential_data = None;
+
+        // Check if attested credential data is present (AT flag = bit 6)
+        if (flags & 0x40) != 0 {
+            if auth_data_bytes.len() < offset + 18 {
+                return Err("Authenticator data too short for attested credential data".to_string());
+            }
+
+            // Parse attested credential data
+            let aaguid = auth_data_bytes[offset..offset + 16].to_vec();
+            offset += 16;
+
+            let credential_id_length = u16::from_be_bytes([
+                auth_data_bytes[offset],
+                auth_data_bytes[offset + 1]
+            ]) as usize;
+            offset += 2;
+
+            if auth_data_bytes.len() < offset + credential_id_length {
+                return Err("Authenticator data too short for credential ID".to_string());
+            }
+
+            let credential_id = auth_data_bytes[offset..offset + credential_id_length].to_vec();
+            offset += credential_id_length;
+
+            // The rest is the credential public key (COSE format)
+            let credential_public_key = auth_data_bytes[offset..].to_vec();
+
+            attested_credential_data = Some(AttestedCredentialData {
+                aaguid,
+                credential_id,
+                credential_public_key,
+            });
+        }
+
+        Ok(AuthenticatorData {
+            rp_id_hash,
+            flags,
+            counter,
+            attested_credential_data,
+        })
     }
 
     fn verify_attestation_signature(
@@ -682,6 +1005,7 @@ mod tests {
     use near_sdk::{testing_env};
     use base64::engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE;
     use base64::Engine as TestEngine;
+    use std::collections::BTreeMap;
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {
@@ -730,7 +1054,7 @@ mod tests {
         let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 1).collect();
         let expected_challenge_b64url = TEST_BASE64_URL_ENGINE.encode(&expected_challenge_bytes);
         assert_eq!(options.challenge, expected_challenge_b64url);
-        assert_eq!(contract.current_challenge, Some(expected_challenge_b64url)); // Verify stored challenge
+        // assert_eq!(contract.current_challenge, Some(expected_challenge_b64url)); // Verify stored challenge
 
         assert_eq!(options.user.id, default_user_id_b64url);
         assert_eq!(options.user.name, user_name);
@@ -870,14 +1194,21 @@ mod tests {
         let derived_pk = contract.derive_near_pk_from_cose(cose_key_bytes);
         assert!(derived_pk.is_some(), "Should derive a PK for valid P-256");
 
-        // Construct expected NEAR public key string manually from SHA256(x || y)
+        // Construct expected NEAR public key string manually by properly deriving Ed25519 from seed
         let mut p256_material = Vec::new();
         p256_material.extend_from_slice(&x_coord);
         p256_material.extend_from_slice(&y_coord);
         let hash_bytes = env::sha256(&p256_material); // This is the seed for the Ed25519 key
 
+        // Generate the same Ed25519 keypair from seed as the contract does
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&hash_bytes);
+        let signing_key = Ed25519SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        let ed25519_pk_bytes = verifying_key.to_bytes();
+
         let mut near_key_data = vec![0x00]; // Ed25519 prefix
-        near_key_data.extend_from_slice(&hash_bytes); // Using the hash as the Ed25519 public key bytes
+        near_key_data.extend_from_slice(&ed25519_pk_bytes);
         let expected_pk_str = bs58::encode(&near_key_data).into_string();
         let expected_full_pk = format!("ed25519:{}", expected_pk_str);
 
@@ -1161,7 +1492,7 @@ mod tests {
         assert!(result.is_ok());
         let uncompressed = result.unwrap();
 
-        // Should be 65 bytes: 0x04 || x(32) || y(32)
+        // Should be 65 bytes: 0x04 || x || y
         assert_eq!(uncompressed.len(), 65);
         assert_eq!(uncompressed[0], 0x04); // Uncompressed indicator
         assert_eq!(&uncompressed[1..33], &x_coord); // X coordinate
@@ -1187,5 +1518,89 @@ mod tests {
         der_sig.extend_from_slice(&s);
 
         der_sig
+    }
+
+    #[test]
+    fn test_verify_registration_response_invalid_challenge() {
+        let context = get_context_with_seed(14);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create mock client data with wrong challenge
+        let client_data = r#"{"type":"webauthn.create","challenge":"wrong_challenge","origin":"https://example.com","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        // Create minimal mock attestation object
+        let mut attestation_map = BTreeMap::new();
+        attestation_map.insert(CborValue::Text("fmt".to_string()), CborValue::Text("none".to_string()));
+        attestation_map.insert(CborValue::Text("authData".to_string()), CborValue::Bytes(vec![0u8; 100]));
+        attestation_map.insert(CborValue::Text("attStmt".to_string()), CborValue::Map(BTreeMap::new()));
+        let attestation_object_bytes = serde_cbor::to_vec(&CborValue::Map(attestation_map)).unwrap();
+        let attestation_object_b64 = TEST_BASE64_URL_ENGINE.encode(&attestation_object_bytes);
+
+        let mock_response = RegistrationResponseJSON {
+            id: "test_credential".to_string(),
+            raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_credential"),
+            response: AttestationResponse {
+                client_data_json: client_data_b64,
+                attestation_object: attestation_object_b64,
+                transports: None,
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+        };
+
+        let result = contract.verify_registration_response_internal(
+            mock_response,
+            "expected_challenge".to_string(),
+            "https://example.com".to_string(),
+            "example.com".to_string(),
+            false
+        );
+
+        assert!(!result.verified, "Should fail verification due to challenge mismatch");
+        assert!(result.registration_info.is_none());
+    }
+
+    #[test]
+    fn test_verify_registration_response_invalid_origin() {
+        let context = get_context_with_seed(15);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create mock client data with wrong origin
+        let client_data = r#"{"type":"webauthn.create","challenge":"test_challenge","origin":"https://evil.com","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        // Create minimal mock attestation object
+        let mut attestation_map = BTreeMap::new();
+        attestation_map.insert(CborValue::Text("fmt".to_string()), CborValue::Text("none".to_string()));
+        attestation_map.insert(CborValue::Text("authData".to_string()), CborValue::Bytes(vec![0u8; 100]));
+        attestation_map.insert(CborValue::Text("attStmt".to_string()), CborValue::Map(BTreeMap::new()));
+        let attestation_object_bytes = serde_cbor::to_vec(&CborValue::Map(attestation_map)).unwrap();
+        let attestation_object_b64 = TEST_BASE64_URL_ENGINE.encode(&attestation_object_bytes);
+
+        let mock_response = RegistrationResponseJSON {
+            id: "test_credential".to_string(),
+            raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_credential"),
+            response: AttestationResponse {
+                client_data_json: client_data_b64,
+                attestation_object: attestation_object_b64,
+                transports: None,
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+        };
+
+        let result = contract.verify_registration_response_internal(
+            mock_response,
+            "test_challenge".to_string(),
+            "https://example.com".to_string(),
+            "example.com".to_string(),
+            false
+        );
+
+        assert!(!result.verified, "Should fail verification due to origin mismatch");
+        assert!(result.registration_info.is_none());
     }
 }

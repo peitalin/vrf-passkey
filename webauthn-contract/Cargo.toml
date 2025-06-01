@@ -48,6 +48,10 @@ p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arith
 elliptic-curve = { version = "0.13", default-features = false }
 # For ECDSA signature verification logic
 ecdsa = { version = "0.16", default-features = false, features = ["verifying"] }
+# For proper Ed25519 key generation from seed
+ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
+# For consistent SHA-256 hashing
+sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 near-sdk = { version = "5.12.0", features = ["unit-testing"] }
