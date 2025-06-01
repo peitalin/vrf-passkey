@@ -249,8 +249,6 @@ async function verifyRegistrationResponseUnified(
   useContractMethod: boolean
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
 
-  console.log("verification args:", verification);
-
   let {
     response: attestationResponse,
     expectedChallenge,
@@ -304,7 +302,7 @@ async function verifyRegistrationResponseContract(
       require_user_verification: true
     };
 
-    console.log("contractArgs:", contractArgs);
+    console.log("contractArgs:", JSON.stringify(contractArgs));
 
     const rawResult: any = await provider.query({
       request_type: 'call_function',

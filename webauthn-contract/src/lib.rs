@@ -147,7 +147,9 @@ pub struct RegistrationResponseJSON {
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct AttestationResponse {
+    #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
+    #[serde(rename = "attestationObject")]
     pub attestation_object: String,
     pub transports: Option<Vec<String>>,
 }
@@ -1609,5 +1611,148 @@ mod tests {
 
         assert!(!result.verified, "Should fail verification due to origin mismatch");
         assert!(result.registration_info.is_none());
+    }
+
+    #[test]
+    fn test_verify_registration_response_real_webauthn_data() {
+        let context = get_context_with_seed(16);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create a realistic WebAuthn response similar to browser data
+        let client_extension_results = serde_json::json!({
+            "credProps": {"rk": true},
+            "prf": {"enabled": true, "results": {"first": {}}}
+        });
+
+        let client_data = r#"{"type":"webauthn.create","challenge":"rgLuoFhK5d3by9oCS1f4tA","origin":"https://example.localhost","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        // Create a minimal but valid attestation object for "none" attestation
+        let mut attestation_map = BTreeMap::new();
+        attestation_map.insert(CborValue::Text("fmt".to_string()), CborValue::Text("none".to_string()));
+        attestation_map.insert(CborValue::Text("attStmt".to_string()), CborValue::Map(BTreeMap::new()));
+
+        // Create minimal valid authenticator data
+        let mut auth_data = Vec::new();
+        // RP ID hash (32 bytes) - SHA256 of "example.localhost"
+        let rp_id_hash = env::sha256(b"example.localhost");
+        auth_data.extend_from_slice(&rp_id_hash);
+        // add the UV (User Verification) flag to the authenticator data. The flags are now:
+        // Flags (1 byte) - UP (0x01) + UV (0x04) + AT (0x40) = 0x45
+        // 0x01 = UP (User Present)
+        // 0x04 = UV (User Verified)
+        // 0x40 = AT (Attested credential data present)
+        auth_data.push(0x45);
+        // Counter (4 bytes)
+        auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+        // AAGUID (16 bytes)
+        auth_data.extend_from_slice(&[0x00u8; 16]);
+        // Credential ID length (2 bytes)
+        let cred_id = b"FambqICu3jJ2QcaJF038gw";
+        auth_data.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
+        // Credential ID
+        auth_data.extend_from_slice(cred_id);
+
+        // Add a minimal COSE Ed25519 public key
+        let x_coord = [0x01u8; 32]; // Mock Ed25519 public key
+        let cose_key = build_ed25519_cose_key(&x_coord);
+        auth_data.extend_from_slice(&cose_key);
+
+        attestation_map.insert(CborValue::Text("authData".to_string()), CborValue::Bytes(auth_data));
+        let attestation_object_bytes = serde_cbor::to_vec(&CborValue::Map(attestation_map)).unwrap();
+        let attestation_object_b64 = TEST_BASE64_URL_ENGINE.encode(&attestation_object_bytes);
+
+        let realistic_response = RegistrationResponseJSON {
+            id: "FambqICu3jJ2QcaJF038gw".to_string(),
+            raw_id: "FambqICu3jJ2QcaJF038gw".to_string(),
+            response: AttestationResponse {
+                client_data_json: client_data_b64,
+                attestation_object: attestation_object_b64,
+                transports: Some(vec!["hybrid".to_string(), "internal".to_string()]),
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+            client_extension_results: Some(client_extension_results),
+        };
+
+        let result = contract.verify_registration_response_internal(
+            realistic_response,
+            "rgLuoFhK5d3by9oCS1f4tA".to_string(),
+            "https://example.localhost".to_string(),
+            "example.localhost".to_string(),
+            true
+        );
+
+        // This should succeed with our mock data
+        assert!(result.verified, "Should verify successfully with realistic data");
+        assert!(result.registration_info.is_some(), "Should return registration info");
+
+        if let Some(reg_info) = result.registration_info {
+            assert_eq!(reg_info.credential_id, b"FambqICu3jJ2QcaJF038gw");
+            assert!(reg_info.derived_near_public_key.starts_with("ed25519:"));
+        }
+    }
+
+    #[test]
+    fn test_verify_registration_response_json_deserialization() {
+        let context = get_context_with_seed(17);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Test that we can properly deserialize the exact JSON structure from the browser
+        let json_input = r#"{
+            "attestation_response": {
+                "id": "FambqICu3jJ2QcaJF038gw",
+                "rawId": "FambqICu3jJ2QcaJF038gw",
+                "type": "public-key",
+                "clientExtensionResults": {
+                    "credProps": {"rk": true},
+                    "prf": {"enabled": true, "results": {"first": {}}}
+                },
+                "response": {
+                    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoicmdMdW9GaEs1ZDNieTlvQ1MxZjR0QSIsIm9yaWdpbiI6Imh0dHBzOi8vZXhhbXBsZS5sb2NhbGhvc3QiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+                    "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViUy9GqwTRaMpzVDbXq1dyEAXVOxrou08k22ggRC45MKNhdAAAAAOqbjWZNAR0hPOS2tIy1ddQAEBWpm6iArt4ydkHGiRdN_IOlAQIDJiABIVggtuG49LMrMgD59dVNmZhO6Z96-yfTjGvTKDjXkXONNk0iWCD5TXGcAAOfarCRsoJwNMAKo4PBb4rpXF5XgYdyJ4-0DQ",
+                    "transports": ["hybrid", "internal"]
+                }
+            },
+            "expected_challenge": "rgLuoFhK5d3by9oCS1f4tA",
+            "expected_origin": "https://example.localhost",
+            "expected_rp_id": "example.localhost",
+            "require_user_verification": true
+        }"#;
+
+        // Parse the JSON to test deserialization
+        let parsed: serde_json::Value = serde_json::from_str(json_input).expect("Should parse JSON");
+        let attestation_response_json = &parsed["attestation_response"];
+
+        // Try to deserialize the attestation_response part
+        let attestation_response: Result<RegistrationResponseJSON, _> =
+            serde_json::from_value(attestation_response_json.clone());
+
+        match attestation_response {
+            Ok(response) => {
+                println!("Successfully deserialized RegistrationResponseJSON");
+                assert_eq!(response.id, "FambqICu3jJ2QcaJF038gw");
+                assert_eq!(response.raw_id, "FambqICu3jJ2QcaJF038gw");
+                assert_eq!(response.type_, "public-key");
+                assert!(response.client_extension_results.is_some());
+
+                // Test the contract call with this data
+                let result = contract.verify_registration_response_internal(
+                    response,
+                    "rgLuoFhK5d3by9oCS1f4tA".to_string(),
+                    "https://example.localhost".to_string(),
+                    "example.localhost".to_string(),
+                    true
+                );
+
+                // We expect this to fail validation but not deserialization
+                println!("Contract verification result: verified={}", result.verified);
+            }
+            Err(e) => {
+                panic!("Failed to deserialize RegistrationResponseJSON: {}", e);
+            }
+        }
     }
 }
