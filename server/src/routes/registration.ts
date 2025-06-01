@@ -94,7 +94,7 @@ async function getRegistrationOptionsContract(
     rp_name: config.rpName,
     rp_id: config.rpID,
     user_name: user.username,
-    user_id: null, // Let contract generate internal userID bytes from random_seed
+    user_id: user.id, // Let contract generate internal userID bytes from random_seed
     challenge: null, // Let contract generate challenge bytes from random_seed
     user_display_name: user.username,
     timeout: 60000,
@@ -108,36 +108,22 @@ async function getRegistrationOptionsContract(
 
   console.log('contractArgs to be stringified for contract call:', contractArgs);
 
-  const provider = nearClient.getProvider() as JsonRpcProvider;
-  const rawResult: any = await provider.query({
-    request_type: 'call_function',
-    account_id: 'webauthn-contract.testnet',
-    method_name: 'generate_registration_options',
-    args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
-    finality: 'optimistic',
+  const account = nearClient.getRelayerAccount();
+  const rawResult: any = await account.callFunction({
+    contractId: 'webauthn-contract.testnet',
+    methodName: 'generate_registration_options',
+    args: contractArgs,
   });
 
-  if (rawResult.error) {
-    console.error("Contract query error:", rawResult.error);
-    const errorMessage = typeof rawResult.error === 'object' ? JSON.stringify(rawResult.error) : rawResult.error;
-    throw new Error(`Contract call error: ${errorMessage}`);
-  }
 
-  if (!rawResult.result || rawResult.result.length === 0) {
+  if (!rawResult.challenge || !rawResult.authenticatorSelection) {
     console.warn('Empty result bytes from contract call. Raw result:', rawResult);
     throw new Error('Empty result bytes from contract call, or result format unexpected.');
   }
 
-  const contractResponse = JSON.parse(Buffer.from(rawResult.result).toString());
-
-  if (!contractResponse || !contractResponse.options) {
-    console.error('Invalid structured response from contract generate_registration_options:', contractResponse);
-    throw new Error('Invalid structured response from registration options contract call');
-  }
-
   return {
-    options: contractResponse.options,
-    derpAccountId: contractResponse.derpAccountId,
+    options: rawResult,
+    derpAccountId: user.derpAccountId,
   };
 }
 
@@ -178,6 +164,60 @@ router.post('/generate-registration-options', async (req: Request, res: Response
   if (!username) return res.status(400).json({ error: 'Username is required' });
 
   try {
+    // ALTERNATIVE APPROACH WITH YIELD-RESUME:
+    // Instead of storing challenge on server, use contract yield-resume:
+    //
+    // 1. Call contract.start_registration(username)
+    // 2. Contract generates options and yields with challenge
+    // 3. Return options + data_id to client
+    // 4. Client creates attestation using options
+    // 5. Client calls contract.resume_registration(data_id, attestation)
+    // 6. Contract verifies attestation against yielded challenge
+    //
+    // SECURITY ENHANCEMENT: Challenge Protection from Node Operators
+    // =============================================================
+    //
+    // Problem: Node runners might be able to peek at yielded challenge data
+    // Solution: Use hash-based commitment scheme
+    //
+    // Secure Flow:
+    // 1. contract.start_registration(username) → {
+    //      challenge = generate_challenge()
+    //      commitment = sha256(challenge + salt)
+    //      yield_create(commitment)  // Only hash stored, not plaintext!
+    //      return { options, challenge }  // Challenge sent to client
+    //    }
+    //
+    // 2. Client creates attestation with challenge (normal WebAuthn flow)
+    //
+    // 3. contract.resume_registration(data_id, attestation, original_challenge) → {
+    //      promise_yield_resume(data_id, {attestation, original_challenge})
+    //    }
+    //
+    // 4. finish_registration() → {
+    //      stored_commitment = promise_result(0)
+    //      {attestation, provided_challenge} = promise_result(1)
+    //
+    //      // Verify commitment first
+    //      computed_commitment = sha256(provided_challenge + salt)
+    //      assert_eq!(stored_commitment, computed_commitment)
+    //
+    //      // Then verify WebAuthn attestation
+    //      verify_webauthn_attestation(attestation, provided_challenge)
+    //    }
+    //
+    // Client-Side Changes Required:
+    // - Store the original challenge during registration flow
+    // - Provide both attestation AND original challenge when resuming
+    // - No other changes to WebAuthn API usage
+    //
+    // Benefits:
+    // - No server-side challenge storage needed
+    // - Challenge is cryptographically protected in contract state
+    // - More decentralized architecture
+    // - Automatic timeout handling (200 blocks)
+    // - Challenge remains hidden from node operators during yield phase
+
     const result = await getRegistrationOptions(username, config.useContractMethod);
 
     // Get the user that was used/created to store the challenge
@@ -196,6 +236,117 @@ router.post('/generate-registration-options', async (req: Request, res: Response
     return res.status(500).json({ error: e.message || 'Failed to generate registration options' });
   }
 });
+
+// Unified verification function
+async function verifyRegistrationResponseUnified(
+  verification: {
+    response: RegistrationResponseJSON,
+    expectedChallenge: string,
+    expectedOrigin: string,
+    expectedRPID: string,
+    requireUserVerification: boolean,
+  },
+  useContractMethod: boolean
+): Promise<{ verified: boolean; registrationInfo?: any }> {
+
+    let {
+      response: attestationResponse,
+      expectedChallenge,
+      expectedOrigin,
+      expectedRPID,
+      requireUserVerification,
+    } = verification;
+
+  if (useContractMethod) {
+    return verifyRegistrationResponseContract(attestationResponse, expectedChallenge);
+  } else {
+    return verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+  }
+}
+
+async function verifyRegistrationResponseSimpleWebAuthn(
+  attestationResponse: RegistrationResponseJSON,
+  expectedChallenge: string
+): Promise<{ verified: boolean; registrationInfo?: any }> {
+  console.log('Using SimpleWebAuthn for registration verification');
+
+  const verification = await verifyRegistrationResponse({
+    response: attestationResponse,
+    expectedChallenge,
+    expectedOrigin: config.expectedOrigin,
+    expectedRPID: config.rpID,
+    requireUserVerification: true,
+  });
+
+  return {
+    verified: verification.verified,
+    registrationInfo: verification.registrationInfo
+  };
+}
+
+async function verifyRegistrationResponseContract(
+  attestationResponse: RegistrationResponseJSON,
+  expectedChallenge: string
+): Promise<{ verified: boolean; registrationInfo?: any }> {
+  console.log('Using NEAR contract for registration verification');
+
+  try {
+    const provider = nearClient.getProvider() as JsonRpcProvider;
+
+    // Call contract's verify_registration_response method
+    const contractArgs = {
+      attestation_response: attestationResponse,
+      expected_challenge: expectedChallenge,
+      expected_origin: config.expectedOrigin,
+      expected_rp_id: config.rpID,
+      require_user_verification: true
+    };
+
+    const rawResult: any = await provider.query({
+      request_type: 'call_function',
+      account_id: 'webauthn-contract.testnet',
+      method_name: 'verify_registration_response_internal',
+      args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
+      finality: 'optimistic',
+    });
+
+    if (rawResult.error) {
+      console.error("Contract verification error:", rawResult.error);
+      const errorMessage = typeof rawResult.error === 'object' ? JSON.stringify(rawResult.error) : rawResult.error;
+      throw new Error(`Contract verification error: ${errorMessage}`);
+    }
+
+    if (!rawResult.result || rawResult.result.length === 0) {
+      console.warn('Empty result from contract verification. Raw result:', rawResult);
+      throw new Error('Empty result from contract verification call');
+    }
+
+    const contractResponse = JSON.parse(Buffer.from(rawResult.result).toString());
+
+    if (!contractResponse) {
+      console.error('Invalid response from contract verify_registration_response_internal:', contractResponse);
+      throw new Error('Invalid response from contract verification call');
+    }
+
+    // Convert contract response to match SimpleWebAuthn format
+    const registrationInfo = contractResponse.registration_info ? {
+      credentialPublicKey: new Uint8Array(contractResponse.registration_info.credential_public_key),
+      credentialID: new Uint8Array(contractResponse.registration_info.credential_id),
+      counter: contractResponse.registration_info.counter,
+      credentialBackedUp: false, // Contract doesn't track this yet
+      credentialDeviceType: 'unknown', // Contract doesn't track this yet
+    } : undefined;
+
+    return {
+      verified: contractResponse.verified,
+      registrationInfo
+    };
+
+  } catch (e: any) {
+    console.error('Error calling contract verify_registration_response_internal:', e);
+    throw new Error(`Failed to verify via contract: ${e.message}`);
+  }
+}
 
 // Verify registration
 router.post('/verify-registration', async (req: Request, res: Response) => {
@@ -223,13 +374,13 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No challenge found. Registration might have timed out.' });
     }
 
-    const verification = await verifyRegistrationResponse({
+    const verification = await verifyRegistrationResponseUnified({
       response: attestationResponse,
       expectedChallenge,
       expectedOrigin: config.expectedOrigin,
       expectedRPID: config.rpID,
       requireUserVerification: true,
-    });
+    }, config.useContractMethod);
 
     const { verified, registrationInfo } = verification;
 

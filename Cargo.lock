@@ -4276,6 +4276,7 @@ dependencies = [
  "base64 0.21.7",
  "bs58 0.5.1",
  "ecdsa",
+ "ed25519-dalek",
  "elliptic-curve",
  "getrandom 0.2.16",
  "near-sdk",
@@ -4284,6 +4285,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 
