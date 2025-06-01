@@ -1,14 +1,10 @@
-use near_sdk::{env, log, near, Promise};
+use near_sdk::{env, log, near};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use serde_cbor::Value as CborValue;
-use bs58;
 use p256::ecdsa::{Signature, VerifyingKey};
-use p256::ecdsa::signature::Verifier;
 use p256::PublicKey as P256PublicKey;
-use ed25519_dalek::{SigningKey as Ed25519SigningKey, VerifyingKey as Ed25519VerifyingKey};
 
-// Constants for default challenge and userID sizes ( mimicking JS defaults if different from full random_seed)
 const DEFAULT_CHALLENGE_SIZE: usize = 16;
 const DEFAULT_USER_ID_SIZE: usize = 16;
 
@@ -167,7 +163,6 @@ pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
     pub credential_public_key: Vec<u8>,
     pub counter: u32,
-    pub derived_near_public_key: String,
     pub user_id: String,
 }
 
@@ -371,135 +366,6 @@ impl WebAuthnContract {
         }
     }
 
-    /// Derives a NEAR public key string from a COSE credential public key.
-    /// Input: cose_public_key_bytes - Raw bytes of the COSE_Key structure.
-    /// Output: Option<String> containing the NEAR public key string (e.g., "ed25519:...") or None if derivation fails.
-    pub fn derive_near_pk_from_cose(&self, cose_public_key_bytes: Vec<u8>) -> Option<String> {
-        log!("Attempting to derive NEAR PK from COSE bytes (len {}): {:?}", cose_public_key_bytes.len(), cose_public_key_bytes);
-
-        let cose_key_map: CborValue = match serde_cbor::from_slice(&cose_public_key_bytes) {
-            Ok(CborValue::Map(map)) => CborValue::Map(map),
-            Ok(_) => {
-                log!("Failed to decode COSE key: Expected a CBOR map.");
-                return None;
-            }
-            Err(e) => {
-                log!("Failed to decode COSE key CBOR: {}", e);
-                return None;
-            }
-        };
-
-        // Helper to extract integer key from CBOR map
-        fn get_int_key<'a>(map: &'a CborValue, key: i128) -> Option<&'a CborValue> {
-            if let CborValue::Map(m) = map {
-                m.get(&CborValue::Integer(key))
-            } else {
-                None
-            }
-        }
-
-        // Helper to extract bytes from CBOR value (expecting ByteString)
-        let get_bytes = |val: Option<&CborValue>| -> Option<Vec<u8>> {
-            val.and_then(|v| if let CborValue::Bytes(b) = v { Some(b.clone()) } else { None })
-        };
-
-        // Helper to extract i64 from CBOR value (expecting Integer)
-        let get_i64 = |val: Option<&CborValue>| -> Option<i64> {
-            val.and_then(|v| match v {
-                CborValue::Integer(i) => Some(*i as i64),
-                _ => None,
-            })
-        };
-
-        let kty: Option<i64> = get_i64(get_int_key(&cose_key_map, 1)); // Key Type (label 1)
-        let alg: Option<i64> = get_i64(get_int_key(&cose_key_map, 3)); // Algorithm (label 3)
-
-        log!("COSE Key Details: kty={:?}, alg={:?}", kty, alg);
-        let alg2 = alg.map(|a| a.abs());
-
-        match (kty, alg2) {
-            (Some(1), Some(8)) => { // OKP (Octet Key Pair) with EdDSA (Ed25519)
-                // alg = -8
-                log!("Handling OKP Ed25519 (kty=1, alg=-8)");
-                let x_coord_bytes = get_bytes(get_int_key(&cose_key_map, -2)); // x-coordinate (label -2 for OKP)
-                if let Some(x) = x_coord_bytes {
-                    if x.len() == 32 {
-                        // In NEAR, for Ed25519, the public key *is* the x-coordinate.
-                        // Prefix with 0x00 for Ed25519 curve type
-                        let mut key_data = vec![0x00]; // Ed25519 curve type prefix
-                        key_data.extend_from_slice(&x);
-                        let near_pk_str = bs58::encode(&key_data).into_string();
-                        let near_pk_full = format!("ed25519:{}", near_pk_str);
-                        log!("Derived Ed25519 PK: {}", near_pk_full);
-                        Some(near_pk_full)
-                    } else {
-                        log!("COSE Ed25519 key x-coordinate is not 32 bytes (len: {}).", x.len());
-                        None
-                    }
-                } else {
-                    log!("COSE Ed25519 key missing x-coordinate (-2).");
-                    None
-                }
-            }
-            (Some(2), Some(7)) => { // EC2 (Elliptic Curve) with ES256 (P-256 ECDSA)
-                // alg = -7
-                log!("Handling EC2 P-256 (kty=2, alg=-7)");
-                let crv = get_i64(get_int_key(&cose_key_map, -1)); // Curve (label -1 for EC2)
-                if crv != Some(1) { // Curve 1 is P-256
-                    log!("Unsupported EC2 curve: {:?}. Expected P-256 (1).", crv);
-                    return None;
-                }
-
-                let x_bytes = get_bytes(get_int_key(&cose_key_map, -2)); // x-coordinate (label -2 for EC2)
-                let y_bytes = get_bytes(get_int_key(&cose_key_map, -3)); // y-coordinate (label -3 for EC2)
-
-                match (x_bytes, y_bytes) {
-                    (Option::Some(x), Option::Some(y)) => {
-                        log!("P-256 x (len {}), y (len {})", x.len(), y.len());
-                        // Concatenate x and y coordinates, then SHA-256 hash
-                        let mut p256_pk_material = Vec::new();
-                        p256_pk_material.extend_from_slice(&x);
-                        p256_pk_material.extend_from_slice(&y);
-
-                        let hash_bytes = env::sha256(&p256_pk_material);
-                        log!("SHA-256 hash of P-256 x||y (len {}): {:?}", hash_bytes.len(), hash_bytes);
-
-                        // Generate Ed25519 keypair from the SHA-256 hash seed
-                        // This properly derives an Ed25519 public key from the 32-byte seed
-                        if hash_bytes.len() == 32 {
-                            // Convert hash to fixed-size array for ed25519-dalek
-                            let mut seed = [0u8; 32];
-                            seed.copy_from_slice(&hash_bytes);
-
-                            // Generate Ed25519 signing key from seed
-                            let signing_key = Ed25519SigningKey::from_bytes(&seed);
-                            let verifying_key = signing_key.verifying_key();
-
-                            // Convert to NEAR public key format
-                            let ed25519_pk_bytes = verifying_key.to_bytes();
-                            let mut key_data = vec![0x00]; // Ed25519 curve type prefix
-                            key_data.extend_from_slice(&ed25519_pk_bytes);
-                            let near_pk_str = bs58::encode(&key_data).into_string();
-                            let near_pk_full = format!("ed25519:{}", near_pk_str);
-                            log!("Derived Ed25519 PK from P-256 seed: {}", near_pk_full);
-                            Some(near_pk_full)
-                        } else {
-                            log!("Hash of P-256 material was not 32 bytes.");
-                            None
-                        }
-                    }
-                    _ => {
-                        log!("COSE P-256 key missing x (-2) or y (-3) coordinate.");
-                        None
-                    }
-                }
-            }
-            _ => {
-                log!("Unsupported COSE key type/algorithm combination: kty={:?}, alg={:?}", kty, alg);
-                None
-            }
-        }
-    }
 
     /// Public method to verify registration response
     pub fn verify_registration_response_internal(
@@ -641,15 +507,9 @@ impl WebAuthnContract {
             }
         }
 
-        // Step 6: Derive NEAR public key from COSE format
-        let derived_near_public_key = match self.derive_near_pk_from_cose(attested_cred_data.credential_public_key.clone()) {
-            Some(pk) => pk,
-            None => {
-                log!("Failed to derive NEAR public key from COSE credential public key");
-                return VerifiedRegistrationResponse { verified: false, registration_info: None };
-            }
-        };
-
+        // Step 6: WebAuthn verification successful - store credential info only
+        // SECURITY: Contract does NOT derive NEAR keys - frontend handles key generation
+        // Frontend generates random NEAR keys and provides public key separately if needed
         log!("Registration verification successful");
         VerifiedRegistrationResponse {
             verified: true,
@@ -657,7 +517,6 @@ impl WebAuthnContract {
                 credential_id: attested_cred_data.credential_id,
                 credential_public_key: attested_cred_data.credential_public_key,
                 counter: auth_data.counter,
-                derived_near_public_key,
                 user_id: attestation_response.id, // Use the credential ID as user ID
             })
         }
@@ -951,7 +810,7 @@ impl WebAuthnContract {
         // For U2F attestation, we need the attestation certificate's public key
         // If no certificate is provided, we use self-attestation (credential public key)
         let verifying_key = if let CborValue::Map(stmt_map) = att_stmt {
-            if let Some(x5c) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
+            if let Some(_x5c) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
                 // Certificate chain present - extract public key from attestation certificate
                 log!("U2F attestation with certificate chain - not yet implemented");
                 return Err("U2F attestation with certificate chain not yet supported".to_string());
@@ -1166,138 +1025,6 @@ mod tests {
         serde_cbor::to_vec(&CborValue::Map(map)).unwrap()
     }
 
-    #[test]
-    fn test_derive_pk_ed25519_valid() {
-        let context = get_context_with_seed(3);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        let x_coord = [1u8; 32];
-        let cose_key_bytes = build_ed25519_cose_key(&x_coord);
-
-        let derived_pk = contract.derive_near_pk_from_cose(cose_key_bytes);
-        assert!(derived_pk.is_some(), "Should derive a PK for valid Ed25519");
-
-        // Construct expected NEAR public key string manually
-        // (0x00 for Ed25519) + 32-byte x_coord, then bs58 encoded
-        let mut near_key_data = vec![0x00];
-        near_key_data.extend_from_slice(&x_coord);
-        let expected_pk_str = bs58::encode(&near_key_data).into_string();
-        let expected_full_pk = format!("ed25519:{}", expected_pk_str);
-
-        assert_eq!(derived_pk.unwrap(), expected_full_pk);
-    }
-
-    #[test]
-    fn test_derive_pk_p256_valid() {
-        let context = get_context_with_seed(4);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        let x_coord = [2u8; 32];
-        let y_coord = [3u8; 32];
-        let cose_key_bytes = build_p256_cose_key(&x_coord, &y_coord);
-
-        let derived_pk = contract.derive_near_pk_from_cose(cose_key_bytes);
-        assert!(derived_pk.is_some(), "Should derive a PK for valid P-256");
-
-        // Construct expected NEAR public key string manually by properly deriving Ed25519 from seed
-        let mut p256_material = Vec::new();
-        p256_material.extend_from_slice(&x_coord);
-        p256_material.extend_from_slice(&y_coord);
-        let hash_bytes = env::sha256(&p256_material); // This is the seed for the Ed25519 key
-
-        // Generate the same Ed25519 keypair from seed as the contract does
-        let mut seed = [0u8; 32];
-        seed.copy_from_slice(&hash_bytes);
-        let signing_key = Ed25519SigningKey::from_bytes(&seed);
-        let verifying_key = signing_key.verifying_key();
-        let ed25519_pk_bytes = verifying_key.to_bytes();
-
-        let mut near_key_data = vec![0x00]; // Ed25519 prefix
-        near_key_data.extend_from_slice(&ed25519_pk_bytes);
-        let expected_pk_str = bs58::encode(&near_key_data).into_string();
-        let expected_full_pk = format!("ed25519:{}", expected_pk_str);
-
-        assert_eq!(derived_pk.unwrap(), expected_full_pk);
-    }
-
-    #[test]
-    fn test_derive_pk_unsupported_kty_alg() {
-        let context = get_context_with_seed(5);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        let mut map = BTreeMap::new();
-        map.insert(CborValue::Integer(1), CborValue::Integer(99)); // Unsupported kty
-        map.insert(CborValue::Integer(3), CborValue::Integer(-999)); // Unsupported alg
-        let cose_key_bytes = serde_cbor::to_vec(&CborValue::Map(map)).unwrap();
-
-        let derived_pk = contract.derive_near_pk_from_cose(cose_key_bytes);
-        assert!(derived_pk.is_none(), "Should not derive PK for unsupported kty/alg");
-    }
-
-    #[test]
-    fn test_derive_pk_ed25519_missing_x_coord() {
-        let context = get_context_with_seed(7);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        let mut map = BTreeMap::new();
-        map.insert(CborValue::Integer(1), CborValue::Integer(1)); // kty: OKP
-        map.insert(CborValue::Integer(3), CborValue::Integer(-8)); // alg: EdDSA
-        // Missing x-coordinate
-        let cose_key_bytes = serde_cbor::to_vec(&CborValue::Map(map)).unwrap();
-
-        let derived_pk = contract.derive_near_pk_from_cose(cose_key_bytes);
-        assert!(derived_pk.is_none(), "Should not derive PK for Ed25519 if x-coord is missing");
-    }
-
-    #[test]
-    fn test_derive_pk_p256_missing_coords_or_crv() {
-        let context = get_context_with_seed(8);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-        let x_coord = [2u8; 32];
-        let y_coord = [3u8; 32];
-
-        // Missing x-coordinate
-        let mut map_no_x = BTreeMap::new();
-        map_no_x.insert(CborValue::Integer(1), CborValue::Integer(2));
-        map_no_x.insert(CborValue::Integer(3), CborValue::Integer(-7));
-        map_no_x.insert(CborValue::Integer(-1), CborValue::Integer(1));
-        map_no_x.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord.to_vec()));
-        let cose_no_x = serde_cbor::to_vec(&CborValue::Map(map_no_x)).unwrap();
-        assert!(contract.derive_near_pk_from_cose(cose_no_x).is_none(), "P256 missing x");
-
-        // Missing y-coordinate
-        let mut map_no_y = BTreeMap::new();
-        map_no_y.insert(CborValue::Integer(1), CborValue::Integer(2));
-        map_no_y.insert(CborValue::Integer(3), CborValue::Integer(-7));
-        map_no_y.insert(CborValue::Integer(-1), CborValue::Integer(1));
-        map_no_y.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord.to_vec()));
-        let cose_no_y = serde_cbor::to_vec(&CborValue::Map(map_no_y)).unwrap();
-        assert!(contract.derive_near_pk_from_cose(cose_no_y).is_none(), "P256 missing y");
-
-        // Missing curve
-        let mut map_no_crv = BTreeMap::new();
-        map_no_crv.insert(CborValue::Integer(1), CborValue::Integer(2));
-        map_no_crv.insert(CborValue::Integer(3), CborValue::Integer(-7));
-        map_no_crv.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord.to_vec()));
-        map_no_crv.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord.to_vec()));
-        let cose_no_crv = serde_cbor::to_vec(&CborValue::Map(map_no_crv)).unwrap();
-        assert!(contract.derive_near_pk_from_cose(cose_no_crv).is_none(), "P256 missing curve");
-
-        // Unsupported curve
-        let mut map_wrong_crv = BTreeMap::new();
-        map_wrong_crv.insert(CborValue::Integer(1), CborValue::Integer(2));
-        map_wrong_crv.insert(CborValue::Integer(3), CborValue::Integer(-7));
-        map_wrong_crv.insert(CborValue::Integer(-1), CborValue::Integer(99)); // Wrong curve
-        map_wrong_crv.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord.to_vec()));
-        map_wrong_crv.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord.to_vec()));
-        let cose_wrong_crv = serde_cbor::to_vec(&CborValue::Map(map_wrong_crv)).unwrap();
-        assert!(contract.derive_near_pk_from_cose(cose_wrong_crv).is_none(), "P256 wrong curve");
-    }
 
     // Tests for FIDO U2F signature verification
     #[test]
@@ -1690,7 +1417,9 @@ mod tests {
 
         if let Some(reg_info) = result.registration_info {
             assert_eq!(reg_info.credential_id, b"FambqICu3jJ2QcaJF038gw");
-            assert!(reg_info.derived_near_public_key.starts_with("ed25519:"));
+            assert_eq!(reg_info.user_id, "FambqICu3jJ2QcaJF038gw");
+            assert!(reg_info.credential_public_key.len() > 0, "Should have credential public key");
+            assert_eq!(reg_info.counter, 1);
         }
     }
 

@@ -245,8 +245,12 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
             console.log('PRF extension results from registration:', (extensionResults as any).prf);
 
             if (registrationPrfOutput) {
-              // Use PRF output from registration directly
-              console.log('Using PRF output from registration ceremony');
+              // Use PRF output from registration directly with SECURE RANDOM key generation
+              console.log('Using PRF output from registration ceremony with random key generation');
+
+              console.log('Using secure random key generation');
+
+              // Use secure random key generation + PRF encryption instead of deterministic derivation
               registrationResult = await webAuthnManager.secureRegistrationWithPrf(
                 currentUsername,
                 registrationPrfOutput,
@@ -266,8 +270,9 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
               );
 
               if (prfOutput) {
-                // For PRF registration after separate auth, we don't validate challenge again
-                // since user already authenticated. Pass a special flag or modify the method.
+                console.log('Using secure random key generation');
+
+                // Use secure random key generation + PRF encryption instead of deterministic derivation
                 registrationResult = await webAuthnManager.secureRegistrationWithPrf(
                   currentUsername,
                   prfOutput,

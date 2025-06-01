@@ -17,6 +17,7 @@ interface UserData {
   lastUpdated: number;
   // PRF indicator
   prfSupported?: boolean;
+  deterministicKey?: boolean;
 }
 
 // Types for WebAuthn operations
@@ -562,6 +563,68 @@ export class WebAuthnManager {
    */
   clearAllChallenges(): void {
     this.activeChallenges.clear();
+  }
+
+  /**
+   * Secure registration flow with PRF and deterministic key derivation from WebAuthn
+   */
+  async secureRegistrationWithPrfDeterministic(
+    username: string,
+    prfOutput: ArrayBuffer,
+    attestationObjectB64u: string,
+    payload: RegistrationPayload,
+    challengeId?: string,
+    skipChallengeValidation: boolean = false
+  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string }> {
+    try {
+      // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
+      if (!skipChallengeValidation && challengeId) {
+        const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
+        console.log('WebAuthnManager: Challenge validated for deterministic PRF registration');
+      }
+
+      console.log('WebAuthnManager: Starting secure deterministic registration with PRF');
+
+      // Create worker only after successful WebAuthn validation
+      const worker = this.createSecureWorker();
+
+      // Execute deterministic encryption operation with PRF and attestationObject
+      const response = await this.executeWorkerOperation(worker, {
+        type: 'DETERMINISTIC_ENCRYPT_PRIVATE_KEY_WITH_PRF',
+        payload: {
+          prfOutput: bufferEncode(prfOutput), // Convert to base64
+          attestationObjectB64u: attestationObjectB64u,
+          derpAccountId: payload.derpAccountId
+        }
+      });
+
+      if (response.type === 'DETERMINISTIC_ENCRYPTION_SUCCESS') {
+        console.log('WebAuthnManager: Deterministic PRF registration successful');
+        console.log('WebAuthnManager: Derived public key:', response.payload.publicKey);
+
+        // Store user data with PRF flag and deterministic key info
+        await this.storeUserData({
+          username,
+          derpAccountId: payload.derpAccountId,
+          clientNearPublicKey: response.payload.publicKey,
+          prfSupported: true, // Flag to indicate PRF was used
+          deterministicKey: true, // Flag to indicate deterministic derivation
+          lastUpdated: Date.now()
+        });
+
+        return {
+          success: true,
+          derpAccountId: response.payload.derpAccountId,
+          publicKey: response.payload.publicKey
+        };
+      } else {
+        throw new Error(response.payload?.error || 'Deterministic PRF encryption failed');
+      }
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: Deterministic PRF registration failed:', error);
+      throw error;
+    }
   }
 }
 

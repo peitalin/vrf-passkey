@@ -15,13 +15,16 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
 base64 = "0.21"
-base64ct = { version = "1.7.3", features = ["alloc"] }
+base64ct = { version = "1.6", features = ["alloc"] }
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = "1.0"
 # For NEAR key generation
-ed25519-dalek = { version = "2.0", features = ["rand_core"] }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
 bs58 = "0.5"
+# Add CBOR parsing for WebAuthn attestationObject and COSE keys
+ciborium = "0.2"
+serde_bytes = "0.11"
 
 # Optional: for better panic messages in browser console
 console_error_panic_hook = { version = "0.1.7", optional = true }
