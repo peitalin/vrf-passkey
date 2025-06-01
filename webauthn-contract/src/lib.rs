@@ -120,7 +120,7 @@ pub struct PublicKeyCredentialCreationOptionsJSON {
     pub hints: Option<Vec<String>>, // Added hints field
 }
 
-#[near_sdk::near(serializers = [borsh, json])]
+#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct RegistrationOptionsWithDerpIdJSON {
     #[serde(flatten)]
@@ -129,7 +129,7 @@ pub struct RegistrationOptionsWithDerpIdJSON {
     pub derp_account_id: Option<String>,
 }
 
-#[near_sdk::near(serializers = [borsh, json])]
+#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct RegistrationResponseJSON {
     pub id: String,
@@ -144,7 +144,7 @@ pub struct RegistrationResponseJSON {
     pub client_extension_results: Option<serde_json::Value>,
 }
 
-#[near_sdk::near(serializers = [borsh, json])]
+#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct AttestationResponse {
     pub client_data_json: String,
@@ -152,14 +152,14 @@ pub struct AttestationResponse {
     pub transports: Option<Vec<String>>,
 }
 
-#[near_sdk::near(serializers = [borsh, json])]
+#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct VerifiedRegistrationResponse {
     pub verified: bool,
     pub registration_info: Option<RegistrationInfo>,
 }
 
-#[near_sdk::near(serializers = [borsh, json])]
+#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
