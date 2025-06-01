@@ -11,4 +11,7 @@ resolver = "2"
 members = [
     "webauthn-contract",
 ]
+exclude = [
+    "frontend/wasm-worker",
+]
 
