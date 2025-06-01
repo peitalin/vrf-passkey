@@ -249,13 +249,15 @@ async function verifyRegistrationResponseUnified(
   useContractMethod: boolean
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
 
-    let {
-      response: attestationResponse,
-      expectedChallenge,
-      expectedOrigin,
-      expectedRPID,
-      requireUserVerification,
-    } = verification;
+  console.log("verification args:", verification);
+
+  let {
+    response: attestationResponse,
+    expectedChallenge,
+    expectedOrigin,
+    expectedRPID,
+    requireUserVerification,
+  } = verification;
 
   if (useContractMethod) {
     return verifyRegistrationResponseContract(attestationResponse, expectedChallenge);
@@ -301,6 +303,8 @@ async function verifyRegistrationResponseContract(
       expected_rp_id: config.rpID,
       require_user_verification: true
     };
+
+    console.log("contractArgs:", contractArgs);
 
     const rawResult: any = await provider.query({
       request_type: 'call_function',

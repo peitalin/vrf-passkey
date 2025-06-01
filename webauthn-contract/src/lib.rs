@@ -133,10 +133,15 @@ pub struct RegistrationOptionsWithDerpIdJSON {
 #[derive(Debug, Clone)]
 pub struct RegistrationResponseJSON {
     pub id: String,
+    #[serde(rename = "rawId")]
     pub raw_id: String,
     pub response: AttestationResponse,
+    #[serde(rename = "authenticatorAttachment")]
     pub authenticator_attachment: Option<String>,
+    #[serde(rename = "type")]
     pub type_: String,
+    #[serde(rename = "clientExtensionResults", skip_serializing_if = "Option::is_none")]
+    pub client_extension_results: Option<serde_json::Value>,
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
@@ -1548,6 +1553,7 @@ mod tests {
             },
             authenticator_attachment: None,
             type_: "public-key".to_string(),
+            client_extension_results: None,
         };
 
         let result = contract.verify_registration_response_internal(
@@ -1590,6 +1596,7 @@ mod tests {
             },
             authenticator_attachment: None,
             type_: "public-key".to_string(),
+            client_extension_results: None,
         };
 
         let result = contract.verify_registration_response_internal(
