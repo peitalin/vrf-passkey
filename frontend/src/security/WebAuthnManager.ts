@@ -311,7 +311,7 @@ export class WebAuthnManager {
   /**
    * Get registration options from server and register challenge
    */
-  async getRegistrationOptions(username: string): Promise<{ options: any; challengeId: string }> {
+  async getRegistrationOptions(username: string): Promise<{ options: any; challengeId: string; dataId?: string }> {
     try {
       const response = await fetch(`${SERVER_URL}/generate-registration-options`, {
         method: 'POST',
@@ -324,10 +324,26 @@ export class WebAuthnManager {
         throw new Error(errorData.error || `Server error ${response.status}`);
       }
 
-      const options = await response.json();
-      const challengeId = this.registerServerChallenge(options.challenge, 'registration');
+      const serverResponseObject = await response.json();
+      // Log exactly what the frontend received
+      console.log("[FRONTEND LOG] Received from /generate-registration-options:", JSON.stringify(serverResponseObject, null, 2));
 
-      return { options, challengeId };
+      // Ensure options and challenge exist before trying to use them
+      if (!serverResponseObject || !serverResponseObject.options || typeof serverResponseObject.options.challenge !== 'string') {
+        console.error("[FRONTEND ERROR] Invalid or missing options.challenge in server response:", serverResponseObject);
+        throw new Error('Invalid or missing options.challenge in server response.');
+      }
+      if (serverResponseObject.options.excludeCredentials && !Array.isArray(serverResponseObject.options.excludeCredentials)) {
+        console.error("[FRONTEND ERROR] options.excludeCredentials is not an array:", serverResponseObject.options.excludeCredentials);
+        // Decide if this is a critical error or if it can be handled (e.g., treat as empty array)
+        // For now, let it proceed but be aware it might cause issues later if not an array or undefined.
+      }
+
+      const options = serverResponseObject.options;
+      const challengeId = this.registerServerChallenge(options.challenge, 'registration');
+      const dataId = serverResponseObject.dataId; // dataId is expected if using contract
+
+      return { options, challengeId, dataId };
     } catch (error: any) {
       console.error('WebAuthnManager: Failed to get registration options:', error);
       throw error;
@@ -366,7 +382,17 @@ export class WebAuthnManager {
   async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
     const { options, challengeId } = await this.getRegistrationOptions(username);
 
-    // Add PRF extension with evaluation during registration
+    // Log options right before bufferDecode is called
+    console.log("[FRONTEND LOG] In registerWithPrf, options received:", JSON.stringify(options, null, 2));
+    console.log("[FRONTEND LOG] In registerWithPrf, options.challenge value:", options?.challenge);
+    console.log("[FRONTEND LOG] In registerWithPrf, typeof options.challenge:", typeof options?.challenge);
+
+    // Add a specific check before the failing call
+    if (typeof options?.challenge !== 'string') {
+        console.error("[FRONTEND ERROR] In registerWithPrf, options.challenge is NOT a string just before bufferDecode! Value:", options?.challenge);
+        throw new TypeError("Critical error: options.challenge became non-string before bufferDecode in registerWithPrf.");
+    }
+
     const extendedOptions = {
       ...options,
       challenge: bufferDecode(options.challenge),

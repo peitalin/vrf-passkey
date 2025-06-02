@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "(cd frontend && pnpm dev)",
-    "server": "(cd server && pnpm build && pnpm start)",
+    "server": "(cd server && pnpm dev)",
     "install-all": "pnpm install && (cd server && pnpm install) && (cd frontend && pnpm install)",
     "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)",
     "deploy-contract": "(cd webauthn-contract && sh ./deploy.sh)",

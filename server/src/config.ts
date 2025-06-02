@@ -8,8 +8,8 @@ const config = {
   port: process.env.PORT || 3001,
   rpID: process.env.RP_ID || 'localhost',
   rpName: process.env.RP_NAME || 'NEAR Passkey Relayer Demo',
-  expectedOrigin: process.env.EXPECTED_ORIGIN || 'http://localhost:3000',
-  databasePath: './passkey_users.db',
+  expectedOrigin: process.env.EXPECTED_ORIGIN || 'http://localhost:5173',
+  databasePath: '../../passkey_users.db',
   useContractMethod: process.env.USE_CONTRACT_METHOD === 'true', // Set to true to use contract, false for SimpleWebAuthn
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet', // Default or from ENV
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...', // Default or from ENV

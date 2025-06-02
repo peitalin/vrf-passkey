@@ -141,6 +141,20 @@ async function getRegistrationOptionsContract(
   }
 
   console.log('Received from contract.generate_registration_options:', JSON.stringify(contractResponse, null, 2));
+
+  // Detailed logging before returning from server
+  console.log('[Server LOG] getRegistrationOptionsContract - About to return contractResponse:');
+  console.log('[Server LOG] contractResponse.options.challenge:', contractResponse.options?.challenge);
+  if (contractResponse.options?.excludeCredentials) {
+    contractResponse.options.excludeCredentials.forEach((cred, index) => {
+      console.log(`[Server LOG] contractResponse.options.excludeCredentials[${index}].id:`, cred?.id);
+    });
+  } else {
+    console.log('[Server LOG] contractResponse.options.excludeCredentials is null or undefined');
+  }
+  console.log('[Server LOG] contractResponse.dataId:', contractResponse.dataId);
+  console.log('[Server LOG] contractResponse.derpAccountId:', contractResponse.derpAccountId);
+
   return contractResponse; // This includes options, derpAccountId, and dataId
 }
 
@@ -208,11 +222,6 @@ router.post('/generate-registration-options', async (req: Request, res: Response
     return res.json({
       options: result.options,
       derpAccountId: result.derpAccountId,
-      // DO NOT SEND dataId to client if it's a secret part of yield handling.
-      // However, the contract design has generate_registration_options return it,
-      // implying client might need to echo it back, or server uses it from its DB.
-      // For yield-resume, data_id is essential for the client to call complete_registration.
-      // The current contract returns it. So, we should pass it to the client.
       dataId: result.dataId
     });
 

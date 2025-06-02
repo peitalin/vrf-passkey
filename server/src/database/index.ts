@@ -6,7 +6,16 @@ export { userOperations } from './userOperations';
 
 // Initialize SQLite database
 const dbFilePath = path.join(__dirname, config.databasePath);
-export const db = new Database(dbFilePath, { verbose: console.log });
+console.log(`Attempting to initialize database at: ${dbFilePath}`); // Log the path
+
+export let db: Database.Database;
+try {
+  db = new Database(dbFilePath, { verbose: console.log });
+  console.log(`Successfully opened/created database at: ${dbFilePath}`);
+} catch (error) {
+  console.error(`Failed to open/create database at: ${dbFilePath}`, error);
+  throw error; // Re-throw to ensure server startup fails clearly if DB can't be initialized
+}
 
 // Initialize database tables
 export const initDB = () => {
@@ -15,7 +24,8 @@ export const initDB = () => {
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       currentChallenge TEXT,
-      derpAccountId TEXT
+      derpAccountId TEXT,
+      currentDataId TEXT
     );
   `);
 
@@ -41,6 +51,12 @@ export const initDB = () => {
   // Add new columns if they don't exist (simple alter for sqlite)
   try {
     db.exec("ALTER TABLE users ADD COLUMN derpAccountId TEXT;");
+  } catch (e) {
+    /* ignore if already exists */
+  }
+
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN currentDataId TEXT;");
   } catch (e) {
     /* ignore if already exists */
   }
