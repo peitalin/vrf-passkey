@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import config from '../config';
 import type { User, StoredAuthenticator } from '../types';
+export { userOperations } from './userOperations';
 
 // Initialize SQLite database
 const dbFilePath = path.join(__dirname, config.databasePath);
@@ -49,33 +50,6 @@ export const initDB = () => {
   } catch (e) {
     /* ignore if already exists */
   }
-};
-
-// Database operations
-export const userOperations = {
-  findByUsername: (username: string): User | undefined => {
-    return db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
-  },
-
-  findById: (id: string): User | undefined => {
-    return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
-  },
-
-  create: (user: Omit<User, 'currentChallenge'> & { currentChallenge?: string }) => {
-    return db.prepare('INSERT INTO users (id, username, derpAccountId) VALUES (?, ?, ?)').run(
-      user.id,
-      user.username,
-      user.derpAccountId
-    );
-  },
-
-  updateChallenge: (userId: string, challenge: string | null) => {
-    return db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?').run(challenge, userId);
-  },
-
-  updateDerpAccountId: (userId: string, derpAccountId: string) => {
-    return db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?').run(derpAccountId, userId);
-  },
 };
 
 export const authenticatorOperations = {

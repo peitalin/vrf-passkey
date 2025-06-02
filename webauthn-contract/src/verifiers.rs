@@ -1,4 +1,4 @@
-use near_sdk::{log, near};
+use near_sdk::log;
 use serde_cbor::Value as CborValue;
 use p256::ecdsa::Signature;
 

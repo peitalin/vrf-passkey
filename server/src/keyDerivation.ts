@@ -9,9 +9,9 @@ import bs58 from 'bs58';
  * @param credentialPublicKey The COSE public key (typically from a WebAuthn attestation object).
  * @returns The derived NEAR public key string (e.g., "ed25519:...") or null if derivation fails or key type is unsupported.
  */
-export const deriveNearPublicKeyFromCOSE = (credentialPublicKey: Buffer): string | null => {
+export const deriveNearPublicKeyFromCOSE = (credentialPublicKey: Buffer): string => {
   console.log('Raw credentialPublicKey (COSE key) for derivation:', credentialPublicKey);
-  let nearPublicKeyToStore: string | null = null;
+  let nearPublicKeyToStore: string = "";
 
   try {
     const coseKeyObject = decode(credentialPublicKey);

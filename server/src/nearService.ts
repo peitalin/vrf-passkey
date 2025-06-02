@@ -14,12 +14,14 @@ import type { Signer } from '@near-js/signers';
 import type { Provider } from '@near-js/providers';
 import { type SerializableActionArgs, type CreateAccountResult } from './types';
 
+
 const PASSKEY_CONTROLLER_CONTRACT_ID = process.env.PASSKEY_CONTROLLER_CONTRACT_ID!;
 const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
 const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
 const WEBAUTHN_CONTRACT_ID = process.env.WEBAUTHN_CONTRACT_ID!; // For the test functions
 const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org'; // Define RPC URL
+
 
 class NearClient {
   private keyStore: KeyStore;
@@ -86,16 +88,6 @@ class NearClient {
       throw error;
     }
   }
-
-  // async isPasskeyPkRegistered(passkeyPk: string): Promise<boolean> {
-  //   await this._ensureSignerAndRelayerAccount();
-  //   return view({
-  //     account: PASSKEY_CONTROLLER_CONTRACT_ID,
-  //     method: 'is_passkey_pk_registered',
-  //     args: { passkey_pk: passkeyPk },
-  //     deps: { rpcProvider: this.rpcProvider },
-  //   });
-  // }
 
   async getTrustedRelayer(): Promise<string> {
     await this._ensureSignerAndRelayerAccount();

@@ -4,10 +4,11 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
  * Represents a user in the system.
  */
 export interface User {
-  id: string; // A unique identifier for the user (e.g., the username itself or a UUID)
+  id: string; // Unique identifier for the user (e.g., a UUID or derived from first passkey rawId)
   username: string;
-  currentChallenge?: string; // To store the challenge for the current WebAuthn operation
-  derpAccountId?: string; // Added for Option 1 client-managed account
+  derpAccountId?: string; // Suggested NEAR account ID, like <username>.passkeyfactory.testnet
+  currentChallenge?: string | null; // Store the current WebAuthn challenge for this user
+  currentDataId?: string | null; // Store the current dataId from contract yield for this user
 }
 
 /**
