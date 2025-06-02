@@ -57,7 +57,7 @@ async fn test_contract_basic_functionality() -> Result<(), Box<dyn std::error::E
 }
 
 #[tokio::test]
-#[ignore = "Full yield-resume flow with automatic callback execution is not reliably testable in near-workspaces due to environment limitations. Unit tests cover callback logic."]
+// #[ignore = "Full yield-resume flow with automatic callback execution is not reliably testable in near-workspaces due to environment limitations. Unit tests cover callback logic."]
 async fn test_contract_yield_resume() -> Result<(), Box<dyn std::error::Error>> {
     // This test demonstrates the yield-resume flow with manual callback simulation
     let contract_wasm = near_workspaces::compile_project("./").await?;

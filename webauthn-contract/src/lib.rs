@@ -156,7 +156,6 @@ pub struct RegistrationOptionsWithYieldInfo {
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
 pub struct RegistrationOptionsJSON {
-    #[serde(flatten)]
     pub options: PublicKeyCredentialCreationOptionsJSON,
     #[serde(rename = "derpAccountId")]
     pub derp_account_id: Option<String>,
@@ -419,7 +418,6 @@ impl WebAuthnContract {
         let response = RegistrationOptionsJSON {
             options,
             derp_account_id: Some(suggested_derp_account_id),
-            // data_id: Some(data_id_b64url),
             data_id: None,
         };
 

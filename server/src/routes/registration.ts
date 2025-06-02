@@ -43,7 +43,7 @@ interface ContractGenerateOptionsArgs {
 interface ContractRegistrationOptionsResponse {
   options: PublicKeyCredentialCreationOptionsJSON; // This is the standard WebAuthn options object
   derpAccountId: string | undefined;
-  dataId: string; // The crucial data_id from the yield
+  dataId: string | null;
 }
 
 // Interface for contract arguments (complete_registration)
@@ -66,10 +66,10 @@ async function getRegistrationOptionsSimpleWebAuthn(
     transports: auth.transports ? JSON.parse(auth.transports) as AuthenticatorTransport[] : undefined,
   }));
 
-  const options = await simpleWebAuthnGenerateRegistrationOptions({
+  const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
     rpID: config.rpID,
-    userID: user.id, // SimpleWebAuthn uses this as userID directly (usually a random string)
+    userID: user.id,
     userName: user.username,
     userDisplayName: user.username,
     excludeCredentials: authenticatorsForSimpleWebAuthnExclusion,
@@ -79,10 +79,10 @@ async function getRegistrationOptionsSimpleWebAuthn(
     timeout: 60000,
   });
 
-  console.log('Options from SimpleWebAuthn:', JSON.stringify(options, null, 2));
-  // To match the unified response, we invent a dataId (not used by SimpleWebAuthn)
+  console.log('Options from SimpleWebAuthn:', JSON.stringify(optionsFromSimpleWebAuthn, null, 2));
+
   return {
-    options,
+    options: optionsFromSimpleWebAuthn,
     derpAccountId: user.derpAccountId,
     dataId: `simplewebauthn_unused_${Date.now()}`,
   };
@@ -121,29 +121,56 @@ async function getRegistrationOptionsContract(
   console.log('Calling contract.generate_registration_options with args:', JSON.stringify(contractArgs));
 
   const account = nearClient.getRelayerAccount();
-  // This is a `call` method because it involves `promise_yield_create`
-  const rawResult = await account.callFunction({
+  const rawResult: any = await account.callFunction({
     contractId: config.contractId,
     methodName: 'generate_registration_options',
     args: contractArgs,
-    gas: BigInt(DEFAULT_GAS_STRING), // Use gas constant from config
+    gas: BigInt(DEFAULT_GAS_STRING),
   });
 
-  console.log('Raw result from contract.generate_registration_options:', rawResult);
-  let contractResponseString: string = rawResult.toString();
+  console.log('Raw result from contract.generate_registration_options:', JSON.stringify(rawResult, null, 2));
 
-  const contractResponse: ContractRegistrationOptionsResponse = JSON.parse(contractResponseString);
-  console.log('Received from contract.generate_registration_options:', JSON.stringify(contractResponse, null, 2));
-
-  if (!contractResponse.options || !contractResponse.dataId) {
-    console.error('Invalid response from contract.generate_registration_options:', contractResponse);
-    throw new Error('Contract did not return valid registration options or dataId.');
+  // Robust check for RPC/transaction errors before attempting to parse success value
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
+    const failure = rawResult.status.Failure;
+    // @ts-ignore
+    const executionError = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
+    const errorMessage = executionError || JSON.stringify(failure);
+    console.error('Contract execution failed (panic or transaction error):', errorMessage);
+    throw new Error(`Contract Error: ${errorMessage}`);
   }
 
-  return contractResponse; // This includes options, derpAccountId, and dataId
+  let contractResponseString: string;
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
+    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
+  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
+    // This case might occur if the rawResult is already the JSON string (e.g. from a view call or simplified mock)
+    contractResponseString = rawResult;
+  } else {
+    console.warn('Unexpected rawResult structure from generate_registration_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
+    throw new Error('Failed to parse contract response: Unexpected format.');
+  }
+
+  let contractResponse: ContractRegistrationOptionsResponse;
+  try {
+    contractResponse = JSON.parse(contractResponseString);
+  } catch (parseError: any) {
+    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
+    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
+  }
+
+  console.log('Parsed Contract response (should have nested options):', JSON.stringify(contractResponse, null, 2));
+
+  // Validate based on the nested options structure
+  if (!contractResponse.options || !contractResponse.options.challenge || !contractResponse.options.rp || typeof contractResponse.dataId === 'undefined') {
+    console.error('Invalid parsed response from contract.generate_registration_options (missing core fields or nested options):', contractResponse);
+    throw new Error('Contract did not return valid core registration options (options.challenge, options.rp) or dataId field after parsing.');
+  }
+
+  return contractResponse;
 }
 
-// --- Unified getRegistrationOptions (no major changes, but ensure User.id is suitable for contract) ---
+// --- Unified getRegistrationOptions (ensure user.id is suitable for contract) ---
 async function getRegistrationOptions(
   usernameInput: string,
   useContractMethod: boolean
@@ -181,7 +208,8 @@ async function getRegistrationOptions(
   if (useContractMethod) {
     return getRegistrationOptionsContract(usernameInput, user, rawAuthenticators);
   } else {
-    return getRegistrationOptionsSimpleWebAuthn(usernameInput, user, rawAuthenticators);
+    const simpleWebAuthnResult = await getRegistrationOptionsSimpleWebAuthn(usernameInput, user, rawAuthenticators);
+    return simpleWebAuthnResult; // This should now align
   }
 }
 
@@ -191,7 +219,7 @@ router.post('/generate-registration-options', async (req: Request, res: Response
   if (!username) return res.status(400).json({ error: 'Username is required' });
 
   try {
-    const result = await getRegistrationOptions(username, config.useContractMethod);
+    const resultFromService = await getRegistrationOptions(username, config.useContractMethod);
 
     const userForChallenge = userOperations.findByUsername(username);
     if (!userForChallenge) {
@@ -199,16 +227,17 @@ router.post('/generate-registration-options', async (req: Request, res: Response
       return res.status(500).json({ error: 'User context lost after options generation' });
     }
 
-    // Store challenge and dataId for the verification step
-    userOperations.updateChallengeAndDataId(userForChallenge.id, result.options.challenge, result.dataId);
-    console.log('Generated registration options for:', username, 'Suggested derpAccountId:', result.derpAccountId, 'dataId:', result.dataId);
+    if (!resultFromService.options || typeof resultFromService.options.challenge !== 'string') {
+        console.error("Invalid result from getRegistrationOptions - missing options.challenge", resultFromService);
+        throw new Error("Server failed to prepare valid registration options challenge.");
+    }
 
-    // Return the options and derpAccountId to the client. dataId is NOT sent to client, server holds it.
-    return res.json({
-      options: result.options,
-      derpAccountId: result.derpAccountId,
-      dataId: result.dataId
-    });
+    userOperations.updateChallengeAndDataId(userForChallenge.id, resultFromService.options.challenge, resultFromService.dataId);
+    console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
+
+    // `resultFromService` already has the structure { options: {...}, derpAccountId, dataId }
+    // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
+    return res.json(resultFromService);
 
   } catch (e: any) {
     console.error('Error in /generate-registration-options route:', e.message, e.stack, e.type, e.context, e.transaction_outcome);
@@ -225,7 +254,7 @@ router.post('/generate-registration-options', async (req: Request, res: Response
   }
 });
 
-// --- verifyRegistrationResponseSimpleWebAuthn (no changes needed) ---
+// --- verifyRegistrationResponseSimpleWebAuthn ---
 async function verifyRegistrationResponseSimpleWebAuthn(
   attestationResponse: RegistrationResponseJSON,
   expectedChallenge: string
@@ -236,7 +265,7 @@ async function verifyRegistrationResponseSimpleWebAuthn(
     expectedChallenge,
     expectedOrigin: config.expectedOrigin,
     expectedRPID: config.rpID,
-    requireUserVerification: true, // Typically true for passkeys
+    requireUserVerification: true,
   });
   return {
     verified: verification.verified,
@@ -244,7 +273,7 @@ async function verifyRegistrationResponseSimpleWebAuthn(
   };
 }
 
-// --- Updated function to complete registration via NEAR Contract ---
+// --- Complete registration via NEAR Contract ---
 async function completeRegistrationContract(
   attestationResponse: RegistrationResponseJSON,
   dataId: string // The data_id received from generate_registration_options
@@ -281,44 +310,14 @@ async function completeRegistrationContract(
     // The actual `VerifiedRegistrationResponse` comes from the *callback* `resume_registration_callback`.
     // The server cannot directly get the callback's return value in this single transaction.
     // For now, we assume success if the transaction didn't fail outright.
-    // A more robust system might:
-    //  1. Have the callback emit an event that the server listens for.
-    //  2. Have the callback store results in contract state that the server polls.
-    //  3. The client could poll the contract for verification status using a view method.
-
-    // If the transaction didn't throw an error, we assume the yield was resumed.
-    // The actual verification happens in the private callback.
-    // To get registrationInfo, we would ideally need the callback to store it and provide a view method.
-    // For this example, we'll simulate a successful verification if the call didn't fail.
-    // And we won't have registrationInfo from the contract this way.
-
-    // Let's try to query the `test_process_registration` if available and in a test-like setup
-    // THIS IS A HACK for trying to get results, not for production.
-    // In production, the callback is private and its result isn't directly available to the relayer.
     let simulatedRegistrationInfo: any = undefined;
     let verified = true; // Assume verified if complete_registration tx succeeded.
 
-    // To get actual registrationInfo, the frontend/client would typically parse the attestationResponse
-    // itself if `attestationType` was 'none' or it handled attestation verification itself.
-    // Or, the contract callback would need to store this info.
-    // Since our contract (with `fmt: "none"`) *does* parse and return it in the callback, we have a gap.
-
-    // For now, if the call to complete_registration succeeded, we will assume verification was true.
-    // We can parse the attestationResponse locally to get some info for DB storage if needed.
     if (attestationResponse.response.attestationObject && attestationResponse.response.clientDataJSON) {
-        // This is a client-side/server-side interpretation, not from contract callback result
-        // Placeholder: In a real scenario with 'none' attestation, you might parse clientDataJSON and some parts of attestationObject
-        // For this example, if `complete_registration` succeeded, we assume `verified: true`.
-        // The `registrationInfo` for DB needs to be constructed carefully.
-        // Let's simulate getting credentialID and publicKey for DB storage if the call was okay.
         try {
             const rawId = isoBase64URL.toBuffer(attestationResponse.rawId);
-            // For `none` attestation, the publicKey is not directly verifiable from attestationObject by server
-            // but it's inside authData. The contract callback handles this.
-            // We cannot get the *exact* credentialPublicKey the contract derived without a view method or event.
-            // So, we will store what the client sent, and the contract verifies it internally.
             simulatedRegistrationInfo = {
-                credentialID: rawId, // Buffer
+                credentialID: rawId,
                 credentialPublicKey: new Uint8Array(), // Placeholder - contract callback would have the real one
                 counter: 0, // Placeholder - contract callback would have the real one
             }
@@ -371,7 +370,6 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     }
     if (config.useContractMethod && storedDataId !== dataId) {
         console.warn(`DataId mismatch. Stored: ${storedDataId}, Received: ${dataId}`);
-        // Depending on security model, this could be an error or just a log.
         // If dataId is echoed by client, it should match what server stored from generate_registration_options.
     }
 

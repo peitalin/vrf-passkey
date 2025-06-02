@@ -10,10 +10,10 @@ const config = {
   rpName: process.env.RP_NAME || 'NEAR Passkey Relayer Demo',
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'http://localhost:5173',
   databasePath: '../../passkey_users.db',
-  useContractMethod: process.env.USE_CONTRACT_METHOD === 'true', // Set to true to use contract, false for SimpleWebAuthn
-  relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet', // Default or from ENV
-  relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...', // Default or from ENV
-  contractId: process.env.CONTRACT_ID || 'webauthn-contract.testnet', // Default or from ENV
+  useContractMethod: true,
+  relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
+  relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
+  contractId: process.env.CONTRACT_ID || 'webauthn-contract.testnet',
   nodeUrl: process.env.NEAR_NODE_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NEAR_NETWORK_ID || 'testnet',
 };
