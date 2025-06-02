@@ -6,9 +6,9 @@ export const COMPLETE_REGISTRATION_GAS_STRING = "100000000000000"; // 100 TGas
 // Main configuration object
 const config = {
   port: process.env.PORT || 3001,
-  rpID: process.env.RP_ID || 'localhost',
+  rpID: process.env.RP_ID || 'example.localhost',
   rpName: process.env.RP_NAME || 'NEAR Passkey Relayer Demo',
-  expectedOrigin: process.env.EXPECTED_ORIGIN || 'http://localhost:5173',
+  expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
   databasePath: '../../passkey_users.db',
   useContractMethod: true,
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',

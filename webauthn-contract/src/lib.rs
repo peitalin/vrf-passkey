@@ -418,7 +418,7 @@ impl WebAuthnContract {
         let response = RegistrationOptionsJSON {
             options,
             derp_account_id: Some(suggested_derp_account_id),
-            data_id: None,
+            data_id: Some(data_id_b64url),
         };
 
         serde_json::to_string(&response).expect("Failed to serialize registration options")
