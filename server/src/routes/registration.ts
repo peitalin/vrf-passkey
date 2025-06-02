@@ -133,27 +133,12 @@ async function getRegistrationOptionsContract(
   let contractResponseString: string = rawResult.toString();
 
   const contractResponse: ContractRegistrationOptionsResponse = JSON.parse(contractResponseString);
-  console.log('parsed Contract response:', contractResponse);
+  console.log('Received from contract.generate_registration_options:', JSON.stringify(contractResponse, null, 2));
 
   if (!contractResponse.options || !contractResponse.dataId) {
     console.error('Invalid response from contract.generate_registration_options:', contractResponse);
     throw new Error('Contract did not return valid registration options or dataId.');
   }
-
-  console.log('Received from contract.generate_registration_options:', JSON.stringify(contractResponse, null, 2));
-
-  // Detailed logging before returning from server
-  console.log('[Server LOG] getRegistrationOptionsContract - About to return contractResponse:');
-  console.log('[Server LOG] contractResponse.options.challenge:', contractResponse.options?.challenge);
-  if (contractResponse.options?.excludeCredentials) {
-    contractResponse.options.excludeCredentials.forEach((cred, index) => {
-      console.log(`[Server LOG] contractResponse.options.excludeCredentials[${index}].id:`, cred?.id);
-    });
-  } else {
-    console.log('[Server LOG] contractResponse.options.excludeCredentials is null or undefined');
-  }
-  console.log('[Server LOG] contractResponse.dataId:', contractResponse.dataId);
-  console.log('[Server LOG] contractResponse.derpAccountId:', contractResponse.derpAccountId);
 
   return contractResponse; // This includes options, derpAccountId, and dataId
 }

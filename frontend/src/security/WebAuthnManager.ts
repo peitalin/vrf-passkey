@@ -325,8 +325,6 @@ export class WebAuthnManager {
       }
 
       const serverResponseObject = await response.json();
-      // Log exactly what the frontend received
-      console.log("[FRONTEND LOG] Received from /generate-registration-options:", JSON.stringify(serverResponseObject, null, 2));
 
       // Ensure options and challenge exist before trying to use them
       if (!serverResponseObject || !serverResponseObject.options || typeof serverResponseObject.options.challenge !== 'string') {
@@ -382,12 +380,7 @@ export class WebAuthnManager {
   async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
     const { options, challengeId } = await this.getRegistrationOptions(username);
 
-    // Log options right before bufferDecode is called
-    console.log("[FRONTEND LOG] In registerWithPrf, options received:", JSON.stringify(options, null, 2));
-    console.log("[FRONTEND LOG] In registerWithPrf, options.challenge value:", options?.challenge);
-    console.log("[FRONTEND LOG] In registerWithPrf, typeof options.challenge:", typeof options?.challenge);
-
-    // Add a specific check before the failing call
+    // Type check kept for safety, can be removed if confident
     if (typeof options?.challenge !== 'string') {
         console.error("[FRONTEND ERROR] In registerWithPrf, options.challenge is NOT a string just before bufferDecode! Value:", options?.challenge);
         throw new TypeError("Critical error: options.challenge became non-string before bufferDecode in registerWithPrf.");
