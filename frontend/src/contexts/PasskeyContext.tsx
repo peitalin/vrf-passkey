@@ -202,7 +202,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     try {
       // Get registration options first to have the challenge ID
-      const { options, challengeId: registrationChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
+      const { challengeId: registrationChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
       challengeId = registrationChallengeId;
 
       // Try PRF-enabled registration
@@ -211,7 +211,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       tempCredentialStore = credential;
 
       // Frontend constructs the derpAccountId, ignoring server suggestion for this specific format requirement
-      const sanitizedUsername = currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32); // Sanitize and shorten username
+      const sanitizedUsername = currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
       userDerpAccountIdToUse = `${sanitizedUsername}.${RELAYER_ACCOUNT_ID}`;
       console.log(`Frontend constructed derpAccountId: ${userDerpAccountIdToUse}`);
 

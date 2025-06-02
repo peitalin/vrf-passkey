@@ -51,9 +51,7 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
     let user_name_for_entity = "testuser".to_string();
 
     let user_id_bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-    let challenge_bytes = vec![
-        10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160,
-    ];
+    let challenge_bytes = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160];
 
     let user_id_b64_for_json = TEST_BASE64_URL_ENGINE.encode(&user_id_bytes);
     let challenge_b64_for_json = TEST_BASE64_URL_ENGINE.encode(&challenge_bytes);

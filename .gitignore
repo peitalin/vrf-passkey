@@ -25,6 +25,7 @@
 /webauthn-contract/target
 /target
 
+
 *.local
 
 # Editor directories and files

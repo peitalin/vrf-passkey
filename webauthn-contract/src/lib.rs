@@ -1,12 +1,18 @@
+mod verifiers;
+mod parsers;
+mod p256_utils;
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near};
-use p256::ecdsa::{Signature, VerifyingKey};
-use p256::PublicKey as P256PublicKey;
 use serde_cbor::Value as CborValue;
+use crate::parsers::{
+    parse_attestation_object,
+    parse_authenticator_data
+};
+use crate::verifiers::verify_attestation_signature;
 
 const DEFAULT_CHALLENGE_SIZE: usize = 16;
-const DEFAULT_USER_ID_SIZE: usize = 16;
 
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone, PartialEq)]
@@ -73,9 +79,11 @@ pub struct AuthenticatorSelectionCriteria {
 impl Default for AuthenticatorSelectionCriteria {
     fn default() -> Self {
         Self {
-            authenticator_attachment: None, // JS doesn't set this by default unless preferredAuthenticatorType is used
+            // JS doesn't set this by default unless preferredAuthenticatorType is used
+            authenticator_attachment: None,
             resident_key: Some("preferred".to_string()),
-            require_resident_key: Some(false), // JS default for requireResidentKey is false if residentKey is 'preferred'
+            // JS default for requireResidentKey is false if residentKey is 'preferred'
+            require_resident_key: Some(false),
             user_verification: Some("preferred".to_string()),
         }
     }
@@ -113,7 +121,7 @@ pub struct PublicKeyCredentialCreationOptionsJSON {
     pub authenticator_selection: AuthenticatorSelectionCriteria,
     pub extensions: AuthenticationExtensionsClientInputsJSON,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hints: Option<Vec<String>>, // Added hints field
+    pub hints: Option<Vec<String>>,
 }
 
 #[near_sdk::near(serializers = [json])]
@@ -180,26 +188,14 @@ struct ClientDataJSON {
     cross_origin: bool,
 }
 
-#[derive(Debug)]
-struct AuthenticatorData {
-    rp_id_hash: Vec<u8>,
-    flags: u8,
-    counter: u32,
-    attested_credential_data: Option<AttestedCredentialData>,
-}
-
-#[derive(Debug)]
-struct AttestedCredentialData {
-    aaguid: Vec<u8>,
-    credential_id: Vec<u8>,
-    credential_public_key: Vec<u8>,
-}
+/////////////////////////////////////
+///////////// Contract //////////////
+/////////////////////////////////////
 
 #[near(contract_state)]
 pub struct WebAuthnContract {
     greeting: String,
     contract_name: String,
-    // current_challenge: Option<String>,
 }
 
 impl Default for WebAuthnContract {
@@ -207,19 +203,18 @@ impl Default for WebAuthnContract {
         Self {
             greeting: "Hello".to_string(),
             contract_name: "webauthn-contract.testnet".to_string(),
-            // current_challenge: None,
         }
     }
 }
 
 #[near]
 impl WebAuthnContract {
+
     #[init]
     pub fn init(contract_name: String) -> Self {
         Self {
             contract_name,
             greeting: "Hello".to_string(),
-            // current_challenge: None,
         }
     }
 
@@ -278,11 +273,11 @@ impl WebAuthnContract {
         supported_algorithm_ids: Option<Vec<i32>>,
         preferred_authenticator_type: Option<String>,
     ) -> RegistrationOptionsWithDerpIdJSON {
+
         let final_challenge_b64url = challenge.unwrap_or_else(|| {
             let bytes = self.generate_challenge_bytes();
             BASE64_URL_ENGINE.encode(&bytes)
         });
-        // self.current_challenge = Some(final_challenge_b64url.clone());
 
         let final_user_id_b64url = user_id;
 
@@ -370,8 +365,7 @@ impl WebAuthnContract {
         }
     }
 
-    /// Public method to verify registration response
-    pub fn verify_registration_response_internal(
+    pub fn verify_registration_response(
         &self,
         attestation_response: RegistrationResponseJSON,
         expected_challenge: String,
@@ -482,7 +476,7 @@ impl WebAuthnContract {
 
         // Extract components from attestationObject
         let (auth_data_bytes, att_stmt, fmt) =
-            match self.parse_attestation_object(&attestation_object) {
+            match parse_attestation_object(&attestation_object) {
                 Ok(data) => data,
                 Err(e) => {
                     log!("Failed to parse attestation object: {}", e);
@@ -494,7 +488,7 @@ impl WebAuthnContract {
             };
 
         // Parse authenticator data
-        let auth_data = match self.parse_authenticator_data(&auth_data_bytes) {
+        let auth_data = match parse_authenticator_data(&auth_data_bytes) {
             Ok(data) => data,
             Err(e) => {
                 log!("Failed to parse authenticator data: {}", e);
@@ -555,7 +549,7 @@ impl WebAuthnContract {
 
         // Step 5: Verify attestation signature
         let client_data_hash = env::sha256(&client_data_json_bytes);
-        match self.verify_attestation_signature(
+        match verify_attestation_signature(
             &att_stmt,
             &auth_data_bytes,
             &client_data_hash,
@@ -593,410 +587,6 @@ impl WebAuthnContract {
             }),
         }
     }
-
-    fn parse_attestation_object(
-        &self,
-        attestation_object: &CborValue,
-    ) -> Result<(Vec<u8>, CborValue, String), String> {
-        if let CborValue::Map(map) = attestation_object {
-            // Extract authData (required)
-            let auth_data = map
-                .get(&CborValue::Text("authData".to_string()))
-                .ok_or("Missing authData in attestation object")?;
-
-            let auth_data_bytes = if let CborValue::Bytes(bytes) = auth_data {
-                bytes.clone()
-            } else {
-                return Err("authData must be bytes".to_string());
-            };
-
-            // Extract fmt (required)
-            let fmt = map
-                .get(&CborValue::Text("fmt".to_string()))
-                .ok_or("Missing fmt in attestation object")?;
-
-            let fmt_string = if let CborValue::Text(s) = fmt {
-                s.clone()
-            } else {
-                return Err("fmt must be text".to_string());
-            };
-
-            // Extract attStmt (required)
-            let att_stmt = map
-                .get(&CborValue::Text("attStmt".to_string()))
-                .ok_or("Missing attStmt in attestation object")?
-                .clone();
-
-            Ok((auth_data_bytes, att_stmt, fmt_string))
-        } else {
-            Err("Attestation object must be a CBOR map".to_string())
-        }
-    }
-
-    fn parse_authenticator_data(
-        &self,
-        auth_data_bytes: &[u8],
-    ) -> Result<AuthenticatorData, String> {
-        if auth_data_bytes.len() < 37 {
-            return Err("Authenticator data too short".to_string());
-        }
-
-        // Parse fixed-length portion
-        let rp_id_hash = auth_data_bytes[0..32].to_vec();
-        let flags = auth_data_bytes[32];
-        let counter = u32::from_be_bytes([
-            auth_data_bytes[33],
-            auth_data_bytes[34],
-            auth_data_bytes[35],
-            auth_data_bytes[36],
-        ]);
-
-        let mut offset = 37;
-        let mut attested_credential_data = None;
-
-        // Check if attested credential data is present (AT flag = bit 6)
-        if (flags & 0x40) != 0 {
-            if auth_data_bytes.len() < offset + 18 {
-                return Err("Authenticator data too short for attested credential data".to_string());
-            }
-
-            // Parse attested credential data
-            let aaguid = auth_data_bytes[offset..offset + 16].to_vec();
-            offset += 16;
-
-            let credential_id_length =
-                u16::from_be_bytes([auth_data_bytes[offset], auth_data_bytes[offset + 1]]) as usize;
-            offset += 2;
-
-            if auth_data_bytes.len() < offset + credential_id_length {
-                return Err("Authenticator data too short for credential ID".to_string());
-            }
-
-            let credential_id = auth_data_bytes[offset..offset + credential_id_length].to_vec();
-            offset += credential_id_length;
-
-            // The rest is the credential public key (COSE format)
-            let credential_public_key = auth_data_bytes[offset..].to_vec();
-
-            attested_credential_data = Some(AttestedCredentialData {
-                aaguid,
-                credential_id,
-                credential_public_key,
-            });
-        }
-
-        Ok(AuthenticatorData {
-            rp_id_hash,
-            flags,
-            counter,
-            attested_credential_data,
-        })
-    }
-
-    fn verify_attestation_signature(
-        &self,
-        att_stmt: &CborValue,
-        auth_data: &[u8],
-        client_data_hash: &[u8],
-        credential_public_key: &[u8],
-        fmt: &str,
-    ) -> Result<bool, String> {
-        match fmt {
-            "none" => {
-                // No signature to verify for "none" attestation
-                Ok(true)
-            }
-            "packed" => self.verify_packed_signature(
-                att_stmt,
-                auth_data,
-                client_data_hash,
-                credential_public_key,
-            ),
-            "fido-u2f" => self.verify_u2f_signature(
-                att_stmt,
-                auth_data,
-                client_data_hash,
-                credential_public_key,
-            ),
-            _ => Err(format!("Unsupported attestation format: {}", fmt)),
-        }
-    }
-
-    fn verify_packed_signature(
-        &self,
-        att_stmt: &CborValue,
-        auth_data: &[u8],
-        client_data_hash: &[u8],
-        credential_public_key: &[u8],
-    ) -> Result<bool, String> {
-        if let CborValue::Map(stmt_map) = att_stmt {
-            // Extract signature
-            let signature_bytes = stmt_map
-                .get(&CborValue::Text("sig".to_string()))
-                .and_then(|v| {
-                    if let CborValue::Bytes(b) = v {
-                        Some(b)
-                    } else {
-                        None
-                    }
-                })
-                .ok_or("Missing signature in packed attestation")?;
-
-            // Extract algorithm (should be -7 for ES256)
-            let alg = stmt_map
-                .get(&CborValue::Text("alg".to_string()))
-                .and_then(|v| {
-                    if let CborValue::Integer(i) = v {
-                        Some(*i)
-                    } else {
-                        None
-                    }
-                })
-                .ok_or("Missing algorithm in packed attestation")?;
-
-            if alg != -7 {
-                return Err(format!(
-                    "Unsupported algorithm: {} (expected -7 for ES256)",
-                    alg
-                ));
-            }
-
-            // For self-attestation (no x5c), verify against credential key
-            if !stmt_map.contains_key(&CborValue::Text("x5c".to_string())) {
-                return self.verify_p256_signature(
-                    signature_bytes,
-                    auth_data,
-                    client_data_hash,
-                    credential_public_key,
-                );
-            } else {
-                // TODO: Handle full attestation with certificate chain
-                return Err("Certificate chain attestation not yet supported".to_string());
-            }
-        }
-
-        Err("Invalid attestation statement format".to_string())
-    }
-
-    fn verify_p256_signature(
-        &self,
-        signature_bytes: &[u8],
-        auth_data: &[u8],
-        client_data_hash: &[u8],
-        cose_public_key: &[u8],
-    ) -> Result<bool, String> {
-        // Parse COSE public key to get P-256 coordinates
-        let cose_key: CborValue = serde_cbor::from_slice(cose_public_key)
-            .map_err(|_| "Failed to parse COSE public key")?;
-
-        let (x_bytes, y_bytes) = self.extract_p256_coordinates_from_cose(&cose_key)?;
-
-        // Create P-256 public key from coordinates
-        let public_key = self.create_p256_public_key(&x_bytes, &y_bytes)?;
-
-        // Create verification data: authData || clientDataHash
-        let mut verification_data = auth_data.to_vec();
-        verification_data.extend_from_slice(client_data_hash);
-
-        // Parse signature (DER encoded)
-        let signature =
-            Signature::from_der(signature_bytes).map_err(|_| "Invalid signature format")?;
-
-        // Verify signature
-        use p256::ecdsa::signature::Verifier;
-        match public_key.verify(&verification_data, &signature) {
-            Ok(()) => Ok(true),
-            Err(_) => Ok(false),
-        }
-    }
-
-    fn extract_p256_coordinates_from_cose(
-        &self,
-        cose_key: &CborValue,
-    ) -> Result<(Vec<u8>, Vec<u8>), String> {
-        if let CborValue::Map(map) = cose_key {
-            let x = map
-                .get(&CborValue::Integer(-2))
-                .and_then(|v| {
-                    if let CborValue::Bytes(b) = v {
-                        Some(b.clone())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or("Missing x coordinate")?;
-
-            let y = map
-                .get(&CborValue::Integer(-3))
-                .and_then(|v| {
-                    if let CborValue::Bytes(b) = v {
-                        Some(b.clone())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or("Missing y coordinate")?;
-
-            if x.len() != 32 || y.len() != 32 {
-                return Err("Invalid coordinate length (expected 32 bytes each)".to_string());
-            }
-
-            Ok((x, y))
-        } else {
-            Err("COSE key must be a map".to_string())
-        }
-    }
-
-    fn create_p256_public_key(
-        &self,
-        x_bytes: &[u8],
-        y_bytes: &[u8],
-    ) -> Result<VerifyingKey, String> {
-        // Create uncompressed point: 0x04 || x || y
-        let mut uncompressed = vec![0x04];
-        uncompressed.extend_from_slice(x_bytes);
-        uncompressed.extend_from_slice(y_bytes);
-
-        // Create P-256 public key
-        let public_key = P256PublicKey::from_sec1_bytes(&uncompressed)
-            .map_err(|_| "Invalid P-256 public key")?;
-
-        Ok(VerifyingKey::from(public_key))
-    }
-
-    fn verify_u2f_signature(
-        &self,
-        att_stmt: &CborValue,
-        auth_data: &[u8],
-        client_data_hash: &[u8],
-        credential_public_key: &[u8],
-    ) -> Result<bool, String> {
-        log!("Starting FIDO U2F signature verification");
-
-        // Extract signature from attestation statement
-        let signature_bytes = if let CborValue::Map(stmt_map) = att_stmt {
-            stmt_map
-                .get(&CborValue::Text("sig".to_string()))
-                .and_then(|v| {
-                    if let CborValue::Bytes(b) = v {
-                        Some(b)
-                    } else {
-                        None
-                    }
-                })
-                .ok_or("Missing signature in U2F attestation statement")?
-        } else {
-            return Err("Invalid U2F attestation statement format".to_string());
-        };
-
-        log!("Extracted signature ({} bytes)", signature_bytes.len());
-
-        // Parse authenticator data to extract components
-        if auth_data.len() < 37 {
-            return Err("Authenticator data too short for U2F".to_string());
-        }
-
-        // Extract RP ID hash (first 32 bytes of authData)
-        let rp_id_hash = &auth_data[0..32];
-        log!("RP ID hash: {:?}", rp_id_hash);
-
-        // Extract credential ID from authenticator data
-        // AuthData format: rpIdHash(32) + flags(1) + counter(4) + aaguid(16) + credIdLen(2) + credId(variable) + pubKey(variable)
-        if auth_data.len() < 55 {
-            return Err("Authenticator data too short to contain credential".to_string());
-        }
-
-        // Skip to credential ID length (at offset 53)
-        let cred_id_len = u16::from_be_bytes([auth_data[53], auth_data[54]]) as usize;
-        if auth_data.len() < 55 + cred_id_len {
-            return Err("Authenticator data too short for credential ID".to_string());
-        }
-
-        let credential_id = &auth_data[55..55 + cred_id_len];
-        log!(
-            "Credential ID ({} bytes): {:?}",
-            credential_id.len(),
-            credential_id
-        );
-
-        // Parse credential public key to get uncompressed P-256 point
-        let uncompressed_pubkey = self.get_uncompressed_p256_pubkey(credential_public_key)?;
-        log!(
-            "Uncompressed public key ({} bytes)",
-            uncompressed_pubkey.len()
-        );
-
-        // Construct U2F signature data: 0x00 || appParam || chlngParam || keyHandle || pubKey
-        let mut u2f_signature_data = Vec::new();
-        u2f_signature_data.push(0x00); // Reserved byte
-        u2f_signature_data.extend_from_slice(rp_id_hash); // Application parameter (32 bytes)
-        u2f_signature_data.extend_from_slice(client_data_hash); // Challenge parameter (32 bytes)
-        u2f_signature_data.extend_from_slice(credential_id); // Key handle (variable)
-        u2f_signature_data.extend_from_slice(&uncompressed_pubkey); // User public key (65 bytes)
-
-        log!(
-            "U2F signature data length: {} bytes",
-            u2f_signature_data.len()
-        );
-
-        // For U2F attestation, we need the attestation certificate's public key
-        // If no certificate is provided, we use self-attestation (credential public key)
-        let verifying_key = if let CborValue::Map(stmt_map) = att_stmt {
-            if let Some(_x5c) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
-                // Certificate chain present - extract public key from attestation certificate
-                log!("U2F attestation with certificate chain - not yet implemented");
-                return Err("U2F attestation with certificate chain not yet supported".to_string());
-            } else {
-                // Self-attestation - use credential public key
-                log!("U2F self-attestation - using credential public key");
-                let (x_bytes, y_bytes) =
-                    self.extract_p256_coordinates_from_cose_value(credential_public_key)?;
-                self.create_p256_public_key(&x_bytes, &y_bytes)?
-            }
-        } else {
-            return Err("Invalid attestation statement format".to_string());
-        };
-
-        // Parse and verify signature
-        let signature = p256::ecdsa::Signature::from_der(signature_bytes)
-            .map_err(|_| "Invalid DER signature format")?;
-
-        // Verify signature
-        use p256::ecdsa::signature::Verifier;
-        match verifying_key.verify(&u2f_signature_data, &signature) {
-            Ok(()) => {
-                log!("U2F signature verification successful");
-                Ok(true)
-            }
-            Err(_) => {
-                log!("U2F signature verification failed");
-                Ok(false)
-            }
-        }
-    }
-
-    // Helper function to extract uncompressed P-256 public key from COSE format
-    fn get_uncompressed_p256_pubkey(&self, cose_public_key: &[u8]) -> Result<Vec<u8>, String> {
-        let (x_bytes, y_bytes) = self.extract_p256_coordinates_from_cose_value(cose_public_key)?;
-
-        // Create uncompressed point format: 0x04 || x || y
-        let mut uncompressed = Vec::with_capacity(65);
-        uncompressed.push(0x04); // Uncompressed point indicator
-        uncompressed.extend_from_slice(&x_bytes);
-        uncompressed.extend_from_slice(&y_bytes);
-
-        Ok(uncompressed)
-    }
-
-    // Helper function to extract P-256 coordinates from COSE format (from raw bytes)
-    fn extract_p256_coordinates_from_cose_value(
-        &self,
-        cose_key_bytes: &[u8],
-    ) -> Result<(Vec<u8>, Vec<u8>), String> {
-        let cose_key: CborValue = serde_cbor::from_slice(cose_key_bytes)
-            .map_err(|_| "Failed to parse COSE public key")?;
-        self.extract_p256_coordinates_from_cose(&cose_key)
-    }
 }
 
 #[cfg(test)]
@@ -1007,6 +597,8 @@ mod tests {
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
     use std::collections::BTreeMap;
+
+    const DEFAULT_USER_ID_SIZE: usize = 16;
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {
@@ -1022,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_registration_options_js_defaults_equivalent() {
+    fn test_generate_registration_options_defaults() {
         let context = get_context_with_seed(1); // Use a predictable seed
         testing_env!(context.build());
         let mut contract = WebAuthnContract::default();
@@ -1076,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_registration_options_with_specific_overrides() {
+    fn test_generate_registration_options_with_overrides() {
         let context = get_context_with_seed(2);
         testing_env!(context.build());
         let mut contract = WebAuthnContract::default();
@@ -1154,252 +746,6 @@ mod tests {
         serde_cbor::to_vec(&CborValue::Map(map)).unwrap()
     }
 
-    fn build_p256_cose_key(x_coord: &[u8; 32], y_coord: &[u8; 32]) -> Vec<u8> {
-        let mut map = BTreeMap::new();
-        map.insert(CborValue::Integer(1), CborValue::Integer(2)); // kty: EC2
-        map.insert(CborValue::Integer(3), CborValue::Integer(-7)); // alg: ES256
-        map.insert(CborValue::Integer(-1), CborValue::Integer(1)); // crv: P-256
-        map.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord.to_vec())); // x
-        map.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord.to_vec())); // y
-        serde_cbor::to_vec(&CborValue::Map(map)).unwrap()
-    }
-
-    // Tests for FIDO U2F signature verification
-    #[test]
-    fn test_verify_u2f_signature_self_attestation() {
-        let context = get_context_with_seed(9);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        // Use known valid P-256 coordinates (from NIST test vectors)
-        // These are valid points on the P-256 curve
-        let x_coord = [
-            0x60, 0xfe, 0xd4, 0xba, 0x25, 0x5a, 0x9d, 0x31, 0xc9, 0x61, 0xeb, 0x74, 0xc6, 0x35,
-            0x6d, 0x68, 0xc0, 0x49, 0xb8, 0x92, 0x3b, 0x61, 0xfa, 0x6c, 0xe6, 0x69, 0x62, 0x2e,
-            0x60, 0xf2, 0x9f, 0xb6,
-        ];
-        let y_coord = [
-            0x79, 0x03, 0xfe, 0x10, 0x08, 0xb8, 0xbc, 0x99, 0xa4, 0x1a, 0xe9, 0xe9, 0x56, 0x28,
-            0xbc, 0x64, 0xf2, 0xf1, 0xb2, 0x0c, 0x2d, 0x7e, 0x9f, 0x51, 0x77, 0xa3, 0xc2, 0x94,
-            0xd4, 0x46, 0x22, 0x99,
-        ];
-
-        // Build COSE public key
-        let cose_public_key = build_p256_cose_key(&x_coord, &y_coord);
-
-        // Build mock authenticator data
-        let rp_id_hash = [0x41u8; 32]; // Mock RP ID hash
-        let flags = 0x41u8; // User present + attested credential data
-        let counter = [0x00, 0x00, 0x00, 0x01u8]; // Counter = 1
-        let aaguid = [0x00u8; 16]; // Mock AAGUID
-        let credential_id = b"test_credential_id_12345678"; // 28 bytes
-        let cred_id_len = (credential_id.len() as u16).to_be_bytes();
-
-        let mut auth_data = Vec::new();
-        auth_data.extend_from_slice(&rp_id_hash); // 32 bytes
-        auth_data.push(flags); // 1 byte
-        auth_data.extend_from_slice(&counter); // 4 bytes
-        auth_data.extend_from_slice(&aaguid); // 16 bytes
-        auth_data.extend_from_slice(&cred_id_len); // 2 bytes (total: 55 bytes)
-        auth_data.extend_from_slice(credential_id); // 28 bytes
-        auth_data.extend_from_slice(&cose_public_key); // Variable length
-
-        // Mock client data hash
-        let client_data_hash = [0x42u8; 32];
-
-        // Build U2F signature data (what should be signed)
-        let mut u2f_signature_data = Vec::new();
-        u2f_signature_data.push(0x00); // Reserved byte
-        u2f_signature_data.extend_from_slice(&rp_id_hash); // Application parameter
-        u2f_signature_data.extend_from_slice(&client_data_hash); // Challenge parameter
-        u2f_signature_data.extend_from_slice(credential_id); // Key handle
-
-        // Add uncompressed public key (0x04 || x || y)
-        u2f_signature_data.push(0x04);
-        u2f_signature_data.extend_from_slice(&x_coord);
-        u2f_signature_data.extend_from_slice(&y_coord);
-
-        // For testing, we'll create a mock signature (normally this would be generated by a real key)
-        // Since we don't have the private key, we'll create a plausible-looking DER signature
-        let mock_signature = create_mock_der_signature();
-
-        // Build attestation statement (self-attestation, no x5c)
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
-            CborValue::Text("sig".to_string()),
-            CborValue::Bytes(mock_signature),
-        );
-        let att_stmt = CborValue::Map(att_stmt_map);
-
-        // Test the verification (this will fail because we have a mock signature,
-        // but it should get through the parsing logic without errors)
-        let result = contract.verify_u2f_signature(
-            &att_stmt,
-            &auth_data,
-            &client_data_hash,
-            &cose_public_key,
-        );
-
-        // We expect this to return Ok(false) because the signature is mock/invalid
-        // But it should not panic or return an error due to parsing issues
-        assert!(result.is_ok(), "Should not error on parsing: {:?}", result);
-        assert_eq!(
-            result.unwrap(),
-            false,
-            "Mock signature should fail verification"
-        );
-    }
-
-    #[test]
-    fn test_verify_u2f_signature_invalid_public_key() {
-        let context = get_context_with_seed(13);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        // Use invalid P-256 coordinates (not on the curve)
-        let x_coord = [0x01u8; 32]; // Invalid point
-        let y_coord = [0x02u8; 32]; // Invalid point
-        let cose_public_key = build_p256_cose_key(&x_coord, &y_coord);
-
-        // Build minimal valid authenticator data
-        let mut auth_data = vec![0u8; 55]; // Minimum length for credential data
-        auth_data.extend_from_slice(b"test_cred_id_123456"); // 20 bytes credential ID
-        auth_data.extend_from_slice(&cose_public_key); // COSE public key
-
-        // Set credential ID length at correct offset (bytes 53-54)
-        let cred_id_len = 20u16;
-        auth_data[53] = (cred_id_len >> 8) as u8;
-        auth_data[54] = (cred_id_len & 0xff) as u8;
-
-        let client_data_hash = [0u8; 32];
-        let mock_signature = create_mock_der_signature();
-
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
-            CborValue::Text("sig".to_string()),
-            CborValue::Bytes(mock_signature),
-        );
-        let att_stmt = CborValue::Map(att_stmt_map);
-
-        let result = contract.verify_u2f_signature(
-            &att_stmt,
-            &auth_data,
-            &client_data_hash,
-            &cose_public_key,
-        );
-
-        // Should fail due to invalid public key
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid P-256 public key"));
-    }
-
-    #[test]
-    fn test_verify_u2f_signature_missing_signature() {
-        let context = get_context_with_seed(10);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        // Empty attestation statement (missing signature)
-        let att_stmt_map = BTreeMap::new();
-        let att_stmt = CborValue::Map(att_stmt_map);
-
-        let auth_data = vec![0u8; 100]; // Mock auth data
-        let client_data_hash = [0u8; 32];
-        let cose_public_key = build_p256_cose_key(&[1u8; 32], &[2u8; 32]);
-
-        let result = contract.verify_u2f_signature(
-            &att_stmt,
-            &auth_data,
-            &client_data_hash,
-            &cose_public_key,
-        );
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing signature"));
-    }
-
-    #[test]
-    fn test_verify_u2f_signature_invalid_auth_data() {
-        let context = get_context_with_seed(11);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        // Valid attestation statement
-        let mock_signature = create_mock_der_signature();
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
-            CborValue::Text("sig".to_string()),
-            CborValue::Bytes(mock_signature),
-        );
-        let att_stmt = CborValue::Map(att_stmt_map);
-
-        // Invalid auth data (too short)
-        let auth_data = vec![0u8; 30]; // Too short for U2F
-        let client_data_hash = [0u8; 32];
-        let cose_public_key = build_p256_cose_key(&[1u8; 32], &[2u8; 32]);
-
-        let result = contract.verify_u2f_signature(
-            &att_stmt,
-            &auth_data,
-            &client_data_hash,
-            &cose_public_key,
-        );
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Authenticator data too short"));
-    }
-
-    #[test]
-    fn test_get_uncompressed_p256_pubkey() {
-        let context = get_context_with_seed(12);
-        testing_env!(context.build());
-        let contract = WebAuthnContract::default();
-
-        // Use valid P-256 coordinates
-        let x_coord = [
-            0x60, 0xfe, 0xd4, 0xba, 0x25, 0x5a, 0x9d, 0x31, 0xc9, 0x61, 0xeb, 0x74, 0xc6, 0x35,
-            0x6d, 0x68, 0xc0, 0x49, 0xb8, 0x92, 0x3b, 0x61, 0xfa, 0x6c, 0xe6, 0x69, 0x62, 0x2e,
-            0x60, 0xf2, 0x9f, 0xb6,
-        ];
-        let y_coord = [
-            0x79, 0x03, 0xfe, 0x10, 0x08, 0xb8, 0xbc, 0x99, 0xa4, 0x1a, 0xe9, 0xe9, 0x56, 0x28,
-            0xbc, 0x64, 0xf2, 0xf1, 0xb2, 0x0c, 0x2d, 0x7e, 0x9f, 0x51, 0x77, 0xa3, 0xc2, 0x94,
-            0xd4, 0x46, 0x22, 0x99,
-        ];
-        let cose_public_key = build_p256_cose_key(&x_coord, &y_coord);
-
-        let result = contract.get_uncompressed_p256_pubkey(&cose_public_key);
-
-        assert!(result.is_ok());
-        let uncompressed = result.unwrap();
-
-        // Should be 65 bytes: 0x04 || x || y
-        assert_eq!(uncompressed.len(), 65);
-        assert_eq!(uncompressed[0], 0x04); // Uncompressed indicator
-        assert_eq!(&uncompressed[1..33], &x_coord); // X coordinate
-        assert_eq!(&uncompressed[33..65], &y_coord); // Y coordinate
-    }
-
-    // Helper function to create a mock DER-encoded signature for testing
-    fn create_mock_der_signature() -> Vec<u8> {
-        // This creates a valid DER structure but with mock values
-        // Real signature would be generated by actual private key
-        // DER format: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
-        let r = vec![0x01u8; 32]; // Mock r value (32 bytes)
-        let s = vec![0x02u8; 32]; // Mock s value (32 bytes)
-
-        let mut der_sig = Vec::new();
-        der_sig.push(0x30); // SEQUENCE tag
-        der_sig.push(68); // Total length: 2 + 32 + 2 + 32 = 68
-        der_sig.push(0x02); // INTEGER tag for r
-        der_sig.push(32); // Length of r
-        der_sig.extend_from_slice(&r);
-        der_sig.push(0x02); // INTEGER tag for s
-        der_sig.push(32); // Length of s
-        der_sig.extend_from_slice(&s);
-
-        der_sig
-    }
 
     #[test]
     fn test_verify_registration_response_invalid_challenge() {
@@ -1442,7 +788,7 @@ mod tests {
             client_extension_results: None,
         };
 
-        let result = contract.verify_registration_response_internal(
+        let result = contract.verify_registration_response(
             mock_response,
             "expected_challenge".to_string(),
             "https://example.com".to_string(),
@@ -1498,7 +844,7 @@ mod tests {
             client_extension_results: None,
         };
 
-        let result = contract.verify_registration_response_internal(
+        let result = contract.verify_registration_response(
             mock_response,
             "test_challenge".to_string(),
             "https://example.com".to_string(),
@@ -1586,7 +932,7 @@ mod tests {
             client_extension_results: Some(client_extension_results),
         };
 
-        let result = contract.verify_registration_response_internal(
+        let result = contract.verify_registration_response(
             realistic_response,
             "rgLuoFhK5d3by9oCS1f4tA".to_string(),
             "https://example.localhost".to_string(),
@@ -1661,7 +1007,7 @@ mod tests {
                 assert!(response.client_extension_results.is_some());
 
                 // Test the contract call with this data
-                let result = contract.verify_registration_response_internal(
+                let result = contract.verify_registration_response(
                     response,
                     "rgLuoFhK5d3by9oCS1f4tA".to_string(),
                     "https://example.localhost".to_string(),
