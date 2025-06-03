@@ -5,7 +5,11 @@ import {
 } from '@simplewebauthn/server';
 import type { RegistrationResponseJSON, PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server/script/deps';
 import type { AuthenticatorTransport } from '@simplewebauthn/types';
+// decoding credential public keys
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
+import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
+import { decodeCredentialPublicKey } from '@simplewebauthn/server/helpers';
+import { decodeAttestationObject, parseAuthenticatorData } from '@simplewebauthn/server/helpers';
 
 import config, { DEFAULT_GAS_STRING, COMPLETE_REGISTRATION_GAS_STRING } from '../config';
 import { userOperations, authenticatorOperations } from '../database';
@@ -270,8 +274,8 @@ async function verifyRegistrationResponseSimpleWebAuthn(
   };
 }
 
-// Complete registration via NEAR Contract
-async function completeRegistrationContract(
+// Verify and complete registration via NEAR Contract
+async function verifyRegistrationResponseContract(
   attestationResponse: RegistrationResponseJSON,
   dataId: string // The data_id received from generate_registration_options
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
@@ -313,13 +317,39 @@ async function completeRegistrationContract(
     if (attestationResponse.response.attestationObject && attestationResponse.response.clientDataJSON) {
         try {
             const rawId = isoBase64URL.toBuffer(attestationResponse.rawId);
+
+            // Properly extract credential public key using SimpleWebAuthn functions
+            const attestationObjectBuffer = isoBase64URL.toBuffer(attestationResponse.response.attestationObject);
+
+            // Decode the attestation object to get authData
+            const decodedAttestationObject = decodeAttestationObject(attestationObjectBuffer);
+
+            // Parse the authenticator data to extract credential information
+            const parsedAuthData = parseAuthenticatorData(decodedAttestationObject.get('authData'));
+
+            // Extract the credential public key from the parsed authenticator data
+            let credentialPublicKey = new Uint8Array();
+            if (parsedAuthData.credentialPublicKey) {
+                // The credentialPublicKey should contain the raw COSE key bytes
+                credentialPublicKey = new Uint8Array(parsedAuthData.credentialPublicKey);
+            }
+
+            console.log('Debug Registration: Extracted credential public key length:', credentialPublicKey.length);
+            console.log('Debug Registration: First 10 bytes:', Array.from(credentialPublicKey).slice(0, 10));
+
             simulatedRegistrationInfo = {
                 credentialID: rawId,
-                credentialPublicKey: new Uint8Array(), // Placeholder - contract callback would have the real one
-                counter: 0, // Placeholder - contract callback would have the real one
+                credentialPublicKey: credentialPublicKey,
+                counter: parsedAuthData.counter || 0,
             }
         } catch (parseError) {
-            console.warn('Could not parse parts of attestationResponse for simulated registrationInfo:', parseError)
+            console.warn('Could not parse attestationResponse for credential public key extraction:', parseError);
+            const rawId = isoBase64URL.toBuffer(attestationResponse.rawId);
+            simulatedRegistrationInfo = {
+                credentialID: rawId,
+                credentialPublicKey: new Uint8Array(), // Fallback to empty
+                counter: 0,
+            };
         }
     }
 
@@ -373,7 +403,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
     if (config.useContractMethod && dataId) {
-      verificationResult = await completeRegistrationContract(attestationResponse, dataId);
+      verificationResult = await verifyRegistrationResponseContract(attestationResponse, dataId);
     } else if (!config.useContractMethod && expectedChallenge) {
       verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
     } else {
@@ -384,7 +414,11 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
 
     if (verified) {
       // Construct the authenticator object for DB insertion based on the simplified schema
-      const { credentialID: rawCredentialIDBuffer, credentialPublicKey: rawPublicKeyBuffer, counter } = registrationInfo || {};
+      const {
+        credentialID: rawCredentialIDBuffer,
+        credentialPublicKey: rawPublicKeyBuffer,
+        counter
+      } = registrationInfo || {};
 
       // Ensure we have the necessary info, especially from SimpleWebAuthn path
       const credentialIDForDB = rawCredentialIDBuffer ? isoBase64URL.fromBuffer(rawCredentialIDBuffer) : attestationResponse.id;

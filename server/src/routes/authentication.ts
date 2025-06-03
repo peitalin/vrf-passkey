@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import {
   generateAuthenticationOptions as generateAuthenticationOptionsSimpleWebAuthn,
-  verifyAuthenticationResponse,
+  verifyAuthenticationResponse as verifyAuthenticationResponseSimpleWebAuthn,
 } from '@simplewebauthn/server';
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server/script/deps';
 import type { AuthenticatorTransport } from '@simplewebauthn/types';
@@ -113,6 +113,8 @@ async function generateAuthenticationOptionsContract(
   return contractResponse;
 }
 
+
+
 // Unified generateAuthenticationOptions function
 async function generateAuthenticationOptions(
   options: {
@@ -205,6 +207,160 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
   }
 });
 
+// Helper function to verify authentication using NEAR Contract
+async function verifyAuthenticationResponseContract(
+  response: AuthenticationResponseJSON,
+  expectedChallenge: string,
+  expectedOrigin: string,
+  expectedRpId: string,
+  authenticator: {
+    credentialID: string;
+    credentialPublicKey: Uint8Array;
+    counter: number;
+    transports?: AuthenticatorTransport[];
+  }
+): Promise<{ verified: boolean; authenticationInfo?: any }> {
+  console.log('Using NEAR contract for authentication verification');
+
+  // Ensure credential public key is properly converted to Uint8Array
+  const credentialPublicKeyArray = Buffer.isBuffer(authenticator.credentialPublicKey)
+    ? new Uint8Array(authenticator.credentialPublicKey)
+    : authenticator.credentialPublicKey;
+
+  console.log('Debug: Converted to Uint8Array length:', credentialPublicKeyArray.length);
+  console.log('Debug: Converted first 10 bytes:', Array.from(credentialPublicKeyArray).slice(0, 10));
+
+  // Debug: Parse the authenticator data to see what counter is being sent
+  try {
+    const authenticatorDataBytes = isoBase64URL.toBuffer(response.response.authenticatorData);
+    console.log('Debug: Authenticator data length:', authenticatorDataBytes.length);
+    if (authenticatorDataBytes.length >= 37) {
+      const flags = authenticatorDataBytes[32];
+      const counter = new DataView(authenticatorDataBytes.buffer, authenticatorDataBytes.byteOffset + 33, 4).getUint32(0, false);
+      console.log('Debug: Authenticator data flags:', flags.toString(16));
+      console.log('Debug: Authenticator data counter:', counter);
+      console.log('Debug: Stored authenticator counter:', authenticator.counter);
+      console.log('Debug: Counter check would be:', counter, '>', authenticator.counter, '=', counter > authenticator.counter);
+    }
+  } catch (e) {
+    console.log('Debug: Error parsing authenticator data:', e);
+  }
+
+  // Debug: Parse the client data to verify challenge
+  try {
+    const clientDataBytes = isoBase64URL.toBuffer(response.response.clientDataJSON);
+    const clientData = JSON.parse(Buffer.from(clientDataBytes).toString('utf8'));
+    console.log('Debug: Client data challenge:', clientData.challenge);
+    console.log('Debug: Expected challenge:', expectedChallenge);
+    console.log('Debug: Challenge match:', clientData.challenge === expectedChallenge);
+    console.log('Debug: Client data origin:', clientData.origin);
+    console.log('Debug: Expected origin:', expectedOrigin);
+  } catch (e) {
+    console.log('Debug: Error parsing client data:', e);
+  }
+
+  // Create AuthenticatorDevice for contract
+  const authenticatorDevice = {
+    credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')), // Convert base64url string to byte array
+    credential_public_key: Array.from(credentialPublicKeyArray), // Convert Uint8Array to regular array
+    counter: authenticator.counter,
+    transports: authenticator.transports?.map(t => t.toString()),
+  };
+
+  console.log('Debug: Credential public key length:', authenticator.credentialPublicKey.length);
+  console.log('Debug: Credential public key first 10 bytes:', Array.from(authenticator.credentialPublicKey).slice(0, 10));
+
+  console.log('Debug: Raw credential public key type:', typeof authenticator.credentialPublicKey);
+  console.log('Debug: Is Buffer?', Buffer.isBuffer(authenticator.credentialPublicKey));
+  console.log('Debug: Credential public key as hex:', Buffer.from(authenticator.credentialPublicKey).toString('hex'));
+
+  const contractArgs = {
+    response,
+    expected_challenge: expectedChallenge,
+    expected_origin: expectedOrigin,
+    expected_rp_id: expectedRpId,
+    authenticator: authenticatorDevice,
+    require_user_verification: true,
+  };
+
+  console.log('Calling contract.verify_authentication_response with credential_public_key length:', contractArgs.authenticator.credential_public_key.length);
+
+  const account = nearClient.getRelayerAccount();
+  const rawResult: any = await account.callFunction({
+    contractId: config.contractId,
+    methodName: 'verify_authentication_response',
+    args: contractArgs,
+    gas: BigInt(DEFAULT_GAS_STRING),
+  });
+
+  // Robust error checking for rawResult
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
+    const failure = rawResult.status.Failure;
+    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
+    const errorMessage = executionError || JSON.stringify(failure);
+    console.error('Contract execution failed (panic or transaction error):', errorMessage);
+    throw new Error(`Contract Error: ${errorMessage}`);
+  }
+  else if (rawResult && typeof (rawResult as any).error === 'object') {
+    const rpcError = (rawResult as any).error;
+    console.error('RPC/Handler error from contract.verify_authentication_response call:', rpcError);
+    const errorMessage = rpcError.message || rpcError.name || 'RPC error during verify_authentication_response';
+    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
+    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
+  }
+
+  let contractResponseString: string;
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
+    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
+  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
+    contractResponseString = rawResult;
+  } else if (typeof rawResult === 'object' && 'verified' in rawResult) {
+    // Handle direct object response from contract
+    console.log('Contract authentication verification result:', rawResult);
+    return {
+      verified: rawResult.verified || false,
+      authenticationInfo: rawResult.authentication_info ? {
+        credentialID: Buffer.from(rawResult.authentication_info.credential_id),
+        newCounter: rawResult.authentication_info.new_counter,
+        userVerified: rawResult.authentication_info.user_verified,
+        credentialDeviceType: rawResult.authentication_info.credential_device_type,
+        credentialBackedUp: rawResult.authentication_info.credential_backed_up,
+      } : undefined
+    };
+  } else {
+    console.warn('Unexpected rawResult structure from verify_authentication_response. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
+    throw new Error('Failed to parse contract response: Unexpected format.');
+  }
+
+  let contractResponse: any;
+  try {
+    contractResponse = JSON.parse(contractResponseString);
+  } catch (parseError: any) {
+    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
+    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
+  }
+
+  console.log('Contract authentication verification result:', contractResponse);
+
+  if (contractResponse.verified && contractResponse.authentication_info) {
+    return {
+      verified: true,
+      authenticationInfo: {
+        credentialID: Buffer.from(contractResponse.authentication_info.credential_id),
+        newCounter: contractResponse.authentication_info.new_counter,
+        userVerified: contractResponse.authentication_info.user_verified,
+        credentialDeviceType: contractResponse.authentication_info.credential_device_type,
+        credentialBackedUp: contractResponse.authentication_info.credential_backed_up,
+      }
+    };
+  } else {
+    return {
+      verified: contractResponse.verified || false,
+      authenticationInfo: undefined
+    };
+  }
+}
+
 // Verify authentication
 router.post('/verify-authentication', async (req: Request, res: Response) => {
   const body: AuthenticationResponseJSON = req.body;
@@ -261,19 +417,40 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   }
 
   try {
-    const verification = await verifyAuthenticationResponse({
-      response: body,
-      expectedChallenge,
-      expectedOrigin: config.expectedOrigin,
-      expectedRPID: config.rpID,
-      authenticator: {
-        credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
-        credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-        counter: authenticator.counter as number,
-        transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-      },
-      requireUserVerification: true,
-    });
+    let verification: { verified: boolean; authenticationInfo?: any };
+
+    if (config.useContractMethod == false) {
+      // Use contract-based verification
+      verification = await verifyAuthenticationResponseContract(
+        body,
+        expectedChallenge,
+        config.expectedOrigin,
+        config.rpID,
+        {
+          credentialID: authenticator.credentialID,
+          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+          counter: authenticator.counter as number,
+          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+        }
+      );
+    } else {
+      // Use SimpleWebAuthn verification
+      let args = {
+        response: body,
+        expectedChallenge,
+        expectedOrigin: config.expectedOrigin,
+        expectedRPID: config.rpID,
+        authenticator: {
+          credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
+          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+          counter: authenticator.counter as number,
+          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+        },
+        requireUserVerification: true,
+      }
+      console.log('Calling verifyAuthenticationResponseSimpleWebAuthn with args:', JSON.stringify(args));
+      verification = await verifyAuthenticationResponseSimpleWebAuthn(args);
+    }
 
     if (verification.verified && verification.authenticationInfo) {
       authenticatorOperations.updateCounter(

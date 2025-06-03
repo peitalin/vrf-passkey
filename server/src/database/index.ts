@@ -107,7 +107,7 @@ export const authenticatorOperations = {
 
 export const mapToStoredAuthenticator = (rawAuth: any): StoredAuthenticator => ({
   credentialID: rawAuth.credentialID,
-  credentialPublicKey: rawAuth.credentialPublicKey, // Ensure this is Uint8Array in StoredAuthenticator type if needed
+  credentialPublicKey: new Uint8Array(rawAuth.credentialPublicKey), // Convert Buffer from SQLite to Uint8Array
   counter: rawAuth.counter,
   transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : undefined,
   userId: rawAuth.userId,
