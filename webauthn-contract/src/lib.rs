@@ -10,7 +10,7 @@ use crate::parsers::{
     parse_attestation_object,
     parse_authenticator_data
 };
-use crate::verifiers::verify_attestation_signature;
+use crate::verifiers::{verify_attestation_signature, verify_authentication_signature};
 
 const DEFAULT_CHALLENGE_SIZE: usize = 16;
 const DATA_ID_REGISTER: u64 = 0;
@@ -216,6 +216,124 @@ struct ClientDataJSON {
     origin: String,
     #[serde(rename = "crossOrigin", default)]
     cross_origin: bool,
+}
+
+// Authentication-specific types (equivalent to @simplewebauthn/server types)
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone, PartialEq)]
+pub enum UserVerificationRequirement {
+    #[serde(rename = "discouraged")]
+    Discouraged,
+    #[serde(rename = "preferred")]
+    Preferred,
+    #[serde(rename = "required")]
+    Required,
+}
+
+impl Default for UserVerificationRequirement {
+    fn default() -> Self {
+        Self::Preferred
+    }
+}
+
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthenticationExtensionsClientInputs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appid: Option<String>,
+    #[serde(rename = "credProps", skip_serializing_if = "Option::is_none")]
+    pub cred_props: Option<bool>,
+    #[serde(rename = "hmacCreateSecret", skip_serializing_if = "Option::is_none")]
+    pub hmac_create_secret: Option<bool>,
+    #[serde(rename = "minPinLength", skip_serializing_if = "Option::is_none")]
+    pub min_pin_length: Option<bool>,
+}
+
+impl Default for AuthenticationExtensionsClientInputs {
+    fn default() -> Self {
+        Self {
+            appid: None,
+            cred_props: None,
+            hmac_create_secret: None,
+            min_pin_length: None,
+        }
+    }
+}
+
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicKeyCredentialRequestOptionsJSON {
+    pub challenge: String, // Base64URL encoded
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+    #[serde(rename = "rpId", skip_serializing_if = "Option::is_none")]
+    pub rp_id: Option<String>,
+    #[serde(rename = "allowCredentials", skip_serializing_if = "Option::is_none")]
+    pub allow_credentials: Option<Vec<PublicKeyCredentialDescriptorJSON>>,
+    #[serde(rename = "userVerification", skip_serializing_if = "Option::is_none")]
+    pub user_verification: Option<UserVerificationRequirement>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<AuthenticationExtensionsClientInputs>,
+}
+
+// Authentication verification types (equivalent to @simplewebauthn/server types)
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct AuthenticationResponseJSON {
+    pub id: String, // Base64URL credential ID
+    #[serde(rename = "rawId")]
+    pub raw_id: String, // Base64URL credential ID
+    pub response: AuthenticatorAssertionResponseJSON,
+    #[serde(rename = "authenticatorAttachment", skip_serializing_if = "Option::is_none")]
+    pub authenticator_attachment: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: String, // Should be "public-key"
+    #[serde(rename = "clientExtensionResults", skip_serializing_if = "Option::is_none")]
+    pub client_extension_results: Option<serde_json::Value>,
+}
+
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct AuthenticatorAssertionResponseJSON {
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String, // Base64URL encoded
+    #[serde(rename = "authenticatorData")]
+    pub authenticator_data: String, // Base64URL encoded
+    pub signature: String, // Base64URL encoded
+    #[serde(rename = "userHandle", skip_serializing_if = "Option::is_none")]
+    pub user_handle: Option<String>, // Base64URL encoded
+}
+
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct AuthenticatorDevice {
+    pub credential_id: Vec<u8>,
+    pub credential_public_key: Vec<u8>,
+    pub counter: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transports: Option<Vec<AuthenticatorTransport>>,
+}
+
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct VerifiedAuthenticationResponse {
+    pub verified: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authentication_info: Option<AuthenticationInfo>,
+}
+
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct AuthenticationInfo {
+    pub credential_id: Vec<u8>,
+    pub new_counter: u32,
+    pub user_verified: bool,
+    pub credential_device_type: String, // "singleDevice" or "multiDevice"
+    pub credential_backed_up: bool,
+    pub origin: String,
+    pub rp_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authenticator_extension_results: Option<serde_json::Value>,
 }
 
 /////////////////////////////////////
@@ -459,6 +577,279 @@ impl WebAuthnContract {
 
         log!("Resuming registration with user's WebAuthn response");
         true
+    }
+
+    /// Generate authentication options for WebAuthn authentication
+    /// Equivalent to @simplewebauthn/server's generateAuthenticationOptions function
+    pub fn generate_authentication_options(
+        &mut self,
+        allow_credentials: Option<Vec<PublicKeyCredentialDescriptorJSON>>,
+        challenge: Option<String>,
+        timeout: Option<u64>,
+        user_verification: Option<UserVerificationRequirement>,
+        extensions: Option<AuthenticationExtensionsClientInputs>,
+        rp_id: Option<String>,
+    ) -> String {
+        log!("Generating authentication options");
+
+        // 1. Generate or use provided challenge
+        let challenge_b64url = match challenge {
+            Some(c) => {
+                // Validate that it's valid base64url
+                match BASE64_URL_ENGINE.decode(&c) {
+                    Ok(_) => c,
+                    Err(_) => {
+                        log!("Invalid challenge format provided, generating new one");
+                        let bytes = self.generate_challenge_bytes();
+                        BASE64_URL_ENGINE.encode(&bytes)
+                    }
+                }
+            }
+            None => {
+                let bytes = self.generate_challenge_bytes();
+                BASE64_URL_ENGINE.encode(&bytes)
+            }
+        };
+
+        // 2. Set defaults and validate parameters
+        let final_timeout = timeout.unwrap_or(60000); // Default 60 seconds
+        let final_user_verification = user_verification.unwrap_or_default(); // Default is "preferred"
+        let final_extensions = extensions.unwrap_or_default();
+        let final_rp_id = rp_id.unwrap_or_else(|| {
+            // Extract from contract name if not provided
+            // This assumes contract_name is in format "subdomain.domain.tld"
+            if self.contract_name.contains('.') {
+                self.contract_name.clone()
+            } else {
+                format!("{}.testnet", self.contract_name)
+            }
+        });
+
+        // 3. Build the PublicKeyCredentialRequestOptionsJSON
+        let options = PublicKeyCredentialRequestOptionsJSON {
+            challenge: challenge_b64url.clone(),
+            timeout: Some(final_timeout),
+            rp_id: Some(final_rp_id),
+            allow_credentials,
+            user_verification: Some(final_user_verification),
+            extensions: Some(final_extensions),
+        };
+
+        log!("Generated authentication options with challenge: {}", challenge_b64url);
+
+        // 4. Return the options as JSON string
+        serde_json::to_string(&options).expect("Failed to serialize authentication options")
+    }
+
+    /// Verify authentication response for WebAuthn authentication
+    /// Equivalent to @simplewebauthn/server's verifyAuthenticationResponse function
+    pub fn verify_authentication_response(
+        &self,
+        response: AuthenticationResponseJSON,
+        expected_challenge: String,
+        expected_origin: String,
+        expected_rp_id: String,
+        authenticator: AuthenticatorDevice,
+        require_user_verification: Option<bool>,
+    ) -> VerifiedAuthenticationResponse {
+        log!("Contract verification of authentication response");
+        log!("Expected challenge: {}", expected_challenge);
+        log!("Expected origin: {}", expected_origin);
+        log!("Expected RP ID: {}", expected_rp_id);
+
+        let require_user_verification = require_user_verification.unwrap_or(false);
+
+        // Step 1: Parse and validate clientDataJSON
+        let client_data_json_bytes = match BASE64_URL_ENGINE.decode(&response.response.client_data_json) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log!("Failed to decode clientDataJSON from base64url");
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        let client_data: ClientDataJSON = match serde_json::from_slice(&client_data_json_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to parse clientDataJSON: {}", e);
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        // Step 2: Verify type is "webauthn.get"
+        if client_data.type_ != "webauthn.get" {
+            log!(
+                "Invalid type: expected webauthn.get, got {}",
+                client_data.type_
+            );
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 3: Verify challenge matches expected_challenge
+        if client_data.challenge != expected_challenge {
+            log!(
+                "Challenge mismatch: expected {}, got {}",
+                expected_challenge,
+                client_data.challenge
+            );
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 4: Verify origin matches expected_origin
+        if client_data.origin != expected_origin {
+            log!(
+                "Origin mismatch: expected {}, got {}",
+                expected_origin,
+                client_data.origin
+            );
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 5: Parse authenticator data
+        let authenticator_data_bytes = match BASE64_URL_ENGINE.decode(&response.response.authenticator_data) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log!("Failed to decode authenticatorData from base64url");
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        let auth_data = match parse_authenticator_data(&authenticator_data_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to parse authenticator data: {}", e);
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        // Step 6: Verify RP ID hash
+        let expected_rp_id_hash = env::sha256(expected_rp_id.as_bytes());
+        if auth_data.rp_id_hash != expected_rp_id_hash {
+            log!("RP ID hash mismatch");
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 7: Check user verification if required
+        let user_verified = (auth_data.flags & 0x04) != 0;
+        if require_user_verification && !user_verified {
+            log!("User verification required but not performed");
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 8: Verify user presence (UP flag must be set)
+        if (auth_data.flags & 0x01) == 0 {
+            log!("User presence flag not set");
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 9: Verify counter (anti-replay)
+        if auth_data.counter <= authenticator.counter {
+            log!(
+                "Counter not incremented: expected > {}, got {}",
+                authenticator.counter,
+                auth_data.counter
+            );
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 10: Verify signature
+        let signature_bytes = match BASE64_URL_ENGINE.decode(&response.response.signature) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log!("Failed to decode signature from base64url");
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        // Construct the data that was signed: authenticatorData + hash(clientDataJSON)
+        let client_data_hash = env::sha256(&client_data_json_bytes);
+        let mut signed_data = Vec::new();
+        signed_data.extend_from_slice(&authenticator_data_bytes);
+        signed_data.extend_from_slice(&client_data_hash);
+
+        // Verify signature using the stored public key
+        let signature_valid = match verify_authentication_signature(
+            &signature_bytes,
+            &signed_data,
+            &authenticator.credential_public_key,
+        ) {
+            Ok(valid) => valid,
+            Err(e) => {
+                log!("Error verifying authentication signature: {}", e);
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
+
+        if !signature_valid {
+            log!("Authentication signature verification failed");
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+
+        // Step 11: Determine credential device type and backup status
+        let credential_backed_up = (auth_data.flags & 0x10) != 0; // BS flag
+        let credential_device_type = if (auth_data.flags & 0x20) != 0 { // BE flag
+            "multiDevice"
+        } else {
+            "singleDevice"
+        };
+
+        // Step 12: Authentication successful
+        log!("Authentication verification successful");
+        VerifiedAuthenticationResponse {
+            verified: true,
+            authentication_info: Some(AuthenticationInfo {
+                credential_id: authenticator.credential_id,
+                new_counter: auth_data.counter,
+                user_verified,
+                credential_device_type: credential_device_type.to_string(),
+                credential_backed_up,
+                origin: client_data.origin,
+                rp_id: expected_rp_id,
+                authenticator_extension_results: None,
+            }),
+        }
     }
 
     /// Callback method for yield-resume registration flow
@@ -954,7 +1345,6 @@ mod tests {
         assert_eq!(result.derp_account_id, Some(expected_derp_id));
     }
 
-    // Tests for derive_near_pk_from_cose
     fn build_ed25519_cose_key(x_coord: &[u8; 32]) -> Vec<u8> {
         let mut map = BTreeMap::new();
         map.insert(CborValue::Integer(1), CborValue::Integer(1)); // kty: OKP
@@ -1207,7 +1597,7 @@ mod tests {
     fn test_verify_registration_response_json_deserialization() {
         let context = get_context_with_seed(17);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default(); // Ensure mutable
+        let mut contract = WebAuthnContract::default();
 
         // Test that we can properly deserialize the exact JSON structure from the browser
         let json_input = r#"{
@@ -1279,4 +1669,271 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_generate_authentication_options_defaults() {
+        let context = get_context_with_seed(20);
+        testing_env!(context.build());
+        let mut contract = WebAuthnContract::default();
+
+        let result_json = contract.generate_authentication_options(
+            None, // allow_credentials
+            None, // challenge -> contract generates
+            None, // timeout
+            None, // user_verification
+            None, // extensions
+            None, // rp_id
+        );
+
+        // Parse the JSON response
+        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+            .expect("Failed to parse authentication options JSON");
+
+        // Verify defaults
+        let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 20).collect();
+        let expected_challenge_b64url = TEST_BASE64_URL_ENGINE.encode(&expected_challenge_bytes);
+        assert_eq!(result.challenge, expected_challenge_b64url);
+
+        assert_eq!(result.timeout, Some(60000));
+        assert_eq!(result.rp_id, Some("webauthn-contract.testnet".to_string()));
+        assert_eq!(result.allow_credentials, None);
+        assert_eq!(result.user_verification, Some(UserVerificationRequirement::Preferred));
+        assert!(result.extensions.is_some());
+        let extensions = result.extensions.unwrap();
+        assert_eq!(extensions.appid, None);
+        assert_eq!(extensions.cred_props, None);
+        assert_eq!(extensions.hmac_create_secret, None);
+        assert_eq!(extensions.min_pin_length, None);
+    }
+
+    #[test]
+    fn test_generate_authentication_options_with_overrides() {
+        let context = get_context_with_seed(21);
+        testing_env!(context.build());
+        let mut contract = WebAuthnContract::default();
+
+        let custom_challenge = "Y3VzdG9tX2NoYWxsZW5nZV8xMjM0NQ"; // "custom_challenge_12345" base64url encoded
+        let custom_timeout = 30000u64;
+        let custom_rp_id = "custom.example.com";
+        let custom_allow_credentials = vec![
+            PublicKeyCredentialDescriptorJSON {
+                id: TEST_BASE64_URL_ENGINE.encode(b"credential-1"),
+                type_: "public-key".to_string(),
+                transports: Some(vec![AuthenticatorTransport::Usb, AuthenticatorTransport::Nfc]),
+            },
+            PublicKeyCredentialDescriptorJSON {
+                id: TEST_BASE64_URL_ENGINE.encode(b"credential-2"),
+                type_: "public-key".to_string(),
+                transports: Some(vec![AuthenticatorTransport::Internal]),
+            },
+        ];
+        let custom_extensions = AuthenticationExtensionsClientInputs {
+            appid: Some("https://legacy.example.com".to_string()),
+            cred_props: Some(true),
+            hmac_create_secret: Some(true),
+            min_pin_length: Some(false),
+        };
+
+        let result_json = contract.generate_authentication_options(
+            Some(custom_allow_credentials.clone()),
+            Some(custom_challenge.to_string()),
+            Some(custom_timeout),
+            Some(UserVerificationRequirement::Required),
+            Some(custom_extensions.clone()),
+            Some(custom_rp_id.to_string()),
+        );
+
+        // Parse the JSON response
+        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+            .expect("Failed to parse authentication options JSON");
+
+        // Verify all custom values
+        assert_eq!(result.challenge, custom_challenge);
+        assert_eq!(result.timeout, Some(custom_timeout));
+        assert_eq!(result.rp_id, Some(custom_rp_id.to_string()));
+        assert_eq!(result.allow_credentials, Some(custom_allow_credentials));
+        assert_eq!(result.user_verification, Some(UserVerificationRequirement::Required));
+        assert_eq!(result.extensions, Some(custom_extensions));
+    }
+
+    #[test]
+    fn test_generate_authentication_options_invalid_challenge() {
+        let context = get_context_with_seed(22);
+        testing_env!(context.build());
+        let mut contract = WebAuthnContract::default();
+
+        // Provide an invalid base64url challenge
+        let invalid_challenge = "invalid base64url!!";
+
+        let result_json = contract.generate_authentication_options(
+            None,
+            Some(invalid_challenge.to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Parse the JSON response
+        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+            .expect("Failed to parse authentication options JSON");
+
+        // Should have generated a new challenge instead of using the invalid one
+        let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 22).collect();
+        let expected_challenge_b64url = TEST_BASE64_URL_ENGINE.encode(&expected_challenge_bytes);
+        assert_eq!(result.challenge, expected_challenge_b64url);
+        assert_ne!(result.challenge, invalid_challenge);
+    }
+
+    #[test]
+    fn test_verify_authentication_response_invalid_challenge() {
+        let context = get_context_with_seed(23);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create a mock authentication response with wrong challenge
+        let client_data = r#"{"type":"webauthn.get","challenge":"wrong_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        let mock_auth_response = AuthenticationResponseJSON {
+            id: "test_credential".to_string(),
+            raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_credential"),
+            response: AuthenticatorAssertionResponseJSON {
+                client_data_json: client_data_b64,
+                authenticator_data: TEST_BASE64_URL_ENGINE.encode(&vec![0u8; 37]), // Minimal auth data
+                signature: TEST_BASE64_URL_ENGINE.encode(&vec![0u8; 64]), // Mock signature
+                user_handle: None,
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+            client_extension_results: None,
+        };
+
+        let mock_authenticator = AuthenticatorDevice {
+            credential_id: b"test_credential".to_vec(),
+            credential_public_key: vec![0u8; 32], // Mock public key
+            counter: 0,
+            transports: None,
+        };
+
+        let result = contract.verify_authentication_response(
+            mock_auth_response,
+            "expected_challenge".to_string(),
+            "https://example.localhost".to_string(),
+            "example.localhost".to_string(),
+            mock_authenticator,
+            Some(false),
+        );
+
+        assert!(!result.verified, "Should fail verification due to challenge mismatch");
+        assert!(result.authentication_info.is_none());
+    }
+
+    #[test]
+    fn test_verify_authentication_response_invalid_type() {
+        let context = get_context_with_seed(24);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create a mock authentication response with wrong type
+        let client_data = r#"{"type":"webauthn.create","challenge":"test_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        let mock_auth_response = AuthenticationResponseJSON {
+            id: "test_credential".to_string(),
+            raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_credential"),
+            response: AuthenticatorAssertionResponseJSON {
+                client_data_json: client_data_b64,
+                authenticator_data: TEST_BASE64_URL_ENGINE.encode(&vec![0u8; 37]),
+                signature: TEST_BASE64_URL_ENGINE.encode(&vec![0u8; 64]),
+                user_handle: None,
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+            client_extension_results: None,
+        };
+
+        let mock_authenticator = AuthenticatorDevice {
+            credential_id: b"test_credential".to_vec(),
+            credential_public_key: vec![0u8; 32],
+            counter: 0,
+            transports: None,
+        };
+
+        let result = contract.verify_authentication_response(
+            mock_auth_response,
+            "test_challenge".to_string(),
+            "https://example.localhost".to_string(),
+            "example.localhost".to_string(),
+            mock_authenticator,
+            Some(false),
+        );
+
+        assert!(!result.verified, "Should fail verification due to wrong type (webauthn.create instead of webauthn.get)");
+        assert!(result.authentication_info.is_none());
+    }
+
+    #[test]
+    fn test_verify_authentication_response_ed25519_mock() {
+        let context = get_context_with_seed(25);
+        testing_env!(context.build());
+        let contract = WebAuthnContract::default();
+
+        // Create a valid client data
+        let client_data = r#"{"type":"webauthn.get","challenge":"test_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
+        let client_data_b64 = TEST_BASE64_URL_ENGINE.encode(client_data.as_bytes());
+
+        // Create mock authenticator data with valid RP ID hash
+        let rp_id_hash = env::sha256(b"example.localhost");
+        let mut auth_data = Vec::new();
+        auth_data.extend_from_slice(&rp_id_hash); // RP ID hash (32 bytes)
+        auth_data.push(0x05); // UP (0x01) + UV (0x04) flags set
+        auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]); // Counter = 2
+        let auth_data_b64 = TEST_BASE64_URL_ENGINE.encode(&auth_data);
+
+        // Create a mock Ed25519 COSE public key
+        let mock_ed25519_pubkey = [0x01u8; 32]; // Mock 32-byte Ed25519 public key
+        let mut ed25519_cose_map = std::collections::BTreeMap::new();
+        ed25519_cose_map.insert(CborValue::Integer(1), CborValue::Integer(1)); // kty: OKP
+        ed25519_cose_map.insert(CborValue::Integer(3), CborValue::Integer(-8)); // alg: EdDSA
+        ed25519_cose_map.insert(CborValue::Integer(-1), CborValue::Integer(6)); // crv: Ed25519
+        ed25519_cose_map.insert(CborValue::Integer(-2), CborValue::Bytes(mock_ed25519_pubkey.to_vec())); // x
+        let ed25519_cose_key = serde_cbor::to_vec(&CborValue::Map(ed25519_cose_map)).unwrap();
+
+        let mock_auth_response = AuthenticationResponseJSON {
+            id: "test_ed25519_credential".to_string(),
+            raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_ed25519_credential"),
+            response: AuthenticatorAssertionResponseJSON {
+                client_data_json: client_data_b64,
+                authenticator_data: auth_data_b64,
+                signature: TEST_BASE64_URL_ENGINE.encode(&vec![0u8; 64]), // Mock 64-byte Ed25519 signature
+                user_handle: None,
+            },
+            authenticator_attachment: None,
+            type_: "public-key".to_string(),
+            client_extension_results: None,
+        };
+
+        let mock_authenticator = AuthenticatorDevice {
+            credential_id: b"test_ed25519_credential".to_vec(),
+            credential_public_key: ed25519_cose_key,
+            counter: 1, // Previous counter
+            transports: None,
+        };
+
+        let result = contract.verify_authentication_response(
+            mock_auth_response,
+            "test_challenge".to_string(),
+            "https://example.localhost".to_string(),
+            "example.localhost".to_string(),
+            mock_authenticator,
+            Some(true), // Require user verification
+        );
+
+        // This should fail signature verification (since we're using mock data)
+        // but should not fail due to parsing errors
+        assert!(!result.verified, "Should fail signature verification with mock Ed25519 data");
+        assert!(result.authentication_info.is_none());
+    }
+
 }

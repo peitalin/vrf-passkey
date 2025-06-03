@@ -74,7 +74,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-
     fn build_p256_cose_key(x_coord: &[u8; 32], y_coord: &[u8; 32]) -> Vec<u8> {
         let mut map = BTreeMap::new();
         map.insert(CborValue::Integer(1), CborValue::Integer(2)); // kty: EC2
@@ -87,7 +86,6 @@ mod tests {
 
     #[test]
     fn test_get_uncompressed_p256_pubkey() {
-
         // Use valid P-256 coordinates
         let x_coord = [
             0x60, 0xfe, 0xd4, 0xba, 0x25, 0x5a, 0x9d, 0x31, 0xc9, 0x61, 0xeb, 0x74, 0xc6, 0x35,

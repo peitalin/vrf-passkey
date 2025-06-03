@@ -1,6 +1,7 @@
 use near_sdk::log;
 use serde_cbor::Value as CborValue;
 use p256::ecdsa::Signature;
+use ed25519_dalek::Signature as Ed25519Signature;
 
 use crate::p256_utils::{
     extract_p256_coordinates_from_cose,
@@ -237,6 +238,148 @@ pub(crate) fn verify_u2f_signature(
             log!("U2F signature verification failed");
             Ok(false)
         }
+    }
+}
+
+pub(crate) fn verify_authentication_signature(
+    signature_bytes: &[u8],
+    signed_data: &[u8],
+    credential_public_key: &[u8],
+) -> Result<bool, String> {
+    log!("Starting authentication signature verification");
+
+    // Parse COSE public key to determine the algorithm and extract parameters
+    let cose_key: CborValue = serde_cbor::from_slice(credential_public_key)
+        .map_err(|_| "Failed to parse COSE public key")?;
+
+    if let CborValue::Map(key_map) = &cose_key {
+        // Check key type (kty)
+        let kty = key_map
+            .get(&CborValue::Integer(1))
+            .and_then(|v| {
+                if let CborValue::Integer(i) = v {
+                    Some(*i)
+                } else {
+                    None
+                }
+            })
+            .ok_or("Missing key type (kty) in COSE key")?;
+
+        // Check algorithm (alg)
+        let alg = key_map
+            .get(&CborValue::Integer(3))
+            .and_then(|v| {
+                if let CborValue::Integer(i) = v {
+                    Some(*i)
+                } else {
+                    None
+                }
+            })
+            .ok_or("Missing algorithm (alg) in COSE key")?;
+
+        match (kty, alg) {
+            (2, -7) => {
+                // P-256 with ES256 (ECDSA with SHA-256)
+                verify_p256_authentication_signature(signature_bytes, signed_data, &cose_key)
+            }
+            (1, -8) => {
+                // Ed25519 with EdDSA
+                verify_ed25519_authentication_signature(signature_bytes, signed_data, &cose_key)
+            }
+            _ => Err(format!(
+                "Unsupported key type/algorithm combination: kty={}, alg={}",
+                kty, alg
+            )),
+        }
+    } else {
+        Err("Invalid COSE key format".to_string())
+    }
+}
+
+fn verify_p256_authentication_signature(
+    signature_bytes: &[u8],
+    signed_data: &[u8],
+    cose_key: &CborValue,
+) -> Result<bool, String> {
+    // Extract P-256 coordinates from COSE key
+    let (x_bytes, y_bytes) = extract_p256_coordinates_from_cose(cose_key)?;
+
+    // Create P-256 public key from coordinates
+    let public_key = create_p256_public_key(&x_bytes, &y_bytes)?;
+
+    // Parse signature (DER encoded)
+    let signature = Signature::from_der(signature_bytes)
+        .map_err(|_| "Invalid P-256 signature format")?;
+
+    // Verify signature
+    use p256::ecdsa::signature::Verifier;
+    match public_key.verify(signed_data, &signature) {
+        Ok(()) => {
+            log!("P-256 authentication signature verification successful");
+            Ok(true)
+        }
+        Err(_) => {
+            log!("P-256 authentication signature verification failed");
+            Ok(false)
+        }
+    }
+}
+
+fn verify_ed25519_authentication_signature(
+    signature_bytes: &[u8],
+    signed_data: &[u8],
+    cose_key: &CborValue,
+) -> Result<bool, String> {
+    // Extract Ed25519 public key from COSE key
+    if let CborValue::Map(key_map) = cose_key {
+        let x_bytes = key_map
+            .get(&CborValue::Integer(-2))
+            .and_then(|v| {
+                if let CborValue::Bytes(b) = v {
+                    Some(b)
+                } else {
+                    None
+                }
+            })
+            .ok_or("Missing x coordinate in Ed25519 COSE key")?;
+
+        if x_bytes.len() != 32 {
+            return Err("Invalid Ed25519 public key length".to_string());
+        }
+
+        if signature_bytes.len() != 64 {
+            return Err("Invalid Ed25519 signature length".to_string());
+        }
+
+        // Parse the Ed25519 public key
+        let public_key_array: [u8; 32] = x_bytes.as_slice().try_into()
+            .map_err(|_| "Failed to convert public key to array")?;
+
+        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
+            Ok(key) => key,
+            Err(e) => return Err(format!("Invalid Ed25519 public key: {}", e)),
+        };
+
+        // Parse the signature
+        let signature_array: [u8; 64] = signature_bytes.try_into()
+            .map_err(|_| "Failed to convert signature to array")?;
+
+        let signature = Ed25519Signature::from_bytes(&signature_array);
+
+        // Verify the signature
+        use ed25519_dalek::Verifier;
+        match verifying_key.verify(signed_data, &signature) {
+            Ok(()) => {
+                log!("Ed25519 authentication signature verification successful");
+                Ok(true)
+            }
+            Err(_) => {
+                log!("Ed25519 authentication signature verification failed");
+                Ok(false)
+            }
+        }
+    } else {
+        Err("Invalid COSE key format for Ed25519".to_string())
     }
 }
 
