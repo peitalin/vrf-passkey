@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import {
-  generateAuthenticationOptions,
+  generateAuthenticationOptions as generateAuthenticationOptionsSimpleWebAuthn,
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server/script/deps';
@@ -8,12 +8,145 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { createHash, randomBytes } from 'crypto';
 
-import config from '../config';
+import config, { DEFAULT_GAS_STRING } from '../config';
 import { userOperations, authenticatorOperations, mapToStoredAuthenticator } from '../database';
 import { actionChallengeStore } from '../challengeStore';
+import { nearClient } from '../nearService';
 import type { User, StoredAuthenticator, SerializableActionArgs } from '../types';
 
 const router = Router();
+
+// Interface for contract arguments (generate_authentication_options)
+interface ContractGenerateAuthOptionsArgs {
+  allow_credentials: { id: string; type: string; transports?: string[] }[] | null;
+  challenge: string | null; // Let contract generate
+  timeout: number | null;
+  user_verification: 'discouraged' | 'preferred' | 'required' | null;
+  extensions: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean } | null;
+  rp_id: string | null;
+}
+
+// Interface for the response from contract's generate_authentication_options
+interface ContractAuthenticationOptionsResponse {
+  challenge: string;
+  timeout?: number;
+  rpId?: string;
+  allowCredentials?: { id: string; type: string; transports?: string[] }[];
+  userVerification?: 'discouraged' | 'preferred' | 'required';
+  extensions?: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean };
+}
+
+// Helper function to get authentication options from NEAR Contract
+async function generateAuthenticationOptionsContract(
+  allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
+  rpID: string = config.rpID,
+  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
+): Promise<ContractAuthenticationOptionsResponse> {
+  console.log('Using NEAR contract for authentication options');
+
+  // Convert allowCredentialsList to contract format
+  const allowCredentialsForContract = allowCredentialsList?.map(cred => ({
+    id: isoBase64URL.fromBuffer(cred.id),
+    type: cred.type,
+    transports: cred.transports?.map(t => String(t)),
+  })) || null;
+
+  const contractArgs: ContractGenerateAuthOptionsArgs = {
+    allow_credentials: allowCredentialsForContract,
+    challenge: null, // Let contract generate challenge
+    timeout: 60000,
+    user_verification: userVerification,
+    extensions: null, // Use contract defaults
+    rp_id: rpID,
+  };
+
+  console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
+
+  const account = nearClient.getRelayerAccount();
+  const rawResult: any = await account.callFunction({
+    contractId: config.contractId,
+    methodName: 'generate_authentication_options',
+    args: contractArgs,
+    gas: BigInt(DEFAULT_GAS_STRING),
+  });
+
+  // Robust error checking for rawResult
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
+    const failure = rawResult.status.Failure;
+    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
+    const errorMessage = executionError || JSON.stringify(failure);
+    console.error('Contract execution failed (panic or transaction error):', errorMessage);
+    throw new Error(`Contract Error: ${errorMessage}`);
+  }
+  else if (rawResult && typeof (rawResult as any).error === 'object') {
+    const rpcError = (rawResult as any).error;
+    console.error('RPC/Handler error from contract.generate_authentication_options call:', rpcError);
+    const errorMessage = rpcError.message || rpcError.name || 'RPC error during generate_authentication_options';
+    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
+    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
+  }
+
+  let contractResponseString: string;
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
+    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
+  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
+    contractResponseString = rawResult;
+  } else {
+    console.warn('Unexpected rawResult structure from generate_authentication_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
+    throw new Error('Failed to parse contract response: Unexpected format.');
+  }
+
+  let contractResponse: ContractAuthenticationOptionsResponse;
+  try {
+    contractResponse = JSON.parse(contractResponseString);
+  } catch (parseError: any) {
+    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
+    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
+  }
+
+  // Validate response structure
+  if (!contractResponse.challenge) {
+    console.error('Invalid parsed response from contract.generate_authentication_options (missing challenge):', contractResponse);
+    throw new Error('Contract did not return valid authentication options (missing challenge).');
+  }
+
+  return contractResponse;
+}
+
+// Unified generateAuthenticationOptions function
+async function generateAuthenticationOptions(
+  options: {
+    rpID?: string;
+    userVerification?: 'discouraged' | 'preferred' | 'required';
+    allowCredentials?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[];
+  }
+): Promise<ContractAuthenticationOptionsResponse> {
+  const { rpID = config.rpID, userVerification = 'preferred', allowCredentials } = options;
+
+  if (config.useContractMethod) {
+    return generateAuthenticationOptionsContract(allowCredentials, rpID, userVerification);
+  } else {
+    const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
+      rpID,
+      userVerification,
+      allowCredentials,
+    });
+
+    // Convert SimpleWebAuthn response to match contract format
+    return {
+      challenge: simpleWebAuthnResult.challenge,
+      timeout: simpleWebAuthnResult.timeout,
+      rpId: simpleWebAuthnResult.rpId,
+      allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
+        id: isoBase64URL.fromBuffer(Buffer.from(cred.id)),
+        type: cred.type,
+        transports: cred.transports,
+      })),
+      userVerification: simpleWebAuthnResult.userVerification,
+      extensions: simpleWebAuthnResult.extensions,
+    };
+  }
+}
 
 // Generate authentication options
 router.post('/generate-authentication-options', async (req: Request, res: Response) => {
