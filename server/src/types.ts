@@ -29,7 +29,6 @@ export interface StoredAuthenticator {
   // BackedUp is an important property for passkeys to indicate if they are synced across devices.
   // simplewebauthn's verifyRegistrationResponse can provide this as `credentialBackedUp`.
   backedUp: boolean;
-  derivedNearPublicKey?: string | null; // The NEAR public key derived from this passkey
   clientManagedNearPublicKey?: string; // Client-generated NEAR public key for Option 1, ed25519 string
 }
 

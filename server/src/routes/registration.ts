@@ -6,13 +6,10 @@ import {
 import type { RegistrationResponseJSON, PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server/script/deps';
 import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { JsonRpcProvider } from 'near-api-js/lib/providers';
-import { utils } from 'near-api-js';
 
 import config, { DEFAULT_GAS_STRING, COMPLETE_REGISTRATION_GAS_STRING } from '../config';
 import { userOperations, authenticatorOperations } from '../database';
 import { nearClient } from '../nearService';
-import { deriveNearPublicKeyFromCOSE } from '../keyDerivation';
 import type { User } from '../types';
 
 const router = Router();
@@ -52,7 +49,7 @@ interface ContractCompleteRegistrationArgs {
   data_id: string; // The data_id received from generate_registration_options
 }
 
-// --- Helper function to get registration options from SimpleWebAuthn (no changes needed here) ---
+// Helper function to get registration options from SimpleWebAuthn
 async function getRegistrationOptionsSimpleWebAuthn(
   username: string,
   user: User,
@@ -88,7 +85,7 @@ async function getRegistrationOptionsSimpleWebAuthn(
   };
 }
 
-// --- Updated helper function to get registration options from NEAR Contract ---
+// Updated helper function to get registration options from NEAR Contract
 async function getRegistrationOptionsContract(
   username: string,
   user: User,
@@ -128,23 +125,26 @@ async function getRegistrationOptionsContract(
     gas: BigInt(DEFAULT_GAS_STRING),
   });
 
-  console.log('Raw result from contract.generate_registration_options:', JSON.stringify(rawResult, null, 2));
-
-  // Robust check for RPC/transaction errors before attempting to parse success value
+  // Robust error checking for rawResult
   if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
     const failure = rawResult.status.Failure;
-    // @ts-ignore
-    const executionError = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
+    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
     const errorMessage = executionError || JSON.stringify(failure);
     console.error('Contract execution failed (panic or transaction error):', errorMessage);
     throw new Error(`Contract Error: ${errorMessage}`);
+  }
+  else if (rawResult && typeof (rawResult as any).error === 'object') { // Check for a direct error object from RPC call if not a standard FinalExecutionOutcome
+    const rpcError = (rawResult as any).error;
+    console.error('RPC/Handler error from contract.generate_registration_options call:', rpcError);
+    const errorMessage = rpcError.message || rpcError.name || 'RPC error during generate_registration_options';
+    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
+    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
   }
 
   let contractResponseString: string;
   if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
     contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
   } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
-    // This case might occur if the rawResult is already the JSON string (e.g. from a view call or simplified mock)
     contractResponseString = rawResult;
   } else {
     console.warn('Unexpected rawResult structure from generate_registration_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
@@ -159,8 +159,6 @@ async function getRegistrationOptionsContract(
     throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
   }
 
-  console.log('Parsed Contract response (should have nested options):', JSON.stringify(contractResponse, null, 2));
-
   // Validate based on the nested options structure
   if (!contractResponse.options || !contractResponse.options.challenge || !contractResponse.options.rp || typeof contractResponse.dataId === 'undefined') {
     console.error('Invalid parsed response from contract.generate_registration_options (missing core fields or nested options):', contractResponse);
@@ -170,7 +168,7 @@ async function getRegistrationOptionsContract(
   return contractResponse;
 }
 
-// --- Unified getRegistrationOptions (ensure user.id is suitable for contract) ---
+// Unified getRegistrationOptions
 async function getRegistrationOptions(
   usernameInput: string,
   useContractMethod: boolean
@@ -208,12 +206,11 @@ async function getRegistrationOptions(
   if (useContractMethod) {
     return getRegistrationOptionsContract(usernameInput, user, rawAuthenticators);
   } else {
-    const simpleWebAuthnResult = await getRegistrationOptionsSimpleWebAuthn(usernameInput, user, rawAuthenticators);
-    return simpleWebAuthnResult; // This should now align
+    return getRegistrationOptionsSimpleWebAuthn(usernameInput, user, rawAuthenticators);
   }
 }
 
-// --- Generate registration options Endpoint ---
+// Generate registration options Endpoint
 router.post('/generate-registration-options', async (req: Request, res: Response) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username is required' });
@@ -254,7 +251,7 @@ router.post('/generate-registration-options', async (req: Request, res: Response
   }
 });
 
-// --- verifyRegistrationResponseSimpleWebAuthn ---
+// verifyRegistrationResponseSimpleWebAuthn
 async function verifyRegistrationResponseSimpleWebAuthn(
   attestationResponse: RegistrationResponseJSON,
   expectedChallenge: string
@@ -273,7 +270,7 @@ async function verifyRegistrationResponseSimpleWebAuthn(
   };
 }
 
-// --- Complete registration via NEAR Contract ---
+// Complete registration via NEAR Contract
 async function completeRegistrationContract(
   attestationResponse: RegistrationResponseJSON,
   dataId: string // The data_id received from generate_registration_options
@@ -337,12 +334,12 @@ async function completeRegistrationContract(
   }
 }
 
-// --- Verify registration Endpoint (Updated) ---
+// Verify registration Endpoint
 router.post('/verify-registration', async (req: Request, res: Response) => {
   const { username, attestationResponse, dataId } = req.body as {
     username: string,
     attestationResponse: RegistrationResponseJSON,
-    dataId?: string // dataId is now expected if using contract method
+    dataId?: string
   };
 
   if (!username || !attestationResponse) {
@@ -375,66 +372,45 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
 
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
-    if (config.useContractMethod) {
-      // For contract method, `completeRegistrationContract` is called.
-      // It handles the `complete_registration` call which resumes the yield.
-      // The actual verification happens in the contract's private callback.
-      verificationResult = await completeRegistrationContract(attestationResponse, dataId!);
-    } else {
+    if (config.useContractMethod && dataId) {
+      verificationResult = await completeRegistrationContract(attestationResponse, dataId);
+    } else if (!config.useContractMethod && expectedChallenge) {
       verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+    } else {
+      return res.status(400).json({ error: 'Invalid state for verification process.'});
     }
 
     const { verified, registrationInfo } = verificationResult;
 
     if (verified) {
-      // If using SimpleWebAuthn, registrationInfo is populated.
-      // If using contract, registrationInfo from completeRegistrationContract is a simulation/placeholder.
-      // The actual reliable registrationInfo would need to be fetched from contract state post-callback if stored.
-      let dbRegistrationInfo = registrationInfo;
-      if (config.useContractMethod && !registrationInfo?.credentialID) {
-        // If contract method was used and we don't have solid info, create from attestationResponse for DB
-        // This is a simplified placeholder for what the contract callback would determine.
-        dbRegistrationInfo = {
-            credentialID: isoBase64URL.toBuffer(attestationResponse.rawId),
-            credentialPublicKey: new Uint8Array(), // Placeholder, ideally get from contract event/view after callback
-            counter: 0, // Placeholder
-        };
-      }
+      // Construct the authenticator object for DB insertion based on the simplified schema
+      const { credentialID: rawCredentialIDBuffer, credentialPublicKey: rawPublicKeyBuffer, counter } = registrationInfo || {};
 
-      const { credentialPublicKey, credentialID, counter } = dbRegistrationInfo || {};
-      const transportsString = JSON.stringify(attestationResponse.response.transports || []);
-      // Note: deriveNearPublicKeyFromCOSE needs the *actual* COSE public key bytes.
-      // If using contract, the true COSE key is processed on-chain. We don't have it here unless logged by an event.
-      // For SimpleWebAuthn, registrationInfo.credentialPublicKey is the COSE key.
-      let nearPublicKeyFromCOSE = "contract-derived-key-placeholder";
-      if (credentialPublicKey && credentialPublicKey.length > 0) {
-          try {
-            nearPublicKeyFromCOSE = deriveNearPublicKeyFromCOSE(credentialPublicKey); // Pass Buffer directly
-          } catch (e) { console.warn("Failed to derive NEAR PK from COSE on server, using placeholder", e);}
-      } else if (config.useContractMethod) {
-        console.log("Using placeholder for derivedNearPublicKey as contract handles derivation.")
-      }
+      // Ensure we have the necessary info, especially from SimpleWebAuthn path
+      const credentialIDForDB = rawCredentialIDBuffer ? isoBase64URL.fromBuffer(rawCredentialIDBuffer) : attestationResponse.id;
+      const publicKeyForDB = rawPublicKeyBuffer ? Buffer.from(rawPublicKeyBuffer) : Buffer.from(new Uint8Array()); // Default to empty if not present
+      const counterForDB = counter || 0;
 
       authenticatorOperations.create({
-        credentialID: isoBase64URL.fromBuffer(credentialID || isoBase64URL.toBuffer(attestationResponse.rawId)),
-        credentialPublicKey: Buffer.from(credentialPublicKey || new Uint8Array()), // Store what we have
-        counter: counter || 0,
-        transports: transportsString,
+        credentialID: credentialIDForDB,
+        credentialPublicKey: publicKeyForDB,
+        counter: counterForDB,
+        transports: JSON.stringify(attestationResponse.response.transports || []),
         userId: user.id,
-        name: `Authenticator for ${user.username} (${attestationResponse.response.transports ? attestationResponse.response.transports.join('/') : 'unknown'})`,
+        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
         registered: new Date().toISOString(),
-        backedUp: registrationInfo?.credentialBackedUp ? 1 : 0, // From SimpleWebAuthn, or assume false
-        derivedNearPublicKey: nearPublicKeyFromCOSE,
+        backedUp: registrationInfo?.credentialBackedUp ? 1 : 0,
+        clientManagedNearPublicKey: null,
+        // Set to null initially, to be updated by a separate key association flow
       });
 
-      userOperations.updateChallengeAndDataId(user.id, null, null); // Clear challenge and dataId
-      console.log('Registration verification successful for:', username, "Derived NEAR PK (server-side interpretation):", nearPublicKeyFromCOSE);
+      userOperations.updateChallengeAndDataId(user.id, null, null);
+      console.log('Registration verification successful for:', username);
 
       return res.json({
         verified: true,
         username: user.username,
-        derpAccountId: user.derpAccountId
-        // We don't have the contract-verified registrationInfo here directly.
+        derpAccountId: user.derpAccountId,
       });
     } else {
       if (user) userOperations.updateChallengeAndDataId(user.id, null, null);
@@ -445,30 +421,14 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     }
   } catch (e: any) {
     console.error('Error verifying registration:', e.message, e.stack);
-    if (userForChallengeClear) {
-      userOperations.updateChallengeAndDataId(userForChallengeClear.id, null, null);
+    if (req.body.username) { // Check if user was determined to clear their challenge
+        const userToClear = userOperations.findByUsername(req.body.username);
+        if (userToClear) userOperations.updateChallengeAndDataId(userToClear.id, null, null);
     }
     return res.status(500).json({
       verified: false,
       error: e.message || 'Verification failed due to an unexpected server error.'
     });
-  }
-});
-
-// Check if username is already registered (no changes needed)
-router.get('/check-username', (req: Request, res: Response) => {
-  const { username } = req.query;
-
-  if (!username || typeof username !== 'string') {
-    return res.status(400).json({ error: 'Username query parameter is required and must be a string.' });
-  }
-
-  try {
-    const userEntry = userOperations.findByUsername(username);
-    return res.json({ registered: !!userEntry });
-  } catch (e: any) {
-    console.error('Error checking username:', e);
-    return res.status(500).json({ error: 'Failed to check username status.' });
   }
 });
 

@@ -154,13 +154,11 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       }
 
       console.log(`User '${user.username}' authenticated with '${authenticator.name || authenticator.credentialID}'.`);
-      console.log(`Stored COSE-derived NEAR PK: ${authenticator.derivedNearPublicKey}`);
       console.log(`Client-managed NEAR PK: ${authenticator.clientManagedNearPublicKey}`);
 
       return res.json({
         verified: true,
         username: user.username,
-        derivedNearPublicKey: authenticator.derivedNearPublicKey,
         clientManagedNearPublicKey: authenticator.clientManagedNearPublicKey,
         derpAccountId: user.derpAccountId,
       });
@@ -168,7 +166,7 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       if (user.currentChallenge) {
         userOperations.updateChallenge(user.id, null);
       }
-      const errorMessage = (verification as { error?: Error }).error?.message || 'Authentication failed verification';
+      const errorMessage = (verification as any).error?.message || 'Authentication failed verification';
       return res.status(400).json({ verified: false, error: errorMessage });
     }
   } catch (e: any) {

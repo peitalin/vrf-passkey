@@ -58,6 +58,7 @@ interface PrfSaltConfig {
 interface WebAuthnRegistrationWithPrf {
   credential: PublicKeyCredential;
   prfEnabled: boolean;
+  dataId?: string;
 }
 
 interface WebAuthnAuthenticationWithPrf {
@@ -339,7 +340,7 @@ export class WebAuthnManager {
 
       const options = serverResponseObject.options;
       const challengeId = this.registerServerChallenge(options.challenge, 'registration');
-      const dataId = serverResponseObject.dataId; // dataId is expected if using contract
+      const dataId = serverResponseObject.dataId;
 
       return { options, challengeId, dataId };
     } catch (error: any) {
@@ -378,19 +379,32 @@ export class WebAuthnManager {
    * Register with PRF extension support
    */
   async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
-    const { options, challengeId } = await this.getRegistrationOptions(username);
+    const { options, challengeId, dataId: getOptionsDataId } = await this.getRegistrationOptions(username);
 
-    // Type check kept for safety, can be removed if confident
     if (typeof options?.challenge !== 'string') {
-        console.error("[FRONTEND ERROR] In registerWithPrf, options.challenge is NOT a string just before bufferDecode! Value:", options?.challenge);
-        throw new TypeError("Critical error: options.challenge became non-string before bufferDecode in registerWithPrf.");
+        const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
+        console.error(errorMsg, "Value:", options?.challenge, "Full options:", options);
+        throw new TypeError(errorMsg);
+    }
+
+    let processedExcludeCredentials = undefined;
+    if (options.excludeCredentials && Array.isArray(options.excludeCredentials)) {
+        processedExcludeCredentials = options.excludeCredentials.map((c, index) => {
+            if (typeof c?.id !== 'string') {
+                const errorMsg = `[CRITICAL ERROR] In registerWithPrf, excludeCredentials[${index}].id is NOT a string.`;
+                console.error(errorMsg, "Value:", c?.id, "Full credential object:" , c);
+                return { ...c, id: '' };
+            }
+            return { ...c, id: bufferDecode(c.id) };
+        });
+    } else if (options.excludeCredentials) {
     }
 
     const extendedOptions = {
       ...options,
       challenge: bufferDecode(options.challenge),
       user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
-      excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
+      excludeCredentials: processedExcludeCredentials,
       authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
       extensions: {
         ...options.extensions,
@@ -414,10 +428,9 @@ export class WebAuthnManager {
     const prfResults = (extensionResults as any).prf;
     const prfEnabled = prfResults?.enabled === true;
 
-    // During registration, PRF eval results might be available if the authenticator supports it
     console.log('WebAuthnManager: Registration completed, PRF enabled:', prfEnabled, 'PRF eval results:', prfResults);
 
-    return { credential, prfEnabled };
+    return { credential, prfEnabled, dataId: getOptionsDataId };
   }
 
   /**

@@ -4,7 +4,6 @@ import { PublicKey } from '@near-js/crypto';
 import config from '../config';
 import { userOperations, authenticatorOperations } from '../database';
 import { nearClient } from '../nearService';
-import type { User } from '../types';
 
 const router = Router();
 
@@ -19,6 +18,8 @@ router.post('/api/associate-account-pk', async (req: Request, res: Response) => 
   }
 
   // Validate that derpAccountId is a subaccount of the relayer account
+  // TODO: lift this restriction if possible so users can create to-level accounts.
+  // Only certain accounts on NEAR are allowed to create top-level accounts.
   if (!derpAccountId.endsWith(`.${config.relayerAccountId}`)) {
     return res.status(400).json({
       error: `Invalid derpAccountId: '${derpAccountId}'. Account must be a subaccount of the relayer '${config.relayerAccountId}'. (e.g., yourname.${config.relayerAccountId})`

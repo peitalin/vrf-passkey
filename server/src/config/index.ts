@@ -17,7 +17,7 @@ export const config: AppConfig = {
   rpName: process.env.RP_NAME || 'My Passkey App',
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || '',
-  useContractMethod: process.env.USE_CONTRACT_METHOD === 'true' || true, // Default to contract method
+  useContractMethod: process.env.USE_CONTRACT_METHOD === 'true' || true,
   databasePath: process.env.DATABASE_PATH || '../database.sqlite',
 };
 

@@ -1,16 +1,16 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { SERVER_URL, RELAYER_ACCOUNT_ID } from '../config';
 import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils';
-import { ActionType, type ServerRegistrationOptions, type ServerAuthenticationOptions, type SerializableActionArgs } from '../types';
+import { type ServerAuthenticationOptions, type SerializableActionArgs } from '../types';
 import { getTestnetRpcProvider, view } from '@near-js/client';
 import type { Provider } from '@near-js/providers';
 import { webAuthnManager } from '../security/WebAuthnManager';
-import { checkAccountExists } from '../utils/nearAccount';
 import bs58 from 'bs58';
 import {
+  SERVER_URL,
   RPC_NODE_URL,
   DEFAULT_GAS_STRING,
+  RELAYER_ACCOUNT_ID,
   WEBAUTHN_CONTRACT_ID
 } from '../config';
 
@@ -84,8 +84,8 @@ export interface ExecuteActionCallbacks {
 interface PasskeyContextType extends PasskeyState {
   setUsernameState: (username: string) => void;
   setDerpAccountIdState: (accountId: string) => void;
-  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
-  loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }>;
+  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
+  loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null }>;
   logoutPasskey: () => void;
   executeDelegateActionViaServer: (
     actionToExecute: SerializableActionArgs,
@@ -178,216 +178,153 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting]);
 
-  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }> => {
+  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }> => {
     if (!currentUsername) {
-      return { success: false, error: 'Username is required for registration.', derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
+      return { success: false, error: 'Username is required for registration.' };
     }
-    if (!window.isSecureContext || !crypto.subtle || !crypto.getRandomValues) {
-      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost) and Web Crypto API.', derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
+    if (!window.isSecureContext) {
+      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost).' };
     }
     setIsProcessing(true);
-
-    await webAuthnManager.storeUserData({
-      username: currentUsername,
-      lastUpdated: Date.now()
-    });
-
     setStatusMessage('Registering passkey...');
 
-    let userDerpAccountIdToUse: string; // Ensure this is always set
-    let generatedNearPublicKeyForChain: string | null = null;
-    let serverWebAuthnVerifyData: any = null;
-    let tempCredentialStore: PublicKeyCredential | null = null;
-    let challengeId: string | null = null;
-
     try {
-      // Get registration options first to have the challenge ID
-      const { challengeId: registrationChallengeId } = await webAuthnManager.getRegistrationOptions(currentUsername);
-      challengeId = registrationChallengeId;
-
-      // Try PRF-enabled registration
-      console.log('Attempting PRF-enabled registration...');
-      const { credential, prfEnabled } = await webAuthnManager.registerWithPrf(currentUsername);
-      tempCredentialStore = credential;
-
-      // Frontend constructs the derpAccountId, ignoring server suggestion for this specific format requirement
-      const sanitizedUsername = currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
-      userDerpAccountIdToUse = `${sanitizedUsername}.${RELAYER_ACCOUNT_ID}`;
-      console.log(`Frontend constructed derpAccountId: ${userDerpAccountIdToUse}`);
-
+      // Step 1: WebAuthn credential creation & PRF (if applicable)
+      // This now also returns the dataId needed for contract yield-resume.
+      const { credential, prfEnabled, dataId: registrationDataId } = await webAuthnManager.registerWithPrf(currentUsername);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
+      // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
+      // This part is crucial and would involve the wasm_worker via webAuthnManager
+      let clientManagedPublicKey: string | null = null;
+      const userDerpAccountIdToUse = `${currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32)}.${RELAYER_ACCOUNT_ID}`;
+
+      if (prfEnabled) {
+        const extensionResults = credential.getClientExtensionResults();
+        const registrationPrfOutput = (extensionResults as any).prf?.results?.first;
+        if (registrationPrfOutput) {
+          // Call the WebAuthnManager method that uses PRF to generate/encrypt key
+          // This method should return the public key string.
+          const prfRegistrationResult = await webAuthnManager.secureRegistrationWithPrf(
+            currentUsername,
+            registrationPrfOutput,
+            { derpAccountId: userDerpAccountIdToUse },
+            undefined, // challengeId not directly needed here as registerWithPrf handles it
+            true // Skip challenge validation as WebAuthn ceremony just completed
+          );
+          if (prfRegistrationResult.success) {
+            clientManagedPublicKey = prfRegistrationResult.publicKey;
+            console.log('PasskeyContext: Client-managed public key obtained/generated:', clientManagedPublicKey);
+          } else {
+            throw new Error('Client-side key generation/encryption with PRF failed.');
+          }
+        } else {
+            // This case (PRF enabled but no output from registration) might require a second authN to get PRF output.
+            // For simplicity, we assume PRF output is available from registration for this flow now.
+            // Or, handle the two-touch ID prompt as discussed previously if necessary.
+            console.warn("PRF was enabled, but no PRF output directly from registration. Key derivation might need separate authN.");
+            // Fallback or error if direct PRF output not available and key is essential
+            throw new Error("PRF output not available from registration, cannot derive client key this way.");
+        }
+      } else {
+        // Handle non-PRF flow or throw error if PRF is mandatory
+        throw new Error("PRF is required for this registration flow but not enabled/supported by authenticator.");
+      }
+
+      if (!clientManagedPublicKey) {
+        throw new Error("Failed to obtain client-managed public key.");
+      }
+
+      // Step 3: Prepare payload for server's /verify-registration
+      const verifyPayload: any = {
+        username: currentUsername,
+        attestationResponse: attestationForServer,
+      };
+
+      // Conditionally add dataId to the payload if using contract method
+      if (!registrationDataId) {
+        console.error('PasskeyContext: dataId is required for contract method verification but was not returned from registerWithPrf.');
+        throw new Error('dataId is required for contract method verification but was not obtained during WebAuthn ceremony.');
+      }
+      verifyPayload.dataId = registrationDataId;
+      console.log('PasskeyContext: Sending dataId to /verify-registration:', registrationDataId);
+
+      // Step 4: Call server to verify WebAuthn attestation and store authenticator
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: currentUsername, attestationResponse: attestationForServer }),
+        body: JSON.stringify(verifyPayload),
       });
-      serverWebAuthnVerifyData = await verifyResponse.json();
+      const serverVerifyData = await verifyResponse.json();
 
-      if (verifyResponse.ok && serverWebAuthnVerifyData.verified) {
-        console.log(`Server verification successful. Using frontend-defined derpAccountId: ${userDerpAccountIdToUse}`);
+      if (!verifyResponse.ok || !serverVerifyData.verified) {
+        throw new Error(serverVerifyData.error || 'Passkey verification failed by server.');
+      }
+      console.log(`Server WebAuthn verification successful. DERP Account: ${userDerpAccountIdToUse}`);
 
-        const hasExistingKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdToUse);
-
-        if (!hasExistingKey) {
-          console.log(`No existing encrypted key found for ${userDerpAccountIdToUse}. Will generate new key in secure worker.`);
-          setStatusMessage(`Generating new NEAR key pair securely...`);
-
-          let registrationResult;
-
-          if (prfEnabled) {
-            console.log('PRF extension is supported, using PRF-based encryption');
-
-            // Check if we got PRF output during registration
-            const extensionResults = credential.getClientExtensionResults();
-            const registrationPrfOutput = (extensionResults as any).prf?.results?.first;
-
-            console.log('PRF extension results from registration:', (extensionResults as any).prf);
-
-            if (registrationPrfOutput) {
-              // Use PRF output from registration directly with SECURE RANDOM key generation
-              console.log('Using PRF output from registration ceremony with random key generation');
-
-              console.log('Using secure random key generation');
-
-              // Use secure random key generation + PRF encryption instead of deterministic derivation
-              registrationResult = await webAuthnManager.secureRegistrationWithPrf(
-                currentUsername,
-                registrationPrfOutput,
-                { derpAccountId: userDerpAccountIdToUse },
-                registrationChallengeId, // Use the original registration challenge ID
-                true // Skip challenge validation since already done in registerWithPrf
-              );
-            } else {
-              // Most authenticators don't support PRF evaluation during registration (create),
-              // only during authentication (get). This is why we need a second Touch ID prompt.
-              // This is a limitation of the current WebAuthn PRF implementation in most browsers/authenticators.
-              console.log('PRF enabled but no output from registration, performing separate authentication');
-              console.log('Note: This requires a second Touch ID prompt due to WebAuthn PRF limitations');
-              const { credential: authCredential, prfOutput } = await webAuthnManager.authenticateWithPrf(
-                currentUsername,
-                'encryption'
-              );
-
-              if (prfOutput) {
-                console.log('Using secure random key generation');
-
-                // Use secure random key generation + PRF encryption instead of deterministic derivation
-                registrationResult = await webAuthnManager.secureRegistrationWithPrf(
-                  currentUsername,
-                  prfOutput,
-                  { derpAccountId: userDerpAccountIdToUse },
-                  registrationChallengeId, // Use the original registration challenge ID
-                  true // Skip challenge validation since already authenticated
-                );
-              } else {
-                throw new Error('PRF output not available despite PRF being enabled');
-              }
-            }
-
-            if (registrationResult.success) {
-              generatedNearPublicKeyForChain = registrationResult.publicKey;
-              console.log('PRF-based encryption successful');
-            }
-          } else {
-            throw new Error('PRF extension is required but not supported by this authenticator');
-          }
-
-          if (registrationResult.success) {
-            generatedNearPublicKeyForChain = registrationResult.publicKey;
-            setStatusMessage('NEAR key generated and encrypted. Associating with account...');
-            console.log('Encrypted key stored for', userDerpAccountIdToUse, 'with public key:', generatedNearPublicKeyForChain);
-
-            try {
-              const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  username: currentUsername,
-                  derpAccountId: userDerpAccountIdToUse,
-                  clientNearPublicKey: generatedNearPublicKeyForChain!
-                }),
-              });
-              const associatePkData = await associatePkResponse.json();
-              console.log('Associate PK API response:', associatePkData);
-
-              if (associatePkResponse.ok && associatePkData.success) {
-                const transactionId = associatePkData.transactionId || associatePkData.txId || null;
-                console.log('Extracted transaction ID:', transactionId);
-                setStatusMessage('Passkey registered, key encrypted, account associated.');
-                setDerpAccountId(userDerpAccountIdToUse);
-
-                // Fetch the most recent user data (which should now include KDF inputs from secureRegistration)
-                const currentWebAuthnUserData = await webAuthnManager.getUserData(currentUsername);
-
-                await webAuthnManager.storeUserData({
-                  ...(currentWebAuthnUserData || {}), // Spread existing data (including KDF inputs)
-                  username: currentUsername,
-                  derpAccountId: userDerpAccountIdToUse,
-                  clientNearPublicKey: generatedNearPublicKeyForChain!,
-                  passkeyCredential: tempCredentialStore ? { id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) } : undefined,
-                  lastUpdated: Date.now()
-                });
-
-                setIsLoggedIn(true);
-                setUsername(currentUsername);
-                setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || generatedNearPublicKeyForChain);
-                setIsProcessing(false);
-                return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId };
-              } else {
-                throw new Error(associatePkData.error || 'Failed to associate client NEAR PK.');
-              }
-            } catch (associationError: any) {
-              console.error('Error associating client NEAR PK:', associationError);
-              setStatusMessage(`Error associating NEAR PK: ${associationError.message}`);
-              setIsProcessing(false);
-              return { success: false, error: associationError.message, derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
-            }
-          } else {
-            const errorMessage = (registrationResult as { error?: string }).error || 'Secure registration (key generation/encryption) failed without specific error.';
-            throw new Error(errorMessage);
-          }
-        } else { // hasExistingKey is true
-          setStatusMessage('Passkey registered. Existing local NEAR key found.');
-          setDerpAccountId(userDerpAccountIdToUse);
-
-          // Fetch the most recent user data (which should now include KDF inputs from secureRegistration)
-          const currentWebAuthnUserData = await webAuthnManager.getUserData(currentUsername);
-
-          await webAuthnManager.storeUserData({
-            ...(currentWebAuthnUserData || {}), // Spread existing data (including KDF inputs)
+      // Step 5: (Optional but recommended) Associate client public key with DERP account on-chain via server
+      // This step makes the client-managed key an authorized key for the DERP account.
+      let associationTransactionId: string | null = null;
+      try {
+        const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             username: currentUsername,
             derpAccountId: userDerpAccountIdToUse,
-            clientNearPublicKey: currentWebAuthnUserData?.clientNearPublicKey, // Keep existing client PK if already there
-            passkeyCredential: tempCredentialStore ? { id: tempCredentialStore.id, rawId: bufferEncode(tempCredentialStore.rawId) } : undefined,
-            lastUpdated: Date.now()
-            // KDF inputs would be preserved here if they existed from a previous full registration
-          });
-
-          setIsLoggedIn(true);
-          setUsername(currentUsername);
-          setServerDerivedNearPK(serverWebAuthnVerifyData.derivedNearPublicKey || currentWebAuthnUserData?.clientNearPublicKey);
-          setIsProcessing(false);
-          return { success: true, derivedNearPublicKey: serverWebAuthnVerifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdToUse, transactionId: null };
+            clientNearPublicKey: clientManagedPublicKey
+          }),
+        });
+        const associatePkData = await associatePkResponse.json();
+        if (!associatePkResponse.ok || !associatePkData.success) {
+          throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with DERP account.');
         }
-      } else {
-        throw new Error(serverWebAuthnVerifyData.error || 'Passkey verification failed by server.');
+        associationTransactionId = associatePkData.transactionId || associatePkData.txId || null;
+        console.log('Client PK associated with DERP account. Tx:', associationTransactionId);
+      } catch (assocError: any) {
+        console.warn('Failed to associate client PK with DERP account:', assocError.message);
+        // Decide if this is a fatal error for registration or just a warning
       }
+
+      // Step 6: Store user data locally (including client-managed key)
+      await webAuthnManager.storeUserData({
+          username: currentUsername,
+          derpAccountId: userDerpAccountIdToUse,
+          clientNearPublicKey: clientManagedPublicKey,
+          passkeyCredential: { id: credential.id, rawId: bufferEncode(credential.rawId) },
+          prfSupported: prfEnabled,
+          lastUpdated: Date.now(),
+      });
+
+      // Step 7: Update React context state
+      setIsLoggedIn(true);
+      setUsername(currentUsername);
+      setDerpAccountId(userDerpAccountIdToUse);
+      setServerDerivedNearPK(clientManagedPublicKey); // Use the client-managed key for UI state
+      setStatusMessage('Passkey registered, verified, and key managed successfully!');
+      setIsProcessing(false);
+      return {
+          success: true,
+          derpAccountId: userDerpAccountIdToUse,
+          clientNearPublicKey: clientManagedPublicKey,
+          transactionId: associationTransactionId
+      };
+
     } catch (err: any) {
-      console.error('Registration error:', err);
+      console.error('Registration error in PasskeyContext:', err.message, err.stack);
       setStatusMessage(`Registration Error: ${err.message}`);
       setIsProcessing(false);
-      return { success: false, error: err.message, derivedNearPublicKey: null, derpAccountId: null, transactionId: null };
+      return { success: false, error: err.message };
     }
-  }, [setDerpAccountId, setUsername, setIsLoggedIn, setServerDerivedNearPK, setStatusMessage, setIsProcessing]);
+  }, [setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setDerpAccountId, setServerDerivedNearPK]);
 
-  const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; derivedNearPublicKey?: string | null; derpAccountId?: string | null }> => {
+  const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null }> => {
     const userToLogin = currentUsername || username;
     if (!userToLogin) {
-      return { success: false, error: 'Username might be needed for login.', loggedInUsername: null, derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: 'Username is required for login.' };
     }
     if (!window.isSecureContext) {
-      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost).', loggedInUsername: null, derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost).' };
     }
     setIsProcessing(true);
     setStatusMessage('Attempting passkey login...');
@@ -420,58 +357,46 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(assertionJSON),
       });
-      const verifyData = await verifyResponse.json();
+      const serverVerifyData = await verifyResponse.json();
 
-      if (verifyResponse.ok && verifyData.verified) {
-        const loggedInUser = verifyData.username;
-        if (!loggedInUser) throw new Error("Login successful but server didn't return username.");
-        setUsername(loggedInUser);
+      if (verifyResponse.ok && serverVerifyData.verified) {
+        const loggedInUsername = serverVerifyData.username;
+        if (!loggedInUsername) throw new Error("Login successful but server didn't return username.");
+
+        // Fetch comprehensive user data from local storage, which should include the clientNearPublicKey
+        const localUserData = await webAuthnManager.getUserData(loggedInUsername);
+
         setIsLoggedIn(true);
-        setServerDerivedNearPK(verifyData.derivedNearPublicKey);
+        setUsername(loggedInUsername);
+        setDerpAccountId(serverVerifyData.derpAccountId || localUserData?.derpAccountId);
 
-        // Get existing user data or create new
-        let userData = await webAuthnManager.getUserData(loggedInUser);
-        const userDerpAccountIdFromLogin = verifyData.derpAccountId || options.derpAccountId || userData?.derpAccountId || `${bufferEncode(assertion.rawId).toLowerCase().substring(0,32)}.passkeyfactory.testnet`;
-
-        setDerpAccountId(userDerpAccountIdFromLogin);
-
-        // Fetch the most up-to-date user data, which might include KDF inputs from a previous registration
-        const currentLocalUserData = await webAuthnManager.getUserData(loggedInUser);
-
-        // Update user data in IndexedDB, preserving existing fields like KDF inputs
-        await webAuthnManager.storeUserData({
-          ...(currentLocalUserData || {}), // Spread existing local data first
-          username: loggedInUser, // Ensure username is correct
-          derpAccountId: userDerpAccountIdFromLogin, // Update with value from login/server
-          clientNearPublicKey: currentLocalUserData?.clientNearPublicKey || verifyData.clientManagedNearPublicKey, // Prefer existing, then server
-          passkeyCredential: currentLocalUserData?.passkeyCredential, // Preserve existing passkey credential info
-          // KDF inputs (originalClientDataJsonForKdf, originalAttestationObjectForKdf)
-          // will be preserved if they were in currentLocalUserData
-          lastUpdated: Date.now()
-        });
-
-        if (verifyData.clientManagedNearPublicKey) {
-            console.log("Logged in. Server knows client-managed PK:", verifyData.clientManagedNearPublicKey, "for derp ID:", userDerpAccountIdFromLogin);
+        // Set the UI-driving public key state from the locally stored clientNearPublicKey
+        if (localUserData?.clientNearPublicKey) {
+          setServerDerivedNearPK(localUserData.clientNearPublicKey);
+          console.log(`Login successful for ${loggedInUsername}. Client-managed PK set from local store: ${localUserData.clientNearPublicKey}`);
         } else {
-            const hasEncryptedKey = await webAuthnManager.hasEncryptedKey(userDerpAccountIdFromLogin);
-            if (hasEncryptedKey) {
-                console.log("Logged in. Found local encrypted key for derp ID:", userDerpAccountIdFromLogin, "but server did not return an associated clientManagedNearPublicKey.");
-            }
+          setServerDerivedNearPK(null); // Explicitly set to null if not found
+          console.warn(`User ${loggedInUsername} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
         }
 
         setStatusMessage('Login successful.');
         setIsProcessing(false);
-        return { success: true, loggedInUsername: loggedInUser, derivedNearPublicKey: verifyData.derivedNearPublicKey, derpAccountId: userDerpAccountIdFromLogin };
+        return {
+          success: true,
+          loggedInUsername,
+          clientNearPublicKey: localUserData?.clientNearPublicKey || null,
+          derpAccountId: serverVerifyData.derpAccountId || localUserData?.derpAccountId
+        };
       } else {
-        throw new Error(verifyData.error || 'Passkey authentication failed by server.');
+        throw new Error(serverVerifyData.error || 'Passkey authentication failed by server.');
       }
     } catch (err: any) {
-      console.error('Login error:', err);
+      console.error('Login error in PasskeyContext:', err.message, err.stack);
       setStatusMessage(`Login Error: ${err.message}`);
       setIsProcessing(false);
-      return { success: false, error: err.message, loggedInUsername: null, derivedNearPublicKey: null, derpAccountId: null };
+      return { success: false, error: err.message };
     }
-  }, [username, setDerpAccountId, setUsername, setIsLoggedIn, setServerDerivedNearPK, setStatusMessage]);
+  }, [username, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setDerpAccountId, setServerDerivedNearPK]);
 
   const logoutPasskey = useCallback(() => {
     setIsLoggedIn(false);

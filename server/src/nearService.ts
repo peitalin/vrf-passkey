@@ -1,26 +1,20 @@
-import {
-  getSignerFromKeystore,
-  view,
-} from '@near-js/client';
+import { getSignerFromKeystore, view } from '@near-js/client';
 import { JsonRpcProvider } from '@near-js/providers';
-import {
-  Account,
-  LocalAccountCreator
-} from '@near-js/accounts';
+import { Account, LocalAccountCreator } from '@near-js/accounts';
 import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
 import { InMemoryKeyStore } from '@near-js/keystores';
 import type { KeyStore } from '@near-js/keystores';
 import type { Signer } from '@near-js/signers';
 import type { Provider } from '@near-js/providers';
-import { type SerializableActionArgs, type CreateAccountResult } from './types';
+import { type CreateAccountResult } from './types';
 
 
 const PASSKEY_CONTROLLER_CONTRACT_ID = process.env.PASSKEY_CONTROLLER_CONTRACT_ID!;
 const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
 const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
-const WEBAUTHN_CONTRACT_ID = process.env.WEBAUTHN_CONTRACT_ID!; // For the test functions
-const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org'; // Define RPC URL
+const WEBAUTHN_CONTRACT_ID = process.env.WEBAUTHN_CONTRACT_ID!;
+const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org';
 
 
 class NearClient {

@@ -2,11 +2,11 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import config from '../config';
 import type { User, StoredAuthenticator } from '../types';
+
 export { userOperations } from './userOperations';
 
-// Initialize SQLite database
 const dbFilePath = path.join(__dirname, config.databasePath);
-console.log(`Attempting to initialize database at: ${dbFilePath}`); // Log the path
+console.log(`Attempting to initialize database at: ${dbFilePath}`);
 
 export let db: Database.Database;
 try {
@@ -14,58 +14,37 @@ try {
   console.log(`Successfully opened/created database at: ${dbFilePath}`);
 } catch (error) {
   console.error(`Failed to open/create database at: ${dbFilePath}`, error);
-  throw error; // Re-throw to ensure server startup fails clearly if DB can't be initialized
+  throw error;
 }
 
-// Initialize database tables
 export const initDB = () => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      currentChallenge TEXT,
-      derpAccountId TEXT,
-      currentDataId TEXT
+      derpAccountId TEXT NULLABLE,
+      currentChallenge TEXT NULLABLE,
+      currentDataId TEXT NULLABLE
     );
   `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS authenticators (
-      credentialID TEXT PRIMARY KEY,
-      credentialPublicKey BLOB NOT NULL,
+      credentialID TEXT PRIMARY KEY,       -- Base64URL encoded string
+      credentialPublicKey BLOB NOT NULL, -- Raw COSE key bytes
       counter INTEGER NOT NULL,
-      transports TEXT,
-      userId TEXT NOT NULL,
-      name TEXT,
-      registered TEXT NOT NULL,
-      lastUsed TEXT,
-      backedUp INTEGER NOT NULL,
-      derivedNearPublicKey TEXT,
-      clientManagedNearPublicKey TEXT,
+      transports TEXT NULLABLE,          -- JSON string array of AuthenticatorTransportFuture[]
+      userId TEXT NOT NULL,              -- Foreign key to users.id
+      clientManagedNearPublicKey TEXT NULLABLE, -- Client-managed NEAR public key
+      name TEXT NULLABLE,                -- User-friendly authenticator name
+      registered TEXT NOT NULL,          -- ISO date string
+      lastUsed TEXT NULLABLE,            -- ISO date string
+      backedUp INTEGER NOT NULL,         -- 0 for false, 1 for true
       FOREIGN KEY (userId) REFERENCES users(id)
     );
   `);
 
-  console.log('Database initialized (tables created if not exist) at', dbFilePath);
-
-  // Add new columns if they don't exist (simple alter for sqlite)
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN derpAccountId TEXT;");
-  } catch (e) {
-    /* ignore if already exists */
-  }
-
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN currentDataId TEXT;");
-  } catch (e) {
-    /* ignore if already exists */
-  }
-
-  try {
-    db.exec("ALTER TABLE authenticators ADD COLUMN clientManagedNearPublicKey TEXT;");
-  } catch (e) {
-    /* ignore if already exists */
-  }
+  console.log('Simplified database tables initialized (or confirmed to exist) at', dbFilePath);
 };
 
 export const authenticatorOperations = {
@@ -74,7 +53,7 @@ export const authenticatorOperations = {
   },
 
   findByCredentialId: (credentialId: string): any | undefined => {
-    return db.prepare('SELECT *, derivedNearPublicKey, clientManagedNearPublicKey FROM authenticators WHERE credentialID = ?').get(credentialId);
+    return db.prepare('SELECT * FROM authenticators WHERE credentialID = ?').get(credentialId);
   },
 
   create: (authenticator: {
@@ -83,26 +62,27 @@ export const authenticatorOperations = {
     counter: number;
     transports: string;
     userId: string;
-    name: string;
+    name?: string | null;
     registered: string;
-    backedUp: number;
-    derivedNearPublicKey: string | null;
+    backedUp: number; // 0 or 1
+    clientManagedNearPublicKey?: string | null;
   }) => {
     return db.prepare(`
       INSERT INTO authenticators (
         credentialID, credentialPublicKey, counter, transports, userId,
-        name, registered, backedUp, derivedNearPublicKey
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        name, registered, lastUsed, backedUp, clientManagedNearPublicKey
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       authenticator.credentialID,
       authenticator.credentialPublicKey,
       authenticator.counter,
       authenticator.transports,
       authenticator.userId,
-      authenticator.name,
+      authenticator.name || null,
       authenticator.registered,
+      null, // lastUsed is null on creation
       authenticator.backedUp,
-      authenticator.derivedNearPublicKey
+      authenticator.clientManagedNearPublicKey || null
     );
   },
 
@@ -113,31 +93,28 @@ export const authenticatorOperations = {
       credentialId
     );
   },
-
-  updateClientManagedKey: (userId: string, clientNearPublicKey: string) => {
-    return db.prepare('UPDATE authenticators SET clientManagedNearPublicKey = ? WHERE userId = ? ORDER BY registered DESC LIMIT 1').run(
+  // This is the primary way to link a client's NEAR key to their passkey/authenticator record
+  updateClientManagedKey: (credentialID: string, clientNearPublicKey: string) => {
+    return db.prepare('UPDATE authenticators SET clientManagedNearPublicKey = ? WHERE credentialID = ?').run(
       clientNearPublicKey,
-      userId
+      credentialID
     );
   },
-
   getLatestByUserId: (userId: string): { credentialID: string } | undefined => {
     return db.prepare('SELECT credentialID FROM authenticators WHERE userId = ? ORDER BY registered ASC LIMIT 1').get(userId) as { credentialID: string } | undefined;
   },
 };
 
-// Convert raw authenticator data to StoredAuthenticator
 export const mapToStoredAuthenticator = (rawAuth: any): StoredAuthenticator => ({
   credentialID: rawAuth.credentialID,
-  credentialPublicKey: rawAuth.credentialPublicKey,
+  credentialPublicKey: rawAuth.credentialPublicKey, // Ensure this is Uint8Array in StoredAuthenticator type if needed
   counter: rawAuth.counter,
-  transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : [],
+  transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : undefined,
   userId: rawAuth.userId,
   name: rawAuth.name,
   registered: new Date(rawAuth.registered),
   lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,
   backedUp: rawAuth.backedUp === 1,
-  derivedNearPublicKey: rawAuth.derivedNearPublicKey,
   clientManagedNearPublicKey: rawAuth.clientManagedNearPublicKey,
 });
 
