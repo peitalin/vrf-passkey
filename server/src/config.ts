@@ -1,7 +1,9 @@
 // Gas constants as strings
 export const DEFAULT_GAS_STRING = "30000000000000"; // 30 TGas approx.
-export const VIEW_GAS_STRING = "30000000000000"; // 30 TGas for view calls
-export const COMPLETE_REGISTRATION_GAS_STRING = "100000000000000"; // 100 TGas
+export const VIEW_GAS_STRING    = "30000000000000"; // 30 TGas for view calls
+export const COMPLETE_REGISTRATION_GAS_STRING       = "30000000000000"; // 30 TGas
+export const AUTHENTICATION_VERIFICATION_GAS_STRING = "33000000000000";
+// 33 TGas: higher for signature verification
 
 // Main configuration object
 const config = {
@@ -9,7 +11,7 @@ const config = {
   rpID: process.env.RP_ID || 'example.localhost',
   rpName: process.env.RP_NAME || 'NEAR Passkey Relayer Demo',
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
-  databasePath: '../../passkey_users.db',
+  databasePath: '../../passkey_users.db', // relative to the src/database directory
   useContractMethod: true,
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',

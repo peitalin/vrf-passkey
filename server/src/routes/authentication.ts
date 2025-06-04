@@ -8,7 +8,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { createHash, randomBytes } from 'crypto';
 
-import config, { DEFAULT_GAS_STRING } from '../config';
+import config, { DEFAULT_GAS_STRING, AUTHENTICATION_VERIFICATION_GAS_STRING } from '../config';
 import { userOperations, authenticatorOperations, mapToStoredAuthenticator } from '../database';
 import { actionChallengeStore } from '../challengeStore';
 import { nearClient } from '../nearService';
@@ -38,8 +38,8 @@ interface ContractAuthenticationOptionsResponse {
 
 // Helper function to get authentication options from NEAR Contract
 async function generateAuthenticationOptionsContract(
-  allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
   rpID: string = config.rpID,
+  allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
   userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
 ): Promise<ContractAuthenticationOptionsResponse> {
   console.log('Using NEAR contract for authentication options');
@@ -52,12 +52,12 @@ async function generateAuthenticationOptionsContract(
   })) || null;
 
   const contractArgs: ContractGenerateAuthOptionsArgs = {
+    rp_id: rpID,
     allow_credentials: allowCredentialsForContract,
     challenge: null, // Let contract generate challenge
     timeout: 60000,
     user_verification: userVerification,
     extensions: null, // Use contract defaults
-    rp_id: rpID,
   };
 
   console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
@@ -126,12 +126,16 @@ async function generateAuthenticationOptions(
   const { rpID = config.rpID, userVerification = 'preferred', allowCredentials } = options;
 
   if (config.useContractMethod) {
-    return generateAuthenticationOptionsContract(allowCredentials, rpID, userVerification);
+    return generateAuthenticationOptionsContract(
+      rpID,
+      allowCredentials,
+      userVerification
+    );
   } else {
     const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
       rpID,
-      userVerification,
       allowCredentials,
+      userVerification,
     });
 
     // Convert SimpleWebAuthn response to match contract format
@@ -284,13 +288,14 @@ async function verifyAuthenticationResponseContract(
   };
 
   console.log('Calling contract.verify_authentication_response with credential_public_key length:', contractArgs.authenticator.credential_public_key.length);
+  console.log('GasLimit AUTHENTICATION_VERIFICATION_GAS_STRING: ', AUTHENTICATION_VERIFICATION_GAS_STRING);
 
   const account = nearClient.getRelayerAccount();
   const rawResult: any = await account.callFunction({
     contractId: config.contractId,
     methodName: 'verify_authentication_response',
     args: contractArgs,
-    gas: BigInt(DEFAULT_GAS_STRING),
+    gas: BigInt(AUTHENTICATION_VERIFICATION_GAS_STRING),
   });
 
   // Robust error checking for rawResult
@@ -419,7 +424,7 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   try {
     let verification: { verified: boolean; authenticationInfo?: any };
 
-    if (config.useContractMethod == false) {
+    if (config.useContractMethod) {
       // Use contract-based verification
       verification = await verifyAuthenticationResponseContract(
         body,
