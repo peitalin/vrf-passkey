@@ -1,26 +1,26 @@
 # Node modules
-/node_modules
-/frontend/node_modules
-/server/node_modules
+node_modules
+frontend/node_modules
+server/node_modules
 
 # Environment variables (if any)
-/frontend/.env
-/server/.env
-/webauthn-contract/.env
+frontend/.env
+server/.env
+webauthn-contract/.env
 
 # WASM worker
-/frontend/wasm-worker/pkg
-/frontend/wasm-worker/target
+frontend/wasm-worker/pkg
+frontend/wasm-worker/target
 
 # Database files
-./server/passkey_users.db
+server/passkey_users.db
 
 # Build output
-/frontend/dist
-/frontend/dist-ssr
-/server/dist
-/webauthn-contract/target
-/target
+frontend/dist
+frontend/dist-ssr
+server/dist
+webauthn-contract/target
+target
 
 
 *.local
