@@ -40,7 +40,6 @@ const TestNearAccount: React.FC = () => {
         body: JSON.stringify({
           accountId: testAccountId,
           publicKey: testPublicKey,
-          // isTestnet: true, // This field is no longer used by the updated backend endpoint
         })
       });
       const data: CreateAccountResult = await response.json();
