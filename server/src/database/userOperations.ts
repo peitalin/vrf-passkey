@@ -27,7 +27,7 @@ export const userOperations = {
     const stmt = db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?');
     return stmt.run(challenge, userId);
   },
-  updateChallengeAndyieldResumeId: (userId: string, challenge: string | null, yieldResumeId: string | null): RunResult => {
+  updateChallengeAndYieldResumeId: (userId: string, challenge: string | null, yieldResumeId: string | null): RunResult => {
     const stmt = db.prepare('UPDATE users SET currentChallenge = ?, currentYieldResumeId = ? WHERE id = ?');
     return stmt.run(challenge, yieldResumeId, userId);
   },

@@ -87,12 +87,6 @@ interface PasskeyContextType extends PasskeyState {
   registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
   loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null }>;
   logoutPasskey: () => void;
-  executeDelegateActionViaServer: (
-    actionToExecute: SerializableActionArgs,
-    currentUsername: string,
-    customGreeting?: string,
-    callbacks?: ExecuteActionCallbacks
-  ) => Promise<void>;
   executeDirectActionViaWorker: (
     serializableActionForContract: SerializableActionArgs,
     callbacks?: ExecuteActionCallbacks
@@ -330,6 +324,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setStatusMessage('Attempting passkey login...');
 
     try {
+      // Step 1: Get authentication options from server (now includes yieldResumeId for yield-resume flow)
       const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -339,8 +334,15 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         const errorData = await authOptionsResponse.json().catch(() => ({ error: 'Failed to fetch auth options' }));
         throw new Error(errorData.error || `Server error ${authOptionsResponse.status}`);
       }
-      const options: ServerAuthenticationOptions & { derpAccountId?: string } = await authOptionsResponse.json();
 
+      // Enhanced response type to include yieldResumeId
+      const options: ServerAuthenticationOptions & { derpAccountId?: string; yieldResumeId?: string } = await authOptionsResponse.json();
+
+      // Extract yieldResumeId for yield-resume flow
+      const yieldResumeId = options.yieldResumeId;
+      console.log('PasskeyContext: Received authentication options with yieldResumeId:', yieldResumeId);
+
+      // Step 2: Perform WebAuthn assertion ceremony
       const pkRequestOpts: PublicKeyCredentialRequestOptions = {
         challenge: bufferDecode(options.challenge),
         rpId: options.rpId,
@@ -351,11 +353,21 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const assertion = await navigator.credentials.get({ publicKey: pkRequestOpts }) as PublicKeyCredential | null;
       if (!assertion) throw new Error('Passkey login cancelled or no assertion.');
 
+      // Step 3: Prepare verification payload with yieldResumeId for yield-resume flow
       const assertionJSON = publicKeyCredentialToJSON(assertion);
+      const verificationPayload: any = assertionJSON;
+
+      // Include yieldResumeId in verification payload if present (for contract method)
+      if (yieldResumeId) {
+        verificationPayload.yieldResumeId = yieldResumeId;
+        console.log('PasskeyContext: Including yieldResumeId in verification payload:', yieldResumeId);
+      }
+
+      // Step 4: Send assertion to server for verification
       const verifyResponse = await fetch(`${SERVER_URL}/verify-authentication`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(assertionJSON),
+        body: JSON.stringify(verificationPayload),
       });
       const serverVerifyData = await verifyResponse.json();
 
@@ -406,73 +418,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setDerpAccountId(null);
     setStatusMessage('Logged out.');
   }, [setStatusMessage]);
-
-  const executeDelegateActionViaServer = useCallback(async (
-    actionToExecute: SerializableActionArgs,
-    currentUsernameForAction: string,
-    customGreeting?: string,
-    callbacks?: ExecuteActionCallbacks
-  ) => {
-    callbacks?.beforeDispatch?.();
-    setIsProcessing(true);
-    setStatusMessage('Executing server action...');
-    let success = false;
-    let responseData: any = null;
-
-    if (!isLoggedIn || !currentUsernameForAction) {
-      setStatusMessage('User not logged in for action.');
-      setIsProcessing(false);
-      callbacks?.afterDispatch?.(false, { error: "User not logged in for action." });
-      return;
-    }
-
-    let finalAction = { ...actionToExecute };
-    if (actionToExecute.method_name === 'set_greeting' && customGreeting !== undefined) {
-        const newGreetingMessage = `${customGreeting.trim()} (updated: ${new Date().toLocaleTimeString()})`;
-        finalAction.args = JSON.stringify({ greeting: newGreetingMessage });
-    }
-
-    try {
-      const chalResp = await fetch(`${SERVER_URL}/api/action-challenge`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: currentUsernameForAction, actionDetails: finalAction })
-      });
-      if (!chalResp.ok) {
-        const errData = await chalResp.json().catch(() => ({}));
-        responseData = errData;
-        throw new Error(errData.error || `Challenge request failed: ${chalResp.statusText}`);
-      }
-      const chalOpts = await chalResp.json();
-      const assertion = await navigator.credentials.get({ publicKey: {
-        challenge: bufferDecode(chalOpts.challenge),
-        rpId: chalOpts.rpId,
-        allowCredentials: chalOpts.allowCredentials.map((c: any) => ({...c, id: bufferDecode(c.id)})),
-        userVerification: chalOpts.userVerification, timeout: chalOpts.timeout
-      }}) as PublicKeyCredential | null;
-      if (!assertion) throw new Error('Action confirmation cancelled.');
-
-      const passkeyAssert = publicKeyCredentialToJSON(assertion);
-      const execResp = await fetch(`${SERVER_URL}/api/execute-delegate-action`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: currentUsernameForAction, passkeyAssertion: passkeyAssert, actionToExecute: finalAction })
-      });
-      responseData = await execResp.json();
-      if (execResp.ok && responseData.success) {
-        if (finalAction.method_name === 'set_greeting') await fetchCurrentGreeting();
-        success = true;
-        setStatusMessage('Server action successful.');
-      } else {
-        throw new Error(responseData.error || 'Action execution failed on server.');
-      }
-    } catch (err: any) {
-      console.error('Execute action error:', err);
-      setStatusMessage(`Server Action Error: ${err.message}`);
-      responseData = responseData || { error: err.message };
-    } finally {
-      setIsProcessing(false);
-      callbacks?.afterDispatch?.(success, responseData);
-    }
-  }, [isLoggedIn, fetchCurrentGreeting, setStatusMessage]);
 
   const executeDirectActionViaWorker = useCallback(async (
     serializableActionForContract: SerializableActionArgs,
@@ -614,7 +559,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     registerPasskey,
     loginPasskey,
     logoutPasskey,
-    executeDelegateActionViaServer,
     executeDirectActionViaWorker,
     fetchCurrentGreeting,
   };

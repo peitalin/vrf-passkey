@@ -7,11 +7,9 @@ import type { RegistrationResponseJSON, PublicKeyCredentialCreationOptionsJSON }
 import type { AuthenticatorTransport } from '@simplewebauthn/types';
 // decoding credential public keys
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { convertCOSEtoPKCS } from '@simplewebauthn/server/helpers';
-import { decodeCredentialPublicKey } from '@simplewebauthn/server/helpers';
 import { decodeAttestationObject, parseAuthenticatorData } from '@simplewebauthn/server/helpers';
 
-import config, { DEFAULT_GAS_STRING, COMPLETE_REGISTRATION_GAS_STRING } from '../config';
+import config, { DEFAULT_GAS_STRING, VERIFY_REGISTRATION_RESPONSE_GAS_STRING } from '../config';
 import { userOperations, authenticatorOperations } from '../database';
 import { nearClient } from '../nearService';
 import type { User } from '../types';
@@ -47,7 +45,7 @@ interface ContractRegistrationOptionsResponse {
   yieldResumeId: string | null;
 }
 
-// Interface for contract arguments (complete_registration)
+// Interface for contract arguments (verify_registration_response)
 interface ContractCompleteRegistrationArgs {
   registration_response: RegistrationResponseJSON; // The client's WebAuthn response
   yield_resume_id: string; // The yield_resume_id received from generate_registration_options
@@ -233,7 +231,7 @@ router.post('/generate-registration-options', async (req: Request, res: Response
         throw new Error("Server failed to prepare valid registration options challenge.");
     }
 
-    userOperations.updateChallengeAndyieldResumeId(userForChallenge.id, resultFromService.options.challenge, resultFromService.yieldResumeId);
+    userOperations.updateChallengeAndYieldResumeId(userForChallenge.id, resultFromService.options.challenge, resultFromService.yieldResumeId);
     console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
 
     // `resultFromService` already has the structure { options: {...}, derpAccountId, yieldResumeId }
@@ -288,31 +286,31 @@ async function verifyRegistrationResponseContract(
       yield_resume_id: yieldResumeId,
     };
 
-    console.log("Calling contract.complete_registration with args:", JSON.stringify(contractArgs));
+    console.log("Calling contract.verify_registration_response with args:", JSON.stringify(contractArgs));
 
     const transactionOutcome = await account.functionCall({
       contractId: config.contractId,
-      methodName: 'complete_registration',
+      methodName: 'verify_registration_response',
       args: contractArgs,
-      gas: BigInt(COMPLETE_REGISTRATION_GAS_STRING), // Use specific gas for this potentially complex call
+      gas: BigInt(VERIFY_REGISTRATION_RESPONSE_GAS_STRING), // Use specific gas for this potentially complex call
     });
 
-    console.log('Transaction outcome from complete_registration:', JSON.stringify(transactionOutcome, null, 2));
+    console.log('Transaction outcome from verify_registration_response:', JSON.stringify(transactionOutcome, null, 2));
 
     // Check if the transaction itself was successful
     if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'Failure' in transactionOutcome.status) {
       // @ts-ignore
       const errorInfo = transactionOutcome.status.Failure.ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
-      console.error("Contract complete_registration call failed:", errorInfo);
-      throw new Error(`Contract complete_registration failed: ${errorInfo}`);
+      console.error("Contract verify_registration_response call failed:", errorInfo);
+      throw new Error(`Contract verify_registration_response failed: ${errorInfo}`);
     }
 
-    // With yield-resume, `complete_registration` typically just returns true/false or an empty success.
+    // With yield-resume, `verify_registration_response` typically just returns true/false or an empty success.
     // The actual `VerifiedRegistrationResponse` comes from the *callback* `resume_registration_callback`.
     // The server cannot directly get the callback's return value in this single transaction.
     // For now, we assume success if the transaction didn't fail outright.
     let simulatedRegistrationInfo: any = undefined;
-    let verified = true; // Assume verified if complete_registration tx succeeded.
+    let verified = true; // Assume verified if verify_registration_response tx succeeded.
 
     if (attestationResponse.response.attestationObject && attestationResponse.response.clientDataJSON) {
         try {
@@ -359,8 +357,8 @@ async function verifyRegistrationResponseContract(
     };
 
   } catch (e: any) {
-    console.error('Error calling contract complete_registration:', e.message, e.stack, e.type, e.context);
-    throw new Error(`Failed to complete registration via contract: ${e.message}`);
+    console.error('Error calling contract verify_registration_response:', e.message, e.stack, e.type, e.context);
+    throw new Error(`Failed to complete verify_registration via contract: ${e.message}`);
   }
 }
 
@@ -438,7 +436,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         // Set to null initially, to be updated by a separate key association flow
       });
 
-      userOperations.updateChallengeAndyieldResumeId(user.id, null, null);
+      userOperations.updateChallengeAndYieldResumeId(user.id, null, null);
       console.log('Registration verification successful for:', username);
 
       return res.json({
@@ -447,7 +445,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         derpAccountId: user.derpAccountId,
       });
     } else {
-      if (user) userOperations.updateChallengeAndyieldResumeId(user.id, null, null);
+      if (user) userOperations.updateChallengeAndYieldResumeId(user.id, null, null);
       return res.status(400).json({
         verified: false,
         error: 'Could not verify attestation with passkey hardware.'
@@ -457,7 +455,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     console.error('Error verifying registration:', e.message, e.stack);
     if (req.body.username) { // Check if user was determined to clear their challenge
         const userToClear = userOperations.findByUsername(req.body.username);
-        if (userToClear) userOperations.updateChallengeAndyieldResumeId(userToClear.id, null, null);
+        if (userToClear) userOperations.updateChallengeAndYieldResumeId(userToClear.id, null, null);
     }
     return res.status(500).json({
       verified: false,

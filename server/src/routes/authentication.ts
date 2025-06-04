@@ -18,26 +18,36 @@ const router = Router();
 
 // Interface for contract arguments (generate_authentication_options)
 interface ContractGenerateAuthOptionsArgs {
+  rp_id: string | null;
   allow_credentials: { id: string; type: string; transports?: string[] }[] | null;
   challenge: string | null; // Let contract generate
   timeout: number | null;
   user_verification: 'discouraged' | 'preferred' | 'required' | null;
   extensions: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean } | null;
-  rp_id: string | null;
+  authenticator: {
+    credential_id: number[];
+    credential_public_key: number[];
+    counter: number;
+    transports?: string[];
+  };
 }
 
 // Interface for the response from contract's generate_authentication_options
 interface ContractAuthenticationOptionsResponse {
-  challenge: string;
-  timeout?: number;
-  rpId?: string;
-  allowCredentials?: { id: string; type: string; transports?: string[] }[];
-  userVerification?: 'discouraged' | 'preferred' | 'required';
-  extensions?: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean };
+  options: {
+    challenge: string;
+    timeout?: number;
+    rpId?: string;
+    allowCredentials?: { id: string; type: string; transports?: string[] }[];
+    userVerification?: 'discouraged' | 'preferred' | 'required';
+    extensions?: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean };
+  };
+  yieldResumeId?: string;
 }
 
 // Helper function to get authentication options from NEAR Contract
 async function generateAuthenticationOptionsContract(
+  authenticator: StoredAuthenticator,
   rpID: string = config.rpID,
   allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
   userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
@@ -51,6 +61,14 @@ async function generateAuthenticationOptionsContract(
     transports: cred.transports?.map(t => String(t)),
   })) || null;
 
+  // Convert authenticator to contract format
+  const authenticatorForContract = {
+    credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')),
+    credential_public_key: Array.from(authenticator.credentialPublicKey as Uint8Array),
+    counter: authenticator.counter as number,
+    transports: authenticator.transports?.map(t => String(t)),
+  };
+
   const contractArgs: ContractGenerateAuthOptionsArgs = {
     rp_id: rpID,
     allow_credentials: allowCredentialsForContract,
@@ -58,6 +76,7 @@ async function generateAuthenticationOptionsContract(
     timeout: 60000,
     user_verification: userVerification,
     extensions: null, // Use contract defaults
+    authenticator: authenticatorForContract,
   };
 
   console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
@@ -105,7 +124,7 @@ async function generateAuthenticationOptionsContract(
   }
 
   // Validate response structure
-  if (!contractResponse.challenge) {
+  if (!contractResponse.options?.challenge) {
     console.error('Invalid parsed response from contract.generate_authentication_options (missing challenge):', contractResponse);
     throw new Error('Contract did not return valid authentication options (missing challenge).');
   }
@@ -113,20 +132,28 @@ async function generateAuthenticationOptionsContract(
   return contractResponse;
 }
 
-
-
 // Unified generateAuthenticationOptions function
 async function generateAuthenticationOptions(
   options: {
     rpID?: string;
     userVerification?: 'discouraged' | 'preferred' | 'required';
     allowCredentials?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[];
+    authenticator?: StoredAuthenticator;
   }
 ): Promise<ContractAuthenticationOptionsResponse> {
-  const { rpID = config.rpID, userVerification = 'preferred', allowCredentials } = options;
+  const {
+    rpID = config.rpID,
+    userVerification = 'preferred',
+    allowCredentials,
+    authenticator
+  } = options;
 
   if (config.useContractMethod) {
+    if (!authenticator) {
+      throw new Error('Authenticator is required for contract method');
+    }
     return generateAuthenticationOptionsContract(
+      authenticator,
       rpID,
       allowCredentials,
       userVerification
@@ -140,16 +167,19 @@ async function generateAuthenticationOptions(
 
     // Convert SimpleWebAuthn response to match contract format
     return {
-      challenge: simpleWebAuthnResult.challenge,
-      timeout: simpleWebAuthnResult.timeout,
-      rpId: simpleWebAuthnResult.rpId,
-      allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
-        id: isoBase64URL.fromBuffer(Buffer.from(cred.id)),
-        type: cred.type,
-        transports: cred.transports,
-      })),
-      userVerification: simpleWebAuthnResult.userVerification,
-      extensions: simpleWebAuthnResult.extensions,
+      options: {
+        challenge: simpleWebAuthnResult.challenge,
+        timeout: simpleWebAuthnResult.timeout,
+        rpId: simpleWebAuthnResult.rpId,
+        allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
+          id: isoBase64URL.fromBuffer(Buffer.from(cred.id)),
+          type: cred.type,
+          transports: cred.transports,
+        })),
+        userVerification: simpleWebAuthnResult.userVerification,
+        extensions: simpleWebAuthnResult.extensions,
+      },
+      yieldResumeId: undefined, // SimpleWebAuthn doesn't use yield-resume
     };
   }
 }
@@ -161,6 +191,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
   try {
     let allowCredentialsList: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[] | undefined = undefined;
     let userForChallengeStorageInDB: User | undefined;
+    let firstAuthenticator: StoredAuthenticator | undefined;
 
     if (username) {
       const userRec = userOperations.findByUsername(username);
@@ -170,6 +201,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
         const userAuthenticators: StoredAuthenticator[] = rawUserAuthenticators.map(mapToStoredAuthenticator);
 
         if (userAuthenticators.length > 0) {
+          firstAuthenticator = userAuthenticators[0]; // Use first authenticator for yield-resume
           allowCredentialsList = userAuthenticators.map(auth => ({
             id: isoBase64URL.toBuffer(auth.credentialID),
             type: 'public-key',
@@ -181,29 +213,38 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       }
     }
 
+    if (!firstAuthenticator && config.useContractMethod) {
+      return res.status(400).json({ error: 'No authenticator found for user - required for contract method' });
+    }
+
     const options = await generateAuthenticationOptions({
       rpID: config.rpID,
       userVerification: 'preferred',
       allowCredentials: allowCredentialsList,
+      authenticator: firstAuthenticator!, // Required for contract method
     });
 
     if (userForChallengeStorageInDB) {
-      userOperations.updateChallenge(userForChallengeStorageInDB.id, options.challenge);
+      userOperations.updateChallenge(userForChallengeStorageInDB.id, options.options.challenge);
       console.log(`Stored challenge for user ${userForChallengeStorageInDB.username} in DB.`);
     } else {
       await actionChallengeStore.storeActionChallenge(
-        options.challenge,
+        options.options.challenge,
         { actionDetails: (req.body.actionDetails || {}) as SerializableActionArgs },
         300
       );
-      console.log(`Stored challenge ${options.challenge} in actionChallengeStore for discoverable login.`);
+      console.log(`Stored challenge ${options.options.challenge} in actionChallengeStore for discoverable login.`);
     }
 
     console.log('Generated authentication options:', JSON.stringify(options, null, 2));
 
     // Include derpAccountId in response if user is found
     const userForDerpId = username ? userOperations.findByUsername(username) : undefined;
-    return res.json({ ...options, derpAccountId: userForDerpId?.derpAccountId });
+    return res.json({
+      ...options.options,
+      derpAccountId: userForDerpId?.derpAccountId,
+      yieldResumeId: options.yieldResumeId
+    });
 
   } catch (e: any) {
     console.error('Error generating authentication options:', e);
@@ -211,158 +252,99 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
   }
 });
 
-// Helper function to verify authentication using NEAR Contract
+// Helper function to verify authentication using NEAR Contract with yield-resume
 async function verifyAuthenticationResponseContract(
   response: AuthenticationResponseJSON,
-  expectedChallenge: string,
-  expectedOrigin: string,
-  expectedRpId: string,
-  authenticator: {
-    credentialID: string;
-    credentialPublicKey: Uint8Array;
-    counter: number;
-    transports?: AuthenticatorTransport[];
-  }
+  yieldResumeId: string
 ): Promise<{ verified: boolean; authenticationInfo?: any }> {
-  console.log('Using NEAR contract for authentication verification');
-
-  // Ensure credential public key is properly converted to Uint8Array
-  const credentialPublicKeyArray = Buffer.isBuffer(authenticator.credentialPublicKey)
-    ? new Uint8Array(authenticator.credentialPublicKey)
-    : authenticator.credentialPublicKey;
-
-  console.log('Debug: Converted to Uint8Array length:', credentialPublicKeyArray.length);
-  console.log('Debug: Converted first 10 bytes:', Array.from(credentialPublicKeyArray).slice(0, 10));
-
-  // Debug: Parse the authenticator data to see what counter is being sent
-  try {
-    const authenticatorDataBytes = isoBase64URL.toBuffer(response.response.authenticatorData);
-    console.log('Debug: Authenticator data length:', authenticatorDataBytes.length);
-    if (authenticatorDataBytes.length >= 37) {
-      const flags = authenticatorDataBytes[32];
-      const counter = new DataView(authenticatorDataBytes.buffer, authenticatorDataBytes.byteOffset + 33, 4).getUint32(0, false);
-      console.log('Debug: Authenticator data flags:', flags.toString(16));
-      console.log('Debug: Authenticator data counter:', counter);
-      console.log('Debug: Stored authenticator counter:', authenticator.counter);
-      console.log('Debug: Counter check would be:', counter, '>', authenticator.counter, '=', counter > authenticator.counter);
-    }
-  } catch (e) {
-    console.log('Debug: Error parsing authenticator data:', e);
-  }
-
-  // Debug: Parse the client data to verify challenge
-  try {
-    const clientDataBytes = isoBase64URL.toBuffer(response.response.clientDataJSON);
-    const clientData = JSON.parse(Buffer.from(clientDataBytes).toString('utf8'));
-    console.log('Debug: Client data challenge:', clientData.challenge);
-    console.log('Debug: Expected challenge:', expectedChallenge);
-    console.log('Debug: Challenge match:', clientData.challenge === expectedChallenge);
-    console.log('Debug: Client data origin:', clientData.origin);
-    console.log('Debug: Expected origin:', expectedOrigin);
-  } catch (e) {
-    console.log('Debug: Error parsing client data:', e);
-  }
-
-  // Create AuthenticatorDevice for contract
-  const authenticatorDevice = {
-    credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')), // Convert base64url string to byte array
-    credential_public_key: Array.from(credentialPublicKeyArray), // Convert Uint8Array to regular array
-    counter: authenticator.counter,
-    transports: authenticator.transports?.map(t => t.toString()),
-  };
-
-  console.log('Debug: Credential public key length:', authenticator.credentialPublicKey.length);
-  console.log('Debug: Credential public key first 10 bytes:', Array.from(authenticator.credentialPublicKey).slice(0, 10));
-
-  console.log('Debug: Raw credential public key type:', typeof authenticator.credentialPublicKey);
-  console.log('Debug: Is Buffer?', Buffer.isBuffer(authenticator.credentialPublicKey));
-  console.log('Debug: Credential public key as hex:', Buffer.from(authenticator.credentialPublicKey).toString('hex'));
-
-  const contractArgs = {
-    response,
-    expected_challenge: expectedChallenge,
-    expected_origin: expectedOrigin,
-    expected_rp_id: expectedRpId,
-    authenticator: authenticatorDevice,
-    require_user_verification: true,
-  };
-
-  console.log('Calling contract.verify_authentication_response with credential_public_key length:', contractArgs.authenticator.credential_public_key.length);
-  console.log('GasLimit AUTHENTICATION_VERIFICATION_GAS_STRING: ', AUTHENTICATION_VERIFICATION_GAS_STRING);
+  console.log('Using NEAR contract for yield-resume authentication verification');
 
   const account = nearClient.getRelayerAccount();
-  const rawResult: any = await account.callFunction({
+
+  // Step 2: Resume yield with authentication response
+  console.log('Step 2: Resuming yield with authentication response...');
+  const resumeResult: any = await account.callFunction({
     contractId: config.contractId,
     methodName: 'verify_authentication_response',
-    args: contractArgs,
+    args: {
+      authentication_response: response,
+      yield_resume_id: yieldResumeId,
+    },
     gas: BigInt(AUTHENTICATION_VERIFICATION_GAS_STRING),
   });
 
-  // Robust error checking for rawResult
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
-    const failure = rawResult.status.Failure;
+  // Handle resume result errors
+  if (resumeResult?.status && typeof resumeResult.status === 'object' && 'Failure' in resumeResult.status) {
+    const failure = resumeResult.status.Failure;
     const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
     const errorMessage = executionError || JSON.stringify(failure);
-    console.error('Contract execution failed (panic or transaction error):', errorMessage);
-    throw new Error(`Contract Error: ${errorMessage}`);
-  }
-  else if (rawResult && typeof (rawResult as any).error === 'object') {
-    const rpcError = (rawResult as any).error;
-    console.error('RPC/Handler error from contract.verify_authentication_response call:', rpcError);
-    const errorMessage = rpcError.message || rpcError.name || 'RPC error during verify_authentication_response';
-    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
-    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
+    console.error('Contract execution failed during resume:', errorMessage);
+    throw new Error(`Contract Resume Error: ${errorMessage}`);
   }
 
-  let contractResponseString: string;
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
-    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
-  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
-    contractResponseString = rawResult;
-  } else if (typeof rawResult === 'object' && 'verified' in rawResult) {
-    // Handle direct object response from contract
-    console.log('Contract authentication verification result:', rawResult);
-    return {
-      verified: rawResult.verified || false,
-      authenticationInfo: rawResult.authentication_info ? {
-        credentialID: Buffer.from(rawResult.authentication_info.credential_id),
-        newCounter: rawResult.authentication_info.new_counter,
-        userVerified: rawResult.authentication_info.user_verified,
-        credentialDeviceType: rawResult.authentication_info.credential_device_type,
-        credentialBackedUp: rawResult.authentication_info.credential_backed_up,
-      } : undefined
-    };
+  // Parse resume response (should be boolean indicating resume success)
+  let resumeSuccess: boolean;
+  if (resumeResult?.status && typeof resumeResult.status === 'object' && 'SuccessValue' in resumeResult.status) {
+    const resumeResponseString = Buffer.from(resumeResult.status.SuccessValue, 'base64').toString();
+    resumeSuccess = JSON.parse(resumeResponseString);
   } else {
-    console.warn('Unexpected rawResult structure from verify_authentication_response. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
-    throw new Error('Failed to parse contract response: Unexpected format.');
+    throw new Error('Invalid resume response format');
   }
 
-  let contractResponse: any;
+  if (!resumeSuccess) {
+    console.log('Resume failed - authentication response was not accepted');
+    return { verified: false };
+  }
+
+  console.log('Step 2 complete: Resume successful, callback executed. Reading verification result from logs...');
+
+  // Step 3: Extract authentication result from transaction logs (no additional API calls needed)
   try {
-    contractResponse = JSON.parse(contractResponseString);
-  } catch (parseError: any) {
-    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
-    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
-  }
+    // Look for logs in the transaction outcome
+    const logs = resumeResult?.receipts_outcome || resumeResult?.transaction_outcome?.outcome?.logs || [];
+    console.log('Transaction logs:', logs);
 
-  console.log('Contract authentication verification result:', contractResponse);
-
-  if (contractResponse.verified && contractResponse.authentication_info) {
-    return {
-      verified: true,
-      authenticationInfo: {
-        credentialID: Buffer.from(contractResponse.authentication_info.credential_id),
-        newCounter: contractResponse.authentication_info.new_counter,
-        userVerified: contractResponse.authentication_info.user_verified,
-        credentialDeviceType: contractResponse.authentication_info.credential_device_type,
-        credentialBackedUp: contractResponse.authentication_info.credential_backed_up,
+    // Find the log with authentication result
+    let authenticationResult: any = null;
+    for (const log of logs) {
+      if (typeof log === 'string' && log.startsWith('WEBAUTHN_AUTH_RESULT: ')) {
+        const resultJson = log.substring('WEBAUTHN_AUTH_RESULT: '.length);
+        try {
+          authenticationResult = JSON.parse(resultJson);
+          console.log('Found authentication result in logs:', authenticationResult);
+          break;
+        } catch (parseError) {
+          console.warn('Failed to parse authentication result from log:', parseError);
+        }
       }
-    };
-  } else {
-    return {
-      verified: contractResponse.verified || false,
-      authenticationInfo: undefined
-    };
+    }
+
+    // Process the result
+    if (authenticationResult) {
+      if (authenticationResult.verified === true && authenticationResult.authentication_info) {
+        return {
+          verified: true,
+          authenticationInfo: {
+            credentialID: Buffer.from(authenticationResult.authentication_info.credential_id),
+            newCounter: authenticationResult.authentication_info.new_counter,
+            userVerified: authenticationResult.authentication_info.user_verified,
+            credentialDeviceType: authenticationResult.authentication_info.credential_device_type,
+            credentialBackedUp: authenticationResult.authentication_info.credential_backed_up,
+            origin: authenticationResult.authentication_info.origin,
+            rpId: authenticationResult.authentication_info.rp_id,
+          }
+        };
+      } else {
+        console.log('Authentication verification failed in callback');
+        return { verified: false };
+      }
+    } else {
+      console.error('No authentication result found in transaction logs');
+      throw new Error('Authentication result not found in transaction logs');
+    }
+  } catch (error) {
+    console.error('Error reading authentication result from logs:', error);
+    throw new Error(`Failed to read authentication result: ${error}`);
   }
 }
 
@@ -374,21 +356,14 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Request body error: missing rawId or response' });
   }
 
-  let expectedChallenge: string | undefined;
+  // Extract yieldResumeId from request body for yield-resume flow
+  const yieldResumeId = (req.body as any).yieldResumeId;
+  if (config.useContractMethod && !yieldResumeId) {
+    return res.status(400).json({ error: 'yieldResumeId is required for contract method' });
+  }
+
   let user: User | undefined;
   let authenticator: StoredAuthenticator | undefined;
-
-  let clientChallenge: string;
-  try {
-    const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
-    const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
-    clientChallenge = clientData.challenge;
-    if (!clientChallenge) {
-      return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
-    }
-  } catch (parseError) {
-    return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
-  }
 
   const rawAuth = authenticatorOperations.findByCredentialId(body.rawId);
   if (!rawAuth) {
@@ -402,44 +377,51 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     return res.status(404).json({ error: `User for authenticator '${body.rawId}' not found.` });
   }
 
-  if (user.currentChallenge) {
-    console.log(`Attempting verification with user-specific challenge for ${user.username}`);
-    expectedChallenge = user.currentChallenge;
-  } else {
-    console.log(`Attempting verification with actionChallengeStore for discoverable login for potential user ${user.username}`);
-    const storedDetails = await actionChallengeStore.validateAndConsumeActionChallenge(clientChallenge);
-    if (!storedDetails) {
-      return res.status(400).json({
-        verified: false,
-        error: 'Challenge invalid, expired, or already used from actionChallengeStore.'
-      });
-    }
-    expectedChallenge = clientChallenge;
-  }
-
-  if (!expectedChallenge) {
-    return res.status(400).json({ error: 'Unexpected: No challenge determined for verification.' });
-  }
-
   try {
     let verification: { verified: boolean; authenticationInfo?: any };
 
     if (config.useContractMethod) {
-      // Use contract-based verification
+      // Use contract-based verification with yield-resume
+      console.log('Using contract yield-resume authentication verification');
+
       verification = await verifyAuthenticationResponseContract(
         body,
-        expectedChallenge,
-        config.expectedOrigin,
-        config.rpID,
-        {
-          credentialID: authenticator.credentialID,
-          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-          counter: authenticator.counter as number,
-          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-        }
+        yieldResumeId
       );
     } else {
-      // Use SimpleWebAuthn verification
+      // Use SimpleWebAuthn verification (original flow)
+      let clientChallenge: string;
+      try {
+        const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
+        const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
+        clientChallenge = clientData.challenge;
+        if (!clientChallenge) {
+          return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
+        }
+      } catch (parseError) {
+        return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
+      }
+
+      let expectedChallenge: string | undefined;
+      if (user.currentChallenge) {
+        console.log(`Attempting verification with user-specific challenge for ${user.username}`);
+        expectedChallenge = user.currentChallenge;
+      } else {
+        console.log(`Attempting verification with actionChallengeStore for discoverable login for potential user ${user.username}`);
+        const storedDetails = await actionChallengeStore.validateAndConsumeActionChallenge(clientChallenge);
+        if (!storedDetails) {
+          return res.status(400).json({
+            verified: false,
+            error: 'Challenge invalid, expired, or already used from actionChallengeStore.'
+          });
+        }
+        expectedChallenge = clientChallenge;
+      }
+
+      if (!expectedChallenge) {
+        return res.status(400).json({ error: 'Unexpected: No challenge determined for verification.' });
+      }
+
       let args = {
         response: body,
         expectedChallenge,
