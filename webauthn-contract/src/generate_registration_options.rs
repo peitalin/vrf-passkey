@@ -116,7 +116,7 @@ pub struct PublicKeyCredentialCreationOptionsJSON {
 // Structure to hold yielded registration data
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
-pub(crate) struct YieldedRegistrationData {
+pub struct YieldedRegistrationData {
     pub(crate) commitment_b64url: String,
     pub(crate) original_challenge_b64url: String,
     pub(crate) salt_b64url: String,

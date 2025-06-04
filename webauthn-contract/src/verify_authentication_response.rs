@@ -15,7 +15,7 @@ use near_sdk::{env, log, near, CryptoHash};
 // Structure to hold yielded authentication data
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
-pub(crate) struct YieldedAuthenticationData {
+pub struct YieldedAuthenticationData {
     pub(crate) commitment_b64url: String,
     pub(crate) original_challenge_b64url: String,
     pub(crate) salt_b64url: String,
@@ -28,8 +28,8 @@ pub(crate) struct YieldedAuthenticationData {
 // Structure to hold authentication completion data
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
-struct AuthenticationCompletionData {
-    authentication_response: AuthenticationResponseJSON,
+pub struct AuthenticationCompletionData {
+    pub authentication_response: AuthenticationResponseJSON,
 }
 
 // Authentication verification types (equivalent to @simplewebauthn/server types)
@@ -138,7 +138,6 @@ impl WebAuthnContract {
         env::promise_yield_resume(&yield_resume_id, &response_bytes);
 
         log!("Resuming authentication with user's WebAuthn response");
-
         // Return true indicating the resume was successful
         // The detailed verification result comes from the callback (called automatically by NEAR runtime)
         true
@@ -146,65 +145,12 @@ impl WebAuthnContract {
 
     /// Callback method for yield-resume authentication flow
     /// This method is called when the yield is resumed with the authentication response
-    pub fn resume_authentication_callback(&mut self) -> VerifiedAuthenticationResponse {
-        // Get the yielded data from promise result 0
-        let yield_data_bytes = match env::promise_result(0) {
-            near_sdk::PromiseResult::Successful(data) => data,
-            _ => {
-                log!("Failed to retrieve yielded authentication data");
-                let result = VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-                // Log the failed result for server to read from transaction logs
-                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
-                return result;
-            }
-        };
-
-        let yield_data: YieldedAuthenticationData = match serde_json::from_slice(&yield_data_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse yielded authentication data: {}", e);
-                let result = VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-                // Log the failed result for server to read from transaction logs
-                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
-                return result;
-            }
-        };
-
-        // Get the authentication completion data from promise result 1
-        let response_bytes = match env::promise_result(1) {
-            near_sdk::PromiseResult::Successful(data) => data,
-            _ => {
-                log!("Failed to retrieve authentication completion data");
-                let result = VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-                // Log the failed result for server to read from transaction logs
-                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
-                return result;
-            }
-        };
-
-        let completion_data: AuthenticationCompletionData = match serde_json::from_slice(&response_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse authentication completion data: {}", e);
-                let result = VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-                // Log the failed result for server to read from transaction logs
-                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
-                return result;
-            }
-        };
-
+    #[private]
+    pub fn resume_authentication_callback(
+        &mut self,
+        #[callback_unwrap] yield_data: YieldedAuthenticationData,
+        #[callback_unwrap] completion_data: AuthenticationCompletionData,
+    ) -> VerifiedAuthenticationResponse {
         log!("Processing authentication callback with yielded commitment");
 
         // Use internal_process_authentication with the yielded data and verification parameters

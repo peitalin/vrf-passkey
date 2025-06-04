@@ -31,8 +31,8 @@ pub struct ClientDataJSON {
 // Structure to hold registration completion data
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
-struct RegistrationCompletionData {
-    registration_response: RegistrationResponseJSON,
+pub struct RegistrationCompletionData {
+    pub registration_response: RegistrationResponseJSON,
 }
 
 #[near_sdk::near(serializers = [json])]
@@ -288,53 +288,12 @@ impl WebAuthnContract {
 
     /// Callback method for yield-resume registration flow
     /// This method is called when the yield is resumed with the registration response
-    pub fn resume_registration_callback(&mut self) -> VerifiedRegistrationResponse {
-        // Get the yielded data from promise result 0
-        let yield_data_bytes = match env::promise_result(0) {
-            near_sdk::PromiseResult::Successful(data) => data,
-            _ => {
-                log!("Failed to retrieve yielded data");
-                return VerifiedRegistrationResponse {
-                    verified: false,
-                    registration_info: None,
-                };
-            }
-        };
-
-        let yield_data: YieldedRegistrationData = match serde_json::from_slice(&yield_data_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse yielded registration data: {}", e);
-                return VerifiedRegistrationResponse {
-                    verified: false,
-                    registration_info: None,
-                };
-            }
-        };
-
-        // Get the registration completion data from promise result 1
-        let response_bytes = match env::promise_result(1) {
-            near_sdk::PromiseResult::Successful(data) => data,
-            _ => {
-                log!("Failed to retrieve registration completion data");
-                return VerifiedRegistrationResponse {
-                    verified: false,
-                    registration_info: None,
-                };
-            }
-        };
-
-        let completion_data: RegistrationCompletionData = match serde_json::from_slice(&response_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse registration completion data: {}", e);
-                return VerifiedRegistrationResponse {
-                    verified: false,
-                    registration_info: None,
-                };
-            }
-        };
-
+    #[private]
+    pub fn resume_registration_callback(
+        &mut self,
+        #[callback_unwrap] yield_data: YieldedRegistrationData,
+        #[callback_unwrap] completion_data: RegistrationCompletionData,
+    ) -> VerifiedRegistrationResponse {
         log!("Processing registration callback with yielded commitment");
 
         // Use internal_process_registration with the yielded data and verification parameters

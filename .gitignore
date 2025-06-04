@@ -13,10 +13,7 @@
 /frontend/wasm-worker/target
 
 # Database files
-/server/database.sqlite
-/server/database.sqlite-journal
-/server/database.sqlite-wal
-/server/database.sqlite-shm
+./server/passkey_users.db
 
 # Build output
 /frontend/dist
