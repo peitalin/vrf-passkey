@@ -263,7 +263,7 @@ async function verifyAuthenticationResponseContract(
 
   // Step 2: Resume yield with authentication response
   console.log('Step 2: Resuming yield with authentication response...');
-  const resumeResult: any = await account.callFunction({
+  const resumeResult: any = await account.functionCall({
     contractId: config.contractId,
     methodName: 'verify_authentication_response',
     args: {
@@ -273,50 +273,73 @@ async function verifyAuthenticationResponseContract(
     gas: BigInt(AUTHENTICATION_VERIFICATION_GAS_STRING),
   });
 
-  // Handle resume result errors
-  if (resumeResult?.status && typeof resumeResult.status === 'object' && 'Failure' in resumeResult.status) {
-    const failure = resumeResult.status.Failure;
-    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
-    const errorMessage = executionError || JSON.stringify(failure);
-    console.error('Contract execution failed during resume:', errorMessage);
-    throw new Error(`Contract Resume Error: ${errorMessage}`);
+  console.log("resumeResult", resumeResult);
+
+  // Check if the transaction itself was successful (following registration pattern)
+  if (resumeResult.status && typeof resumeResult.status === 'object' && 'Failure' in resumeResult.status) {
+    // @ts-ignore
+    const errorInfo = resumeResult.status.Failure.ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
+    console.error("Contract verify_authentication_response call failed:", errorInfo);
+    throw new Error(`Contract verify_authentication_response failed: ${errorInfo}`);
   }
 
-  // Parse resume response (should be boolean indicating resume success)
-  let resumeSuccess: boolean;
-  if (resumeResult?.status && typeof resumeResult.status === 'object' && 'SuccessValue' in resumeResult.status) {
-    const resumeResponseString = Buffer.from(resumeResult.status.SuccessValue, 'base64').toString();
-    resumeSuccess = JSON.parse(resumeResponseString);
-  } else {
-    throw new Error('Invalid resume response format');
-  }
+  // With functionCall, verify_authentication_response typically just returns true/false
+  // The actual verification result comes from the callback logged in transaction logs
+  console.log('Step 2 complete: Transaction successful, reading verification result from logs...');
 
-  if (!resumeSuccess) {
-    console.log('Resume failed - authentication response was not accepted');
-    return { verified: false };
-  }
-
-  console.log('Step 2 complete: Resume successful, callback executed. Reading verification result from logs...');
-
-  // Step 3: Extract authentication result from transaction logs (no additional API calls needed)
+  // Step 3: Extract authentication result from transaction logs
   try {
     // Look for logs in the transaction outcome
-    const logs = resumeResult?.receipts_outcome || resumeResult?.transaction_outcome?.outcome?.logs || [];
-    console.log('Transaction logs:', logs);
+    let logs: string[] = [];
+    let allReceiptIds: string[] = [];
 
-    // Find the log with authentication result
+    // Extract logs from all receipts in the transaction
+    if (resumeResult.receipts_outcome && Array.isArray(resumeResult.receipts_outcome)) {
+      for (const receipt of resumeResult.receipts_outcome) {
+        if (receipt.outcome && receipt.outcome.logs && Array.isArray(receipt.outcome.logs)) {
+          logs.push(...receipt.outcome.logs);
+        }
+        // Collect receipt IDs that might contain additional callback receipts
+        if (receipt.outcome && receipt.outcome.receipt_ids && Array.isArray(receipt.outcome.receipt_ids)) {
+          allReceiptIds.push(...receipt.outcome.receipt_ids);
+        }
+      }
+    }
+
+    // Also check transaction_outcome logs
+    if (resumeResult.transaction_outcome?.outcome?.logs && Array.isArray(resumeResult.transaction_outcome.outcome.logs)) {
+      logs.push(...resumeResult.transaction_outcome.outcome.logs);
+    }
+
+    console.log('Initial extracted logs:', logs);
+    console.log('Found additional receipt IDs to query:', allReceiptIds);
+
+    // If we don't find the WEBAUTHN_AUTH_RESULT yet, try to fetch the missing callback receipts
     let authenticationResult: any = null;
+
+    // First check existing logs
     for (const log of logs) {
       if (typeof log === 'string' && log.startsWith('WEBAUTHN_AUTH_RESULT: ')) {
         const resultJson = log.substring('WEBAUTHN_AUTH_RESULT: '.length);
         try {
           authenticationResult = JSON.parse(resultJson);
-          console.log('Found authentication result in logs:', authenticationResult);
+          console.log('Found authentication result in initial logs:', authenticationResult);
           break;
         } catch (parseError) {
           console.warn('Failed to parse authentication result from log:', parseError);
         }
       }
+    }
+
+    // If not found and we have additional receipt IDs, try to query them
+    if (!authenticationResult && allReceiptIds.length > 0) {
+      console.log('Authentication result not found in initial receipts. This suggests the callback receipt is missing.');
+      console.log('Callback receipts are expected but not immediately available in the transaction result.');
+      console.log('This is a known limitation - the yield-resume callback executes asynchronously.');
+
+      // For now, we'll need to indicate that verification couldn't be completed
+      // In a production system, you might implement polling or event-based verification
+      throw new Error('Authentication callback receipt not available in transaction result. This may indicate a yield-resume timing issue.');
     }
 
     // Process the result
@@ -339,8 +362,8 @@ async function verifyAuthenticationResponseContract(
         return { verified: false };
       }
     } else {
-      console.error('No authentication result found in transaction logs');
-      throw new Error('Authentication result not found in transaction logs');
+      console.error('No authentication result found in transaction logs after checking all receipts');
+      throw new Error('Authentication result not found in transaction logs - callback may have failed');
     }
   } catch (error) {
     console.error('Error reading authentication result from logs:', error);

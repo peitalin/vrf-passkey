@@ -157,7 +157,7 @@ impl WebAuthnContract {
                     authentication_info: None,
                 };
                 // Log the failed result for server to read from transaction logs
-                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default());
+                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
                 return result;
             }
         };
@@ -171,7 +171,7 @@ impl WebAuthnContract {
                     authentication_info: None,
                 };
                 // Log the failed result for server to read from transaction logs
-                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default());
+                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
                 return result;
             }
         };
@@ -186,7 +186,7 @@ impl WebAuthnContract {
                     authentication_info: None,
                 };
                 // Log the failed result for server to read from transaction logs
-                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default());
+                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
                 return result;
             }
         };
@@ -200,7 +200,7 @@ impl WebAuthnContract {
                     authentication_info: None,
                 };
                 // Log the failed result for server to read from transaction logs
-                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default());
+                env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
                 return result;
             }
         };
@@ -220,7 +220,7 @@ impl WebAuthnContract {
         );
 
         // Log the verification result for server to read from transaction logs (instead of storing on-chain)
-        log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default());
+        env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
         log!("Authentication callback completed with result: verified={}", result.verified);
 
         result
@@ -502,7 +502,6 @@ mod tests {
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
     use serde_cbor::Value as CborValue;
-    use std::collections::BTreeMap;
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {

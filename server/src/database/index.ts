@@ -44,7 +44,7 @@ export const initDB = () => {
     );
   `);
 
-  console.log('Simplified database tables initialized (or confirmed to exist) at', dbFilePath);
+  console.log('Simplified database tables initialized at', dbFilePath);
 };
 
 export const authenticatorOperations = {
