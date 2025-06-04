@@ -5,7 +5,6 @@ use base64::Engine;
 use near_sdk::{env, log, near, Gas, GasWeight};
 
 pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
-pub const DATA_ID_REGISTER: u64 = 0;
 
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone, PartialEq)]
@@ -133,8 +132,8 @@ pub struct RegistrationOptionsJSON {
     pub options: PublicKeyCredentialCreationOptionsJSON,
     #[serde(rename = "derpAccountId")]
     pub derp_account_id: Option<String>,
-    #[serde(rename = "dataId")]
-    pub data_id: Option<String>, // Base64url encoded data_id for yield-resume
+    #[serde(rename = "yieldResumeId")]
+    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
 }
 
 // Authentication-specific types (equivalent to @simplewebauthn/server types)
@@ -177,6 +176,15 @@ impl Default for AuthenticationExtensionsClientInputs {
             min_pin_length: None,
         }
     }
+}
+
+// Generate a random register ID to avoid conflicts with concurrent operations
+fn generate_yield_resume_id() -> u64 {
+    // Use random seed to generate a unique register ID
+    let seed = env::random_seed();
+    // Take first 8 bytes and convert to u64
+    let bytes: [u8; 8] = seed[0..8].try_into().unwrap_or([0u8; 8]);
+    u64::from_le_bytes(bytes)
 }
 
 /////////////////////////////////////
@@ -319,26 +327,29 @@ impl WebAuthnContract {
         // 5. Yield with the data
         let yield_args_bytes = serde_json::to_vec(&yield_data).expect("Failed to serialize yield data");
 
+        // Generate a unique register ID to avoid concurrency issues
+        let yield_resume_id = generate_yield_resume_id();
+
         env::promise_yield_create(
             "resume_registration_callback",
             &yield_args_bytes,
             Gas::from_tgas(10), // Reduced from 50 to 10 TGas
             GasWeight(1),
-            DATA_ID_REGISTER,
+            yield_resume_id,
         );
 
-        // Read the data_id from the register
-        let data_id_bytes = env::read_register(DATA_ID_REGISTER)
-            .expect("Failed to read data_id from register after yield creation");
-        let data_id_b64url = BASE64_URL_ENGINE.encode(&data_id_bytes);
+        // Read the yield_resume_id from the register
+        let yield_resume_id_bytes = env::read_register(yield_resume_id)
+            .expect("Failed to read yield_resume_id from register after yield creation");
+        let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
 
-        log!("Yielding registration with commitment stored securely, data_id: {}", data_id_b64url);
+        log!("Yielding registration with commitment stored securely, yield_resume_id: {}", yield_resume_id_b64url);
 
         // 6. Return only the options (without commitment info)
         let response = RegistrationOptionsJSON {
             options,
             derp_account_id: Some(suggested_derp_account_id),
-            data_id: Some(data_id_b64url),
+            yield_resume_id: Some(yield_resume_id_b64url),
         };
 
         serde_json::to_string(&response).expect("Failed to serialize registration options")

@@ -13,23 +13,23 @@ export const userOperations = {
   },
   create: (user: User): RunResult => {
     const stmt = db.prepare(
-      'INSERT INTO users (id, username, derpAccountId, currentChallenge, currentDataId) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO users (id, username, derpAccountId, currentChallenge, currentYieldResumeId) VALUES (?, ?, ?, ?, ?)'
     );
     return stmt.run(
         user.id,
         user.username,
         user.derpAccountId || null,
         user.currentChallenge || null,
-        user.currentDataId || null
+        user.currentYieldResumeId || null
     );
   },
   updateChallenge: (userId: string, challenge: string | null): RunResult => {
     const stmt = db.prepare('UPDATE users SET currentChallenge = ? WHERE id = ?');
     return stmt.run(challenge, userId);
   },
-  updateChallengeAndDataId: (userId: string, challenge: string | null, dataId: string | null): RunResult => {
-    const stmt = db.prepare('UPDATE users SET currentChallenge = ?, currentDataId = ? WHERE id = ?');
-    return stmt.run(challenge, dataId, userId);
+  updateChallengeAndyieldResumeId: (userId: string, challenge: string | null, yieldResumeId: string | null): RunResult => {
+    const stmt = db.prepare('UPDATE users SET currentChallenge = ?, currentYieldResumeId = ? WHERE id = ?');
+    return stmt.run(challenge, yieldResumeId, userId);
   },
   updateDerpAccountId: (userId: string, derpAccountId: string): RunResult => {
     const stmt = db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?');

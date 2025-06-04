@@ -5,7 +5,6 @@ use crate::generate_registration_options::{
     PublicKeyCredentialDescriptorJSON,
     PublicKeyCredentialCreationOptionsJSON,
     YieldedRegistrationData,
-    DATA_ID_REGISTER,
 };
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
@@ -102,8 +101,8 @@ pub struct RegistrationOptionsJSON {
     pub options: PublicKeyCredentialCreationOptionsJSON,
     #[serde(rename = "derpAccountId")]
     pub derp_account_id: Option<String>,
-    #[serde(rename = "dataId")]
-    pub data_id: Option<String>, // Base64url encoded data_id for yield-resume
+    #[serde(rename = "yieldResumeId")]
+    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
 }
 
 #[near_sdk::near(serializers = [json])]
@@ -263,21 +262,16 @@ impl WebAuthnContract {
     pub fn complete_registration(
         &self,
         registration_response: RegistrationResponseJSON,
-        data_id: Option<String>, // Optional data_id for testing
+        yield_resume_id: String, // yield_resume_id is required since register yield_resume IDs are randomly generated
     ) -> bool {
-        // Get the data_id from parameter (for testing) or from the register (normal flow)
-        let data_id_bytes = if let Some(data_id_str) = data_id {
-            BASE64_URL_ENGINE.decode(&data_id_str)
-                .expect("Failed to decode provided data_id")
-        } else {
-            env::read_register(DATA_ID_REGISTER)
-                .expect("Failed to read data_id from register")
-        };
+        // Decode the provided yield_resume_id
+        let yield_resume_id_bytes = BASE64_URL_ENGINE.decode(&yield_resume_id)
+            .expect("Failed to decode provided yield_resume_id");
 
-        // The data_id should be a CryptoHash (32 bytes)
-        let data_id: CryptoHash = data_id_bytes
+        // The yield_resume_id should be a CryptoHash (32 bytes)
+        let yield_resume_id: CryptoHash = yield_resume_id_bytes
             .try_into()
-            .expect("Invalid data_id format - expected 32 bytes");
+            .expect("Invalid yield_resume_id format - expected 32 bytes");
 
         // Create completion data structure
         let completion_data = RegistrationCompletionData {
@@ -289,7 +283,7 @@ impl WebAuthnContract {
             .expect("Failed to serialize registration completion data");
 
         // Resume execution with the registration response
-        env::promise_yield_resume(&data_id, &response_bytes);
+        env::promise_yield_resume(&yield_resume_id, &response_bytes);
 
         log!("Resuming registration with user's WebAuthn response");
         true

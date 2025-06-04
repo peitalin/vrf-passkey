@@ -8,7 +8,7 @@ export interface User {
   username: string;
   derpAccountId?: string; // Suggested NEAR account ID, like <username>.passkeyfactory.testnet
   currentChallenge?: string | null; // Store the current WebAuthn challenge for this user
-  currentDataId?: string | null; // Store the current dataId from contract yield for this user
+  currentYieldResumeId?: string | null; // Store the current yieldResumeId from contract yield for this user
 }
 
 /**

@@ -190,8 +190,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     try {
       // Step 1: WebAuthn credential creation & PRF (if applicable)
-      // This now also returns the dataId needed for contract yield-resume.
-      const { credential, prfEnabled, dataId: registrationDataId } = await webAuthnManager.registerWithPrf(currentUsername);
+      // This now also returns the yieldResumeId needed for contract yield-resume.
+      const { credential, prfEnabled, yieldResumeId: registrationyieldResumeId } = await webAuthnManager.registerWithPrf(currentUsername);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
@@ -241,13 +241,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         attestationResponse: attestationForServer,
       };
 
-      // Conditionally add dataId to the payload if using contract method
-      if (!registrationDataId) {
-        console.error('PasskeyContext: dataId is required for contract method verification but was not returned from registerWithPrf.');
-        throw new Error('dataId is required for contract method verification but was not obtained during WebAuthn ceremony.');
+      // Conditionally add yieldResumeId to the payload if using contract method
+      if (!registrationyieldResumeId) {
+        console.error('PasskeyContext: yieldResumeId is required for contract method verification but was not returned from registerWithPrf.');
+        throw new Error('yieldResumeId is required for contract method verification but was not obtained during WebAuthn ceremony.');
       }
-      verifyPayload.dataId = registrationDataId;
-      console.log('PasskeyContext: Sending dataId to /verify-registration:', registrationDataId);
+      verifyPayload.yieldResumeId = registrationyieldResumeId;
+      console.log('PasskeyContext: Sending yieldResumeId to /verify-registration:', registrationyieldResumeId);
 
       // Step 4: Call server to verify WebAuthn attestation and store authenticator
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {

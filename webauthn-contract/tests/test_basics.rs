@@ -118,9 +118,9 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
     let options_response_json_str: String = options_outcome.json()?;
     // Ensure we can parse the main structure of RegistrationOptionsJSON
     let parsed_options_response: serde_json::Value = serde_json::from_str(&options_response_json_str)?;
-    let data_id_from_server = parsed_options_response["dataId"].as_str().expect("data_id should be in response").to_string();
+    let yield_resume_id_from_server = parsed_options_response["yieldResumeId"].as_str().expect("yield_resume_id should be in response").to_string();
     assert!(parsed_options_response["options"]["challenge"].is_string(), "Challenge missing in options");
-    println!("generate_registration_options succeeded, got dataId: {}", data_id_from_server);
+    println!("generate_registration_options succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
 
     // Step 2: Prepare mock RegistrationResponseJSON for complete_registration
     // This mock only needs the contract to correctly deserialize the payload
@@ -150,9 +150,9 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
     // Step 3: Call complete_registration
     let complete_args = json!({
         "registration_response": mock_registration_response_for_complete,
-        "data_id": data_id_from_server
+        "yield_resume_id": yield_resume_id_from_server
     });
-    println!("Calling complete_registration with data_id: {}", data_id_from_server);
+    println!("Calling complete_registration with yield_resume_id: {}", yield_resume_id_from_server);
     let complete_outcome = user_account
         .call(contract.id(), "complete_registration")
         .args_json(complete_args)
@@ -232,10 +232,10 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
 
     let options_response_json_str: String = initial_options_outcome.json()?;
     let parsed_options_response: RegistrationOptionsJSON = serde_json::from_str(&options_response_json_str)?;
-    let data_id_from_server = parsed_options_response.data_id.expect("data_id should be in response from generate_registration_options");
+    let yield_resume_id_from_server = parsed_options_response.yield_resume_id.expect("yield_resume_id should be in response from generate_registration_options");
     let yielded_challenge_in_options = parsed_options_response.options.challenge.clone();
 
-    println!("generate_registration_options (initial tx) succeeded, got dataId: {}", data_id_from_server);
+    println!("generate_registration_options (initial tx) succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
 
     // Step 2: Advance blockchain state for yield-resume
     sandbox.fast_forward(2).await?;
@@ -253,9 +253,9 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     // Step 4: Call complete_registration
     let complete_args = json!({
         "registration_response": mock_registration_response_val,
-        "data_id": data_id_from_server
+        "yield_resume_id": yield_resume_id_from_server
     });
-    println!("Calling complete_registration with data_id: {}", data_id_from_server);
+    println!("Calling complete_registration with yield_resume_id: {}", yield_resume_id_from_server);
     let complete_transaction_outcome = user_account
         .call(contract.id(), "complete_registration")
         .args_json(complete_args)

@@ -24,7 +24,7 @@ export const initDB = () => {
       username TEXT UNIQUE NOT NULL,
       derpAccountId TEXT NULLABLE,
       currentChallenge TEXT NULLABLE,
-      currentDataId TEXT NULLABLE
+      currentYieldResumeId TEXT NULLABLE
     );
   `);
 
