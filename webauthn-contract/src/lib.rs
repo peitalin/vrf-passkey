@@ -4,6 +4,7 @@ mod generate_authentication_options;
 mod generate_registration_options;
 mod verify_authentication_response;
 mod verify_registration_response;
+mod contract_helpers;
 
 pub use verify_registration_response::{
     RegistrationOptionsJSON,

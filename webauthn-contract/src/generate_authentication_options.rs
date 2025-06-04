@@ -6,10 +6,16 @@ use crate::generate_registration_options::{
     AuthenticatorTransport,
     UserVerificationRequirement,
 };
+use crate::verify_authentication_response::{
+    YieldedAuthenticationData,
+    AuthenticatorDevice,
+};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{log, near};
+use near_sdk::{env, log, near, Gas, GasWeight};
+
+pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
 
 
 #[near_sdk::near(serializers = [json])]
@@ -28,6 +34,14 @@ pub struct PublicKeyCredentialRequestOptionsJSON {
     pub extensions: Option<AuthenticationExtensionsClientInputs>,
 }
 
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug)]
+pub struct AuthenticationOptionsJSON {
+    pub options: PublicKeyCredentialRequestOptionsJSON,
+    #[serde(rename = "yieldResumeId")]
+    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
+}
+
 /////////////////////////////////////
 ///////////// Contract //////////////
 /////////////////////////////////////
@@ -35,7 +49,7 @@ pub struct PublicKeyCredentialRequestOptionsJSON {
 #[near]
 impl WebAuthnContract {
 
-    /// Generate authentication options for WebAuthn authentication
+    /// Generate authentication options for WebAuthn authentication with yield-resume
     /// Equivalent to @simplewebauthn/server's generateAuthenticationOptions function
     pub fn generate_authentication_options(
         &mut self,
@@ -45,29 +59,29 @@ impl WebAuthnContract {
         timeout: Option<u64>,
         user_verification: Option<UserVerificationRequirement>,
         extensions: Option<AuthenticationExtensionsClientInputs>,
+        authenticator: AuthenticatorDevice, // The authenticator device to use for verification
     ) -> String {
-        log!("Generating authentication options");
 
-        // 1. Generate or use provided challenge
-        let challenge_b64url = match challenge {
-            Some(c) => {
-                // Validate that it's valid base64url
-                match BASE64_URL_ENGINE.decode(&c) {
-                    Ok(_) => c,
-                    Err(_) => {
-                        log!("Invalid challenge format provided, generating new one");
-                        let bytes = self.generate_challenge_bytes();
-                        BASE64_URL_ENGINE.encode(&bytes)
-                    }
-                }
-            }
-            None => {
-                let bytes = self.generate_challenge_bytes();
-                BASE64_URL_ENGINE.encode(&bytes)
-            }
-        };
+        log!("Generating authentication options with yield-resume");
+        // 1. Generate challenge and salt
+        let (
+            challenge_bytes,
+            challenge_b64url
+        ) = self.decode_or_generate_new_challenge(challenge);
 
-        // 2. Set defaults and validate parameters
+        let (
+            salt_bytes,
+            salt_b64url
+        ) = self.generate_yield_resume_salt();
+
+        // 2. Compute commitment
+        let mut commitment_input = Vec::new();
+        commitment_input.extend_from_slice(&challenge_bytes);
+        commitment_input.extend_from_slice(&salt_bytes);
+        let commitment_hash_bytes = env::sha256(&commitment_input);
+        let commitment_b64url = BASE64_URL_ENGINE.encode(&commitment_hash_bytes);
+
+        // 3. Set defaults and validate parameters
         let final_timeout = timeout.unwrap_or(60000); // Default 60 seconds
         let final_user_verification = user_verification.unwrap_or_default(); // Default is "preferred"
         let final_extensions = extensions.unwrap_or_default();
@@ -81,20 +95,59 @@ impl WebAuthnContract {
             }
         });
 
-        // 3. Build the PublicKeyCredentialRequestOptionsJSON
+        // 4. Determine expected origin and require_user_verification
+        let expected_origin = format!("https://{}", final_rp_id);
+        let require_user_verification = final_user_verification == UserVerificationRequirement::Required;
+
+        // 5. Build the PublicKeyCredentialRequestOptionsJSON
         let options = PublicKeyCredentialRequestOptionsJSON {
             challenge: challenge_b64url.clone(),
             timeout: Some(final_timeout),
-            rp_id: Some(final_rp_id),
+            rp_id: Some(final_rp_id.clone()),
             allow_credentials,
             user_verification: Some(final_user_verification),
             extensions: Some(final_extensions),
         };
 
-        log!("Generated authentication options with challenge: {}", challenge_b64url);
+        // 6. Create yield data
+        let yield_data = YieldedAuthenticationData {
+            commitment_b64url,
+            original_challenge_b64url: challenge_b64url,
+            salt_b64url,
+            rp_id: final_rp_id,
+            expected_origin,
+            authenticator,
+            require_user_verification,
+        };
 
-        // 4. Return the options as JSON string
-        serde_json::to_string(&options).expect("Failed to serialize authentication options")
+        // 7. Yield with the data
+        let yield_args_bytes = serde_json::to_vec(&yield_data).expect("Failed to serialize yield data");
+
+        // Generate a unique yield_resume_id to avoid concurrency issues
+        let yield_resume_id = self.generate_yield_resume_id();
+
+        env::promise_yield_create(
+            "resume_authentication_callback",
+            &yield_args_bytes,
+            Gas::from_tgas(10), // Reduced from 50 to 10 TGas
+            GasWeight(1),
+            yield_resume_id,
+        );
+
+        // Read the yield_resume_id from the register
+        let yield_resume_id_bytes = env::read_register(yield_resume_id)
+            .expect("Failed to read yield_resume_id from register after yield creation");
+        let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
+
+        log!("Yielding authentication with commitment stored securely, yield_resume_id: {}", yield_resume_id_b64url);
+
+        // 8. Return the options with yield_resume_id
+        let response = AuthenticationOptionsJSON {
+            options,
+            yield_resume_id: Some(yield_resume_id_b64url),
+        };
+
+        serde_json::to_string(&response).expect("Failed to serialize authentication options")
     }
 
 }
@@ -106,10 +159,8 @@ mod tests {
     use base64::Engine as TestEngine;
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
-    use serde_cbor::Value as CborValue;
-    use std::collections::BTreeMap;
 
-    use crate::generate_registration_options::DEFAULT_CHALLENGE_SIZE;
+    use crate::contract_helpers::DEFAULT_CHALLENGE_SIZE;
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {
@@ -138,23 +189,24 @@ mod tests {
             None, // timeout
             None, // user_verification
             None, // extensions
+            AuthenticatorDevice::default(),
         );
 
         // Parse the JSON response
-        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
             .expect("Failed to parse authentication options JSON");
 
         // Verify defaults
         let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 20).collect();
         let expected_challenge_b64url = TEST_BASE64_URL_ENGINE.encode(&expected_challenge_bytes);
-        assert_eq!(result.challenge, expected_challenge_b64url);
+        assert_eq!(result.options.challenge, expected_challenge_b64url);
 
-        assert_eq!(result.timeout, Some(60000));
-        assert_eq!(result.rp_id, Some("webauthn-contract.testnet".to_string()));
-        assert_eq!(result.allow_credentials, None);
-        assert_eq!(result.user_verification, Some(UserVerificationRequirement::Preferred));
-        assert!(result.extensions.is_some());
-        let extensions = result.extensions.unwrap();
+        assert_eq!(result.options.timeout, Some(60000));
+        assert_eq!(result.options.rp_id, Some("webauthn-contract.testnet".to_string()));
+        assert_eq!(result.options.allow_credentials, None);
+        assert_eq!(result.options.user_verification, Some(UserVerificationRequirement::Preferred));
+        assert!(result.options.extensions.is_some());
+        let extensions = result.options.extensions.unwrap();
         assert_eq!(extensions.appid, None);
         assert_eq!(extensions.cred_props, None);
         assert_eq!(extensions.hmac_create_secret, None);
@@ -196,19 +248,20 @@ mod tests {
             Some(custom_timeout),
             Some(UserVerificationRequirement::Required),
             Some(custom_extensions.clone()),
+            AuthenticatorDevice::default(),
         );
 
         // Parse the JSON response
-        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
             .expect("Failed to parse authentication options JSON");
 
         // Verify all custom values
-        assert_eq!(result.challenge, custom_challenge);
-        assert_eq!(result.timeout, Some(custom_timeout));
-        assert_eq!(result.rp_id, Some(custom_rp_id.to_string()));
-        assert_eq!(result.allow_credentials, Some(custom_allow_credentials));
-        assert_eq!(result.user_verification, Some(UserVerificationRequirement::Required));
-        assert_eq!(result.extensions, Some(custom_extensions));
+        assert_eq!(result.options.challenge, custom_challenge);
+        assert_eq!(result.options.timeout, Some(custom_timeout));
+        assert_eq!(result.options.rp_id, Some(custom_rp_id.to_string()));
+        assert_eq!(result.options.allow_credentials, Some(custom_allow_credentials));
+        assert_eq!(result.options.user_verification, Some(UserVerificationRequirement::Required));
+        assert_eq!(result.options.extensions, Some(custom_extensions));
     }
 
     #[test]
@@ -227,17 +280,18 @@ mod tests {
             None,
             None,
             None,
+            AuthenticatorDevice::default(),
         );
 
         // Parse the JSON response
-        let result: PublicKeyCredentialRequestOptionsJSON = serde_json::from_str(&result_json)
+        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
             .expect("Failed to parse authentication options JSON");
 
         // Should have generated a new challenge instead of using the invalid one
         let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 22).collect();
         let expected_challenge_b64url = TEST_BASE64_URL_ENGINE.encode(&expected_challenge_bytes);
-        assert_eq!(result.challenge, expected_challenge_b64url);
-        assert_ne!(result.challenge, invalid_challenge);
+        assert_eq!(result.options.challenge, expected_challenge_b64url);
+        assert_ne!(result.options.challenge, invalid_challenge);
     }
 
 }

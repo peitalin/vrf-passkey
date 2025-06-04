@@ -4,8 +4,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near, Gas, GasWeight};
 
-pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
-
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RpEntity {
@@ -178,26 +176,12 @@ impl Default for AuthenticationExtensionsClientInputs {
     }
 }
 
-// Generate a random register ID to avoid conflicts with concurrent operations
-fn generate_yield_resume_id() -> u64 {
-    // Use random seed to generate a unique register ID
-    let seed = env::random_seed();
-    // Take first 8 bytes and convert to u64
-    let bytes: [u8; 8] = seed[0..8].try_into().unwrap_or([0u8; 8]);
-    u64::from_le_bytes(bytes)
-}
-
 /////////////////////////////////////
 ///////////// Contract //////////////
 /////////////////////////////////////
 
 #[near]
 impl WebAuthnContract {
-
-    pub(crate) fn generate_challenge_bytes(&self) -> Vec<u8> {
-        let seed = env::random_seed();
-        seed.into_iter().take(DEFAULT_CHALLENGE_SIZE).collect() // Or full seed if preferred
-    }
 
     /// YIELD-RESUME REGISTRATION FLOW
     /// This yield-resume implementation eliminates server-side challenge storage
@@ -217,21 +201,17 @@ impl WebAuthnContract {
         supported_algorithm_ids: Option<Vec<i32>>,
         preferred_authenticator_type: Option<String>,
     ) -> String {
-        // 1. Generate challenge and salt
-        let (challenge_bytes, challenge_b64url) = match challenge {
-            Some(c) => {
-                let bytes = BASE64_URL_ENGINE.decode(&c).expect("Failed to decode provided challenge");
-                (bytes, c)
-            }
-            None => {
-            let bytes = self.generate_challenge_bytes();
-                let b64url = BASE64_URL_ENGINE.encode(&bytes);
-                (bytes, b64url)
-            }
-        };
 
-        let salt_bytes = env::random_seed().iter().copied().take(16).collect::<Vec<u8>>();
-        let salt_b64url = BASE64_URL_ENGINE.encode(&salt_bytes);
+        // 1. Generate challenge and salt
+        let (
+            challenge_bytes,
+            challenge_b64url
+        ) = self.decode_or_generate_new_challenge(challenge);
+
+        let (
+            salt_bytes,
+            salt_b64url
+        ) = self.generate_yield_resume_salt();
 
         // 2. Compute commitment
         let mut commitment_input = Vec::new();
@@ -328,7 +308,7 @@ impl WebAuthnContract {
         let yield_args_bytes = serde_json::to_vec(&yield_data).expect("Failed to serialize yield data");
 
         // Generate a unique register ID to avoid concurrency issues
-        let yield_resume_id = generate_yield_resume_id();
+        let yield_resume_id = self.generate_yield_resume_id();
 
         env::promise_yield_create(
             "resume_registration_callback",
@@ -365,7 +345,7 @@ mod tests {
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
 
-    const DEFAULT_USER_ID_SIZE: usize = 16;
+    use crate::contract_helpers::{DEFAULT_CHALLENGE_SIZE, DEFAULT_USER_ID_SIZE};
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {

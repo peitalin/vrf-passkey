@@ -246,8 +246,6 @@ pub struct AuthenticationInfo {
     pub credential_backed_up: bool,
     pub origin: String,
     pub rp_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub authenticator_extension_results: Option<serde_json::Value>,
 }
 
 /////////////////////////////////////
@@ -259,7 +257,7 @@ impl WebAuthnContract {
 
     /// Complete registration using yield-resume pattern
     /// This method is called by the client with the WebAuthn response to resume the yielded execution
-    pub fn complete_registration(
+    pub fn verify_registration_response(
         &self,
         registration_response: RegistrationResponseJSON,
         yield_resume_id: String, // yield_resume_id is required since register yield_resume IDs are randomly generated
@@ -284,14 +282,12 @@ impl WebAuthnContract {
 
         // Resume execution with the registration response
         env::promise_yield_resume(&yield_resume_id, &response_bytes);
-
         log!("Resuming registration with user's WebAuthn response");
         true
     }
 
     /// Callback method for yield-resume registration flow
     /// This method is called when the yield is resumed with the registration response
-    #[private]
     pub fn resume_registration_callback(&mut self) -> VerifiedRegistrationResponse {
         // Get the yielded data from promise result 0
         let yield_data_bytes = match env::promise_result(0) {
@@ -395,7 +391,7 @@ impl WebAuthnContract {
         let expected_rp_id = rp_id;
 
         // 5. Call the WebAuthn verification logic
-        self.verify_registration_response(
+        self.internal_verify_registration_response(
             attestation_response,
             original_challenge_b64url,
             expected_origin,
@@ -405,7 +401,8 @@ impl WebAuthnContract {
     }
 
     // This is the core WebAuthn attestation verification logic
-    fn verify_registration_response(
+    #[private]
+    pub fn internal_verify_registration_response(
         &self,
         attestation_response: RegistrationResponseJSON,
         expected_challenge: String, // This is the original_challenge_b64url after commitment check
@@ -636,8 +633,6 @@ mod tests {
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
     use std::collections::BTreeMap;
-
-    const DEFAULT_USER_ID_SIZE: usize = 16;
 
     // Helper to get a VMContext, random_seed is still useful for internal challenge/userID generation
     fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {

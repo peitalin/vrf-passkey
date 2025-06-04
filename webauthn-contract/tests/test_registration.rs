@@ -122,7 +122,7 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
     assert!(parsed_options_response["options"]["challenge"].is_string(), "Challenge missing in options");
     println!("generate_registration_options succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
 
-    // Step 2: Prepare mock RegistrationResponseJSON for complete_registration
+    // Step 2: Prepare mock RegistrationResponseJSON for verify_registration_response
     // This mock only needs the contract to correctly deserialize the payload
     // Actual cryptographic verification is tested in unit tests.
     let mock_client_data_json_str_for_test = serde_json::to_string(&json!({
@@ -147,24 +147,24 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
         "clientExtensionResults": {}
     });
 
-    // Step 3: Call complete_registration
+    // Step 3: Call verify_registration_response
     let complete_args = json!({
         "registration_response": mock_registration_response_for_complete,
         "yield_resume_id": yield_resume_id_from_server
     });
-    println!("Calling complete_registration with yield_resume_id: {}", yield_resume_id_from_server);
+    println!("Calling verify_registration_response with yield_resume_id: {}", yield_resume_id_from_server);
     let complete_outcome = user_account
-        .call(contract.id(), "complete_registration")
+        .call(contract.id(), "verify_registration_response")
         .args_json(complete_args)
         .gas(Gas::from_tgas(300))
         .transact()
         .await?;
-    assert!(complete_outcome.is_success(), "complete_registration call failed: {:?}", if complete_outcome.is_failure() { Some(complete_outcome.into_result().unwrap_err()) } else { None });
+    assert!(complete_outcome.is_success(), "verify_registration_response call failed: {:?}", if complete_outcome.is_failure() { Some(complete_outcome.into_result().unwrap_err()) } else { None });
 
     let resume_succeeded: bool = complete_outcome.json()?;
-    assert!(resume_succeeded, "complete_registration should return true if resume is successful");
+    assert!(resume_succeeded, "verify_registration_response should return true if resume is successful");
 
-    println!("Yield-resume flow (generate_options and complete_registration calls) succeeded.");
+    println!("Yield-resume flow (generate_options and verify_registration_response calls) succeeded.");
     println!("Callback logic is unit-tested separately.");
 
     Ok(())
@@ -250,14 +250,14 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
         require_uv_flag
     );
 
-    // Step 4: Call complete_registration
+    // Step 4: Call verify_registration_response
     let complete_args = json!({
         "registration_response": mock_registration_response_val,
         "yield_resume_id": yield_resume_id_from_server
     });
-    println!("Calling complete_registration with yield_resume_id: {}", yield_resume_id_from_server);
+    println!("Calling verify_registration_response with yield_resume_id: {}", yield_resume_id_from_server);
     let complete_transaction_outcome = user_account
-        .call(contract.id(), "complete_registration")
+        .call(contract.id(), "verify_registration_response")
         .args_json(complete_args)
         .gas(Gas::from_tgas(150))
         .transact()
@@ -276,7 +276,7 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
             Ok(value) => value,
             Err(parse_err) => {
                 panic!(
-                    "complete_registration transaction succeeded but failed to parse JSON result: {:?}. Outcome: {:?}. Logs: {:?}",
+                    "verify_registration_response transaction succeeded but failed to parse JSON result: {:?}. Outcome: {:?}. Logs: {:?}",
                     parse_err, outcome_details_for_assertion, logs_for_assertion
                 );
             }
@@ -284,12 +284,12 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     };
 
     assert!(final_success_status,
-            "complete_registration call itself failed: {:?}. Logs: {:?}",
+            "verify_registration_response call itself failed: {:?}. Logs: {:?}",
             outcome_details_for_assertion, logs_for_assertion);
 
     if final_success_status {
         assert!(resume_call_succeeded,
-                "complete_registration method returned false (expected true). Logs: {:?}",
+                "verify_registration_response method returned false (expected true). Logs: {:?}",
                 logs_for_assertion);
     }
 
