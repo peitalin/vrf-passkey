@@ -3,7 +3,7 @@ use serde_cbor::Value as CborValue;
 use p256::ecdsa::Signature;
 use ed25519_dalek::Signature as Ed25519Signature;
 
-use crate::p256_utils::{
+use crate::utils::p256_utils::{
     extract_p256_coordinates_from_cose,
     create_p256_public_key,
     get_uncompressed_p256_pubkey,

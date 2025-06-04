@@ -4,7 +4,7 @@ use serde_json::json;
 use near_workspaces::types::Gas;
 use sha2::{Sha256, Digest};
 use serde_cbor;
-use webauthn_contract::{ RegistrationOptionsJSON, AuthenticatorSelectionCriteria };
+use webauthn_contract::{RegistrationOptionsJSON, AuthenticatorSelectionCriteria};
 
 
 #[tokio::test]
