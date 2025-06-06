@@ -1,5 +1,5 @@
 // Gas constants as strings
-export const DEFAULT_GAS_STRING = "30000000000000"; // 30 TGas approx.
+export const DEFAULT_GAS_STRING = "50000000000000"; // 50 TGas approx. (increased for complex yield operations)
 export const VIEW_GAS_STRING    = "30000000000000"; // 30 TGas for view calls
 export const VERIFY_REGISTRATION_RESPONSE_GAS_STRING       = "30000000000000"; // 30 TGas
 export const AUTHENTICATION_VERIFICATION_GAS_STRING = "33000000000000";

@@ -47,7 +47,7 @@ async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn 
             "extensions": auth_options_args["extensions"],
             "authenticator": auth_options_args["authenticator"]
         }))
-        .gas(Gas::from_tgas(30))
+        .gas(Gas::from_tgas(50))
         .transact_async()
         .await?;
 

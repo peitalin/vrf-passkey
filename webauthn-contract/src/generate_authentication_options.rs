@@ -132,7 +132,7 @@ impl WebAuthnContract {
                 }
             }).to_string().into_bytes().as_slice(),
             // serde_json::json!({ "raw_data1": "YIELDING" }).to_string().into_bytes().as_slice(),
-            Gas::from_tgas(30), // Increased from 10 to 30 TGas for signature verification
+            Gas::from_tgas(30), // +16.9 TGas for signature verification
             GasWeight(1),
             DATA_REGISTER_ID,
         );
