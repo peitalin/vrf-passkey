@@ -10,26 +10,20 @@ use crate::verify_registration_response::ClientDataJSON;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{env, log, near, CryptoHash};
+use near_sdk::{env, log, near, require, CryptoHash, PromiseError};
+
 
 // Structure to hold yielded authentication data
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
 pub struct YieldedAuthenticationData {
-    pub(crate) commitment_b64url: String,
-    pub(crate) original_challenge_b64url: String,
-    pub(crate) salt_b64url: String,
-    pub(crate) rp_id: String,
-    pub(crate) expected_origin: String,
-    pub(crate) authenticator: AuthenticatorDevice,
-    pub(crate) require_user_verification: bool,
-}
-
-// Structure to hold authentication completion data
-#[near_sdk::near(serializers = [json])]
-#[derive(Debug)]
-pub struct AuthenticationCompletionData {
-    pub authentication_response: AuthenticationResponseJSON,
+    pub commitment_b64url: String,
+    pub original_challenge_b64url: String,
+    pub salt_b64url: String,
+    pub rp_id: String,
+    pub expected_origin: String,
+    pub authenticator: AuthenticatorDevice,
+    pub require_user_verification: bool,
 }
 
 // Authentication verification types (equivalent to @simplewebauthn/server types)
@@ -112,8 +106,8 @@ impl WebAuthnContract {
     /// This method is called by the client with the WebAuthn response to resume the yielded execution
     pub fn verify_authentication_response(
         &self,
-        authentication_response: AuthenticationResponseJSON,
-        yield_resume_id: String, // yield_resume_id is required since register yield_resume IDs are randomly generated
+        authentication_response: AuthenticationResponseJSON, // named argument
+        yield_resume_id: String, // named argument
     ) -> bool {
         // Decode the provided yield_resume_id
         let yield_resume_id_bytes = BASE64_URL_ENGINE.decode(&yield_resume_id)
@@ -124,22 +118,14 @@ impl WebAuthnContract {
             .try_into()
             .expect("Invalid yield_resume_id format - expected 32 bytes");
 
-        // Create completion data structure
-        let completion_data = AuthenticationCompletionData {
-            authentication_response,
-        };
-
-        // Serialize the completion data
-        let response_bytes = serde_json::to_vec(&completion_data)
-            .expect("Failed to serialize authentication completion data");
-
-        // Resume execution with the authentication response
-        // The NEAR runtime will automatically call resume_authentication_callback()
-        env::promise_yield_resume(&yield_resume_id, &response_bytes);
-
         log!("Resuming authentication with user's WebAuthn response");
+        env::promise_yield_resume(
+            &yield_resume_id,
+            &serde_json::to_vec(&authentication_response)
+                .expect("Failed to serialize authentication_response"),
+        );
         // Return true indicating the resume was successful
-        // The detailed verification result comes from the callback (called automatically by NEAR runtime)
+        // The detailed verification result comes from the callback
         true
     }
 
@@ -148,28 +134,61 @@ impl WebAuthnContract {
     #[private]
     pub fn resume_authentication_callback(
         &mut self,
-        #[callback_unwrap] yield_data: YieldedAuthenticationData,
-        #[callback_unwrap] completion_data: AuthenticationCompletionData,
-    ) -> VerifiedAuthenticationResponse {
+        yield_data: YieldedAuthenticationData, // "yield_data" field from json! args in promise_yield_create()
+        // #[callback_unwrap] auth_response: AuthenticationResponseJSON, // argument from promise_yield_resume()
+        #[callback_result] auth_response: Result<AuthenticationResponseJSON, PromiseError> // argument from promise_yield_resume()
+    ) -> String {
+
         log!("Processing authentication callback with yielded commitment");
+        require!(
+            env::current_account_id() == env::predecessor_account_id(),
+            "resume_authentication_callback is only called by the contract itself"
+        );
+        require!(
+            env::promise_results_count() == 1,
+            "resume_authentication_callback is only called once"
+        );
+
+        let auth_response = match auth_response {
+            Ok(response) => response,
+            Err(e) => {
+                let err_msg = format!("Error parsing `auth_response` input: {:?}", e);
+                log!("{}", err_msg);
+                return err_msg;
+            }
+        };
 
         // Use internal_process_authentication with the yielded data and verification parameters
         let result = self.internal_process_authentication(
             yield_data.commitment_b64url,
             yield_data.original_challenge_b64url,
-            yield_data.salt_b64url,
-            completion_data.authentication_response.clone(),
+            yield_data.salt_b64url.clone(),
+            auth_response.clone(),
             yield_data.rp_id,
             yield_data.expected_origin,
             yield_data.authenticator,
             yield_data.require_user_verification,
         );
 
-        // Log the verification result for server to read from transaction logs (instead of storing on-chain)
-        env::log_str(&format!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&result).unwrap_or_default()));
+        // Log the verification result for server to read from transaction logs
         log!("Authentication callback completed with result: verified={}", result.verified);
+        // result.verified
+        format!("FINAL RESULT: {}", yield_data.salt_b64url.to_string())
+    }
 
-        result
+    pub fn finally_do_something(
+        &mut self,
+        // original_arg: String,
+        #[callback_unwrap] final_result: serde_json::Value
+    ) {
+        log!("fn finally_do_something");
+
+        //// Testing only
+        let new_greeting = format!("{}", final_result);
+        self.set_greeting(new_greeting);
+        // log!("fn finally_do_something arg1: {}", &original_arg);
+        // log!("fn finally_do_something arg1: {}", &final_result);
+        // log!("fn finally_do_something arg1: {}, arg2: {}", &original_arg, &final_result);
     }
 
     #[private]
@@ -188,13 +207,25 @@ impl WebAuthnContract {
 
         // 1. Decode salt and original_challenge
         let original_challenge_bytes = match BASE64_URL_ENGINE.decode(&original_challenge_b64url) {
-            Ok(b) => b, Err(_) => { log!("Failed to decode original_challenge_b64url"); return VerifiedAuthenticationResponse{verified:false, authentication_info:None}; }
+            Ok(b) => b,
+            Err(_) => {
+                log!("Failed to decode original_challenge_b64url");
+                return VerifiedAuthenticationResponse{ verified: false, authentication_info: None };
+            }
         };
         let salt_bytes = match BASE64_URL_ENGINE.decode(&salt_b64url) {
-            Ok(b) => b, Err(_) => { log!("Failed to decode salt_b64url"); return VerifiedAuthenticationResponse{verified:false, authentication_info:None}; }
+            Ok(b) => b,
+            Err(_) => {
+                log!("Failed to decode salt_b64url");
+                return VerifiedAuthenticationResponse{ verified: false, authentication_info: None };
+            }
         };
         let commitment_hash_bytes_from_client = match BASE64_URL_ENGINE.decode(&commitment_b64url) {
-            Ok(b) => b, Err(_) => { log!("Failed to decode commitment_b64url from client/args"); return VerifiedAuthenticationResponse{verified:false, authentication_info:None}; }
+            Ok(b) => b,
+            Err(_) => {
+                log!("Failed to decode commitment_b64url from client/args");
+                return VerifiedAuthenticationResponse{ verified: false, authentication_info: None };
+            }
         };
 
         // 2. Recompute commitment
@@ -267,10 +298,7 @@ impl WebAuthnContract {
 
         // Step 2: Verify type is "webauthn.get"
         if client_data.type_ != "webauthn.get" {
-            log!(
-                "Invalid type: expected webauthn.get, got {}",
-                client_data.type_
-            );
+            log!("Invalid type: expected webauthn.get, got {}", client_data.type_);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
@@ -279,11 +307,7 @@ impl WebAuthnContract {
 
         // Step 3: Verify challenge matches expected_challenge
         if client_data.challenge != expected_challenge {
-            log!(
-                "Challenge mismatch: expected {}, got {}",
-                expected_challenge,
-                client_data.challenge
-            );
+            log!("Challenge mismatch: expected {}, got {}", expected_challenge, client_data.challenge);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
@@ -292,11 +316,7 @@ impl WebAuthnContract {
 
         // Step 4: Verify origin matches expected_origin
         if client_data.origin != expected_origin {
-            log!(
-                "Origin mismatch: expected {}, got {}",
-                expected_origin,
-                client_data.origin
-            );
+            log!("Origin mismatch: expected {}, got {}", expected_origin, client_data.origin);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
@@ -361,11 +381,7 @@ impl WebAuthnContract {
         // Allow both counters to be 0 (authenticator doesn't support counters)
         // or require counter increment for authenticators that do support counters
         if authenticator.counter > 0 && auth_data.counter <= authenticator.counter {
-            log!(
-                "Counter not incremented: expected > {}, got {}",
-                authenticator.counter,
-                auth_data.counter
-            );
+            log!("Counter not incremented: expected > {}, got {}", authenticator.counter, auth_data.counter);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,

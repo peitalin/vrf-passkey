@@ -22,7 +22,7 @@ pub struct TestCompletionData {
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug)]
 pub struct RawData1 {
-    pub raw_data2: String,
+    pub raw_data1: String,
 }
 
 #[near_sdk::near(serializers = [json])]
@@ -48,18 +48,20 @@ impl WebAuthnContract {
 
         let yield_promise = env::promise_yield_create(
             "callback_test",
-            serde_json::json!({ "raw_data1": "YIELDING" }).to_string().into_bytes().as_slice(),
+            // serde_json::json!({ "raw_data1": "YIELDING" }).to_string().into_bytes().as_slice(),
+            &serde_json::to_vec(&RawData1 { raw_data1: "YIELDING STRUCT".to_string() }).expect("Failed to serialize RawData1"),
             near_sdk::Gas::from_tgas(10),
             near_sdk::GasWeight::default(),
             DATA_ID_REGISTER,
         );
+
 
         // Read the yield_resume_id from the register after yield creation
         let yield_resume_id_bytes = env::read_register(DATA_ID_REGISTER)
             .expect("Failed to read yield_resume_id from register after yield creation");
         let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
 
-        // return the yield promise
+        // // return the yield promise (not needed? not actually returned)
         env::promise_return(yield_promise);
 
         env::log_str(&format!("yield_test: yield created with resume_id: {}", yield_resume_id_b64url));

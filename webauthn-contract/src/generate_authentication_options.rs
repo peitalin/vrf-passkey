@@ -13,9 +13,10 @@ use crate::verify_authentication_response::{
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{env, log, near, Gas, GasWeight};
+use near_sdk::{env, log, near, Gas, GasWeight, NearToken};
 
-pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
+pub const DEFAULT_CHALLENGE_SIZE: u64 = 16;
+pub const DATA_REGISTER_ID: u64 = 0;
 
 
 #[near_sdk::near(serializers = [json])]
@@ -109,33 +110,52 @@ impl WebAuthnContract {
             extensions: Some(final_extensions),
         };
 
-        // 6. Create yield data
-        let yield_data = YieldedAuthenticationData {
-            commitment_b64url,
-            original_challenge_b64url: challenge_b64url,
-            salt_b64url,
-            rp_id: final_rp_id,
-            expected_origin,
-            authenticator,
-            require_user_verification,
-        };
+        // 6. Generate a unique yield_resume_id to avoid concurrency issues
+        // let register_id = self.generate_yield_resume_id();
 
         // 7. Yield with the data
-        let yield_args_bytes = serde_json::to_vec(&yield_data).expect("Failed to serialize yield data");
-
-        // Generate a unique yield_resume_id to avoid concurrency issues
-        let yield_resume_id = self.generate_yield_resume_id();
-
-        env::promise_yield_create(
+        let yield_promise = env::promise_yield_create(
             "resume_authentication_callback",
-            &yield_args_bytes,
+            &serde_json::json!({
+                "yield_data": YieldedAuthenticationData {
+                    authenticator,
+                        // credential_id: authenticator.credential_id,
+                        // credential_public_key: authenticator.credential_public_key,
+                        // counter: authenticator.counter,
+                        // transports: authenticator.transports,
+                    commitment_b64url,
+                    expected_origin,
+                    original_challenge_b64url: challenge_b64url,
+                    rp_id: final_rp_id,
+                    require_user_verification,
+                    salt_b64url,
+                }
+            }).to_string().into_bytes().as_slice(),
+            // serde_json::json!({ "raw_data1": "YIELDING" }).to_string().into_bytes().as_slice(),
             Gas::from_tgas(10), // Reduced from 50 to 10 TGas
             GasWeight(1),
-            yield_resume_id,
+            DATA_REGISTER_ID,
         );
 
+        // The yield promise is composable with the usual promise API features. We can choose to
+        // chain another function call and it will receive the output of the `sign_on_finish`
+        // callback. Note that this chained promise can be a cross-contract call.
+        env::promise_then(
+            yield_promise,
+            env::current_account_id(),
+            "finally_do_something",
+            // "eee_arg".to_string().into_bytes().as_slice(),
+            &[],
+            NearToken::from_near(0),
+            Gas::from_tgas(10),
+        );
+
+        // The return value for this function call will be the value
+        // returned by the `sign_on_finish` callback.
+        env::promise_return(yield_promise);
+
         // Read the yield_resume_id from the register
-        let yield_resume_id_bytes = env::read_register(yield_resume_id)
+        let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
         let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
 

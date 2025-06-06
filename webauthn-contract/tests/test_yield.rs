@@ -5,7 +5,7 @@ use near_workspaces::network::Sandbox;
 use near_jsonrpc_primitives::types::transactions::TransactionInfo;
 use near_jsonrpc_primitives::types::receipts::ReceiptReference;
 use near_primitives::types::FunctionArgs;
-use near_primitives::views::{TxExecutionStatus, ReceiptView, ReceiptEnumView };
+use near_primitives::views::{TxExecutionStatus, ReceiptView, ReceiptEnumView, ActionView};
 use near_primitives::hash::CryptoHash as CryptoHash2;
 
 
@@ -20,7 +20,7 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
     async fn fast_forward(sandbox: &Worker<Sandbox>, blocks: u64) -> Result<(), Box<dyn std::error::Error>> {
         sandbox.fast_forward(blocks).await?;
         let block = sandbox.view_block().await?;
-        // println!("block: {:?}", block.height());
+        println!("block: {:?}", block.height());
         Ok(())
     }
 
@@ -48,7 +48,6 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
     // Step 2: Advance blockchain state for yield-resume
     fast_forward(&sandbox, 1).await?;
     println!("\n\nStep 2: Blockchain state advanced 1 block");
-
 
     let yield_outcome = yield_request.await?;
     println!("yield_test TX Outcomes:");
@@ -119,7 +118,6 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
     println!("=========================================\n\n");
 
     for receipt_id in receipt_ids {
-
         // Convert the receipt_id CryptoHash to a near_primitives::CryptoHash
         let receipt_id2 = CryptoHash2::try_from(receipt_id.0.as_slice()).unwrap();
         assert_eq!(receipt_id2.to_string(), receipt_id.to_string());
@@ -137,17 +135,28 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
                 actions,
                 ..
             } => {
-                println!("is_promise_yield: {:?}", is_promise_yield);
-                println!("actions: {:?}", actions);
+                if let Some(action) = actions.iter().next() {
+                    match action {
+                        ActionView::FunctionCall {
+                            method_name,
+                            args,
+                            ..
+                        } => {
+                            println!("method_name: {:?}", method_name);
+                            println!("is_promise_yield: {:?}", is_promise_yield);
+                            println!("args: {:?}", args);
+                        }
+                        _ => {}
+                    }
+                }
             }
-            _ => {
-                println!("receipt: {:?}", receipt);
-            }
+            _ => {}
         }
     }
 
     let greeting = user_account.call(contract.id(), "get_greeting").transact().await?;
-    let expected_result = "Total: 1, first: YIELDING, second: RawData2 { raw_data2: \"RESUMING\" }";
+    // let expected_result = "Total: 1, first: YIELDING, second: RawData2 { raw_data2: \"RESUMING\" }";
+    let expected_result = "Total: 1, first: YIELDING STRUCT, second: RawData2 { raw_data2: \"RESUMING\" }";
     let actual_result = greeting.json::<String>()?;
     println!("\n\nget_greeting: {}", actual_result);
 
@@ -155,5 +164,6 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
 
 

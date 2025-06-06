@@ -18,14 +18,15 @@ use crate::utils::parsers::{
 use crate::utils::verifiers::verify_attestation_signature;
 
 // WebAuthn verification structures
-#[derive(serde::Deserialize, Debug)]
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug)]
 pub struct ClientDataJSON {
     #[serde(rename = "type")]
-    pub(crate) type_: String,
-    pub(crate) challenge: String,
-    pub(crate) origin: String,
+    pub type_: String,
+    pub challenge: String,
+    pub origin: String,
     #[serde(rename = "crossOrigin", default)]
-    pub(crate) cross_origin: bool,
+    pub cross_origin: bool,
 }
 
 // Structure to hold registration completion data
