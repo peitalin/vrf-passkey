@@ -97,16 +97,6 @@ impl Default for AuthenticationExtensionsClientInputsJSON {
 }
 
 #[near_sdk::near(serializers = [json])]
-#[derive(Debug)]
-pub struct RegistrationOptionsJSON {
-    pub options: PublicKeyCredentialCreationOptionsJSON,
-    #[serde(rename = "derpAccountId")]
-    pub derp_account_id: Option<String>,
-    #[serde(rename = "yieldResumeId")]
-    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
-}
-
-#[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct AttestationResponse {
     #[serde(rename = "clientDataJSON")]

@@ -9,6 +9,7 @@ use near_primitives::views::{ReceiptEnumView, ActionView};
 
 use near_jsonrpc_primitives::types::transactions::TransactionInfo;
 use near_primitives::views::TxExecutionStatus;
+use webauthn_contract::AuthenticationOptionsJSON;
 
 #[tokio::test]
 async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,16 +63,10 @@ async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn 
         receipt_ids.extend(outcome.receipt_ids.iter().map(|id| id.clone()));
     }
 
-    let auth_options_response_json_str: String = gen_auth_options_outcome.json()?;
-    let parsed_auth_options_response: serde_json::Value = serde_json::from_str(&auth_options_response_json_str)?;
-    let yield_resume_id_from_server = parsed_auth_options_response["yieldResumeId"]
-        .as_str()
-        .expect("yieldResumeId should be in authentication options response")
-        .to_string();
-    let challenge_from_options = parsed_auth_options_response["options"]["challenge"]
-        .as_str()
-        .expect("challenge should be in authentication options")
-        .to_string();
+    let gen_auth_options_result: AuthenticationOptionsJSON = gen_auth_options_outcome.json()?;
+    let yield_resume_id_from_server = gen_auth_options_result.yield_resume_id
+        .expect("yieldResumeId should be in authentication options response");
+    let challenge_from_options = gen_auth_options_result.options.challenge;
 
     println!("generate_authentication_options succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
     println!("generated challenge: {}", challenge_from_options);

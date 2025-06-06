@@ -61,7 +61,7 @@ impl WebAuthnContract {
         user_verification: Option<UserVerificationRequirement>,
         extensions: Option<AuthenticationExtensionsClientInputs>,
         authenticator: AuthenticatorDevice, // The authenticator device to use for verification
-    ) -> String {
+    ) -> AuthenticationOptionsJSON {
 
         log!("Generating authentication options with yield-resume");
         // 1. Generate challenge and salt
@@ -167,7 +167,7 @@ impl WebAuthnContract {
             yield_resume_id: Some(yield_resume_id_b64url),
         };
 
-        serde_json::to_string(&response).expect("Failed to serialize authentication options")
+        response
     }
 
 }
@@ -202,7 +202,7 @@ mod tests {
         testing_env!(context.build());
         let mut contract = WebAuthnContract::default();
 
-        let result_json = contract.generate_authentication_options(
+        let result = contract.generate_authentication_options(
             None, // rp_id
             None, // allow_credentials
             None, // challenge -> contract generates
@@ -211,10 +211,6 @@ mod tests {
             None, // extensions
             AuthenticatorDevice::default(),
         );
-
-        // Parse the JSON response
-        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
-            .expect("Failed to parse authentication options JSON");
 
         // Verify defaults
         let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 20).collect();
@@ -261,7 +257,7 @@ mod tests {
             min_pin_length: Some(false),
         };
 
-        let result_json = contract.generate_authentication_options(
+        let result = contract.generate_authentication_options(
             Some(custom_rp_id.to_string()),
             Some(custom_allow_credentials.clone()),
             Some(custom_challenge.to_string()),
@@ -270,10 +266,6 @@ mod tests {
             Some(custom_extensions.clone()),
             AuthenticatorDevice::default(),
         );
-
-        // Parse the JSON response
-        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
-            .expect("Failed to parse authentication options JSON");
 
         // Verify all custom values
         assert_eq!(result.options.challenge, custom_challenge);
@@ -293,7 +285,7 @@ mod tests {
         // Provide an invalid base64url challenge
         let invalid_challenge = "invalid base64url!!";
 
-        let result_json = contract.generate_authentication_options(
+        let result = contract.generate_authentication_options(
             None,
             None,
             Some(invalid_challenge.to_string()),
@@ -302,10 +294,6 @@ mod tests {
             None,
             AuthenticatorDevice::default(),
         );
-
-        // Parse the JSON response
-        let result: AuthenticationOptionsJSON = serde_json::from_str(&result_json)
-            .expect("Failed to parse authentication options JSON");
 
         // Should have generated a new challenge instead of using the invalid one
         let expected_challenge_bytes: Vec<u8> = (0..DEFAULT_CHALLENGE_SIZE).map(|_| 22).collect();

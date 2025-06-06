@@ -9,8 +9,15 @@ mod contract_helpers;
 pub mod test_yield_resume;
 
 
-pub use verify_registration_response::{
+pub use generate_authentication_options::{
+    AuthenticationOptionsJSON,
+};
+pub use generate_registration_options::{
     RegistrationOptionsJSON,
+};
+pub use verify_registration_response::{
+    VerifiedRegistrationResponse,
+    VerifiedAuthenticationResponse,
     AuthenticatorSelectionCriteria,
 };
 use near_sdk::{log, near, BorshStorageKey, CryptoHash};
