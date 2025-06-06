@@ -16,6 +16,59 @@ import type { User, StoredAuthenticator, SerializableActionArgs } from '../types
 
 const router = Router();
 
+// In-memory store for transaction hashes (in production, you'd use a proper database)
+const transactionHashStore = new Map<string, {
+  timestamp: number;
+  txHash: string;
+  purpose: string;
+  userId?: string;
+}>();
+
+// Store mapping of userId to their latest generate_authentication_options transaction hash
+const userToGenerateAuthTxHashMap = new Map<string, {
+  txHash: string;
+  timestamp: number;
+  yieldResumeId?: string;
+}>();
+
+// Helper function to store transaction hash for later querying
+function storeTransactionHash(txHash: string, purpose: string, userId?: string): void {
+  const key = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  transactionHashStore.set(key, {
+    timestamp: Date.now(),
+    txHash,
+    purpose,
+    userId
+  });
+  console.log(`💾 Stored transaction hash: ${txHash} (${purpose}) with key: ${key}`);
+
+  // Clean up old entries (older than 1 hour)
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const [storedKey, value] of transactionHashStore.entries()) {
+    if (value.timestamp < oneHourAgo) {
+      transactionHashStore.delete(storedKey);
+    }
+  }
+}
+
+// Helper function to store user's generate_authentication_options transaction hash
+function storeUserGenerateAuthTxHash(userId: string, txHash: string, yieldResumeId?: string): void {
+  userToGenerateAuthTxHashMap.set(userId, {
+    txHash,
+    timestamp: Date.now(),
+    yieldResumeId
+  });
+  console.log(`👤 Stored user auth session: ${userId} -> ${txHash} (yieldResumeId: ${yieldResumeId})`);
+
+  // Clean up old mappings (older than 1 hour)
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const [storedUserId, value] of userToGenerateAuthTxHashMap.entries()) {
+    if (value.timestamp < oneHourAgo) {
+      userToGenerateAuthTxHashMap.delete(storedUserId);
+    }
+  }
+}
+
 // Interface for contract arguments (generate_authentication_options)
 interface ContractGenerateAuthOptionsArgs {
   rp_id: string | null;
@@ -50,7 +103,8 @@ async function generateAuthenticationOptionsContract(
   authenticator: StoredAuthenticator,
   rpID: string = config.rpID,
   allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
-  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
+  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred',
+  userId?: string
 ): Promise<ContractAuthenticationOptionsResponse> {
   console.log('Using NEAR contract for authentication options');
 
@@ -81,13 +135,26 @@ async function generateAuthenticationOptionsContract(
 
   console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
 
-  const account = nearClient.getRelayerAccount();
-  const rawResult: any = await account.callFunction({
-    contractId: config.contractId,
-    methodName: 'generate_authentication_options',
-    args: contractArgs,
-    gas: BigInt(DEFAULT_GAS_STRING),
-  });
+  const rawResult: any = await nearClient.callFunction(
+    config.contractId,
+    'generate_authentication_options',
+    contractArgs,
+    DEFAULT_GAS_STRING,
+    '0'
+  );
+
+  console.log(`NearClient: Result: ${JSON.stringify(rawResult)}`);
+
+  // Store the transaction hash from generate_authentication_options call
+  const generateTxHash = rawResult?.transaction?.hash;
+  if (generateTxHash) {
+    console.log('🎯 generate_authentication_options Transaction Hash:', generateTxHash);
+    console.log('🎯 Explorer Link:', `https://testnet.nearblocks.io/txns/${generateTxHash}?tab=execution`);
+    console.log('👤 Storing txHash for userId:', userId);
+    storeTransactionHash(generateTxHash, 'generate_authentication_options', userId);
+  } else {
+    console.warn('⚠️  No transaction hash found in generate_authentication_options result');
+  }
 
   // Robust error checking for rawResult
   if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
@@ -117,6 +184,7 @@ async function generateAuthenticationOptionsContract(
 
   let contractResponse: ContractAuthenticationOptionsResponse;
   try {
+    // The contract now returns a properly encoded JSON object, so we only need to parse once.
     contractResponse = JSON.parse(contractResponseString);
   } catch (parseError: any) {
     console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
@@ -129,6 +197,13 @@ async function generateAuthenticationOptionsContract(
     throw new Error('Contract did not return valid authentication options (missing challenge).');
   }
 
+  // Store mapping of userId to their latest generate_authentication_options transaction hash
+  if (contractResponse.yieldResumeId && generateTxHash && userId) {
+    storeUserGenerateAuthTxHash(userId, generateTxHash, contractResponse.yieldResumeId);
+  } else {
+    console.warn('Cannot store user auth session: missing userId, yieldResumeId, or generateTxHash');
+  }
+
   return contractResponse;
 }
 
@@ -139,13 +214,15 @@ async function generateAuthenticationOptions(
     userVerification?: 'discouraged' | 'preferred' | 'required';
     allowCredentials?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[];
     authenticator?: StoredAuthenticator;
+    userId?: string;
   }
 ): Promise<ContractAuthenticationOptionsResponse> {
   const {
     rpID = config.rpID,
     userVerification = 'preferred',
     allowCredentials,
-    authenticator
+    authenticator,
+    userId
   } = options;
 
   if (config.useContractMethod) {
@@ -156,7 +233,8 @@ async function generateAuthenticationOptions(
       authenticator,
       rpID,
       allowCredentials,
-      userVerification
+      userVerification,
+      userId
     );
   } else {
     const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
@@ -202,6 +280,8 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
 
         if (userAuthenticators.length > 0) {
           firstAuthenticator = userAuthenticators[0]; // Use first authenticator for yield-resume
+          // Set the userId on the authenticator for tracking
+          firstAuthenticator.userId = userRec.id;
           allowCredentialsList = userAuthenticators.map(auth => ({
             id: isoBase64URL.toBuffer(auth.credentialID),
             type: 'public-key',
@@ -222,6 +302,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       userVerification: 'preferred',
       allowCredentials: allowCredentialsList,
       authenticator: firstAuthenticator!, // Required for contract method
+      userId: userForChallengeStorageInDB?.id, // Pass the actual user ID, not username
     });
 
     if (userForChallengeStorageInDB) {
@@ -252,26 +333,64 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
   }
 });
 
+// Helper function to extract additional callback results from contract state
+async function extractCallbackResults(txHash: string): Promise<{greeting?: string}> {
+  try {
+    // Give callbacks time to complete and update contract state
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Query the contract state to see what finally_do_something set
+    const greeting = await nearClient.getGreeting();
+    console.log('📋 Contract greeting after callbacks:', greeting);
+
+    return { greeting };
+  } catch (error) {
+    console.warn('Could not extract additional callback results:', error);
+    return {};
+  }
+}
+
+// Helper function to count logs in transaction result
+function extractLogCount(txResult: any): number {
+  let logCount = 0;
+
+  // Count transaction outcome logs
+  if (txResult.transaction_outcome?.outcome?.logs) {
+    logCount += txResult.transaction_outcome.outcome.logs.length;
+  }
+
+  // Count receipt outcome logs
+  if (txResult.receipts_outcome && Array.isArray(txResult.receipts_outcome)) {
+    for (const receipt of txResult.receipts_outcome) {
+      if (receipt.outcome && receipt.outcome.logs && Array.isArray(receipt.outcome.logs)) {
+        logCount += receipt.outcome.logs.length;
+      }
+    }
+  }
+
+  return logCount;
+}
+
 // Helper function to verify authentication using NEAR Contract with yield-resume
 async function verifyAuthenticationResponseContract(
   response: AuthenticationResponseJSON,
-  yieldResumeId: string
+  yieldResumeId: string,
+  userId?: string
 ): Promise<{ verified: boolean; authenticationInfo?: any }> {
   console.log('Using NEAR contract for yield-resume authentication verification');
 
-  const account = nearClient.getRelayerAccount();
-
   // Step 1: Resume yield with authentication response
   console.log('Step 1: Resuming yield with authentication response...');
-  const resumeResult: any = await account.functionCall({
-    contractId: config.contractId,
-    methodName: 'verify_authentication_response',
-    args: {
+  const resumeResult: any = await nearClient.callFunction(
+    config.contractId,
+    'verify_authentication_response',
+    {
       authentication_response: response,
       yield_resume_id: yieldResumeId,
     },
-    gas: BigInt(AUTHENTICATION_VERIFICATION_GAS_STRING),
-  });
+    AUTHENTICATION_VERIFICATION_GAS_STRING,
+    '0'
+  );
 
   console.log("resumeResult", resumeResult);
 
@@ -287,87 +406,171 @@ async function verifyAuthenticationResponseContract(
   // The actual verification happens in the callback, so we need to wait and check the callback result
   console.log('Step 1 complete: Yield resume successful');
 
-  // Step 2: Wait for callback and fetch the transaction to get callback logs
-  console.log('Step 2: Waiting for callback execution and fetching full transaction details...');
+  // Log current transaction hash for reference
+  const currentTxHash = resumeResult.transaction.hash;
+  console.log('🔗 Current (resume) Transaction Hash:', currentTxHash);
+  console.log('🔗 Current Explorer Link:', `https://testnet.nearblocks.io/txns/${currentTxHash}?tab=execution`);
+
+  // Look up the original transaction hash where callbacks will execute
+  console.log('🔍 Looking up user session for userId:', userId);
+  const userAuthSession = userToGenerateAuthTxHashMap.get(userId || 'unknown');
+  const originalTxHash = userAuthSession?.txHash;
+
+  if (!originalTxHash) {
+    console.error('❌ Could not find original transaction hash for user:', userId);
+    console.log('Available user sessions:', Array.from(userToGenerateAuthTxHashMap.keys()));
+    console.log('Full user sessions map:', Array.from(userToGenerateAuthTxHashMap.entries()));
+    throw new Error('Could not find original transaction hash for callback querying. User may need to call generate-authentication-options first.');
+  }
+
+  console.log('✅ Found user session for userId:', userId);
+  console.log('🎯 Original (callbacks) Transaction Hash:', originalTxHash);
+  console.log('🎯 Original Explorer Link:', `https://testnet.nearblocks.io/txns/${originalTxHash}?tab=execution`);
+  if (userAuthSession.yieldResumeId) {
+    console.log('🔑 Associated Yield Resume ID:', userAuthSession.yieldResumeId);
+  }
+
+  // Store current transaction hash for reference
+  storeTransactionHash(currentTxHash, 'verify_authentication_response', userId);
+
+  console.log('🔄 AUTOMATIC CALLBACK QUERYING:');
+  console.log('   ├── Resume transaction triggers callbacks in original transaction');
+  console.log(`   ├── Original txHash: ${originalTxHash}`);
+  console.log('   ├── Will automatically query original transaction after 5 seconds');
+  console.log('   ├── Tracking by user session instead of yield_resume_id');
+  console.log('   └── Looking for: resume_authentication_callback & finally_do_something logs');
+
+  // Step 2: Wait 5 seconds then query the original transaction for callback results
+  console.log('Step 2: Waiting 5 seconds for callback execution in original transaction...');
 
   try {
-    // Give the callback a moment to execute
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
 
-    // Get the full transaction details including all receipts
-    const txHash = resumeResult.transaction.hash;
-    const fullTxResult = await nearClient.getProvider().txStatus(txHash, nearClient.getRelayerAccount().accountId, 'FINAL' as any);
+    console.log('Step 3: Fetching callback results from original transaction...');
+    const fullTxResult = await nearClient.getProvider().txStatus(originalTxHash, nearClient.getRelayerAccount().accountId, 'FINAL' as any);
 
-    console.log("Full transaction result:", JSON.stringify(fullTxResult, null, 2));
+    const logCount = extractLogCount(fullTxResult);
+    console.log(`📊 Total logs found in original transaction: ${logCount} logs`);
+
+    console.log("📄 Full original transaction result:", JSON.stringify(fullTxResult, null, 2));
 
     // Extract logs from all receipts in the transaction
-    let logs: string[] = [];
+    let allLogs: string[] = [];
+    let receiptInfo: Array<{receiptId: string, methodName?: string, logs: string[]}> = [];
 
     // Check transaction outcome logs
     if (fullTxResult.transaction_outcome?.outcome?.logs) {
-      logs.push(...fullTxResult.transaction_outcome.outcome.logs);
+      allLogs.push(...fullTxResult.transaction_outcome.outcome.logs);
+      receiptInfo.push({
+        receiptId: 'transaction_outcome',
+        logs: fullTxResult.transaction_outcome.outcome.logs
+      });
     }
 
     // Check all receipt outcome logs
     if (fullTxResult.receipts_outcome && Array.isArray(fullTxResult.receipts_outcome)) {
       for (const receipt of fullTxResult.receipts_outcome) {
         if (receipt.outcome && receipt.outcome.logs && Array.isArray(receipt.outcome.logs)) {
-          logs.push(...receipt.outcome.logs);
+          allLogs.push(...receipt.outcome.logs);
+
+          // Try to extract method name from receipt if available
+          let methodName = 'unknown';
+          if (receipt.outcome.executor_id && receipt.id) {
+            // We could try to match against known callback method names
+            if (receipt.outcome.logs.some(log => log.includes('Processing authentication callback'))) {
+              methodName = 'resume_authentication_callback';
+            } else if (receipt.outcome.logs.some(log => log.includes('fn finally_do_something'))) {
+              methodName = 'finally_do_something';
+            }
+          }
+
+          receiptInfo.push({
+            receiptId: receipt.id,
+            methodName,
+            logs: receipt.outcome.logs
+          });
         }
       }
     }
 
-    console.log('All extracted logs:', logs);
+    console.log('=== EXTRACTED LOGS FROM ALL RECEIPTS ===');
+    console.log('Total logs found:', allLogs.length);
+    receiptInfo.forEach((info, index) => {
+      console.log(`\nReceipt ${index + 1}: ${info.receiptId}`);
+      console.log(`Method: ${info.methodName}`);
+      console.log(`Logs (${info.logs.length}):`);
+      info.logs.forEach((log, logIndex) => {
+        console.log(`  [${logIndex}] ${log}`);
+      });
+    });
+    console.log('=== END EXTRACTED LOGS ===');
 
     // Look for authentication callback completion log
     let authenticationResult: any = null;
-    let verified = false;
+    let finallyResult: any = null;
 
-    for (const log of logs) {
+    for (const log of allLogs) {
       if (typeof log === 'string') {
         // Look for the structured authentication result
         if (log.startsWith('WEBAUTHN_AUTH_RESULT: ')) {
           const resultJson = log.substring('WEBAUTHN_AUTH_RESULT: '.length);
           try {
             authenticationResult = JSON.parse(resultJson);
-            console.log('Found structured authentication result in log:', authenticationResult);
-            break;
+            console.log('🎯 Found structured authentication result:', authenticationResult);
           } catch (parseError) {
             console.warn('Failed to parse authentication result from log:', parseError);
           }
         }
-        // Fallback: Look for the callback completion log
+        // Look for finally_do_something logs
+        else if (log.includes('fn finally_do_something')) {
+          console.log('🔧 Found finally_do_something log:', log);
+          finallyResult = log;
+        }
+        // Look for callback completion logs
         else if (log.includes('Authentication callback completed with result: verified=')) {
           const verifiedMatch = log.match(/verified=(\w+)/);
           if (verifiedMatch) {
-            verified = verifiedMatch[1] === 'true';
-            console.log('Found authentication result in callback log:', verified);
+            const verified = verifiedMatch[1] === 'true';
+            console.log('✅ Found authentication callback completion:', verified);
 
-            if (verified) {
-              // For successful authentication, we need to extract more details
-              // The contract should be updated to log structured data, but for now we'll assume success
-              authenticationResult = {
-                verified: true,
-                // Note: The contract doesn't currently log the detailed authentication info
-                // This would need to be updated in the contract to return structured data
-              };
-            } else {
-              authenticationResult = { verified: false };
+            if (!authenticationResult) {
+              // Fallback if we didn't get structured result
+              authenticationResult = verified ? { verified: true } : { verified: false };
             }
-            break;
           }
         }
-        // Also look for any error logs
+        // Look for any other interesting logs
+        else if (log.includes('FINAL RESULT:')) {
+          console.log('🏁 Found final result log:', log);
+        }
+        // Look for any error logs
         else if (log.includes('Authentication commitment mismatch') ||
                  log.includes('Authentication verification failed') ||
                  log.includes('Failed to')) {
-          console.log('Found authentication error in log:', log);
-          verified = false;
-          authenticationResult = { verified: false };
-          break;
+          console.log('❌ Found authentication error:', log);
+          authenticationResult = { verified: false, error: log };
         }
       }
     }
+
+    // Log summary of what we found
+    console.log('\n=== CALLBACK RESULTS SUMMARY ===');
+    console.log('Authentication Result:', authenticationResult);
+    console.log('Finally Result:', finallyResult);
+    console.log('=== END SUMMARY ===');
+
+    // Extract additional results from contract state (like greeting set by finally_do_something)
+    const additionalResults = await extractCallbackResults(originalTxHash);
+    console.log('📋 Additional callback results from contract state:', additionalResults);
+
+    // Verification of automatic querying success
+    console.log('\n✅ AUTOMATIC QUERYING VERIFICATION:');
+    console.log(`   ├── Original Transaction (generate_authentication_options): ${originalTxHash}`);
+    console.log(`   ├── Current Transaction (verify_authentication_response): ${currentTxHash}`);
+    console.log(`   ├── Callback Logs Found: ${authenticationResult ? '✓' : '✗'} resume_authentication_callback`);
+    console.log(`   ├── Finally Logs Found: ${finallyResult ? '✓' : '✗'} finally_do_something`);
+    console.log(`   ├── Contract State Updated: ${additionalResults.greeting ? '✓' : '✗'} greeting`);
+    console.log(`   └── Total Logs Extracted: ${logCount} logs from ${receiptInfo.length} receipts`);
 
     // Process the result
     if (authenticationResult && authenticationResult.verified === true) {
@@ -451,7 +654,8 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
 
       verification = await verifyAuthenticationResponseContract(
         body,
-        yieldResumeId
+        yieldResumeId,
+        user?.id
       );
     } else {
       // Use SimpleWebAuthn verification (original flow)
@@ -603,6 +807,122 @@ router.post('/api/action-challenge', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error generating action challenge:', error);
     return res.status(500).json({ error: error.message || 'Failed to generate action challenge' });
+  }
+});
+
+// Debug endpoint to query stored transaction hashes
+router.get('/debug/transactions', async (req: Request, res: Response) => {
+  try {
+    const transactions = Array.from(transactionHashStore.values()).map(tx => ({
+      txHash: tx.txHash,
+      purpose: tx.purpose,
+      timestamp: new Date(tx.timestamp).toISOString(),
+      explorerLink: `https://testnet.nearblocks.io/txns/${tx.txHash}?tab=execution`,
+      userId: tx.userId
+    }));
+
+    return res.json({
+      totalStored: transactions.length,
+      transactions: transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    });
+  } catch (error: any) {
+    console.error('Error fetching stored transactions:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch transactions' });
+  }
+});
+
+// Debug endpoint to query a specific transaction hash
+router.get('/debug/transaction/:txHash', async (req: Request, res: Response) => {
+  const { txHash } = req.params;
+
+  try {
+    console.log(`🔍 Querying transaction: ${txHash}`);
+
+    const txResult = await nearClient.getProvider().txStatus(txHash, nearClient.getRelayerAccount().accountId, 'FINAL' as any);
+    const logCount = extractLogCount(txResult);
+
+    // Extract logs using the same logic as authentication verification
+    let allLogs: string[] = [];
+    let receiptInfo: Array<{receiptId: string, methodName?: string, logs: string[]}> = [];
+
+    // Check transaction outcome logs
+    if (txResult.transaction_outcome?.outcome?.logs) {
+      allLogs.push(...txResult.transaction_outcome.outcome.logs);
+      receiptInfo.push({
+        receiptId: 'transaction_outcome',
+        logs: txResult.transaction_outcome.outcome.logs
+      });
+    }
+
+    // Check all receipt outcome logs
+    if (txResult.receipts_outcome && Array.isArray(txResult.receipts_outcome)) {
+      for (const receipt of txResult.receipts_outcome) {
+        if (receipt.outcome && receipt.outcome.logs && Array.isArray(receipt.outcome.logs)) {
+          allLogs.push(...receipt.outcome.logs);
+
+          // Try to extract method name from receipt if available
+          let methodName = 'unknown';
+          if (receipt.outcome.executor_id && receipt.id) {
+            if (receipt.outcome.logs.some(log => log.includes('Processing authentication callback'))) {
+              methodName = 'resume_authentication_callback';
+            } else if (receipt.outcome.logs.some(log => log.includes('fn finally_do_something'))) {
+              methodName = 'finally_do_something';
+            } else if (receipt.outcome.logs.some(log => log.includes('Generating authentication options'))) {
+              methodName = 'generate_authentication_options';
+            } else if (receipt.outcome.logs.some(log => log.includes('Resuming authentication'))) {
+              methodName = 'verify_authentication_response';
+            }
+          }
+
+          receiptInfo.push({
+            receiptId: receipt.id,
+            methodName,
+            logs: receipt.outcome.logs
+          });
+        }
+      }
+    }
+
+    // Look for structured results
+    let authResult = null;
+    let finallyResult = null;
+
+    for (const log of allLogs) {
+      if (typeof log === 'string') {
+        if (log.startsWith('WEBAUTHN_AUTH_RESULT: ')) {
+          try {
+            authResult = JSON.parse(log.substring('WEBAUTHN_AUTH_RESULT: '.length));
+          } catch (e) {
+            console.warn('Failed to parse auth result:', e);
+          }
+        } else if (log.includes('fn finally_do_something')) {
+          finallyResult = log;
+        }
+      }
+    }
+
+    return res.json({
+      txHash,
+      explorerLink: `https://testnet.nearblocks.io/txns/${txHash}?tab=execution`,
+      summary: {
+        totalLogs: logCount,
+        totalReceipts: receiptInfo.length,
+        hasAuthResult: !!authResult,
+        hasFinallyResult: !!finallyResult
+      },
+      results: {
+        authenticationResult: authResult,
+        finallyResult: finallyResult
+      },
+      receipts: receiptInfo,
+      allLogs: allLogs
+    });
+  } catch (error: any) {
+    console.error(`Error querying transaction ${txHash}:`, error);
+    return res.status(500).json({
+      error: error.message || 'Failed to query transaction',
+      txHash
+    });
   }
 });
 

@@ -65,11 +65,35 @@ class NearClient {
     // console.log(`Passkey Controller Contract ID: ${PASSKEY_CONTROLLER_CONTRACT_ID}`);
   }
 
+  public async callFunction(receiverId: string, methodName: string, args: Record<string, any>, gas: string, deposit: string): Promise<any> {
+    await this._ensureSignerAndRelayerAccount();
+    console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
+    try {
+      const result = await this.relayerAccount.signAndSendTransaction({
+        receiverId,
+        actions: [
+          // @ts-ignore
+          {
+            functionCall: {
+              methodName,
+              args: Buffer.from(JSON.stringify(args)),
+              gas: BigInt(gas),
+              deposit: BigInt(deposit)
+            }
+          }
+        ]
+      });
+      return result;
+    } catch (error) {
+      console.error(`NearClient: Error during functionCall for ${methodName} on ${this.relayerAccount.accountId}:`, error);
+      throw error;
+    }
+  }
+
   private async _executeFunctionCallAction(receiverId: string, methodName: string, args: Record<string, any>, gas: bigint, deposit: bigint): Promise<any> {
     await this._ensureSignerAndRelayerAccount();
     console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
     try {
-      // Use Account.functionCall for robust nonce management and transaction submission
       return await this.relayerAccount.callFunction({
         contractId: receiverId,
         methodName: methodName,
@@ -78,7 +102,7 @@ class NearClient {
         deposit: deposit
       });
     } catch (error) {
-      console.error(`NearClient: Error during functionCall for ${methodName} on ${receiverId} by ${this.relayerAccount.accountId}:`, error);
+      console.error(`NearClient: Error during functionCall for ${methodName} on ${this.relayerAccount.accountId}:`, error);
       throw error;
     }
   }
