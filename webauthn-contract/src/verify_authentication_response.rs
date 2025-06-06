@@ -154,6 +154,11 @@ impl WebAuthnContract {
             Err(e) => {
                 let err_msg = format!("Error parsing `auth_response` input: {:?}", e);
                 log!("{}", err_msg);
+                // Log structured error result for server to parse
+                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&serde_json::json!({
+                    "verified": false,
+                    "error": err_msg
+                })).unwrap_or_default());
                 return err_msg;
             }
         };
@@ -170,9 +175,32 @@ impl WebAuthnContract {
             yield_data.require_user_verification,
         );
 
-        // Log the verification result for server to read from transaction logs
+        // Log the verification result in structured format for server to parse
+        if result.verified && result.authentication_info.is_some() {
+            let auth_info = result.authentication_info.as_ref().unwrap();
+            let structured_result = serde_json::json!({
+                "verified": true,
+                "authentication_info": {
+                    "credential_id": auth_info.credential_id,
+                    "new_counter": auth_info.new_counter,
+                    "user_verified": auth_info.user_verified,
+                    "credential_device_type": auth_info.credential_device_type,
+                    "credential_backed_up": auth_info.credential_backed_up,
+                    "origin": auth_info.origin,
+                    "rp_id": auth_info.rp_id
+                }
+            });
+            log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&structured_result).unwrap_or_default());
+        } else {
+            let structured_result = serde_json::json!({
+                "verified": false
+            });
+            log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&structured_result).unwrap_or_default());
+        }
+
         log!("Authentication callback completed with result: verified={}", result.verified);
-        // result.verified
+
+        // Return the salt for identification purposes
         format!("FINAL RESULT: {}", yield_data.salt_b64url.to_string())
     }
 
