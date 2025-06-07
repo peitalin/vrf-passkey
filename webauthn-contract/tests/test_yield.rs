@@ -19,8 +19,8 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
 
     async fn fast_forward(sandbox: &Worker<Sandbox>, blocks: u64) -> Result<(), Box<dyn std::error::Error>> {
         sandbox.fast_forward(blocks).await?;
-        let block = sandbox.view_block().await?;
-        println!("block: {:?}", block.height());
+        // let block = sandbox.view_block().await?;
+        // println!("block: {:?}", block.height());
         Ok(())
     }
 
@@ -145,6 +145,9 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
                             println!("method_name: {:?}", method_name);
                             println!("is_promise_yield: {:?}", is_promise_yield);
                             println!("args: {:?}", args);
+                            if method_name == "callback_test" {
+                                assert!(is_promise_yield, "is_promise_yield for resume_authentication_callback should be true");
+                            }
                         }
                         _ => {}
                     }
@@ -155,8 +158,8 @@ async fn test_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let greeting = user_account.call(contract.id(), "get_greeting").transact().await?;
-    // let expected_result = "Total: 1, first: YIELDING, second: RawData2 { raw_data2: \"RESUMING\" }";
-    let expected_result = "Total: 1, first: YIELDING STRUCT, second: RawData2 { raw_data2: \"RESUMING\" }";
+    let expected_result =
+        "finally_log_result(arg=\"callback_test(raw_data1=RAWDATA1, raw_data2=RAWDATA2)\")";
     let actual_result = greeting.json::<String>()?;
     println!("\n\nget_greeting: {}", actual_result);
 

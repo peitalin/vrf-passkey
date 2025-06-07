@@ -110,10 +110,7 @@ impl WebAuthnContract {
             extensions: Some(final_extensions),
         };
 
-        // 6. Generate a unique yield_resume_id to avoid concurrency issues
-        // let register_id = self.generate_yield_resume_id();
-
-        // 7. Yield with the data
+        // 6. Yield with the data
         let yield_promise = env::promise_yield_create(
             "resume_authentication_callback",
             &serde_json::json!({
@@ -137,24 +134,24 @@ impl WebAuthnContract {
             DATA_REGISTER_ID,
         );
 
-        // The yield promise is composable with the usual promise API features. We can choose to
-        // chain another function call and it will receive the output of the `sign_on_finish`
-        // callback. Note that this chained promise can be a cross-contract call.
-        env::promise_then(
-            yield_promise,
-            env::current_account_id(),
-            "finally_do_something",
-            // "eee_arg".to_string().into_bytes().as_slice(),
-            &[],
-            NearToken::from_near(0),
-            Gas::from_tgas(10),
-        );
+        // // The yield promise is composable with the usual promise API features. We can choose to
+        // // chain another function call and it will receive the output of the `resume_authentication_callback`
+        // // callback. Note that this chained promise can be a cross-contract call.
+        // env::promise_then(
+        //     yield_promise,
+        //     env::current_account_id(),
+        //     "finally_log_result",
+        //     // "eee_arg".to_string().into_bytes().as_slice(),
+        //     &[],
+        //     NearToken::from_near(0),
+        //     Gas::from_tgas(30),
+        // );
 
-        // The return value for this function call will be the value
-        // returned by the `sign_on_finish` callback.
-        env::promise_return(yield_promise);
+        // // The return value for this function call will be the value
+        // // returned by the `resume_authentication_callback` callback.
+        // env::promise_return(yield_promise);
 
-        // Read the yield_resume_id from the register
+        // 7. Read the yield_resume_id from the register
         let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
         let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);

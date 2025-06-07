@@ -200,23 +200,11 @@ impl WebAuthnContract {
 
         log!("Authentication callback completed with result: verified={}", result.verified);
 
-        // Return the salt for identification purposes
-        format!("FINAL RESULT: {}", yield_data.salt_b64url.to_string())
-    }
-
-    pub fn finally_do_something(
-        &mut self,
-        // original_arg: String,
-        #[callback_unwrap] final_result: serde_json::Value
-    ) {
-        log!("fn finally_do_something");
-
         //// Testing only
-        let new_greeting = format!("{}", final_result);
-        self.set_greeting(new_greeting);
-        // log!("fn finally_do_something arg1: {}", &original_arg);
-        // log!("fn finally_do_something arg1: {}", &final_result);
-        // log!("fn finally_do_something arg1: {}, arg2: {}", &original_arg, &final_result);
+        let new_greeting = format!("CALLBACK RESULT: {}", yield_data.salt_b64url.to_string());
+        self.set_greeting(new_greeting.clone());
+        // Return the salt for identification purposes
+        new_greeting
     }
 
     #[private]

@@ -339,7 +339,7 @@ async function extractCallbackResults(txHash: string): Promise<{greeting?: strin
     // Give callbacks time to complete and update contract state
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Query the contract state to see what finally_do_something set
+    // Query the contract state to see what resume_authentication_callback set
     const greeting = await nearClient.getGreeting();
     console.log('📋 Contract greeting after callbacks:', greeting);
 
@@ -438,7 +438,7 @@ async function verifyAuthenticationResponseContract(
   console.log(`   ├── Original txHash: ${originalTxHash}`);
   console.log('   ├── Will automatically query original transaction after 5 seconds');
   console.log('   ├── Tracking by user session instead of yield_resume_id');
-  console.log('   └── Looking for: resume_authentication_callback & finally_do_something logs');
+  console.log('   └── Looking for: resume_authentication_callback logs');
 
   // Step 2: Wait 5 seconds then query the original transaction for callback results
   console.log('Step 2: Waiting 5 seconds for callback execution in original transaction...');
@@ -479,8 +479,6 @@ async function verifyAuthenticationResponseContract(
             // We could try to match against known callback method names
             if (receipt.outcome.logs.some(log => log.includes('Processing authentication callback'))) {
               methodName = 'resume_authentication_callback';
-            } else if (receipt.outcome.logs.some(log => log.includes('fn finally_do_something'))) {
-              methodName = 'finally_do_something';
             }
           }
 
@@ -521,11 +519,6 @@ async function verifyAuthenticationResponseContract(
             console.warn('Failed to parse authentication result from log:', parseError);
           }
         }
-        // Look for finally_do_something logs
-        else if (log.includes('fn finally_do_something')) {
-          console.log('🔧 Found finally_do_something log:', log);
-          finallyResult = log;
-        }
         // Look for callback completion logs
         else if (log.includes('Authentication callback completed with result: verified=')) {
           const verifiedMatch = log.match(/verified=(\w+)/);
@@ -559,7 +552,7 @@ async function verifyAuthenticationResponseContract(
     console.log('Finally Result:', finallyResult);
     console.log('=== END SUMMARY ===');
 
-    // Extract additional results from contract state (like greeting set by finally_do_something)
+    // Extract additional results from contract state (like greeting set by resume_authentication_response)
     const additionalResults = await extractCallbackResults(originalTxHash);
     console.log('📋 Additional callback results from contract state:', additionalResults);
 
