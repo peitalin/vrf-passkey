@@ -389,6 +389,27 @@ async function verifyAuthenticationResponseContract(
   }
 }
 
+// Background contract update for optimistic authentication
+async function updateContractInBackground(
+  credentialId: string,
+  newCounter: number,
+  nearAccountId: string
+): Promise<void> {
+  try {
+    console.log(`🔄 Background update: updating counter for ${credentialId} to ${newCounter}`);
+    await authenticatorService.updateCounter(
+      credentialId,
+      newCounter,
+      new Date(),
+      nearAccountId
+    );
+    console.log(`✅ Background update successful for ${credentialId}`);
+  } catch (error) {
+    console.error(`❌ Background update failed for ${credentialId}:`, error);
+    // Don't throw - this is fire-and-forget
+  }
+}
+
 // Verify authentication
 router.post('/verify-authentication', async (req: Request, res: Response) => {
   const body: AuthenticationResponseJSON = req.body;
@@ -398,7 +419,9 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   }
 
   const commitmentId = (req.body as any).commitmentId;
-  if (config.useContractMethod && !commitmentId) {
+  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
+
+  if (config.useContractMethod && !useOptimistic && !commitmentId) {
     return res.status(400).json({ error: 'commitmentId is required for contract method' });
   }
 
@@ -425,9 +448,52 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   try {
     let verification: { verified: boolean; authenticationInfo?: any };
 
-    if (config.useContractMethod) {
-      // Add logging before calling the verification function
-      console.log('Handing off to `verifyAuthenticationResponseContract`.');
+    if (useOptimistic) {
+      // Optimistic mode: Use SimpleWebAuthn for immediate verification
+      console.log('Using optimistic authentication with SimpleWebAuthn');
+
+      let clientChallenge: string;
+      try {
+        const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
+        const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
+        clientChallenge = clientData.challenge;
+        if (!clientChallenge) {
+          return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
+        }
+      } catch (parseError) {
+        return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
+      }
+
+      const expectedChallenge = user.currentChallenge;
+      if (!expectedChallenge) {
+        return res.status(400).json({ error: 'No challenge found for user.' });
+      }
+
+      verification = await verifyAuthenticationResponseSimpleWebAuthn({
+        response: body,
+        expectedChallenge,
+        expectedOrigin: config.expectedOrigin,
+        expectedRPID: config.rpID,
+        authenticator: {
+          credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
+          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+          counter: authenticator.counter as number,
+          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+        },
+        requireUserVerification: true,
+      });
+
+      // Background contract update (fire and forget)
+      if (verification.verified && verification.authenticationInfo && user?.nearAccountId) {
+        updateContractInBackground(
+          authenticator.credentialID,
+          verification.authenticationInfo.newCounter,
+          user.nearAccountId
+        );
+      }
+    } else if (config.useContractMethod) {
+      // Synchronous mode: Wait for contract verification
+      console.log('Using synchronous authentication with contract verification');
       const { commitmentId: _, ...authResponseForContract } = req.body as any;
       verification = await verifyAuthenticationResponseContract(
         authResponseForContract,
@@ -468,7 +534,8 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     }
 
     if (verification.verified && verification.authenticationInfo) {
-      if (user?.nearAccountId) {
+      // Only update counter synchronously if not using optimistic mode
+      if (!useOptimistic && user?.nearAccountId) {
         await authenticatorService.updateCounter(
           authenticator.credentialID,
           verification.authenticationInfo.new_counter,

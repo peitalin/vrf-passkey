@@ -13,6 +13,7 @@ import {
   RELAYER_ACCOUNT_ID,
   WEBAUTHN_CONTRACT_ID
 } from '../config';
+import { useSettings } from './SettingsContext';
 
 
 
@@ -110,6 +111,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
+
+  const { useOptimisticAuth } = useSettings();
 
 
   const getRpcProvider = () => {
@@ -347,6 +350,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const verificationPayload: any = {
         ...assertionJSON,
         commitmentId,
+        useOptimistic: useOptimisticAuth,
       };
 
       // Step 4: Send assertion to server for verification
@@ -394,7 +398,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [username, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
+  }, [username, useOptimisticAuth, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
 
   const logoutPasskey = useCallback(() => {
     setIsLoggedIn(false);

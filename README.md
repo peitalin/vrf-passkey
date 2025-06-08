@@ -1,8 +1,19 @@
 # Passkey Example Repo
 
-This project contains:
--   `/frontend`: React/Vite frontend application and its Caddyfile.
--   `/server`: Webauthn backend server.
+**How It Works:**
+Fast Auth (Optimistic Mode):
+✅ Immediate SimpleWebAuthn verification
+✅ Instant response to user
+✅ Background contract update (fire-and-forget)
+✅ Much faster UX
+
+**Secure Auth (Contract Sync Mode):**
+✅ Full contract verification before response
+✅ On-chain commitment validation
+✅ Maximum security
+The toggle defaults to synchronous mode for security, but users can switch to optimistic mode for faster authentication. The setting persists across sessions via localStorage.
+Try toggling between the modes and notice the speed difference during authentication!
+
 
 ## Prerequisites
 

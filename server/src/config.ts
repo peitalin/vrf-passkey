@@ -13,6 +13,7 @@ const config = {
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
   databasePath: '../../passkey_users.db', // relative to the src/database directory
   useContractMethod: true,
+  useOptimisticAuth: process.env.USE_OPTIMISTIC_AUTH === 'true' || false, // Flag for optimistic authentication
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
   contractId: process.env.CONTRACT_ID || 'webauthn-contract.testnet',

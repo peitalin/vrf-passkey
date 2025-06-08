@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { usePasskeyContext } from '../contexts/PasskeyContext'
+import { useSettings } from '../contexts/SettingsContext'
 import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './RefreshIcon'
@@ -28,6 +29,8 @@ export function PasskeyLogin() {
     fetchCurrentGreeting,
     logoutPasskey,
   } = usePasskeyContext();
+
+  const { useOptimisticAuth, setUseOptimisticAuth } = useSettings();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
@@ -238,6 +241,28 @@ export function PasskeyLogin() {
               className="styled-input"
             />
           </div>
+
+          <div className="auth-mode-toggle">
+            <label className="toggle-label">
+              <input
+                type="checkbox"
+                checked={useOptimisticAuth}
+                onChange={(e) => setUseOptimisticAuth(e.target.checked)}
+                className="toggle-checkbox"
+              />
+              <span className="toggle-slider"></span>
+              <span className="toggle-text">
+                {useOptimisticAuth ? 'Fast Auth (Optimistic)' : 'Secure Auth (Contract Sync)'}
+              </span>
+            </label>
+            <div className="auth-mode-description">
+              {useOptimisticAuth
+                ? 'Immediate response with background contract update'
+                : 'Wait for contract verification before response'
+              }
+            </div>
+          </div>
+
           <div className="auth-buttons">
             <button onClick={onRegister} className="action-button"
               disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>

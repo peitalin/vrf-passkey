@@ -6,6 +6,7 @@ import TestOnetimeWorker from './pages/TestOnetimeWorker';
 import TestNearAccount from './pages/TestNearAccount';
 import { Navbar } from './components/Navbar';
 import { PasskeyContextProvider } from './contexts/PasskeyContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import './index.css';
 import { Toaster } from 'react-hot-toast';
 
@@ -20,15 +21,17 @@ function App() {
   return (
     <React.StrictMode>
       <BrowserRouter>
-        <PasskeyContextProvider>
-          <Toaster position="bottom-center" reverseOrder={false} />
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/test-onetime-worker" element={<TestOnetimeWorker />} />
-            <Route path="/test-near-account" element={<TestNearAccount />} />
-          </Routes>
-        </PasskeyContextProvider>
+        <SettingsProvider>
+          <PasskeyContextProvider>
+            <Toaster position="bottom-center" reverseOrder={false} />
+            <Navbar />
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/test-onetime-worker" element={<TestOnetimeWorker />} />
+              <Route path="/test-near-account" element={<TestNearAccount />} />
+            </Routes>
+          </PasskeyContextProvider>
+        </SettingsProvider>
       </BrowserRouter>
     </React.StrictMode>
   );
