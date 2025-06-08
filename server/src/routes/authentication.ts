@@ -9,11 +9,12 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { createHash, randomBytes } from 'crypto';
 
 import config, { DEFAULT_GAS_STRING, AUTHENTICATION_VERIFICATION_GAS_STRING } from '../config';
-import { userOperations, authenticatorOperations, mapToStoredAuthenticator } from '../database';
+import { userOperations } from '../database';
 import { actionChallengeStore } from '../challengeStore';
 import { nearClient } from '../nearService';
 import type { User, StoredAuthenticator, SerializableActionArgs } from '../types';
 import { ActionType } from '../types'
+import { authenticatorService } from '../authenticatorService';
 
 const router = Router();
 
@@ -272,8 +273,8 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       const userRec = userOperations.findByUsername(username);
       if (userRec) {
         userForChallengeStorageInDB = userRec;
-        const rawUserAuthenticators = authenticatorOperations.findByUserId(userRec.id);
-        const userAuthenticators: StoredAuthenticator[] = rawUserAuthenticators.map(mapToStoredAuthenticator);
+        const userAuthenticators: StoredAuthenticator[] = userRec.nearAccountId ?
+          await authenticatorService.findByUserId(userRec.nearAccountId) : [];
 
         if (userAuthenticators.length > 0) {
           firstAuthenticator = userAuthenticators[0]; // Use first authenticator for contract call
@@ -397,12 +398,16 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   let user: User | undefined;
   let authenticator: StoredAuthenticator | undefined;
 
-  const rawAuth = authenticatorOperations.findByCredentialId(body.rawId);
-  if (!rawAuth) {
+  // Try to find authenticator by credential ID
+  // First try to find the user who might have this authenticator
+  let potentialUser: User | undefined;
+
+  // Global search through cache for this credential ID
+  authenticator = await authenticatorService.findByCredentialId(body.rawId);
+  if (!authenticator) {
     return res.status(404).json({ error: `Authenticator '${body.rawId}' not found.` });
   }
 
-  authenticator = mapToStoredAuthenticator(rawAuth);
   user = userOperations.findById(authenticator.userId);
 
   if (!user) {
@@ -455,11 +460,14 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     }
 
     if (verification.verified && verification.authenticationInfo) {
-      authenticatorOperations.updateCounter(
-        authenticator.credentialID,
-        verification.authenticationInfo.new_counter,
-        new Date().toISOString()
-      );
+      if (user?.nearAccountId) {
+        await authenticatorService.updateCounter(
+          authenticator.credentialID,
+          verification.authenticationInfo.new_counter,
+          new Date(),
+          user.nearAccountId
+        );
+      }
 
       // Clear the challenge and commitment from user record
       userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
@@ -506,7 +514,11 @@ router.post('/api/action-challenge', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    const authenticatorRecord = authenticatorOperations.getLatestByUserId(userRecord.id);
+    if (!userRecord.nearAccountId) {
+      return res.status(400).json({ error: 'User has no NEAR account ID.' });
+    }
+
+    const authenticatorRecord = await authenticatorService.getLatestByUserId(userRecord.nearAccountId);
     if (!authenticatorRecord) {
       return res.status(404).json({
         error: 'No registered passkey found for this user to sign the action.'

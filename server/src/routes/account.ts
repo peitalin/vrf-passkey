@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { PublicKey } from '@near-js/crypto';
 
 import config from '../config';
-import { userOperations, authenticatorOperations } from '../database';
+import { userOperations } from '../database';
+import { authenticatorService } from '../authenticatorService';
 import { nearClient } from '../nearService';
 
 const router = Router();
@@ -72,11 +73,30 @@ router.post('/api/associate-account-pk', async (req: Request, res: Response) => 
       });
     }
 
-    // Update authenticator with client-managed key
-    const updateResult = authenticatorOperations.updateClientManagedKey(user.id, clientNearPublicKey);
-    if (updateResult.changes === 0) {
-      console.warn(`No authenticator found for user ${username} to associate clientManagedNearPublicKey, or no update made.`);
-    }
+          // Update authenticator with client-managed key
+      if (!user.nearAccountId) {
+        return res.status(400).json({
+          error: 'User has no NEAR account ID. Cannot update authenticator.'
+        });
+      }
+
+      // Get the latest authenticator for this user
+      const latestAuthenticator = await authenticatorService.getLatestByUserId(user.nearAccountId);
+      if (latestAuthenticator) {
+        const updateResult = await authenticatorService.updateClientManagedKey(
+          latestAuthenticator.credentialID,
+          clientNearPublicKey,
+          user.nearAccountId
+        );
+
+        if (!updateResult) {
+          console.warn(`Failed to update authenticator for user ${username} with clientManagedNearPublicKey.`);
+        } else {
+          console.log(`Updated authenticator ${latestAuthenticator.credentialID} with client NEAR public key.`);
+        }
+      } else {
+        console.warn(`No authenticator found for user ${username} to associate clientManagedNearPublicKey.`);
+      }
 
     return res.json({
       success: true,

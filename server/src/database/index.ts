@@ -28,89 +28,126 @@ export const initDB = () => {
     );
   `);
 
+  // Authenticators cache table - mirrors on-chain state
   db.exec(`
-    CREATE TABLE IF NOT EXISTS authenticators (
-      credentialID TEXT PRIMARY KEY,       -- Base64URL encoded string
-      credentialPublicKey BLOB NOT NULL, -- Raw COSE key bytes
+    CREATE TABLE IF NOT EXISTS authenticators_cache (
+      nearAccountId TEXT NOT NULL,
+      credentialID TEXT NOT NULL,
+      credentialPublicKey BLOB NOT NULL,
       counter INTEGER NOT NULL,
-      transports TEXT NULLABLE,          -- JSON string array of AuthenticatorTransportFuture[]
-      userId TEXT NOT NULL,              -- Foreign key to users.id
-      clientManagedNearPublicKey TEXT NULLABLE, -- Client-managed NEAR public key
-      name TEXT NULLABLE,                -- User-friendly authenticator name
+      transports TEXT NULLABLE,          -- JSON string array
+      clientManagedNearPublicKey TEXT NULLABLE,
+      name TEXT NULLABLE,
       registered TEXT NOT NULL,          -- ISO date string
       lastUsed TEXT NULLABLE,            -- ISO date string
       backedUp INTEGER NOT NULL,         -- 0 for false, 1 for true
-      FOREIGN KEY (userId) REFERENCES users(id)
+      syncedAt TEXT NOT NULL,            -- When this cache entry was last synced with contract
+      PRIMARY KEY (nearAccountId, credentialID)
     );
   `);
 
-  console.log('Simplified database tables initialized at', dbFilePath);
+  console.log('Database tables (including authenticators cache) initialized at', dbFilePath);
 };
 
-export const authenticatorOperations = {
-  findByUserId: (userId: string): any[] => {
-    return db.prepare('SELECT * FROM authenticators WHERE userId = ?').all(userId);
+export const authenticatorCacheOperations = {
+  findByUserId: (nearAccountId: string): any[] => {
+    return db.prepare('SELECT * FROM authenticators_cache WHERE nearAccountId = ?').all(nearAccountId);
   },
 
-  findByCredentialId: (credentialId: string): any | undefined => {
-    return db.prepare('SELECT * FROM authenticators WHERE credentialID = ?').get(credentialId);
+  findByCredentialId: (nearAccountId: string, credentialId: string): any | undefined => {
+    return db.prepare('SELECT * FROM authenticators_cache WHERE nearAccountId = ? AND credentialID = ?').get(nearAccountId, credentialId);
   },
 
-  create: (authenticator: {
+  findByCredentialIdGlobal: (credentialId: string): any | undefined => {
+    return db.prepare('SELECT * FROM authenticators_cache WHERE credentialID = ?').get(credentialId);
+  },
+
+  upsert: (authenticator: {
+    nearAccountId: string;
     credentialID: string;
     credentialPublicKey: Buffer;
     counter: number;
-    transports: string;
-    userId: string;
-    name?: string | null;
+    transports: string | null;
+    clientManagedNearPublicKey: string | null;
+    name: string | null;
     registered: string;
-    backedUp: number; // 0 or 1
-    clientManagedNearPublicKey?: string | null;
+    lastUsed: string | null;
+    backedUp: number;
   }) => {
+    const syncedAt = new Date().toISOString();
     return db.prepare(`
-      INSERT INTO authenticators (
-        credentialID, credentialPublicKey, counter, transports, userId,
-        name, registered, lastUsed, backedUp, clientManagedNearPublicKey
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO authenticators_cache (
+        nearAccountId, credentialID, credentialPublicKey, counter, transports,
+        clientManagedNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
+      authenticator.nearAccountId,
       authenticator.credentialID,
       authenticator.credentialPublicKey,
       authenticator.counter,
       authenticator.transports,
-      authenticator.userId,
-      authenticator.name || null,
+      authenticator.clientManagedNearPublicKey,
+      authenticator.name,
       authenticator.registered,
-      null, // lastUsed is null on creation
+      authenticator.lastUsed,
       authenticator.backedUp,
-      authenticator.clientManagedNearPublicKey || null
+      syncedAt
     );
   },
 
-  updateCounter: (credentialId: string, counter: number, lastUsed: string) => {
-    return db.prepare('UPDATE authenticators SET counter = ?, lastUsed = ? WHERE credentialID = ?').run(
-      counter,
-      lastUsed,
-      credentialId
-    );
+  updateCounter: (nearAccountId: string, credentialId: string, counter: number, lastUsed: string) => {
+    const syncedAt = new Date().toISOString();
+    return db.prepare(`
+      UPDATE authenticators_cache
+      SET counter = ?, lastUsed = ?, syncedAt = ?
+      WHERE nearAccountId = ? AND credentialID = ?
+    `).run(counter, lastUsed, syncedAt, nearAccountId, credentialId);
   },
-  // This is the primary way to link a client's NEAR key to their passkey/authenticator record
-  updateClientManagedKey: (credentialID: string, clientNearPublicKey: string) => {
-    return db.prepare('UPDATE authenticators SET clientManagedNearPublicKey = ? WHERE credentialID = ?').run(
-      clientNearPublicKey,
-      credentialID
-    );
+
+  updateClientManagedKey: (nearAccountId: string, credentialID: string, clientNearPublicKey: string) => {
+    const syncedAt = new Date().toISOString();
+    return db.prepare(`
+      UPDATE authenticators_cache
+      SET clientManagedNearPublicKey = ?, syncedAt = ?
+      WHERE nearAccountId = ? AND credentialID = ?
+    `).run(clientNearPublicKey, syncedAt, nearAccountId, credentialID);
   },
-  getLatestByUserId: (userId: string): { credentialID: string } | undefined => {
-    return db.prepare('SELECT credentialID FROM authenticators WHERE userId = ? ORDER BY registered ASC LIMIT 1').get(userId) as { credentialID: string } | undefined;
+
+  getLatestByUserId: (nearAccountId: string): { credentialID: string } | undefined => {
+    return db.prepare(`
+      SELECT credentialID
+      FROM authenticators_cache
+      WHERE nearAccountId = ?
+      ORDER BY registered ASC
+      LIMIT 1
+    `).get(nearAccountId) as { credentialID: string } | undefined;
+  },
+
+  deleteStale: (nearAccountId: string, validCredentialIds: string[]) => {
+    if (validCredentialIds.length === 0) {
+      // Delete all entries for this user
+      return db.prepare('DELETE FROM authenticators_cache WHERE nearAccountId = ?').run(nearAccountId);
+    } else {
+      // Delete entries not in the valid list
+      const placeholders = validCredentialIds.map(() => '?').join(',');
+      return db.prepare(`
+        DELETE FROM authenticators_cache
+        WHERE nearAccountId = ? AND credentialID NOT IN (${placeholders})
+      `).run(nearAccountId, ...validCredentialIds);
+    }
+  },
+
+  clear: (nearAccountId: string) => {
+    return db.prepare('DELETE FROM authenticators_cache WHERE nearAccountId = ?').run(nearAccountId);
   },
 };
 
-export const mapToStoredAuthenticator = (rawAuth: any): StoredAuthenticator => ({
+export const mapCachedToStoredAuthenticator = (rawAuth: any): StoredAuthenticator => ({
   credentialID: rawAuth.credentialID,
-  credentialPublicKey: new Uint8Array(rawAuth.credentialPublicKey), // Convert Buffer from SQLite to Uint8Array
+  credentialPublicKey: new Uint8Array(rawAuth.credentialPublicKey),
   counter: rawAuth.counter,
   transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : undefined,
-  userId: rawAuth.userId,
+  userId: rawAuth.nearAccountId, // Map nearAccountId to userId for compatibility
   name: rawAuth.name,
   registered: new Date(rawAuth.registered),
   lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,

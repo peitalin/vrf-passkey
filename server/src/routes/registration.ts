@@ -10,7 +10,8 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { decodeAttestationObject, parseAuthenticatorData } from '@simplewebauthn/server/helpers';
 
 import config, { DEFAULT_GAS_STRING, VERIFY_REGISTRATION_RESPONSE_GAS_STRING } from '../config';
-import { userOperations, authenticatorOperations } from '../database';
+import { userOperations } from '../database';
+import { authenticatorService } from '../authenticatorService';
 import { nearClient } from '../nearService';
 import type { User } from '../types';
 
@@ -122,7 +123,8 @@ async function getRegistrationOptions(
     console.log(`Existing user found for registration: ${usernameInput}, ID: ${user.id}`);
   }
 
-  const rawAuthenticators = authenticatorOperations.findByUserId(user.id);
+      const rawAuthenticators = user.nearAccountId ?
+      await authenticatorService.findByUserId(user.nearAccountId) : [];
 
   if (useContractMethod) {
     return getRegistrationOptionsContract(user, rawAuthenticators);
@@ -395,17 +397,19 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
       const publicKeyForDB = Buffer.from(rawPublicKeyBuffer);
       const counterForDB = counter || 0;
 
-      authenticatorOperations.create({
-        credentialID: credentialIDForDB,
-        credentialPublicKey: publicKeyForDB,
-        counter: counterForDB,
-        transports: JSON.stringify(attestationResponse.response.transports || []),
-        userId: user.id,
-        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
-        registered: new Date().toISOString(),
-        backedUp: credentialBackedUp ? 1 : 0,
-        clientManagedNearPublicKey: null,
-      });
+      if (user.nearAccountId) {
+        await authenticatorService.create({
+          credentialID: credentialIDForDB,
+          credentialPublicKey: new Uint8Array(publicKeyForDB),
+          counter: counterForDB,
+          transports: attestationResponse.response.transports || [],
+          nearAccountId: user.nearAccountId,
+          name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
+          registered: new Date(),
+          backedUp: credentialBackedUp || false,
+          clientManagedNearPublicKey: null,
+        });
+      }
 
       userOperations.updateChallengeAndCommitmentId(user.id, null, null);
       console.log('Registration verification successful for:', username);
