@@ -248,7 +248,7 @@ async function generateAuthenticationOptions(
         timeout: simpleWebAuthnResult.timeout,
         rpId: simpleWebAuthnResult.rpId,
         allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
-          id: isoBase64URL.fromBuffer(Buffer.from(cred.id)),
+          id: cred.id, // SimpleWebAuthn returns base64url string, pass through directly
           type: cred.type,
           transports: cred.transports,
         })),
@@ -263,6 +263,7 @@ async function generateAuthenticationOptions(
 // Generate authentication options
 router.post('/generate-authentication-options', async (req: Request, res: Response) => {
   const { username } = req.body;
+  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
 
   try {
     let allowCredentialsList: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[] | undefined = undefined;
@@ -296,16 +297,48 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       }
     }
 
-    if (!firstAuthenticator && config.useContractMethod) {
+    // Only require authenticator for synchronous contract method
+    if (!useOptimistic && !firstAuthenticator && config.useContractMethod) {
       return res.status(400).json({ error: 'No authenticator found for user - required for contract method' });
     }
 
-    const response = await generateAuthenticationOptions({
-      rpID: config.rpID,
-      userVerification: 'preferred',
-      allowCredentials: allowCredentialsList,
-      authenticator: firstAuthenticator!,
-    });
+    let response: ContractAuthenticationOptionsResponse;
+
+    if (useOptimistic) {
+      // Fast mode: Use SimpleWebAuthn without contract call
+      console.log('Using fast authentication options generation (SimpleWebAuthn)');
+      const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
+        rpID: config.rpID,
+        allowCredentials: allowCredentialsList,
+        userVerification: 'preferred',
+      });
+
+      // Convert SimpleWebAuthn response to match contract format
+      response = {
+        options: {
+          challenge: simpleWebAuthnResult.challenge,
+          timeout: simpleWebAuthnResult.timeout,
+          rpId: simpleWebAuthnResult.rpId,
+          allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
+            id: cred.id, // Pass through the base64url string directly
+            type: cred.type,
+            transports: cred.transports,
+          })),
+          userVerification: simpleWebAuthnResult.userVerification,
+          extensions: simpleWebAuthnResult.extensions,
+        },
+        commitmentId: undefined, // No commitment for fast mode
+      };
+    } else {
+      // Secure mode: Use contract method with on-chain commitment
+      console.log('Using secure authentication options generation (contract)');
+      response = await generateAuthenticationOptions({
+        rpID: config.rpID,
+        userVerification: 'preferred',
+        allowCredentials: allowCredentialsList,
+        authenticator: firstAuthenticator!,
+      });
+    }
 
     if (userForChallengeStorageInDB) {
       userOperations.updateAuthChallengeAndCommitmentId(userForChallengeStorageInDB.id, response.options.challenge, response.commitmentId || null);
@@ -319,17 +352,20 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       console.log(`Stored challenge ${response.options.challenge} in actionChallengeStore for discoverable login.`);
     }
 
-    console.log('Generated authentication options:', JSON.stringify(response, null, 2));
+        console.log('Generated authentication options:', JSON.stringify(response, null, 2));
 
     // The contract response for options is now nested.
     // The top-level response has `options` and `commitmentId`.
     // The response to the client should be a flat object.
     const userForNearId = username ? userOperations.findByUsername(username) : undefined;
-    return res.json({
+    const finalResponse = {
       ...response.options, // Spread the nested options
       nearAccountId: userForNearId?.nearAccountId,
       commitmentId: response.commitmentId, // Add commitmentId at the top level
-    });
+    };
+
+    console.log(`🔍 Final response allowCredentials: ${finalResponse.allowCredentials?.length || 0} credentials`);
+    return res.json(finalResponse);
 
   } catch (e: any) {
     console.error('Error generating authentication options:', e);

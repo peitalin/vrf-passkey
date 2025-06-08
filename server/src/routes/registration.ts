@@ -393,7 +393,11 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         throw new Error('Verification succeeded but registration info was incomplete.');
       }
 
-      const credentialIDForDB = isoBase64URL.fromBuffer(rawCredentialIDBuffer);
+
+
+      // The contract returns the raw credential ID bytes.
+      // We need to encode them as base64url to match the browser's credential ID format.
+      const credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
       const publicKeyForDB = Buffer.from(rawPublicKeyBuffer);
       const counterForDB = counter || 0;
 

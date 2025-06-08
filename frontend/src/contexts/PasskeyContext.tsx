@@ -322,7 +322,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userToLogin ? { username: userToLogin } : {}),
+        body: JSON.stringify(userToLogin ? { username: userToLogin, useOptimistic: useOptimisticAuth } : { useOptimistic: useOptimisticAuth }),
       });
       if (!authOptionsResponse.ok) {
         const errorData = await authOptionsResponse.json().catch(() => ({ error: 'Failed to fetch auth options' }));
