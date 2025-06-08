@@ -3,7 +3,7 @@ use base64::Engine as TestEngine;
 use serde_json::json;
 use near_workspaces::types::Gas;
 use sha2::{Sha256, Digest};
-use webauthn_contract::{AuthenticationOptionsJSON, VerifiedAuthenticationResponse};
+use webauthn_contract::{AuthenticationOptionsJSON, VerifiedAuthenticationResponse, UserIdYieldId};
 
 #[tokio::test]
 async fn test_contract_authentication_on_chain_commitment_flow() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,14 +56,16 @@ async fn test_contract_authentication_on_chain_commitment_flow() -> Result<(), B
 
     println!("generate_authentication_options succeeded, got commitmentId: {}", commitment_id);
 
-    // Check that the prune ID exists after generation
-    let prune_id_after_generate: Option<Vec<u8>> = user_account
+    // Check that the user_id associated with the commitment is the caller
+    let pending_data: Option<UserIdYieldId> = user_account
         .view(contract.id(), "get_pending_prune_id")
-        .args_json(json!({"commitment_id": commitment_id}))
+        .args_json(json!({"commitment_id": commitment_id.clone()}))
         .await?
         .json()?;
-    assert!(prune_id_after_generate.is_some(), "Prune ID should exist after generation");
-    println!("generate_authentication_options also yielded a prune callback with yield_resume_id: {:?}", TEST_BASE64_URL_ENGINE.encode(&prune_id_after_generate.unwrap()));
+
+    let pending_user_id = pending_data.expect("Pending data should exist").user_id;
+    assert_eq!(pending_user_id, user_account.id().to_string(), "Pending user ID should match the caller");
+    println!("Successfully verified that pending user_id matches caller");
 
     // Step 2: Prepare mock AuthenticationResponseJSON for verify_authentication_response
     let mock_authentication_response = create_mock_authentication_response_for_test(
@@ -93,13 +95,15 @@ async fn test_contract_authentication_on_chain_commitment_flow() -> Result<(), B
     // This will be false because we are using a mock signature, but it proves the flow works
     assert!(!verification_result.verified, "Verification should fail with mock signature, but flow is successful");
 
-    // Check that the prune ID has been cleaned up
-    let prune_id_after_verify: Option<Vec<u8>> = user_account
+    sandbox.fast_forward(1).await?;
+
+    // Check that the data has been cleaned up
+    let data_after_verify: Option<UserIdYieldId> = user_account
         .view(contract.id(), "get_pending_prune_id")
-        .args_json(json!({"commitment_id": commitment_id}))
+        .args_json(json!({"commitment_id": commitment_id }))
         .await?
         .json()?;
-    assert!(prune_id_after_verify.is_none(), "Prune ID should be cleaned up after verification");
+    assert!(data_after_verify.is_none(), "Pending data should be cleaned up after verification");
 
     println!("\n\nOn-chain commitment authentication flow test completed successfully.");
 

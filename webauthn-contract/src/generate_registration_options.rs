@@ -5,6 +5,7 @@ use super::{WebAuthnContract, WebAuthnContractExt};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near, Gas, GasWeight};
+use crate::UserIdYieldId;
 
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone, PartialEq)]
@@ -323,7 +324,13 @@ impl WebAuthnContract {
         // Read the yield_resume_id from the register and store it for explicit pruning
         let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
-        self.pending_prunes.insert(commitment_id.clone(), yield_resume_id_bytes.clone());
+        self.pending_prunes.insert(
+            commitment_id.clone(),
+            UserIdYieldId {
+                user_id: env::predecessor_account_id(),
+                yield_resume_id: yield_resume_id_bytes.clone(),
+            }
+        );
 
         let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
         log!("Yielding prune callback with yield_resume_id: {}", yield_resume_id_b64url);

@@ -97,6 +97,7 @@ async function openDB(): Promise<IDBDatabase> {
 }
 
 async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
+  console.log(`WORKER: Storing encrypted key for derpAccountId: "${data.derpAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readwrite');
   const store = transaction.objectStore(STORE_NAME);
@@ -104,10 +105,12 @@ async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = store.put(data);
     request.onsuccess = () => {
+      console.log(`WORKER: Successfully stored key for derpAccountId: "${data.derpAccountId}"`);
       db.close();
       resolve();
     };
-    request.onerror = () => {
+    request.onerror = (event) => {
+      console.error(`WORKER: FAILED to store key for derpAccountId: "${data.derpAccountId}"`, (event.target as any).error);
       db.close();
       reject(request.error);
     };
@@ -115,6 +118,7 @@ async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
 }
 
 async function getEncryptedKey(derpAccountId: string): Promise<EncryptedKeyData | null> {
+  console.log(`WORKER: Retrieving encrypted key for derpAccountId: "${derpAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readonly');
   const store = transaction.objectStore(STORE_NAME);
@@ -122,10 +126,12 @@ async function getEncryptedKey(derpAccountId: string): Promise<EncryptedKeyData 
   return new Promise((resolve, reject) => {
     const request = store.get(derpAccountId);
     request.onsuccess = () => {
+      console.log(`WORKER: Retrieved data for "${derpAccountId}":`, request.result);
       db.close();
       resolve(request.result || null);
     };
-    request.onerror = () => {
+    request.onerror = (event) => {
+      console.error(`WORKER: FAILED to retrieve key for derpAccountId: "${derpAccountId}"`, (event.target as any).error);
       db.close();
       reject(request.error);
     };
@@ -209,52 +215,51 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
 async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfMessage['payload']) {
   const { prfOutput, derpAccountId } = payload;
+  console.log('WORKER: Entered handleEncryptPrivateKeyWithPrf for', derpAccountId);
 
   try {
-    // Generate and encrypt key pair using PRF-derived key
+    console.log('WORKER: Calling WASM generate_and_encrypt_near_keypair_with_prf...');
     const resultJson = generate_and_encrypt_near_keypair_with_prf(prfOutput);
+    console.log('WORKER: WASM returned:', typeof resultJson, resultJson);
 
-    console.log('WORKER: WASM PRF function returned:', typeof resultJson, resultJson);
-
-    // Check if resultJson is already an object or a string
     let result;
+    console.log('WORKER: Parsing resultJson...');
     if (typeof resultJson === 'string') {
       result = JSON.parse(resultJson);
     } else {
       result = resultJson;
     }
+    console.log('WORKER: Parsed result:', result);
 
-    console.log('WORKER: Parsed PRF result:', result);
-
-    // result.encryptedPrivateKey should be a JSON string from WASM, parse it
     let encryptedPrivateKey;
+    console.log('WORKER: Parsing result.encryptedPrivateKey...');
     if (typeof result.encryptedPrivateKey === 'string') {
       encryptedPrivateKey = JSON.parse(result.encryptedPrivateKey);
     } else {
       encryptedPrivateKey = result.encryptedPrivateKey;
     }
+    console.log('WORKER: Parsed encryptedPrivateKey:', encryptedPrivateKey);
 
-    console.log('WORKER: Encrypted private key (PRF):', encryptedPrivateKey);
-
-    // Store in IndexedDB
+    console.log('WORKER: PREPARING to store key in IndexedDB...');
     await storeEncryptedKey({
       derpAccountId,
       encryptedData: encryptedPrivateKey.encrypted_data_b64u,
       iv: encryptedPrivateKey.iv_b64u,
       timestamp: Date.now()
     });
+    console.log('WORKER: Finished storing key.');
 
+    console.log('WORKER: Posting ENCRYPTION_SUCCESS message.');
     self.postMessage({
       type: 'ENCRYPTION_SUCCESS',
       payload: {
         derpAccountId,
         publicKey: result.publicKey,
         stored: true,
-        // No KDF inputs to return when using PRF!
       }
     });
   } catch (error: any) {
-    console.error('WORKER: PRF encryption failed:', error);
+    console.error('WORKER: PRF encryption failed inside handleEncryptPrivateKeyWithPrf:', error);
     self.postMessage({
       type: 'ENCRYPTION_FAILURE',
       payload: { error: error.message || 'PRF encryption failed' }

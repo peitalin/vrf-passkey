@@ -237,7 +237,7 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     // Check that the prune ID exists after generation
     let prune_id_after_generate: Option<Vec<u8>> = user_account
         .view(contract.id(), "get_pending_prune_id")
-        .args_json(json!({"commitment_id": commitment_id}))
+        .args_json(json!({"commitment_id": commitment_id }))
         .await?
         .json()?;
 

@@ -184,12 +184,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     try {
       // Step 1: WebAuthn credential creation & PRF (if applicable)
-      // This now also returns the yieldResumeId needed for contract yield-resume.
-      const { credential, prfEnabled, yieldResumeId: registrationyieldResumeId } = await webAuthnManager.registerWithPrf(currentUsername);
+      const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
-      // This part is crucial and would involve the wasm_worker via webAuthnManager
       let clientManagedPublicKey: string | null = null;
       const userDerpAccountIdToUse = `${currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32)}.${RELAYER_ACCOUNT_ID}`;
 
@@ -233,15 +231,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const verifyPayload: any = {
         username: currentUsername,
         attestationResponse: attestationForServer,
+        commitmentId: commitmentId,
       };
-
-      // Conditionally add yieldResumeId to the payload if using contract method
-      if (!registrationyieldResumeId) {
-        console.error('PasskeyContext: yieldResumeId is required for contract method verification but was not returned from registerWithPrf.');
-        throw new Error('yieldResumeId is required for contract method verification but was not obtained during WebAuthn ceremony.');
-      }
-      verifyPayload.yieldResumeId = registrationyieldResumeId;
-      console.log('PasskeyContext: Sending yieldResumeId to /verify-registration:', registrationyieldResumeId);
 
       // Step 4: Call server to verify WebAuthn attestation and store authenticator
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
@@ -324,7 +315,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setStatusMessage('Attempting passkey login...');
 
     try {
-      // Step 1: Get authentication options from server (now includes yieldResumeId for yield-resume flow)
+      // Step 1: Get authentication options from server
       const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -335,12 +326,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         throw new Error(errorData.error || `Server error ${authOptionsResponse.status}`);
       }
 
-      // Enhanced response type to include yieldResumeId
-      const options: ServerAuthenticationOptions & { derpAccountId?: string; yieldResumeId?: string } = await authOptionsResponse.json();
+      const options: ServerAuthenticationOptions & { derpAccountId?: string; commitmentId?: string } = await authOptionsResponse.json();
 
-      // Extract yieldResumeId for yield-resume flow
-      const yieldResumeId = options.yieldResumeId;
-      console.log('PasskeyContext: Received authentication options with yieldResumeId:', yieldResumeId);
+      const commitmentId = options.commitmentId;
+      console.log('PasskeyContext: Received authentication options with commitmentId:', commitmentId);
 
       // Step 2: Perform WebAuthn assertion ceremony
       const pkRequestOpts: PublicKeyCredentialRequestOptions = {
@@ -353,15 +342,12 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const assertion = await navigator.credentials.get({ publicKey: pkRequestOpts }) as PublicKeyCredential | null;
       if (!assertion) throw new Error('Passkey login cancelled or no assertion.');
 
-      // Step 3: Prepare verification payload with yieldResumeId for yield-resume flow
+      // Step 3: Prepare verification payload
       const assertionJSON = publicKeyCredentialToJSON(assertion);
-      const verificationPayload: any = assertionJSON;
-
-      // Include yieldResumeId in verification payload if present (for contract method)
-      if (yieldResumeId) {
-        verificationPayload.yieldResumeId = yieldResumeId;
-        console.log('PasskeyContext: Including yieldResumeId in verification payload:', yieldResumeId);
-      }
+      const verificationPayload: any = {
+        ...assertionJSON,
+        commitmentId,
+      };
 
       // Step 4: Send assertion to server for verification
       const verifyResponse = await fetch(`${SERVER_URL}/verify-authentication`, {

@@ -10,6 +10,7 @@ use crate::verify_authentication_response::{
     YieldedAuthenticationData,
     AuthenticatorDevice,
 };
+use crate::UserIdYieldId;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
@@ -112,13 +113,13 @@ impl WebAuthnContract {
         };
 
         let yield_data = YieldedAuthenticationData {
-                    authenticator,
-                    commitment_b64url,
-                    expected_origin,
-                    original_challenge_b64url: challenge_b64url,
-                    rp_id: final_rp_id,
-                    require_user_verification,
-                    salt_b64url,
+            authenticator,
+            commitment_b64url,
+            expected_origin,
+            original_challenge_b64url: challenge_b64url,
+            rp_id: final_rp_id,
+            require_user_verification,
+            salt_b64url,
         };
 
         // NEW: Store commitment data in a LookupMap
@@ -139,7 +140,13 @@ impl WebAuthnContract {
         // Read the yield_resume_id from the register and store it for explicit pruning
         let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
-        self.pending_prunes.insert(commitment_id.clone(), yield_resume_id_bytes);
+        self.pending_prunes.insert(
+            commitment_id.clone(),
+            UserIdYieldId {
+                user_id: env::predecessor_account_id(),
+                yield_resume_id: yield_resume_id_bytes,
+            }
+        );
 
         // 8. Return the options with commitment_id
         let response = AuthenticationOptionsJSON {

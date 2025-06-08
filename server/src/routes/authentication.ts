@@ -104,8 +104,7 @@ async function generateAuthenticationOptionsContract(
   authenticator: StoredAuthenticator,
   rpID: string = config.rpID,
   allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
-  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred',
-  userId?: string
+  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
 ): Promise<ContractAuthenticationOptionsResponse> {
   console.log('Using NEAR contract for authentication options');
 
@@ -124,13 +123,13 @@ async function generateAuthenticationOptionsContract(
     transports: authenticator.transports?.map(t => String(t)),
   };
 
-  const contractArgs: ContractGenerateAuthOptionsArgs = {
+  const contractArgs = {
     rp_id: rpID,
     allow_credentials: allowCredentialsForContract,
     challenge: null, // Let contract generate challenge
     timeout: 60000,
     user_verification: userVerification,
-    extensions: null, // Use contract defaults
+    extensions: null,
     authenticator: authenticatorForContract,
   };
 
@@ -151,8 +150,8 @@ async function generateAuthenticationOptionsContract(
   if (generateTxHash) {
     console.log('🎯 generate_authentication_options Transaction Hash:', generateTxHash);
     console.log('🎯 Explorer Link:', `https://testnet.nearblocks.io/txns/${generateTxHash}?tab=execution`);
-    console.log('👤 Storing txHash for userId:', userId);
-    storeTransactionHash(generateTxHash, 'generate_authentication_options', userId);
+    console.log('👤 Storing txHash for userId:', authenticator.userId);
+    storeTransactionHash(generateTxHash, 'generate_authentication_options', authenticator.userId);
   } else {
     console.warn('⚠️  No transaction hash found in generate_authentication_options result');
   }
@@ -199,8 +198,8 @@ async function generateAuthenticationOptionsContract(
   }
 
   // Store mapping of userId to their latest generate_authentication_options transaction hash
-  if (contractResponse.commitmentId && generateTxHash && userId) {
-    storeUserGenerateAuthTxHash(userId, generateTxHash, contractResponse.commitmentId);
+  if (contractResponse.commitmentId && generateTxHash && authenticator.userId) {
+    storeUserGenerateAuthTxHash(authenticator.userId, generateTxHash, contractResponse.commitmentId);
   } else {
     console.warn('Cannot store user auth session: missing userId, commitmentId, or generateTxHash');
   }
@@ -215,7 +214,6 @@ async function generateAuthenticationOptions(
     userVerification?: 'discouraged' | 'preferred' | 'required';
     allowCredentials?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[];
     authenticator?: StoredAuthenticator;
-    userId?: string;
   }
 ): Promise<ContractAuthenticationOptionsResponse> {
   const {
@@ -223,7 +221,6 @@ async function generateAuthenticationOptions(
     userVerification = 'preferred',
     allowCredentials,
     authenticator,
-    userId
   } = options;
 
   if (config.useContractMethod) {
@@ -234,8 +231,7 @@ async function generateAuthenticationOptions(
       authenticator,
       rpID,
       allowCredentials,
-      userVerification,
-      userId
+      userVerification
     );
   } else {
     const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
@@ -300,8 +296,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       rpID: config.rpID,
       userVerification: 'preferred',
       allowCredentials: allowCredentialsList,
-      authenticator: firstAuthenticator!, // Required for contract method
-      userId: userForChallengeStorageInDB?.id, // Pass the actual user ID, not username
+      authenticator: firstAuthenticator!,
     });
 
     if (userForChallengeStorageInDB) {
@@ -318,12 +313,14 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
 
     console.log('Generated authentication options:', JSON.stringify(response, null, 2));
 
-    // Include derpAccountId in response if user is found
+    // The contract response for options is now nested.
+    // The top-level response has `options` and `commitmentId`.
+    // The response to the client should be a flat object.
     const userForDerpId = username ? userOperations.findByUsername(username) : undefined;
     return res.json({
-      ...response.options,
+      ...response.options, // Spread the nested options
       derpAccountId: userForDerpId?.derpAccountId,
-      commitmentId: response.commitmentId
+      commitmentId: response.commitmentId, // Add commitmentId at the top level
     });
 
   } catch (e: any) {
@@ -337,40 +334,50 @@ async function verifyAuthenticationResponseContract(
   response: AuthenticationResponseJSON,
   commitmentId: string,
 ): Promise<{ verified: boolean; authenticationInfo?: any }> {
-  console.log('Using NEAR contract for on-chain commitment authentication verification');
-
+  console.log('Verifying with contract. Commitment ID:', commitmentId);
   const contractArgs = {
     authentication_response: response,
     commitment_id: commitmentId,
   };
 
-  const rawResult: any = await nearClient.callFunction(
-    config.contractId,
-    'verify_authentication_response',
-    contractArgs,
-    AUTHENTICATION_VERIFICATION_GAS_STRING,
-    '0'
-  );
+  // Add detailed logging for the arguments being sent to the contract
+  console.log('Contract `verify_authentication_response` args:', JSON.stringify(contractArgs, null, 2));
 
-  // Check for transaction failures
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status) {
-    const errorInfo = (rawResult.status.Failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
-    console.error("Contract verify_authentication_response call failed:", errorInfo);
-    throw new Error(`Contract verify_authentication_response failed: ${errorInfo}`);
-  }
+  try {
+    const rawResult: any = await nearClient.callFunction(
+      config.contractId,
+      'verify_authentication_response',
+      contractArgs,
+      AUTHENTICATION_VERIFICATION_GAS_STRING,
+      '0'
+    );
 
-  // Parse direct result
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && rawResult.status.SuccessValue) {
-    const successValue = rawResult.status.SuccessValue;
-    const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
+    // Add logging for the raw result from the contract
+    console.log('Raw result from `verify_authentication_response`:', JSON.stringify(rawResult, null, 2));
 
-    return {
-      verified: verificationResult.verified,
-      authenticationInfo: verificationResult.authentication_info,
-    };
-  } else {
-    console.error("Contract call succeeded but did not return a SuccessValue.");
-    throw new Error("Contract did not return a valid verification result.");
+    // Check for transaction failures
+    if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status) {
+      const errorInfo = (rawResult.status.Failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
+      console.error("Contract verify_authentication_response call failed:", errorInfo);
+      throw new Error(`Contract verify_authentication_response failed: ${errorInfo}`);
+    }
+
+    // Parse direct result
+    if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && rawResult.status.SuccessValue) {
+      const successValue = rawResult.status.SuccessValue;
+      const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
+      console.log('Parsed verification result from contract:', verificationResult);
+      return {
+        verified: verificationResult.verified,
+        authenticationInfo: verificationResult.authentication_info,
+      };
+    } else {
+      console.error("Contract call succeeded but did not return a SuccessValue.");
+      throw new Error("Contract did not return a valid verification result.");
+    }
+  } catch (error) {
+    console.error('Caught error during `verifyAuthenticationResponseContract`:', error);
+    throw error; // Re-throw the error to be handled by the route
   }
 }
 
@@ -406,8 +413,13 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     let verification: { verified: boolean; authenticationInfo?: any };
 
     if (config.useContractMethod) {
-      console.log('Using contract on-chain commitment authentication verification');
-      verification = await verifyAuthenticationResponseContract(body, commitmentId);
+      // Add logging before calling the verification function
+      console.log('Handing off to `verifyAuthenticationResponseContract`.');
+      const { commitmentId: _, ...authResponseForContract } = req.body as any;
+      verification = await verifyAuthenticationResponseContract(
+        authResponseForContract,
+        (req.body as any).commitmentId
+      );
     } else {
       // Fallback to SimpleWebAuthn for non-contract flow
       let clientChallenge: string;
@@ -445,7 +457,7 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     if (verification.verified && verification.authenticationInfo) {
       authenticatorOperations.updateCounter(
         authenticator.credentialID,
-        verification.authenticationInfo.newCounter,
+        verification.authenticationInfo.new_counter,
         new Date().toISOString()
       );
 
@@ -465,7 +477,8 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       return res.status(400).json({ verified: false, error: errorMessage });
     }
   } catch (e: any) {
-    console.error('Error during verifyAuthenticationResponse call:', e);
+    // Add logging for any error caught by the route handler
+    console.error('Error in /verify-authentication route handler:', e.message, e.stack);
     if (user) {
       userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
     }

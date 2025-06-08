@@ -58,7 +58,7 @@ interface PrfSaltConfig {
 interface WebAuthnRegistrationWithPrf {
   credential: PublicKeyCredential;
   prfEnabled: boolean;
-  yieldResumeId?: string;
+  commitmentId?: string;
 }
 
 interface WebAuthnAuthenticationWithPrf {
@@ -312,7 +312,7 @@ export class WebAuthnManager {
   /**
    * Get registration options from server and register challenge
    */
-  async getRegistrationOptions(username: string): Promise<{ options: any; challengeId: string; yieldResumeId?: string }> {
+  async getRegistrationOptions(username: string): Promise<{ options: any; challengeId: string; commitmentId?: string }> {
     try {
       const response = await fetch(`${SERVER_URL}/generate-registration-options`, {
         method: 'POST',
@@ -340,9 +340,9 @@ export class WebAuthnManager {
 
       const options = serverResponseObject.options;
       const challengeId = this.registerServerChallenge(options.challenge, 'registration');
-      const yieldResumeId = serverResponseObject.yieldResumeId;
+      const commitmentId = serverResponseObject.commitmentId;
 
-      return { options, challengeId, yieldResumeId };
+      return { options, challengeId, commitmentId };
     } catch (error: any) {
       console.error('WebAuthnManager: Failed to get registration options:', error);
       throw error;
@@ -379,7 +379,7 @@ export class WebAuthnManager {
    * Register with PRF extension support
    */
   async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
-    const { options, challengeId, yieldResumeId: getOptionsyieldResumeId } = await this.getRegistrationOptions(username);
+    const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username);
 
     if (typeof options?.challenge !== 'string') {
         const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
@@ -430,7 +430,7 @@ export class WebAuthnManager {
 
     console.log('WebAuthnManager: Registration completed, PRF enabled:', prfEnabled, 'PRF eval results:', prfResults);
 
-    return { credential, prfEnabled, yieldResumeId: getOptionsyieldResumeId };
+    return { credential, prfEnabled, commitmentId };
   }
 
   /**

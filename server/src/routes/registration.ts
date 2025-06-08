@@ -382,16 +382,24 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     const { verified, registrationInfo } = verificationResult;
 
     if (verified) {
-      // Construct the authenticator object for DB insertion based on the simplified schema
+      // The registrationInfo from the contract uses snake_case keys.
+      // Destructure them correctly.
       const {
-        credentialID: rawCredentialIDBuffer,
-        credentialPublicKey: rawPublicKeyBuffer,
-        counter
+        credential_id: rawCredentialIDBuffer,
+        credential_public_key: rawPublicKeyBuffer,
+        counter,
+        credentialBackedUp
       } = registrationInfo || {};
 
-      // Ensure we have the necessary info, especially from SimpleWebAuthn path
-      const credentialIDForDB = rawCredentialIDBuffer ? isoBase64URL.fromBuffer(rawCredentialIDBuffer) : attestationResponse.id;
-      const publicKeyForDB = rawPublicKeyBuffer ? Buffer.from(rawPublicKeyBuffer) : Buffer.from(new Uint8Array()); // Default to empty if not present
+      // Ensure we have the necessary info, especially from the contract path
+      if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
+        // If these are missing, verification should not have passed.
+        // This indicates a problem with the contract response or logic.
+        throw new Error('Verification succeeded but registration info was incomplete.');
+      }
+
+      const credentialIDForDB = isoBase64URL.fromBuffer(rawCredentialIDBuffer);
+      const publicKeyForDB = Buffer.from(rawPublicKeyBuffer);
       const counterForDB = counter || 0;
 
       authenticatorOperations.create({
@@ -402,9 +410,8 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         userId: user.id,
         name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
         registered: new Date().toISOString(),
-        backedUp: registrationInfo?.credentialBackedUp ? 1 : 0,
+        backedUp: credentialBackedUp ? 1 : 0,
         clientManagedNearPublicKey: null,
-        // Set to null initially, to be updated by a separate key association flow
       });
 
       userOperations.updateChallengeAndCommitmentId(user.id, null, null);

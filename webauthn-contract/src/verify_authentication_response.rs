@@ -12,6 +12,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near, require, CryptoHash, PromiseError};
 use serde_cbor::Value as CborValue;
+use crate::UserIdYieldId;
 
 
 // Structure to hold yielded authentication data
@@ -111,6 +112,24 @@ impl WebAuthnContract {
     ) -> VerifiedAuthenticationResponse {
         log!("Verifying authentication with on-chain commitment id: {}", commitment_id);
 
+        let (user_id, yield_resume_id) = match self.pending_prunes.get(&commitment_id) {
+            None => {
+                log!("No pending authentication found for commitment_id: {}", commitment_id);
+                panic!("No pending authentication found for commitment_id: {}", commitment_id);
+            }
+            Some(user_id_yield_id) => {
+                let user_id = user_id_yield_id.user_id.clone();
+                let yield_resume_id: CryptoHash = user_id_yield_id.yield_resume_id.clone().try_into()
+                    .expect("Invalid yield_resume_id format in pending_prunes");
+                (user_id, yield_resume_id)
+            }
+        };
+
+        require!(
+            env::predecessor_account_id() == user_id,
+            "user must be the one who created the commitment_id"
+        );
+
         // 1. Fetch and remove the pending authentication data
         let yield_data = match self.pending_authentications.remove(&commitment_id) {
             Some(data) => data,
@@ -123,20 +142,10 @@ impl WebAuthnContract {
             }
         };
 
+        log!("Pruning auth commitment by resuming yield with id: {:?}", yield_resume_id);
+        env::promise_yield_resume(&yield_resume_id, &[]);
+
         log!("Found and removed pending authentication data. Proceeding with verification.");
-
-        // Clean up the pending prune promise immediately
-        if let Some(yield_resume_id_bytes) = self.pending_prunes.remove(&commitment_id) {
-            let yield_resume_id: CryptoHash = yield_resume_id_bytes
-                .try_into()
-                .expect("Invalid yield_resume_id format in pending_prunes");
-
-            log!("Explicitly pruning auth commitment by resuming yield with id: {:?}", yield_resume_id);
-            env::promise_yield_resume(&yield_resume_id, &[]);
-        } else {
-            log!("Warning: No pending prune found for auth commitment_id: {}", commitment_id);
-        }
-
         // 2. Use internal_process_authentication with the stored data
         self.internal_process_authentication(
             yield_data.commitment_b64url,

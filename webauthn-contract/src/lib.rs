@@ -19,7 +19,7 @@ pub use verify_registration_response::{
     VerifiedRegistrationResponse,
     AuthenticatorSelectionCriteria,
 };
-use near_sdk::{log, near, CryptoHash};
+use near_sdk::{log, near, CryptoHash, AccountId};
 use near_sdk::store::{LookupMap, IterableMap};
 use crate::generate_registration_options::YieldedRegistrationData;
 
@@ -38,7 +38,7 @@ pub struct WebAuthnContract {
     contract_name: String,
     pending_registrations: LookupMap<String, YieldedRegistrationData>,
     pending_authentications: LookupMap<String, YieldedAuthenticationData>,
-    pending_prunes: LookupMap<String, Vec<u8>>, // Stores commitment_id -> yield_resume_id
+    pending_prunes: LookupMap<String, UserIdYieldId>, // Stores commitment_id -> { yield_resume_id, user_id }
 }
 
 impl Default for WebAuthnContract {
@@ -51,6 +51,13 @@ impl Default for WebAuthnContract {
             pending_prunes: LookupMap::new(b"p"),
         }
     }
+}
+
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug, Clone)]
+pub struct UserIdYieldId {
+    pub user_id: AccountId,
+    pub yield_resume_id: Vec<u8>,
 }
 
 #[near]
@@ -71,7 +78,7 @@ impl WebAuthnContract {
         self.greeting.clone()
     }
 
-    pub fn get_pending_prune_id(&self, commitment_id: String) -> Option<Vec<u8>> {
+    pub fn get_pending_prune_id(&self, commitment_id: String) -> Option<UserIdYieldId> {
         self.pending_prunes.get(&commitment_id).cloned()
     }
 
@@ -92,8 +99,9 @@ impl WebAuthnContract {
     pub fn get_yield_id(&self, commitment_id: String) -> Option<CryptoHash> {
         match self.pending_prunes.get(&commitment_id) {
             None => None,
-            Some(yield_resume_id_bytes) => {
-                let yield_resume_id: CryptoHash = yield_resume_id_bytes.clone()
+            Some(user_id_yield_id) => {
+                let yield_resume_id_bytes = user_id_yield_id.yield_resume_id.clone();
+                let yield_resume_id: CryptoHash = yield_resume_id_bytes
                     .try_into()
                     .expect("Invalid yield_resume_id format in pending_prunes");
 

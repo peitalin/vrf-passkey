@@ -255,6 +255,24 @@ impl WebAuthnContract {
     ) -> VerifiedRegistrationResponse {
         log!("Verifying registration with on-chain commitment id: {}", commitment_id);
 
+        let (user_id, yield_resume_id) = match self.pending_prunes.get(&commitment_id) {
+            None => {
+                log!("No pending authentication found for commitment_id: {}", commitment_id);
+                panic!("No pending authentication found for commitment_id: {}", commitment_id);
+            }
+            Some(user_id_yield_id) => {
+                let user_id = user_id_yield_id.user_id.clone();
+                let yield_resume_id: CryptoHash = user_id_yield_id.yield_resume_id.clone().try_into()
+                    .expect("Invalid yield_resume_id format in pending_prunes");
+                (user_id, yield_resume_id)
+            }
+        };
+
+        require!(
+            env::predecessor_account_id() == user_id,
+            "user must be the one who created the commitment_id"
+        );
+
         // 1. Fetch and remove the pending registration data
         let yield_data = match self.pending_registrations.remove(&commitment_id) {
             Some(data) => data,
@@ -267,20 +285,10 @@ impl WebAuthnContract {
             }
         };
 
+        log!("Pruning auth commitment by resuming yield with id: {:?}", yield_resume_id);
+        env::promise_yield_resume(&yield_resume_id, &[]);
+
         log!("Found and removed pending registration data. Proceeding with verification.");
-
-        // Clean up the pending prune promise immediately
-        if let Some(yield_resume_id_bytes) = self.pending_prunes.remove(&commitment_id) {
-            let yield_resume_id: CryptoHash = yield_resume_id_bytes
-                .try_into()
-                .expect("Invalid yield_resume_id format in pending_prunes");
-
-            log!("Explicitly pruning commitment by resuming yield with id: {:?}", yield_resume_id);
-            env::promise_yield_resume(&yield_resume_id, &[]);
-        } else {
-            log!("Warning: No pending prune found for commitment_id: {}", commitment_id);
-        }
-
         // 2. Use internal_process_registration with the stored data
         self.internal_process_registration(
             yield_data.commitment_b64url,
