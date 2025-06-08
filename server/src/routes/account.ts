@@ -9,20 +9,20 @@ const router = Router();
 
 // Associate a client-generated NEAR public key with a user account
 router.post('/api/associate-account-pk', async (req: Request, res: Response) => {
-  const { username, derpAccountId, clientNearPublicKey } = req.body;
+  const { username, nearAccountId, clientNearPublicKey } = req.body;
 
-  if (!username || !derpAccountId || !clientNearPublicKey) {
+  if (!username || !nearAccountId || !clientNearPublicKey) {
     return res.status(400).json({
-      error: 'Username, derpAccountId, and clientNearPublicKey are required.'
+      error: 'Username, nearAccountId, and clientNearPublicKey are required.'
     });
   }
 
-  // Validate that derpAccountId is a subaccount of the relayer account
+  // Validate that nearAccountId is a subaccount of the relayer account
   // TODO: lift this restriction if possible so users can create to-level accounts.
   // Only certain accounts on NEAR are allowed to create top-level accounts.
-  if (!derpAccountId.endsWith(`.${config.relayerAccountId}`)) {
+  if (!nearAccountId.endsWith(`.${config.relayerAccountId}`)) {
     return res.status(400).json({
-      error: `Invalid derpAccountId: '${derpAccountId}'. Account must be a subaccount of the relayer '${config.relayerAccountId}'. (e.g., yourname.${config.relayerAccountId})`
+      error: `Invalid nearAccountId: '${nearAccountId}'. Account must be a subaccount of the relayer '${config.relayerAccountId}'. (e.g., yourname.${config.relayerAccountId})`
     });
   }
 
@@ -32,8 +32,8 @@ router.post('/api/associate-account-pk', async (req: Request, res: Response) => 
       return res.status(404).json({ error: `User '${username}' not found.` });
     }
 
-    if (user.derpAccountId !== derpAccountId) {
-      console.warn(`Potential derpAccountId mismatch for ${username}. Server expected: ${user.derpAccountId}, client provided: ${derpAccountId}. Proceeding with client provided ID.`);
+    if (user.nearAccountId !== nearAccountId) {
+      console.warn(`Potential nearAccountId mismatch for ${username}. Server expected: ${user.nearAccountId}, client provided: ${nearAccountId}. Proceeding with client provided ID.`);
     }
 
     let nearPublicKeyToRegister: PublicKey;
@@ -48,27 +48,27 @@ router.post('/api/associate-account-pk', async (req: Request, res: Response) => 
 
     // Check if account exists, create if not
     try {
-      const accountExists = await nearClient.checkAccountExists(derpAccountId);
+      const accountExists = await nearClient.checkAccountExists(nearAccountId);
       if (!accountExists) {
-        console.log(`Account ${derpAccountId} does not exist. Attempting to create...`);
-        const creationResult = await nearClient.createAccount(derpAccountId, clientNearPublicKey);
+        console.log(`Account ${nearAccountId} does not exist. Attempting to create...`);
+        const creationResult = await nearClient.createAccount(nearAccountId, clientNearPublicKey);
         if (!creationResult.success) {
-          console.error(`Failed to create account ${derpAccountId}:`, creationResult.message, creationResult.error);
+          console.error(`Failed to create account ${nearAccountId}:`, creationResult.message, creationResult.error);
           return res.status(500).json({
             success: false,
-            error: `Failed to automatically create account '${derpAccountId}'.`,
+            error: `Failed to automatically create account '${nearAccountId}'.`,
             details: creationResult,
           });
         }
-        console.log(`Account ${derpAccountId} created successfully.`);
+        console.log(`Account ${nearAccountId} created successfully.`);
       } else {
-        console.log(`Account ${derpAccountId} already exists.`);
+        console.log(`Account ${nearAccountId} already exists.`);
       }
     } catch (checkOrCreateError: any) {
-      console.error(`Error during account existence check or creation for ${derpAccountId}:`, checkOrCreateError);
+      console.error(`Error during account existence check or creation for ${nearAccountId}:`, checkOrCreateError);
       return res.status(500).json({
         success: false,
-        error: `Error during account check/creation for '${derpAccountId}': ${checkOrCreateError.message}`
+        error: `Error during account check/creation for '${nearAccountId}': ${checkOrCreateError.message}`
       });
     }
 
@@ -80,7 +80,7 @@ router.post('/api/associate-account-pk', async (req: Request, res: Response) => 
 
     return res.json({
       success: true,
-      message: `Client NEAR public key ${clientNearPublicKey} associated with ${derpAccountId}. Account checked/created and PK registered on-chain.`,
+      message: `Client NEAR public key ${clientNearPublicKey} associated with ${nearAccountId}. Account checked/created and PK registered on-chain.`,
     });
 
   } catch (error: any) {

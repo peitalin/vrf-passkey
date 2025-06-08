@@ -74,7 +74,7 @@ const DB_VERSION = 1;
 const STORE_NAME = 'encryptedKeys';
 
 interface EncryptedKeyData {
-  derpAccountId: string;
+  nearAccountId: string;
   encryptedData: string;
   iv: string;
   timestamp: number;
@@ -90,14 +90,14 @@ async function openDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'derpAccountId' });
+        db.createObjectStore(STORE_NAME, { keyPath: 'nearAccountId' });
       }
     };
   });
 }
 
 async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
-  console.log(`WORKER: Storing encrypted key for derpAccountId: "${data.derpAccountId}"`);
+  console.log(`WORKER: Storing encrypted key for nearAccountId: "${data.nearAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readwrite');
   const store = transaction.objectStore(STORE_NAME);
@@ -105,33 +105,33 @@ async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = store.put(data);
     request.onsuccess = () => {
-      console.log(`WORKER: Successfully stored key for derpAccountId: "${data.derpAccountId}"`);
+      console.log(`WORKER: Successfully stored key for nearAccountId: "${data.nearAccountId}"`);
       db.close();
       resolve();
     };
     request.onerror = (event) => {
-      console.error(`WORKER: FAILED to store key for derpAccountId: "${data.derpAccountId}"`, (event.target as any).error);
+      console.error(`WORKER: FAILED to store key for nearAccountId: "${data.nearAccountId}"`, (event.target as any).error);
       db.close();
       reject(request.error);
     };
   });
 }
 
-async function getEncryptedKey(derpAccountId: string): Promise<EncryptedKeyData | null> {
-  console.log(`WORKER: Retrieving encrypted key for derpAccountId: "${derpAccountId}"`);
+async function getEncryptedKey(nearAccountId: string): Promise<EncryptedKeyData | null> {
+  console.log(`WORKER: Retrieving encrypted key for nearAccountId: "${nearAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readonly');
   const store = transaction.objectStore(STORE_NAME);
 
   return new Promise((resolve, reject) => {
-    const request = store.get(derpAccountId);
+    const request = store.get(nearAccountId);
     request.onsuccess = () => {
-      console.log(`WORKER: Retrieved data for "${derpAccountId}":`, request.result);
+      console.log(`WORKER: Retrieved data for "${nearAccountId}":`, request.result);
       db.close();
       resolve(request.result || null);
     };
     request.onerror = (event) => {
-      console.error(`WORKER: FAILED to retrieve key for derpAccountId: "${derpAccountId}"`, (event.target as any).error);
+      console.error(`WORKER: FAILED to retrieve key for nearAccountId: "${nearAccountId}"`, (event.target as any).error);
       db.close();
       reject(request.error);
     };
@@ -142,14 +142,14 @@ interface EncryptPrivateKeyWithPrfMessage {
   type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF';
   payload: {
     prfOutput: string; // Base64-encoded PRF output
-    derpAccountId: string;
+    nearAccountId: string;
   };
 }
 
 interface DecryptAndSignTransactionWithPrfMessage {
   type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF';
   payload: {
-    derpAccountId: string;
+    nearAccountId: string;
     prfOutput: string; // Base64-encoded PRF output
     receiverId: string;
     contractMethodName: string;
@@ -214,8 +214,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 };
 
 async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfMessage['payload']) {
-  const { prfOutput, derpAccountId } = payload;
-  console.log('WORKER: Entered handleEncryptPrivateKeyWithPrf for', derpAccountId);
+  const { prfOutput, nearAccountId } = payload;
+  console.log('WORKER: Entered handleEncryptPrivateKeyWithPrf for', nearAccountId);
 
   try {
     console.log('WORKER: Calling WASM generate_and_encrypt_near_keypair_with_prf...');
@@ -242,7 +242,7 @@ async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfM
 
     console.log('WORKER: PREPARING to store key in IndexedDB...');
     await storeEncryptedKey({
-      derpAccountId,
+      nearAccountId,
       encryptedData: encryptedPrivateKey.encrypted_data_b64u,
       iv: encryptedPrivateKey.iv_b64u,
       timestamp: Date.now()
@@ -253,7 +253,7 @@ async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfM
     self.postMessage({
       type: 'ENCRYPTION_SUCCESS',
       payload: {
-        derpAccountId,
+        nearAccountId,
         publicKey: result.publicKey,
         stored: true,
       }
@@ -269,7 +269,7 @@ async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfM
 
 async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTransactionWithPrfMessage['payload']) {
   const {
-    derpAccountId,
+    nearAccountId,
     prfOutput,
     receiverId,
     contractMethodName,
@@ -282,9 +282,9 @@ async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTra
 
   try {
     // Retrieve encrypted key from IndexedDB
-    const encryptedKeyData = await getEncryptedKey(derpAccountId);
+    const encryptedKeyData = await getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
-      throw new Error(`No encrypted key found for account: ${derpAccountId}`);
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
     // Fixed parameters must match those used during encryption
@@ -319,7 +319,7 @@ async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTra
 
     // Create the transaction
     const transaction = createTransaction(
-      derpAccountId,     // Signer
+      nearAccountId,     // Signer
       publicKey,         // Signer's public key
       receiverId,        // Receiver of this transaction
       BigInt(nonce),     // Nonce must be BigInt
@@ -350,7 +350,7 @@ async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTra
       type: 'SIGNATURE_SUCCESS',
       payload: {
         signedTransactionBorsh: Array.from(serializedSignedTx),
-        derpAccountId
+        nearAccountId
       }
     });
 

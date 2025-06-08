@@ -6,7 +6,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 export interface User {
   id: string; // Unique identifier for the user (e.g., a UUID or derived from first passkey rawId)
   username: string;
-  derpAccountId: string | null;
+  nearAccountId: string | null;
   currentChallenge: string | null;
   currentCommitmentId: string | null;
 }

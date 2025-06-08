@@ -131,8 +131,8 @@ pub struct YieldedRegistrationData {
 #[derive(Debug)]
 pub struct RegistrationOptionsJSON {
     pub options: PublicKeyCredentialCreationOptionsJSON,
-    #[serde(rename = "derpAccountId")]
-    pub derp_account_id: Option<String>,
+    #[serde(rename = "nearAccountId")]
+    pub near_account_id: Option<String>,
     #[serde(rename = "commitmentId")]
     pub commitment_id: Option<String>,
 }
@@ -294,7 +294,7 @@ impl WebAuthnContract {
             extensions: final_extensions,
             hints,
         };
-        let suggested_derp_account_id = format!("{}.{}", options.user.name, self.contract_name);
+        let suggested_near_account_id = format!("{}.{}", options.user.name, self.contract_name);
 
         // 4. Create yield data
         let yield_data = YieldedRegistrationData {
@@ -338,7 +338,7 @@ impl WebAuthnContract {
         // 6. Return only the options (without commitment info)
         let response = RegistrationOptionsJSON {
             options,
-            derp_account_id: Some(suggested_derp_account_id),
+            near_account_id: Some(suggested_near_account_id),
             commitment_id: Some(commitment_id),
         };
 
@@ -374,7 +374,7 @@ mod tests {
     fn test_generate_registration_options_defaults() {
         let context = get_context_with_seed(1); // Use a predictable seed
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract.testnet".to_string());
 
         let rp_name = "My Passkey App".to_string();
         let rp_id = "example.localhost".to_string();
@@ -423,15 +423,15 @@ mod tests {
         assert_eq!(options.authenticator_selection, expected_auth_selection);
         assert_eq!(options.extensions.cred_props, Some(true));
         assert!(options.hints.is_none());
-        let expected_derp_id = format!("{}.{}", user_name, contract.contract_name); // Use contract_name from state
-        assert_eq!(result.derp_account_id, Some(expected_derp_id));
+        let expected_near_id = format!("{}.{}", user_name, "test-contract.testnet"); // Use contract_name from state
+        assert_eq!(result.near_account_id, Some(expected_near_id));
     }
 
     #[test]
     fn test_generate_registration_options_with_overrides() {
         let context = get_context_with_seed(2);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract.testnet".to_string());
 
         let user_id_bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let challenge_bytes = vec![
@@ -496,8 +496,8 @@ mod tests {
         assert_eq!(options.pub_key_cred_params.len(), 2);
         assert!(options.pub_key_cred_params.iter().any(|p| p.alg == -7));
         assert_eq!(options.hints, Some(vec!["security-key".to_string()]));
-        let expected_derp_id = format!("{}.{}", "user", contract.contract_name); // Updated user_name for derpId
-        assert_eq!(result.derp_account_id, Some(expected_derp_id));
+        let expected_near_id = format!("{}.{}", "user", "test-contract.testnet"); // Updated user_name for nearId
+        assert_eq!(result.near_account_id, Some(expected_near_id));
     }
 
 }

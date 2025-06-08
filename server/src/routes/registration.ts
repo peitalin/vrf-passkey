@@ -41,7 +41,7 @@ interface ContractGenerateOptionsArgs {
 // Interface for the response from contract's generate_registration_options
 interface ContractRegistrationOptionsResponse {
   options: PublicKeyCredentialCreationOptionsJSON; // This is the standard WebAuthn options object
-  derpAccountId: string | undefined;
+  nearAccountId: string | undefined;
   commitmentId: string | null;
 }
 
@@ -51,19 +51,92 @@ interface ContractCompleteRegistrationArgs {
   commitment_id: string; // The commitment_id received from generate_registration_options
 }
 
-// Helper function to get registration options from SimpleWebAuthn
+// Generate registration options Endpoint
+router.post('/generate-registration-options', async (req: Request, res: Response) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username is required' });
+
+  try {
+    const resultFromService = await getRegistrationOptions(username, config.useContractMethod);
+
+    const userForChallenge = userOperations.findByUsername(username);
+    if (!userForChallenge) {
+      console.error("User disappeared after options generation?");
+      return res.status(500).json({ error: 'User context lost after options generation' });
+    }
+
+    if (!resultFromService.options || typeof resultFromService.options.challenge !== 'string') {
+        console.error("Invalid result from getRegistrationOptions - missing options.challenge", resultFromService);
+        throw new Error("Server failed to prepare valid registration options challenge.");
+    }
+
+    userOperations.updateChallengeAndCommitmentId(userForChallenge.id, resultFromService.options.challenge, resultFromService.commitmentId);
+    console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
+
+    // `resultFromService` already has the structure { options: {...}, nearAccountId, commitmentId }
+    // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
+    return res.json(resultFromService);
+
+  } catch (e: any) {
+    console.error('Error in /generate-registration-options route:', e.message, e.stack, e.type, e.context, e.transaction_outcome);
+    let errorMessage = e.message || 'Failed to generate registration options';
+    if (e.transaction_outcome && e.transaction_outcome.outcome && e.transaction_outcome.outcome.status && typeof e.transaction_outcome.outcome.status.Failure === 'object') {
+        const failure = e.transaction_outcome.outcome.status.Failure;
+        // @ts-ignore
+        const errorType = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
+        if (errorType) {
+            errorMessage = `Contract Execution Error: ${errorType}`;
+        }
+    }
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+async function getRegistrationOptions(
+  usernameInput: string,
+  useContractMethod: boolean
+): Promise<ContractRegistrationOptionsResponse> {
+  let user: User | undefined = userOperations.findByUsername(usernameInput);
+  const sanitizedUsername = usernameInput.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
+  const potentialNearAccountId = `${sanitizedUsername}.${config.relayerAccountId}`;
+
+  if (!user) {
+    // For a new user, their `id` will be used as `user.id` by SimpleWebAuthn
+    // and as `user_id` (base64url) by the contract.
+    const newUserId = `user_${Date.now()}_${isoBase64URL.fromBuffer(crypto.getRandomValues(new Uint8Array(8)))}`;
+    const newUser: User = {
+      id: newUserId,
+      username: usernameInput,
+      nearAccountId: potentialNearAccountId,
+      currentChallenge: null,
+      currentCommitmentId: null,
+    };
+    userOperations.create(newUser);
+    user = newUser;
+    console.log(`New user created for registration: ${usernameInput}, assigned ID: ${user.id}`);
+  } else {
+    if (!user.nearAccountId || !user.nearAccountId.endsWith(`.${config.relayerAccountId}`)) {
+      userOperations.updateNearAccountId(user.id, potentialNearAccountId);
+      user.nearAccountId = potentialNearAccountId;
+    }
+    console.log(`Existing user found for registration: ${usernameInput}, ID: ${user.id}`);
+  }
+
+  const rawAuthenticators = authenticatorOperations.findByUserId(user.id);
+
+  if (useContractMethod) {
+    return getRegistrationOptionsContract(user, rawAuthenticators);
+  } else {
+    return getRegistrationOptionsSimpleWebAuthn(user, rawAuthenticators);
+  }
+}
+
+// get registration options from SimpleWebAuthn
 async function getRegistrationOptionsSimpleWebAuthn(
-  username: string,
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> { // Update return type to match contract for consistency
   console.log(`Using SimpleWebAuthn for registration options for user: ${user.username}`);
-
-  const authenticatorsForSimpleWebAuthnExclusion = rawAuthenticators.map(auth => ({
-    id: isoBase64URL.toBuffer(auth.credentialID),
-    type: 'public-key' as const,
-    transports: auth.transports ? JSON.parse(auth.transports) as AuthenticatorTransport[] : undefined,
-  }));
 
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
@@ -71,25 +144,26 @@ async function getRegistrationOptionsSimpleWebAuthn(
     userID: user.id,
     userName: user.username,
     userDisplayName: user.username,
-    excludeCredentials: authenticatorsForSimpleWebAuthnExclusion,
+    excludeCredentials: rawAuthenticators.map(auth => ({
+      id: isoBase64URL.toBuffer(auth.credentialID),
+      type: 'public-key' as const,
+      transports: auth.transports ? JSON.parse(auth.transports) as AuthenticatorTransport[] : undefined,
+    })),
     authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
     supportedAlgorithmIDs: [-7, -257],
     attestationType: 'none',
     timeout: 60000,
   });
 
-  console.log('Options from SimpleWebAuthn:', JSON.stringify(optionsFromSimpleWebAuthn, null, 2));
-
   return {
-    options: optionsFromSimpleWebAuthn,
-    derpAccountId: user.derpAccountId || undefined,
+    nearAccountId: user.nearAccountId || undefined,
     commitmentId: `simplewebauthn_unused_${Date.now()}`,
+    options: optionsFromSimpleWebAuthn,
   };
 }
 
-// Updated helper function to get registration options from NEAR Contract
+// get registration options from NEAR Contract
 async function getRegistrationOptionsContract(
-  username: string,
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> {
@@ -104,7 +178,7 @@ async function getRegistrationOptionsContract(
   const contractArgs: ContractGenerateOptionsArgs = {
     rp_name: config.rpName,
     rp_id: config.rpID,
-    user_name: user.username, // For display and derpAccountId suggestion
+    user_name: user.username, // For display and nearAccountId suggestion
     user_id: user.id, // This should be a unique, persistent base64url ID for the user (e.g., derived from initial passkey rawId or a server-generated UUID)
     challenge: null, // Let contract generate challenge
     user_display_name: user.username,
@@ -170,89 +244,8 @@ async function getRegistrationOptionsContract(
   return contractResponse;
 }
 
-// Unified getRegistrationOptions
-async function getRegistrationOptions(
-  usernameInput: string,
-  useContractMethod: boolean
-): Promise<ContractRegistrationOptionsResponse> {
-  let user: User | undefined = userOperations.findByUsername(usernameInput);
-  const sanitizedUsername = usernameInput.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
-  const potentialDerpAccountId = `${sanitizedUsername}.${config.relayerAccountId}`;
 
-  if (!user) {
-    // For a new user, their `id` will be used as `user.id` by SimpleWebAuthn
-    // and as `user_id` (base64url) by the contract.
-    // This ID should be persistent and unique for the user.
-    // Using a server-generated UUID or deriving from the first passkey's rawId are options.
-    // For simplicity here, we'll use a timestamped ID, but this is NOT suitable for production if it needs to be guess-resistant or perfectly stable before first credential.
-    const newUserId = `user_${Date.now()}_${isoBase64URL.fromBuffer(crypto.getRandomValues(new Uint8Array(8)))}`;
-    const newUser: User = {
-      id: newUserId,
-      username: usernameInput,
-      derpAccountId: potentialDerpAccountId,
-      currentChallenge: null,
-      currentCommitmentId: null,
-    };
-    userOperations.create(newUser);
-    user = newUser;
-    console.log(`New user created for registration: ${usernameInput}, assigned ID: ${user.id}`);
-  } else {
-    if (!user.derpAccountId || !user.derpAccountId.endsWith(`.${config.relayerAccountId}`)) {
-      userOperations.updateDerpAccountId(user.id, potentialDerpAccountId);
-      user.derpAccountId = potentialDerpAccountId;
-    }
-    console.log(`Existing user found for registration: ${usernameInput}, ID: ${user.id}`);
-  }
 
-  const rawAuthenticators = authenticatorOperations.findByUserId(user.id);
-
-  if (useContractMethod) {
-    return getRegistrationOptionsContract(usernameInput, user, rawAuthenticators);
-  } else {
-    return getRegistrationOptionsSimpleWebAuthn(usernameInput, user, rawAuthenticators);
-  }
-}
-
-// Generate registration options Endpoint
-router.post('/generate-registration-options', async (req: Request, res: Response) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ error: 'Username is required' });
-
-  try {
-    const resultFromService = await getRegistrationOptions(username, config.useContractMethod);
-
-    const userForChallenge = userOperations.findByUsername(username);
-    if (!userForChallenge) {
-      console.error("User disappeared after options generation?");
-      return res.status(500).json({ error: 'User context lost after options generation' });
-    }
-
-    if (!resultFromService.options || typeof resultFromService.options.challenge !== 'string') {
-        console.error("Invalid result from getRegistrationOptions - missing options.challenge", resultFromService);
-        throw new Error("Server failed to prepare valid registration options challenge.");
-    }
-
-    userOperations.updateChallengeAndCommitmentId(userForChallenge.id, resultFromService.options.challenge, resultFromService.commitmentId);
-    console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
-
-    // `resultFromService` already has the structure { options: {...}, derpAccountId, commitmentId }
-    // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
-    return res.json(resultFromService);
-
-  } catch (e: any) {
-    console.error('Error in /generate-registration-options route:', e.message, e.stack, e.type, e.context, e.transaction_outcome);
-    let errorMessage = e.message || 'Failed to generate registration options';
-    if (e.transaction_outcome && e.transaction_outcome.outcome && e.transaction_outcome.outcome.status && typeof e.transaction_outcome.outcome.status.Failure === 'object') {
-        const failure = e.transaction_outcome.outcome.status.Failure;
-        // @ts-ignore
-        const errorType = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
-        if (errorType) {
-            errorMessage = `Contract Execution Error: ${errorType}`;
-        }
-    }
-    return res.status(500).json({ error: errorMessage });
-  }
-});
 
 // verifyRegistrationResponseSimpleWebAuthn
 async function verifyRegistrationResponseSimpleWebAuthn(
@@ -420,7 +413,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
       return res.json({
         verified: true,
         username: user.username,
-        derpAccountId: user.derpAccountId,
+        nearAccountId: user.nearAccountId,
       });
     } else {
       if (user) userOperations.updateChallengeAndCommitmentId(user.id, null, null);

@@ -34,7 +34,7 @@ However, they differ significantly in their architectural approaches due to bloc
 
 **Output Differences:**
 - **SimpleWebAuthn**: Returns `PublicKeyCredentialCreationOptionsJSON` directly
-- **NEAR Contract**: Returns JSON string containing `{ options, derpAccountId, yieldResumeId }`
+- **NEAR Contract**: Returns JSON string containing `{ options, nearAccountId, yieldResumeId }`
 
 ### 2. verifyRegistrationResponse
 

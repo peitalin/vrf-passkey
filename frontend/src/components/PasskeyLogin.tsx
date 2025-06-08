@@ -83,8 +83,8 @@ export function PasskeyLogin() {
       let successMessage = `Registered and logged in as ${localUsernameInput.trim()}!`;
       let toastDuration = 6000;
 
-      if (result.derpAccountId && result.derivedNearPublicKey) {
-        successMessage += `\nAccount ID: ${result.derpAccountId}\nClient PK: ${shortenString(result.derivedNearPublicKey, 10, 10)}`;
+      if (result.nearAccountId && result.clientNearPublicKey) {
+        successMessage += `\nAccount ID: ${result.nearAccountId}\nClient PK: ${shortenString(result.clientNearPublicKey, 10, 10)}`;
         toastDuration = 8000; // Longer duration if more info
       }
 

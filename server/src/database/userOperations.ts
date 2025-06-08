@@ -14,8 +14,8 @@ export const userOperations = {
   },
 
   create: (user: User): RunResult => {
-    const stmt = db.prepare('INSERT INTO users (id, username, derpAccountId) VALUES (?, ?, ?)');
-    return stmt.run(user.id, user.username, user.derpAccountId) as RunResult;
+    const stmt = db.prepare('INSERT INTO users (id, username, nearAccountId) VALUES (?, ?, ?)');
+    return stmt.run(user.id, user.username, user.nearAccountId) as RunResult;
   },
 
   updateChallenge: (userId: string, challenge: string | null): RunResult => {
@@ -33,8 +33,8 @@ export const userOperations = {
     return stmt.run(challenge, commitmentId, userId) as RunResult;
   },
 
-  updateDerpAccountId: (userId: string, derpAccountId: string): RunResult => {
-    const stmt = db.prepare('UPDATE users SET derpAccountId = ? WHERE id = ?');
-    return stmt.run(derpAccountId, userId) as RunResult;
+  updateNearAccountId: (userId: string, nearAccountId: string): RunResult => {
+    const stmt = db.prepare('UPDATE users SET nearAccountId = ? WHERE id = ?');
+    return stmt.run(nearAccountId, userId) as RunResult;
   },
 };

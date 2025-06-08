@@ -83,7 +83,7 @@ mod tests {
     fn test_generate_challenge_bytes() {
         let context = get_context_with_seed(42);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         let challenge_bytes = contract.generate_challenge_bytes();
 
@@ -104,12 +104,12 @@ mod tests {
         // Test with different seeds to ensure different challenges
         let context1 = get_context_with_seed(10);
         testing_env!(context1.build());
-        let contract1 = WebAuthnContract::default();
+        let contract1 = WebAuthnContract::init("test-contract".to_string());
         let challenge1 = contract1.generate_challenge_bytes();
 
         let context2 = get_context_with_seed(20);
         testing_env!(context2.build());
-        let contract2 = WebAuthnContract::default();
+        let contract2 = WebAuthnContract::init("test-contract".to_string());
         let challenge2 = contract2.generate_challenge_bytes();
 
         // Should be different with different seeds
@@ -122,7 +122,7 @@ mod tests {
     fn test_validate_or_generate_challenge_bytes_valid_challenge() {
         let context = get_context_with_seed(30);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test with a valid base64url challenge
         let valid_challenge = "dGVzdF9jaGFsbGVuZ2VfMTIzNDU"; // "test_challenge_12345" in base64url
@@ -137,7 +137,7 @@ mod tests {
     fn test_validate_or_generate_challenge_bytes_invalid_challenge() {
         let context = get_context_with_seed(31);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test with an invalid base64url challenge (contains spaces)
         let invalid_challenge = "invalid base64url!!";
@@ -160,7 +160,7 @@ mod tests {
     fn test_validate_or_generate_challenge_bytes_none_challenge() {
         let context = get_context_with_seed(32);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test with None
         let (bytes, b64url) = contract.decode_or_generate_new_challenge(None);
@@ -181,7 +181,7 @@ mod tests {
     fn test_generate_yield_resume_salt() {
         let context = get_context_with_seed(40);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         let (salt_bytes, salt_b64url) = contract.generate_yield_resume_salt();
 
@@ -202,12 +202,12 @@ mod tests {
         // Test with different seeds to ensure different salts
         let context1 = get_context_with_seed(50);
         testing_env!(context1.build());
-        let contract1 = WebAuthnContract::default();
+        let contract1 = WebAuthnContract::init("test-contract".to_string());
         let (salt1, salt1_b64) = contract1.generate_yield_resume_salt();
 
         let context2 = get_context_with_seed(60);
         testing_env!(context2.build());
-        let contract2 = WebAuthnContract::default();
+        let contract2 = WebAuthnContract::init("test-contract".to_string());
         let (salt2, salt2_b64) = contract2.generate_yield_resume_salt();
 
         // Should be different with different seeds
@@ -221,7 +221,7 @@ mod tests {
     fn test_generate_yield_resume_id() {
         let context = get_context_with_seed(70);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         let id1 = contract.generate_yield_resume_id();
         let id2 = contract.generate_yield_resume_id();
@@ -241,12 +241,12 @@ mod tests {
         // Test with different seeds to ensure different IDs
         let context1 = get_context_with_seed(80);
         testing_env!(context1.build());
-        let contract1 = WebAuthnContract::default();
+        let contract1 = WebAuthnContract::init("test-contract".to_string());
         let id1 = contract1.generate_yield_resume_id();
 
         let context2 = get_context_with_seed(90);
         testing_env!(context2.build());
-        let contract2 = WebAuthnContract::default();
+        let contract2 = WebAuthnContract::init("test-contract".to_string());
         let id2 = contract2.generate_yield_resume_id();
 
         // Should be different with different seeds
@@ -263,7 +263,7 @@ mod tests {
     fn test_validate_or_generate_challenge_bytes_empty_string() {
         let context = get_context_with_seed(33);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test with empty string (should be treated as invalid)
         let (bytes, b64url) = contract.decode_or_generate_new_challenge(Some("".to_string()));
@@ -282,7 +282,7 @@ mod tests {
     fn test_validate_or_generate_challenge_bytes_special_characters() {
         let context = get_context_with_seed(34);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test with base64url that contains invalid characters for base64url
         let invalid_challenge = "hello+world/with=padding"; // Contains +, /, = which are not base64url
@@ -297,7 +297,7 @@ mod tests {
     fn test_salt_and_id_independence() {
         let context = get_context_with_seed(100);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let contract = WebAuthnContract::init("test-contract".to_string());
 
         // Generate salt and ID multiple times to ensure they use independent randomness
         let (salt1, _) = contract.generate_yield_resume_salt();

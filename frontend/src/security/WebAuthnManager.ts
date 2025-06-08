@@ -8,7 +8,7 @@ const USER_DATA_STORE_NAME = 'userData';
 
 interface UserData {
   username: string;
-  derpAccountId?: string;
+  nearAccountId?: string;
   clientNearPublicKey?: string;
   passkeyCredential?: {
     id: string;
@@ -31,11 +31,11 @@ interface WebAuthnChallenge {
 }
 
 interface RegistrationPayload {
-  derpAccountId: string;
+  nearAccountId: string;
 }
 
 interface SigningPayload {
-  derpAccountId: string;
+  nearAccountId: string;
   receiverId: string;
   contractMethodName: string;
   contractArgs: any;
@@ -180,12 +180,12 @@ export class WebAuthnManager {
     return !!(userData?.passkeyCredential);
   }
 
-  async hasEncryptedKey(derpAccountId: string): Promise<boolean> {
+  async hasEncryptedKey(nearAccountId: string): Promise<boolean> {
     // Check if encrypted key exists in the worker's IndexedDB
     // This is a placeholder - the actual check would need to query the worker's DB
-    // For now, we'll assume if we have user data with this derpAccountId, we have the key
+    // For now, we'll assume if we have user data with this nearAccountId, we have the key
     const allUsers = await this.getAllUserData();
-    return allUsers.some(user => user.derpAccountId === derpAccountId);
+    return allUsers.some(user => user.nearAccountId === nearAccountId);
   }
 
   /**
@@ -485,7 +485,7 @@ export class WebAuthnManager {
     payload: RegistrationPayload,
     challengeId?: string,
     skipChallengeValidation: boolean = false
-  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string }> {
+  ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
       // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
       if (!skipChallengeValidation && challengeId) {
@@ -503,7 +503,7 @@ export class WebAuthnManager {
         type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
         payload: {
           prfOutput: bufferEncode(prfOutput), // Convert to base64
-          derpAccountId: payload.derpAccountId
+          nearAccountId: payload.nearAccountId
         }
       });
 
@@ -512,7 +512,7 @@ export class WebAuthnManager {
         // Store user data with PRF flag
         await this.storeUserData({
           username,
-          derpAccountId: payload.derpAccountId,
+          nearAccountId: payload.nearAccountId,
           clientNearPublicKey: response.payload.publicKey,
           prfSupported: true, // Flag to indicate PRF was used
           lastUpdated: Date.now()
@@ -520,7 +520,7 @@ export class WebAuthnManager {
 
         return {
           success: true,
-          derpAccountId: response.payload.derpAccountId,
+          nearAccountId: response.payload.nearAccountId,
           publicKey: response.payload.publicKey
         };
       } else {
@@ -541,7 +541,7 @@ export class WebAuthnManager {
     prfOutput: ArrayBuffer,
     payload: SigningPayload,
     challengeId: string
-  ): Promise<{ signedTransactionBorsh: number[]; derpAccountId: string }> {
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
       // Validate and consume the challenge
       const challenge = this.validateAndConsumeChallenge(challengeId, 'authentication');
@@ -555,7 +555,7 @@ export class WebAuthnManager {
       const response = await this.executeWorkerOperation(worker, {
         type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
         payload: {
-          derpAccountId: payload.derpAccountId,
+          nearAccountId: payload.nearAccountId,
           prfOutput: bufferEncode(prfOutput), // Convert to base64
           receiverId: payload.receiverId,
           contractMethodName: payload.contractMethodName,
@@ -571,7 +571,7 @@ export class WebAuthnManager {
         console.log('WebAuthnManager: PRF transaction signing successful');
         return {
           signedTransactionBorsh: response.payload.signedTransactionBorsh,
-          derpAccountId: response.payload.derpAccountId
+          nearAccountId: response.payload.nearAccountId
         };
       } else {
         throw new Error(response.payload?.error || 'PRF signing failed');
@@ -607,7 +607,7 @@ export class WebAuthnManager {
     payload: RegistrationPayload,
     challengeId?: string,
     skipChallengeValidation: boolean = false
-  ): Promise<{ success: boolean; derpAccountId: string; publicKey: string }> {
+  ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
       // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
       if (!skipChallengeValidation && challengeId) {
@@ -626,7 +626,7 @@ export class WebAuthnManager {
         payload: {
           prfOutput: bufferEncode(prfOutput), // Convert to base64
           attestationObjectB64u: attestationObjectB64u,
-          derpAccountId: payload.derpAccountId
+          nearAccountId: payload.nearAccountId
         }
       });
 
@@ -637,7 +637,7 @@ export class WebAuthnManager {
         // Store user data with PRF flag and deterministic key info
         await this.storeUserData({
           username,
-          derpAccountId: payload.derpAccountId,
+          nearAccountId: payload.nearAccountId,
           clientNearPublicKey: response.payload.publicKey,
           prfSupported: true, // Flag to indicate PRF was used
           deterministicKey: true, // Flag to indicate deterministic derivation
@@ -646,7 +646,7 @@ export class WebAuthnManager {
 
         return {
           success: true,
-          derpAccountId: response.payload.derpAccountId,
+          nearAccountId: response.payload.nearAccountId,
           publicKey: response.payload.publicKey
         };
       } else {

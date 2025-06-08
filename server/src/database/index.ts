@@ -22,7 +22,7 @@ export const initDB = () => {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      derpAccountId TEXT NULLABLE,
+      nearAccountId TEXT NULLABLE,
       currentChallenge TEXT NULLABLE,
       currentCommitmentId TEXT NULLABLE
     );

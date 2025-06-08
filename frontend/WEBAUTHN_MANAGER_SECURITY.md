@@ -36,7 +36,7 @@ const { prfOutput } = await webAuthnManager.authenticateWithPrf(username, 'encry
 const result = await webAuthnManager.secureRegistrationWithPrf(
   username,
   prfOutput, // Or prfOutput from registration credential extensions
-  { derpAccountId },
+  { nearAccountId },
   challengeId, // Original registration challenge ID
   true // Skip challenge validation if PRF output was from a separate auth
 );
@@ -51,7 +51,7 @@ const { credential, prfOutput, challengeId } = await webAuthnManager.authenticat
 const result = await webAuthnManager.secureTransactionSigningWithPrf(
   username,
   prfOutput,
-  { derpAccountId, receiverId, contractMethodName, ... },
+  { nearAccountId, receiverId, contractMethodName, ... },
   challengeId
 );
 ```

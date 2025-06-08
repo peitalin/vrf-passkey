@@ -69,7 +69,7 @@ interface PasskeyState {
   isLoggedIn: boolean;
   username: string | null;
   serverDerivedNearPK: string | null;
-  derpAccountId: string | null;
+  nearAccountId: string | null;
   isProcessing: boolean;
   statusMessage: string | null;
   currentGreeting: string | null;
@@ -83,9 +83,9 @@ export interface ExecuteActionCallbacks {
 
 interface PasskeyContextType extends PasskeyState {
   setUsernameState: (username: string) => void;
-  setDerpAccountIdState: (accountId: string) => void;
-  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }>;
-  loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null }>;
+  setNearAccountIdState: (accountId: string) => void;
+  registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }>;
+  loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }>;
   logoutPasskey: () => void;
   executeDirectActionViaWorker: (
     serializableActionForContract: SerializableActionArgs,
@@ -106,7 +106,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [serverDerivedNearPK, setServerDerivedNearPK] = useState<string | null>(null);
-  const [derpAccountId, setDerpAccountId] = useState<string | null>(null);
+  const [nearAccountId, setNearAccountId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
@@ -122,8 +122,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const setUsernameState = (name: string) => {
     setUsername(name);
   };
-  const setDerpAccountIdState = (accountId: string) => {
-    setDerpAccountId(accountId);
+  const setNearAccountIdState = (accountId: string) => {
+    setNearAccountId(accountId);
   };
 
   const fetchCurrentGreeting = useCallback(async () => {
@@ -154,8 +154,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         if (lastUsername) {
           setUsername(lastUsername);
           const userData = await webAuthnManager.getUserData(lastUsername);
-          if (userData?.derpAccountId) {
-            setDerpAccountId(userData.derpAccountId);
+          if (userData?.nearAccountId) {
+            setNearAccountId(userData.nearAccountId);
           }
         }
       } catch (error) {
@@ -172,7 +172,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting]);
 
-  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null; transactionId?: string | null }> => {
+  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }> => {
     if (!currentUsername) {
       return { success: false, error: 'Username is required for registration.' };
     }
@@ -189,7 +189,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
       // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
       let clientManagedPublicKey: string | null = null;
-      const userDerpAccountIdToUse = `${currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32)}.${RELAYER_ACCOUNT_ID}`;
+      const userNearAccountIdToUse = `${currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32)}.${RELAYER_ACCOUNT_ID}`;
 
       if (prfEnabled) {
         const extensionResults = credential.getClientExtensionResults();
@@ -200,7 +200,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           const prfRegistrationResult = await webAuthnManager.secureRegistrationWithPrf(
             currentUsername,
             registrationPrfOutput,
-            { derpAccountId: userDerpAccountIdToUse },
+            { nearAccountId: userNearAccountIdToUse },
             undefined, // challengeId not directly needed here as registerWithPrf handles it
             true // Skip challenge validation as WebAuthn ceremony just completed
           );
@@ -245,10 +245,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       if (!verifyResponse.ok || !serverVerifyData.verified) {
         throw new Error(serverVerifyData.error || 'Passkey verification failed by server.');
       }
-      console.log(`Server WebAuthn verification successful. DERP Account: ${userDerpAccountIdToUse}`);
+      console.log(`Server WebAuthn verification successful. NEAR Account: ${userNearAccountIdToUse}`);
 
-      // Step 5: (Optional but recommended) Associate client public key with DERP account on-chain via server
-      // This step makes the client-managed key an authorized key for the DERP account.
+      // Step 5: (Optional but recommended) Associate client public key with NEAR account on-chain via server
+      // This step makes the client-managed key an authorized key for the NEAR account.
       let associationTransactionId: string | null = null;
       try {
         const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
@@ -256,25 +256,25 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             username: currentUsername,
-            derpAccountId: userDerpAccountIdToUse,
+            nearAccountId: userNearAccountIdToUse,
             clientNearPublicKey: clientManagedPublicKey
           }),
         });
         const associatePkData = await associatePkResponse.json();
         if (!associatePkResponse.ok || !associatePkData.success) {
-          throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with DERP account.');
+          throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with NEAR account.');
         }
         associationTransactionId = associatePkData.transactionId || associatePkData.txId || null;
-        console.log('Client PK associated with DERP account. Tx:', associationTransactionId);
+        console.log('Client PK associated with NEAR account. Tx:', associationTransactionId);
       } catch (assocError: any) {
-        console.warn('Failed to associate client PK with DERP account:', assocError.message);
+        console.warn('Failed to associate client PK with NEAR account:', assocError.message);
         // Decide if this is a fatal error for registration or just a warning
       }
 
       // Step 6: Store user data locally (including client-managed key)
       await webAuthnManager.storeUserData({
           username: currentUsername,
-          derpAccountId: userDerpAccountIdToUse,
+          nearAccountId: userNearAccountIdToUse,
           clientNearPublicKey: clientManagedPublicKey,
           passkeyCredential: { id: credential.id, rawId: bufferEncode(credential.rawId) },
           prfSupported: prfEnabled,
@@ -284,13 +284,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       // Step 7: Update React context state
       setIsLoggedIn(true);
       setUsername(currentUsername);
-      setDerpAccountId(userDerpAccountIdToUse);
+      setNearAccountId(userNearAccountIdToUse);
       setServerDerivedNearPK(clientManagedPublicKey); // Use the client-managed key for UI state
       setStatusMessage('Passkey registered, verified, and key managed successfully!');
       setIsProcessing(false);
       return {
           success: true,
-          derpAccountId: userDerpAccountIdToUse,
+          nearAccountId: userNearAccountIdToUse,
           clientNearPublicKey: clientManagedPublicKey,
           transactionId: associationTransactionId
       };
@@ -301,9 +301,9 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setDerpAccountId, setServerDerivedNearPK]);
+  }, [setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
 
-  const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; derpAccountId?: string | null }> => {
+  const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }> => {
     const userToLogin = currentUsername || username;
     if (!userToLogin) {
       return { success: false, error: 'Username is required for login.' };
@@ -326,7 +326,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         throw new Error(errorData.error || `Server error ${authOptionsResponse.status}`);
       }
 
-      const options: ServerAuthenticationOptions & { derpAccountId?: string; commitmentId?: string } = await authOptionsResponse.json();
+      const options: ServerAuthenticationOptions & { nearAccountId?: string; commitmentId?: string } = await authOptionsResponse.json();
 
       const commitmentId = options.commitmentId;
       console.log('PasskeyContext: Received authentication options with commitmentId:', commitmentId);
@@ -366,7 +366,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
         setIsLoggedIn(true);
         setUsername(loggedInUsername);
-        setDerpAccountId(serverVerifyData.derpAccountId || localUserData?.derpAccountId);
+        setNearAccountId(serverVerifyData.nearAccountId || localUserData?.nearAccountId);
 
         // Set the UI-driving public key state from the locally stored clientNearPublicKey
         if (localUserData?.clientNearPublicKey) {
@@ -383,7 +383,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           success: true,
           loggedInUsername,
           clientNearPublicKey: localUserData?.clientNearPublicKey || null,
-          derpAccountId: serverVerifyData.derpAccountId || localUserData?.derpAccountId
+          nearAccountId: serverVerifyData.nearAccountId || localUserData?.nearAccountId
         };
       } else {
         throw new Error(serverVerifyData.error || 'Passkey authentication failed by server.');
@@ -394,14 +394,14 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [username, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setDerpAccountId, setServerDerivedNearPK]);
+  }, [username, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
 
   const logoutPasskey = useCallback(() => {
     setIsLoggedIn(false);
     setUsername(null);
     setServerDerivedNearPK(null);
     setCurrentGreeting(null);
-    setDerpAccountId(null);
+    setNearAccountId(null);
     setStatusMessage('Logged out.');
   }, [setStatusMessage]);
 
@@ -414,15 +414,15 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setStatusMessage('Processing direct action...');
     console.log('[Direct Action] Initiating...', { serializableActionForContract });
 
-    if (!isLoggedIn || !username || !derpAccountId) {
-      const errorMsg = 'User not logged in or DERP account ID not set for direct action.';
-      console.error('[Direct Action] Error:', errorMsg, { isLoggedIn, username, derpAccountId });
+    if (!isLoggedIn || !username || !nearAccountId) {
+      const errorMsg = 'User not logged in or NEAR account ID not set for direct action.';
+      console.error('[Direct Action] Error:', errorMsg, { isLoggedIn, username, nearAccountId });
       setStatusMessage(errorMsg);
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: errorMsg });
       return;
     }
-    console.log('[Direct Action] User state validated:', { isLoggedIn, username, derpAccountId });
+    console.log('[Direct Action] User state validated:', { isLoggedIn, username, nearAccountId });
 
     try {
       // Check if user has PRF support
@@ -453,11 +453,11 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
       console.log('[Direct Action] Client NEAR public key found:', publicKeyStr);
 
-      console.log('[Direct Action] Fetching access key info for:', derpAccountId, publicKeyStr);
+      console.log('[Direct Action] Fetching access key info for:', nearAccountId, publicKeyStr);
       const accessKeyInfo = await provider.query({
         request_type: 'view_access_key',
         finality: 'final',
-        account_id: derpAccountId,
+        account_id: nearAccountId,
         public_key: publicKeyStr,
       });
       console.log('[Direct Action] Access key info received:', accessKeyInfo);
@@ -471,7 +471,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
       console.log('[Direct Action] Calling secureTransactionSigningWithPrf...');
       const signingPayload = {
-        derpAccountId,
+        nearAccountId,
         receiverId: serializableActionForContract.receiver_id,
         contractMethodName: serializableActionForContract.method_name,
         contractArgs: JSON.parse(serializableActionForContract.args),
@@ -530,18 +530,18 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: error.message });
     }
-  }, [isLoggedIn, username, derpAccountId, fetchCurrentGreeting, setStatusMessage, setIsProcessing]);
+  }, [isLoggedIn, username, nearAccountId, fetchCurrentGreeting, setStatusMessage, setIsProcessing]);
 
   const value = {
     isLoggedIn,
     username,
     serverDerivedNearPK,
-    derpAccountId,
+    nearAccountId,
     isProcessing,
     statusMessage,
     currentGreeting,
     setUsernameState,
-    setDerpAccountIdState,
+    setNearAccountIdState,
     registerPasskey,
     loginPasskey,
     logoutPasskey,

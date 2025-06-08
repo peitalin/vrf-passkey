@@ -2,7 +2,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE;
 use base64::Engine as TestEngine;
 use serde_json::json;
 use near_workspaces::types::Gas;
-use near_sdk::CryptoHash;
 use sha2::{Sha256, Digest};
 use serde_cbor;
 use webauthn_contract::{RegistrationOptionsJSON, AuthenticatorSelectionCriteria};
@@ -91,13 +90,13 @@ async fn test_registration_on_chain_commitment_flow_invocations() -> Result<(), 
         "rp_id": rp_id.clone(),
         "user_name": user_name_for_entity.clone(),
         "user_id": user_id_b64.clone(),
-        "challenge": Some(challenge_b64url_from_input.clone()),
-        "user_display_name": Some("Test User Display"),
-        "authenticator_selection": {"userVerification": "required"}, // Simple valid selection
-        "timeout": Some(60000u64),
-        "attestation_type": Some("none"),
+        "challenge": challenge_b64url_from_input.clone(),
+        "user_display_name": "Test User Display",
+        "authenticator_selection": {"user_verification": "required"}, // Fixed field name
+        "timeout": 60000u64,
+        "attestation_type": "none",
         "exclude_credentials": null,
-        "extensions": {"credProps": true},
+        "extensions": {"cred_props": true}, // Fixed field name
         "supported_algorithm_ids": [-7, -257],
         "preferred_authenticator_type": null,
     });
@@ -204,13 +203,13 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
         "rp_id": rp_id_str.clone(),
         "user_name": user_name_for_entity.clone(),
         "user_id": user_id_b64.clone(),
-        "challenge": Some(challenge_b64url_from_input.clone()),
-        "user_display_name": Some("Yield Test User"),
-        "authenticator_selection": Some(authenticator_selection_for_test.clone()),
-        "timeout": Some(60000u64),
-        "attestation_type": Some("none"),
-        "exclude_credentials": [],
-        "extensions": {"credProps": true},
+        "challenge": challenge_b64url_from_input.clone(),
+        "user_display_name": "Yield Test User",
+        "authenticator_selection": authenticator_selection_for_test.clone(),
+        "timeout": 60000u64,
+        "attestation_type": "none",
+        "exclude_credentials": null,
+        "extensions": {"cred_props": true},
         "supported_algorithm_ids": [-7, -257],
         "preferred_authenticator_type": "platform",
     });
@@ -235,14 +234,14 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     println!("generate_registration_options succeeded, got commitmentId: {}", commitment_id);
 
     // Check that the prune ID exists after generation
-    let prune_id_after_generate: Option<Vec<u8>> = user_account
+    let prune_id_after_generate: Option<webauthn_contract::UserIdYieldId> = user_account
         .view(contract.id(), "get_pending_prune_id")
         .args_json(json!({"commitment_id": commitment_id }))
         .await?
         .json()?;
 
     assert!(prune_id_after_generate.is_some(), "Prune ID should exist after generation");
-    let yield_resume_id_bytes = prune_id_after_generate.unwrap();
+    let yield_resume_id_bytes = prune_id_after_generate.unwrap().yield_resume_id;
     let yield_resume_id = TEST_BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
     println!("generate_registration_options also yielded a prune callback with yieldResumeId: {:?}", yield_resume_id);
 
@@ -281,7 +280,7 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     assert_eq!(registration_info.credential_id, test_cred_id_bytes);
 
     // Check that the prune ID has been cleaned up
-    let prune_id_after_verify: Option<Vec<u8>> = user_account
+    let prune_id_after_verify: Option<webauthn_contract::UserIdYieldId> = user_account
         .view(contract.id(), "get_pending_prune_id")
         .args_json(json!({"commitment_id": commitment_id}))
         .await?

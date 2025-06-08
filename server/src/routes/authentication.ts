@@ -316,10 +316,10 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
     // The contract response for options is now nested.
     // The top-level response has `options` and `commitmentId`.
     // The response to the client should be a flat object.
-    const userForDerpId = username ? userOperations.findByUsername(username) : undefined;
+    const userForNearId = username ? userOperations.findByUsername(username) : undefined;
     return res.json({
       ...response.options, // Spread the nested options
-      derpAccountId: userForDerpId?.derpAccountId,
+      nearAccountId: userForNearId?.nearAccountId,
       commitmentId: response.commitmentId, // Add commitmentId at the top level
     });
 
@@ -469,7 +469,7 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       return res.json({
         verified: true,
         username: user.username,
-        derpAccountId: user.derpAccountId,
+        nearAccountId: user.nearAccountId,
       });
     } else {
       userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);

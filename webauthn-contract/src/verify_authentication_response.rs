@@ -245,7 +245,7 @@ impl WebAuthnContract {
     /// Equivalent to @simplewebauthn/server's verifyAuthenticationResponse function
     #[private]
     pub fn internal_verify_authentication_response(
-        &self,
+        &mut self,
         response: AuthenticationResponseJSON,
         expected_challenge: String,
         expected_origin: String,
@@ -427,6 +427,19 @@ impl WebAuthnContract {
 
         // Step 12: Authentication successful
         log!("Authentication verification successful");
+
+        // Update the authenticator counter and last used timestamp on-chain
+        let user_account_id = env::predecessor_account_id();
+        let credential_id_b64url = BASE64_URL_ENGINE.encode(&authenticator.credential_id);
+        let current_timestamp = env::block_timestamp_ms().to_string();
+
+        self.update_authenticator_usage(
+            user_account_id,
+            credential_id_b64url,
+            auth_data.counter,
+            current_timestamp,
+        );
+
         VerifiedAuthenticationResponse {
             verified: true,
             authentication_info: Some(AuthenticationInfo {
@@ -469,7 +482,7 @@ mod tests {
     fn test_verify_authentication_response_invalid_challenge() {
         let context = get_context_with_seed(23);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Create a mock authentication response with wrong challenge
         let client_data = r#"{"type":"webauthn.get","challenge":"wrong_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
@@ -513,7 +526,7 @@ mod tests {
     fn test_verify_authentication_response_invalid_type() {
         let context = get_context_with_seed(24);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Create a mock authentication response with wrong type
         let client_data = r#"{"type":"webauthn.create","challenge":"test_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
@@ -557,7 +570,7 @@ mod tests {
     fn test_verify_authentication_response_ed25519_mock() {
         let context = get_context_with_seed(25);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Create a valid client data
         let client_data = r#"{"type":"webauthn.get","challenge":"test_challenge","origin":"https://example.localhost","crossOrigin":false}"#;
@@ -620,7 +633,7 @@ mod tests {
     fn test_verify_authentication_response_real_webauthn_data() {
         let context = get_context_with_seed(30);
         testing_env!(context.build());
-        let contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Real WebAuthn authentication response data that worked with SimpleWebAuthn
         let real_auth_response = AuthenticationResponseJSON {

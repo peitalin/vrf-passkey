@@ -374,7 +374,7 @@ impl WebAuthnContract {
     // This is the core WebAuthn attestation verification logic
     #[private]
     pub fn internal_verify_registration_response(
-        &self,
+        &mut self,
         attestation_response: RegistrationResponseJSON,
         expected_challenge: String, // This is the original_challenge_b64url after commitment check
         expected_origin: String,
@@ -581,8 +581,53 @@ impl WebAuthnContract {
             }
         }
 
-        // Step 6: WebAuthn verification successful
-        log!("Registration verification successful");
+        // Step 6: WebAuthn verification successful. Store the new authenticator.
+        log!("Registration verification successful. Storing new authenticator.");
+
+        let credential_id_b64url = BASE64_URL_ENGINE.encode(&attested_cred_data.credential_id);
+        let user_account_id = env::predecessor_account_id();
+
+        // Parse transports from the response if available
+        let transports = if let Some(transport_strings) = &attestation_response.response.transports {
+            Some(transport_strings.iter().filter_map(|t| {
+                match t.as_str() {
+                    "usb" => Some(AuthenticatorTransport::Usb),
+                    "nfc" => Some(AuthenticatorTransport::Nfc),
+                    "ble" => Some(AuthenticatorTransport::Ble),
+                    "internal" => Some(AuthenticatorTransport::Internal),
+                    "hybrid" => Some(AuthenticatorTransport::Hybrid),
+                    _ => None,
+                }
+            }).collect())
+        } else {
+            None
+        };
+
+        // Get current timestamp as ISO string
+        let current_timestamp = env::block_timestamp_ms().to_string();
+
+        // Determine if backed up based on authenticator flags (BS flag = bit 4)
+        let backed_up = (auth_data.flags & 0x10) != 0;
+
+        // Store the authenticator on-chain
+        self.store_authenticator(
+            user_account_id.clone(),
+            credential_id_b64url.clone(),
+            attested_cred_data.credential_public_key.clone(),
+            auth_data.counter,
+            transports,
+            None, // client_managed_near_public_key starts as None
+            None, // name starts as None
+            current_timestamp,
+            backed_up,
+        );
+
+        log!(
+            "Stored authenticator for user '{}' with credential ID '{}'",
+            user_account_id,
+            credential_id_b64url
+        );
+
         VerifiedRegistrationResponse {
             verified: true,
             registration_info: Some(RegistrationInfo {
@@ -631,7 +676,7 @@ mod tests {
     fn test_verify_registration_response_invalid_challenge() {
         let context = get_context_with_seed(14);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Create mock client data with wrong challenge
         let client_data = r#"{"type":"webauthn.create","challenge":"wrong_challenge","origin":"https://example.com","crossOrigin":false}"#;
@@ -702,7 +747,7 @@ mod tests {
     fn test_verify_registration_response_invalid_origin() {
         let context = get_context_with_seed(15);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Create mock client data with wrong origin
         let client_data = r#"{"type":"webauthn.create","challenge":"test_challenge","origin":"https://evil.com","crossOrigin":false}"#;
@@ -768,7 +813,7 @@ mod tests {
     fn test_verify_registration_response_real_webauthn_data() {
         let context = get_context_with_seed(16);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         let client_extension_results = serde_json::json!({
             "credProps": {"rk": true},
@@ -870,7 +915,7 @@ mod tests {
     fn test_verify_registration_response_json_deserialization() {
         let context = get_context_with_seed(17);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Test that we can properly deserialize the exact JSON structure from the browser
         let json_input = r#"{

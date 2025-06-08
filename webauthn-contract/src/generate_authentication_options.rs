@@ -187,7 +187,7 @@ mod tests {
     fn test_generate_authentication_options_defaults() {
         let context = get_context_with_seed(20);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         let result = contract.generate_authentication_options(
             None, // rp_id
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(result.options.challenge, expected_challenge_b64url);
 
         assert_eq!(result.options.timeout, Some(60000));
-        assert_eq!(result.options.rp_id, Some("webauthn-contract.testnet".to_string()));
+        assert_eq!(result.options.rp_id, Some("test-contract.testnet".to_string()));
         assert_eq!(result.options.allow_credentials, None);
         assert_eq!(result.options.user_verification, Some(UserVerificationRequirement::Preferred));
         assert!(result.options.extensions.is_some());
@@ -220,7 +220,7 @@ mod tests {
     fn test_generate_authentication_options_with_overrides() {
         let context = get_context_with_seed(21);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         let custom_challenge = "Y3VzdG9tX2NoYWxsZW5nZV8xMjM0NQ"; // "custom_challenge_12345" base64url encoded
         let custom_timeout = 30000u64;
@@ -267,7 +267,7 @@ mod tests {
     fn test_generate_authentication_options_invalid_challenge() {
         let context = get_context_with_seed(22);
         testing_env!(context.build());
-        let mut contract = WebAuthnContract::default();
+        let mut contract = WebAuthnContract::init("test-contract".to_string());
 
         // Provide an invalid base64url challenge
         let invalid_challenge = "invalid base64url!!";
