@@ -9,7 +9,7 @@ use crate::generate_registration_options::{
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{env, log, near, CryptoHash};
+use near_sdk::{env, log, near, require, CryptoHash};
 use serde_cbor::Value as CborValue;
 use crate::utils::parsers::{
     parse_attestation_object,
@@ -246,56 +246,69 @@ pub struct AuthenticationInfo {
 #[near]
 impl WebAuthnContract {
 
-    /// Complete registration using yield-resume pattern
-    /// This method is called by the client with the WebAuthn response to resume the yielded execution
+    /// Complete registration using an on-chain commitment
+    /// This method is called by the client with the WebAuthn response to complete the registration
     pub fn verify_registration_response(
-        &self,
+        &mut self,
         registration_response: RegistrationResponseJSON,
-        yield_resume_id: String, // yield_resume_id is required since register yield_resume IDs are randomly generated
-    ) -> bool {
-        // Decode the provided yield_resume_id
-        let yield_resume_id_bytes = BASE64_URL_ENGINE.decode(&yield_resume_id)
-            .expect("Failed to decode provided yield_resume_id");
+        commitment_id: String,
+    ) -> VerifiedRegistrationResponse {
+        log!("Verifying registration with on-chain commitment id: {}", commitment_id);
 
-        // The yield_resume_id should be a CryptoHash (32 bytes)
-        let yield_resume_id: CryptoHash = yield_resume_id_bytes
-            .try_into()
-            .expect("Invalid yield_resume_id format - expected 32 bytes");
-
-        // Create completion data structure
-        let completion_data = RegistrationCompletionData {
-            registration_response,
+        // 1. Fetch and remove the pending registration data
+        let yield_data = match self.pending_registrations.remove(&commitment_id) {
+            Some(data) => data,
+            None => {
+                log!("No pending registration found for commitment_id: {}", commitment_id);
+                return VerifiedRegistrationResponse {
+                    verified: false,
+                    registration_info: None,
+                };
+            }
         };
 
-        // Serialize the completion data
-        let response_bytes = serde_json::to_vec(&completion_data)
-            .expect("Failed to serialize registration completion data");
+        log!("Found and removed pending registration data. Proceeding with verification.");
 
-        // Resume execution with the registration response
-        env::promise_yield_resume(&yield_resume_id, &response_bytes);
-        log!("Resuming registration with user's WebAuthn response");
-        true
-    }
+        // Clean up the pending prune promise immediately
+        if let Some(yield_resume_id_bytes) = self.pending_prunes.remove(&commitment_id) {
+            let yield_resume_id: CryptoHash = yield_resume_id_bytes
+                .try_into()
+                .expect("Invalid yield_resume_id format in pending_prunes");
 
-    /// Callback method for yield-resume registration flow
-    /// This method is called when the yield is resumed with the registration response
-    #[private]
-    pub fn resume_registration_callback(
-        &mut self,
-        #[callback_unwrap] yield_data: YieldedRegistrationData,
-        #[callback_unwrap] completion_data: RegistrationCompletionData,
-    ) -> VerifiedRegistrationResponse {
-        log!("Processing registration callback with yielded commitment");
+            log!("Explicitly pruning commitment by resuming yield with id: {:?}", yield_resume_id);
+            env::promise_yield_resume(&yield_resume_id, &[]);
+        } else {
+            log!("Warning: No pending prune found for commitment_id: {}", commitment_id);
+        }
 
-        // Use internal_process_registration with the yielded data and verification parameters
+        // 2. Use internal_process_registration with the stored data
         self.internal_process_registration(
             yield_data.commitment_b64url,
             yield_data.original_challenge_b64url,
             yield_data.salt_b64url,
-            completion_data.registration_response,
+            registration_response,
             yield_data.rp_id.clone(),
             yield_data.require_user_verification,
         )
+    }
+
+    /// This callback is triggered automatically by the runtime if the corresponding
+    /// promise from `generate_registration_options` is not resumed within the timeout period.
+    #[private]
+    pub fn prune_commitment_callback(
+        &mut self,
+        commitment_id: String // "commitment_id" field from json! args in promise_yield_create()
+    ) {
+        log!("Pruning commitment via automatic callback: {}", commitment_id);
+        require!(
+            env::current_account_id() == env::predecessor_account_id(),
+            "prune_commitment_callback can only be called by the contract itself"
+        );
+
+        // This callback is now responsible for cleaning up both maps.
+        // It's idempotent - if the entry is already gone, it does nothing.
+        self.pending_registrations.remove(&commitment_id);
+        self.pending_prunes.remove(&commitment_id);
     }
 
     #[private]

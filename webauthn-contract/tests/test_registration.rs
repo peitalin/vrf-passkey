@@ -2,6 +2,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE;
 use base64::Engine as TestEngine;
 use serde_json::json;
 use near_workspaces::types::Gas;
+use near_sdk::CryptoHash;
 use sha2::{Sha256, Digest};
 use serde_cbor;
 use webauthn_contract::{RegistrationOptionsJSON, AuthenticatorSelectionCriteria};
@@ -61,7 +62,7 @@ async fn test_contract_basic_functionality() -> Result<(), Box<dyn std::error::E
 }
 
 #[tokio::test]
-async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_registration_on_chain_commitment_flow_invocations() -> Result<(), Box<dyn std::error::Error>> {
     let contract_wasm = near_workspaces::compile_project("./").await?;
     let sandbox = near_workspaces::sandbox().await?;
     let contract = sandbox.dev_deploy(&contract_wasm).await?;
@@ -116,15 +117,11 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
     sandbox.fast_forward(2).await?;
 
     let options_response_json_str: String = options_outcome.json()?;
-    // Ensure we can parse the main structure of RegistrationOptionsJSON
-    let parsed_options_response: serde_json::Value = serde_json::from_str(&options_response_json_str)?;
-    let yield_resume_id_from_server = parsed_options_response["yieldResumeId"].as_str().expect("yield_resume_id should be in response").to_string();
-    assert!(parsed_options_response["options"]["challenge"].is_string(), "Challenge missing in options");
-    println!("generate_registration_options succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
+    let parsed_options_response: RegistrationOptionsJSON = serde_json::from_str(&options_response_json_str)?;
+    let commitment_id = parsed_options_response.commitment_id.expect("commitment_id should be in response").to_string();
+    println!("generate_registration_options succeeded, got commitmentId: {}", commitment_id);
 
     // Step 2: Prepare mock RegistrationResponseJSON for verify_registration_response
-    // This mock only needs the contract to correctly deserialize the payload
-    // Actual cryptographic verification is tested in unit tests.
     let mock_client_data_json_str_for_test = serde_json::to_string(&json!({
         "type": "webauthn.create",
         "challenge": challenge_b64url_from_input, // Use the same challenge as input
@@ -150,9 +147,9 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
     // Step 3: Call verify_registration_response
     let complete_args = json!({
         "registration_response": mock_registration_response_for_complete,
-        "yield_resume_id": yield_resume_id_from_server
+        "commitment_id": commitment_id
     });
-    println!("Calling verify_registration_response with yield_resume_id: {}", yield_resume_id_from_server);
+    println!("Calling verify_registration_response with commitment_id: {}", commitment_id);
     let complete_outcome = user_account
         .call(contract.id(), "verify_registration_response")
         .args_json(complete_args)
@@ -161,11 +158,11 @@ async fn test_contract_yield_resume_flow_invocations() -> Result<(), Box<dyn std
         .await?;
     assert!(complete_outcome.is_success(), "verify_registration_response call failed: {:?}", if complete_outcome.is_failure() { Some(complete_outcome.into_result().unwrap_err()) } else { None });
 
-    let resume_succeeded: bool = complete_outcome.json()?;
-    assert!(resume_succeeded, "verify_registration_response should return true if resume is successful");
+    let verification_result: webauthn_contract::VerifiedRegistrationResponse = complete_outcome.json()?;
+    // This will fail verification because the attestation object is mock, but it proves the deserialization and flow works.
+    assert!(!verification_result.verified, "Verification should fail with mock attestation, but flow is successful");
 
-    println!("Yield-resume flow (generate_options and verify_registration_response calls) succeeded.");
-    println!("Callback logic is unit-tested separately.");
+    println!("On-chain commitment flow (generate_options and verify_registration_response calls) succeeded.");
 
     Ok(())
 }
@@ -218,7 +215,7 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
         "preferred_authenticator_type": "platform",
     });
 
-    // Step 1: Create yield with transact_async()
+    // Step 1: Call generate_registration_options
     println!("Calling generate_registration_options (async) with args:\n{:?}", options_args);
     let options_request_handle = user_account
         .call(contract.id(), "generate_registration_options")
@@ -227,15 +224,27 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
         .transact_async()
         .await?;
 
-    let initial_options_outcome = options_request_handle.await?;
-    assert!(initial_options_outcome.is_success(), "Initial generate_registration_options transaction failed: {:?}", initial_options_outcome.outcome());
+    let options_outcome = options_request_handle.await?;
+    assert!(options_outcome.is_success(), "generate_registration_options transaction failed: {:?}", options_outcome.outcome());
 
-    let options_response_json_str: String = initial_options_outcome.json()?;
+    let options_response_json_str: String = options_outcome.json()?;
     let parsed_options_response: RegistrationOptionsJSON = serde_json::from_str(&options_response_json_str)?;
-    let yield_resume_id_from_server = parsed_options_response.yield_resume_id.expect("yield_resume_id should be in response from generate_registration_options");
+    let commitment_id = parsed_options_response.commitment_id.expect("commitment_id should be in response");
     let yielded_challenge_in_options = parsed_options_response.options.challenge.clone();
 
-    println!("generate_registration_options (initial tx) succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
+    println!("generate_registration_options succeeded, got commitmentId: {}", commitment_id);
+
+    // Check that the prune ID exists after generation
+    let prune_id_after_generate: Option<Vec<u8>> = user_account
+        .view(contract.id(), "get_pending_prune_id")
+        .args_json(json!({"commitment_id": commitment_id}))
+        .await?
+        .json()?;
+
+    assert!(prune_id_after_generate.is_some(), "Prune ID should exist after generation");
+    let yield_resume_id_bytes = prune_id_after_generate.unwrap();
+    let yield_resume_id = TEST_BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
+    println!("generate_registration_options also yielded a prune callback with yieldResumeId: {:?}", yield_resume_id);
 
     // Step 2: Advance blockchain state for yield-resume
     sandbox.fast_forward(2).await?;
@@ -253,9 +262,9 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
     // Step 4: Call verify_registration_response
     let complete_args = json!({
         "registration_response": mock_registration_response_val,
-        "yield_resume_id": yield_resume_id_from_server
+        "commitment_id": commitment_id
     });
-    println!("Calling verify_registration_response with yield_resume_id: {}", yield_resume_id_from_server);
+    println!("Calling verify_registration_response with commitment_id: {}", commitment_id);
     let complete_transaction_outcome = user_account
         .call(contract.id(), "verify_registration_response")
         .args_json(complete_args)
@@ -263,45 +272,23 @@ async fn test_contract_yield_resume_full_flow() -> Result<(), Box<dyn std::error
         .transact()
         .await?;
 
-    // clone for logging
-    let outcome_clone_for_asserts = complete_transaction_outcome.clone();
-    let logs_for_assertion = outcome_clone_for_asserts.logs().to_vec();
-    let outcome_details_for_assertion = outcome_clone_for_asserts.outcome().clone();
-    let final_success_status = outcome_clone_for_asserts.is_success();
+    assert!(complete_transaction_outcome.is_success(), "verify_registration_response call failed: {:?}", complete_transaction_outcome.outcome());
 
-    let resume_call_succeeded: bool = if !final_success_status {
-        false
-    } else {
-        match complete_transaction_outcome.json() { // .json() consumes the outcome
-            Ok(value) => value,
-            Err(parse_err) => {
-                panic!(
-                    "verify_registration_response transaction succeeded but failed to parse JSON result: {:?}. Outcome: {:?}. Logs: {:?}",
-                    parse_err, outcome_details_for_assertion, logs_for_assertion
-                );
-            }
-        }
-    };
+    let verification_result: webauthn_contract::VerifiedRegistrationResponse = complete_transaction_outcome.json()?;
 
-    assert!(final_success_status,
-            "verify_registration_response call itself failed: {:?}. Logs: {:?}",
-            outcome_details_for_assertion, logs_for_assertion);
+    assert!(verification_result.verified, "Verification should be successful");
+    let registration_info = verification_result.registration_info.expect("Should have registration info");
+    assert_eq!(registration_info.credential_id, test_cred_id_bytes);
 
-    if final_success_status {
-        assert!(resume_call_succeeded,
-                "verify_registration_response method returned false (expected true). Logs: {:?}",
-                logs_for_assertion);
-    }
+    // Check that the prune ID has been cleaned up
+    let prune_id_after_verify: Option<Vec<u8>> = user_account
+        .view(contract.id(), "get_pending_prune_id")
+        .args_json(json!({"commitment_id": commitment_id}))
+        .await?
+        .json()?;
+    assert!(prune_id_after_verify.is_none(), "Prune ID should be cleaned up after verification");
 
-    let found_resume_log = logs_for_assertion.iter().any(|log|
-        log.contains("Resuming registration with user's WebAuthn response")
-    );
-    assert!(found_resume_log,
-            "Expected log 'Resuming registration with user\'s WebAuthn response' not found. Logs: {:?}",
-            logs_for_assertion);
-
-    println!("Yield-create and yield-resume calls successful. Callback invocation is triggered.");
-    println!("Detailed callback logic and its effects are best validated by unit tests or by querying contract state after this flow.");
+    println!("On-chain commitment flow test successful.");
 
     Ok(())
 }

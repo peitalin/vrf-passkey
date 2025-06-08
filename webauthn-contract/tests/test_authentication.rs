@@ -3,16 +3,10 @@ use base64::Engine as TestEngine;
 use serde_json::json;
 use near_workspaces::types::Gas;
 use sha2::{Sha256, Digest};
-use near_primitives::hash::CryptoHash as CryptoHash2;
-use near_jsonrpc_primitives::types::receipts::ReceiptReference;
-use near_primitives::views::{ReceiptEnumView, ActionView};
-
-use near_jsonrpc_primitives::types::transactions::TransactionInfo;
-use near_primitives::views::TxExecutionStatus;
-use webauthn_contract::AuthenticationOptionsJSON;
+use webauthn_contract::{AuthenticationOptionsJSON, VerifiedAuthenticationResponse};
 
 #[tokio::test]
-async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_contract_authentication_on_chain_commitment_flow() -> Result<(), Box<dyn std::error::Error>> {
     let contract_wasm = near_workspaces::compile_project("./").await?;
     let sandbox = near_workspaces::sandbox().await?;
     let contract = sandbox.dev_deploy(&contract_wasm).await?;
@@ -26,10 +20,7 @@ async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn 
         .await?;
     assert!(init_outcome.is_success(), "Initialization failed: {:?}", init_outcome.outcome());
 
-    let mut tx_hashes = Vec::new();
-    let mut receipt_ids = Vec::new();
-
-    // Step 1: Call generate_authentication_options with yield-resume
+    // Step 1: Call generate_authentication_options
     let (
         rp_id,
         credential_id,
@@ -53,28 +44,28 @@ async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn 
         .await?;
 
     let gen_auth_options_outcome = gen_auth_options_request.await?;
+
     assert!(gen_auth_options_outcome.is_success(),
-        "Initial generate_authentication_options transaction failed: {:?}",
+        "generate_authentication_options transaction failed: {:?}",
         gen_auth_options_outcome.outcome());
 
-    for outcome in gen_auth_options_outcome.outcomes() {
-        println!("generate_authentication_options ReceiptIDs: {:?}", outcome.receipt_ids);
-        tx_hashes.push(outcome.transaction_hash);
-        receipt_ids.extend(outcome.receipt_ids.iter().map(|id| id.clone()));
-    }
-
     let gen_auth_options_result: AuthenticationOptionsJSON = gen_auth_options_outcome.json()?;
-    let yield_resume_id_from_server = gen_auth_options_result.yield_resume_id
-        .expect("yieldResumeId should be in authentication options response");
+    let commitment_id = gen_auth_options_result.commitment_id
+        .expect("commitmentId should be in authentication options response");
     let challenge_from_options = gen_auth_options_result.options.challenge;
 
-    println!("generate_authentication_options succeeded, got yieldResumeId: {}", yield_resume_id_from_server);
-    println!("generated challenge: {}", challenge_from_options);
+    println!("generate_authentication_options succeeded, got commitmentId: {}", commitment_id);
 
-    // Step 2: Advance blockchain state for yield-resume
-    sandbox.fast_forward(1).await?;
+    // Check that the prune ID exists after generation
+    let prune_id_after_generate: Option<Vec<u8>> = user_account
+        .view(contract.id(), "get_pending_prune_id")
+        .args_json(json!({"commitment_id": commitment_id}))
+        .await?
+        .json()?;
+    assert!(prune_id_after_generate.is_some(), "Prune ID should exist after generation");
+    println!("generate_authentication_options also yielded a prune callback with yield_resume_id: {:?}", TEST_BASE64_URL_ENGINE.encode(&prune_id_after_generate.unwrap()));
 
-    // Step 3: Prepare mock AuthenticationResponseJSON for verify_authentication_response
+    // Step 2: Prepare mock AuthenticationResponseJSON for verify_authentication_response
     let mock_authentication_response = create_mock_authentication_response_for_test(
         &rp_id,
         &challenge_from_options,
@@ -82,87 +73,35 @@ async fn test_contract_authentication_yield_resume_flow() -> Result<(), Box<dyn 
         false // user_verification not required for this test
     );
 
-    // Step 4: Call verify_authentication_response
-    println!("\n\n2) Calling verify_authentication_response with yield_resume_id: {}", yield_resume_id_from_server);
+    // Step 3: Call verify_authentication_response
+    println!("\n\n2) Calling verify_authentication_response with commitment_id: {}", commitment_id);
     let verify_auth_outcome = user_account
         .call(contract.id(), "verify_authentication_response")
         .args_json(json!({
             "authentication_response": mock_authentication_response,
-            "yield_resume_id": yield_resume_id_from_server
+            "commitment_id": commitment_id
         }))
         .gas(Gas::from_tgas(150))
         .transact()
         .await?;
 
-    // Step 5: Assert response fields
-    for outcome in verify_auth_outcome.outcomes() {
-        println!("verify_authentication_response ReceiptIDs: {:?}", outcome.receipt_ids);
-        tx_hashes.push(outcome.transaction_hash);
-        receipt_ids.extend(outcome.receipt_ids.iter().map(|id| id.clone()));
-    }
+    assert!(verify_auth_outcome.is_success(), "verify_authentication_response transaction failed");
 
-    for receipt_id in receipt_ids {
-        // Convert the receipt_id CryptoHash to a near_primitives::CryptoHash
-        let receipt_id2 = CryptoHash2::try_from(receipt_id.0.as_slice()).unwrap();
-        assert_eq!(receipt_id2.to_string(), receipt_id.to_string());
+    let verification_result: VerifiedAuthenticationResponse = verify_auth_outcome.json()?;
 
-        println!("\nquerying receipt_id: {:?}", receipt_id2);
-        let receipt = sandbox.receipt(ReceiptReference { receipt_id: receipt_id2, }).await?;
+    println!("\nverification_result: {:?}", verification_result);
+    // This will be false because we are using a mock signature, but it proves the flow works
+    assert!(!verification_result.verified, "Verification should fail with mock signature, but flow is successful");
 
-        match receipt.receipt {
-            ReceiptEnumView::Action {
-                is_promise_yield,
-                actions,
-                ..
-            } => {
-                if let Some(action) = actions.iter().next() {
-                    match action {
-                        ActionView::FunctionCall {
-                            method_name,
-                            args,
-                            ..
-                        } => {
-                            println!("method_name: {:?}", method_name);
-                            println!("is_promise_yield: {:?}", is_promise_yield);
-                            println!("args: {:?}", args);
-                            if method_name == "resume_authentication_callback" {
-                                assert!(is_promise_yield, "is_promise_yield for resume_authentication_callback should be true");
-                            }
-                        }
-                        _ => {
-                            println!("action: {:?}", action);
-                        }
-                    }
-                }
-            }
-            ReceiptEnumView::Data { data, data_id, is_promise_resume, } => {
-                println!("data: {:?}", data);
-            }
-            _ => {}
-        }
-    };
+    // Check that the prune ID has been cleaned up
+    let prune_id_after_verify: Option<Vec<u8>> = user_account
+        .view(contract.id(), "get_pending_prune_id")
+        .args_json(json!({"commitment_id": commitment_id}))
+        .await?
+        .json()?;
+    assert!(prune_id_after_verify.is_none(), "Prune ID should be cleaned up after verification");
 
-    // println!("\n\n=========================================");
-    // println!("Total tx_hashes: {:?}", tx_hashes);
-    // println!("=========================================\n\n");
-    // for tx_hash in tx_hashes {
-    //     let tx_hash2 = CryptoHash2::try_from(tx_hash.0.as_slice()).unwrap();
-    //     assert_eq!(tx_hash2.to_string(), tx_hash.to_string());
-    //     println!("\nquerying tx_hash: {:?}", tx_hash2);
-    //     let tx_response = sandbox.tx_status(
-    //         TransactionInfo::TransactionId {
-    //             tx_hash: tx_hash2,
-    //             sender_account_id: user_account.id().clone(),
-    //         },
-    //         TxExecutionStatus::Final,
-    //     ).await?;
-    //     println!("tx_response: {:?}", tx_response);
-    // }
-
-    // resumed callback should set the greeting to rp_id and challenge (for test purposes only)
-    let greeting = user_account.call(contract.id(), "get_greeting").transact().await?;
-    let actual_result = greeting.json::<String>()?;
-    println!("\n\nget_greeting: {}", actual_result);
+    println!("\n\nOn-chain commitment authentication flow test completed successfully.");
 
     Ok(())
 }

@@ -11,11 +11,12 @@ use crate::verify_registration_response::ClientDataJSON;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near, require, CryptoHash, PromiseError};
+use serde_cbor::Value as CborValue;
 
 
 // Structure to hold yielded authentication data
-#[near_sdk::near(serializers = [json])]
-#[derive(Debug)]
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
 pub struct YieldedAuthenticationData {
     pub commitment_b64url: String,
     pub original_challenge_b64url: String,
@@ -54,7 +55,7 @@ pub struct AuthenticatorAssertionResponseJSON {
     pub user_handle: Option<String>, // Base64URL encoded
 }
 
-#[near_sdk::near(serializers = [json])]
+#[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone)]
 pub struct AuthenticatorDevice {
     pub credential_id: Vec<u8>,
@@ -102,109 +103,70 @@ pub struct AuthenticationInfo {
 #[near]
 impl WebAuthnContract {
 
-    /// Complete authentication using yield-resume pattern
-    /// This method is called by the client with the WebAuthn response to resume the yielded execution
+    /// Complete authentication using an on-chain commitment
     pub fn verify_authentication_response(
-        &self,
-        authentication_response: AuthenticationResponseJSON, // named argument
-        yield_resume_id: String, // named argument
-    ) -> bool {
-        // Decode the provided yield_resume_id
-        let yield_resume_id_bytes = BASE64_URL_ENGINE.decode(&yield_resume_id)
-            .expect("Failed to decode provided yield_resume_id");
-
-        // The yield_resume_id should be a CryptoHash (32 bytes)
-        let yield_resume_id: CryptoHash = yield_resume_id_bytes
-            .try_into()
-            .expect("Invalid yield_resume_id format - expected 32 bytes");
-
-        log!("Resuming authentication with user's WebAuthn response");
-        env::promise_yield_resume(
-            &yield_resume_id,
-            &serde_json::to_vec(&authentication_response)
-                .expect("Failed to serialize authentication_response"),
-        );
-        // Return true indicating the resume was successful
-        // The detailed verification result comes from the callback
-        true
-    }
-
-    /// Callback method for yield-resume authentication flow
-    /// This method is called when the yield is resumed with the authentication response
-    #[private]
-    pub fn resume_authentication_callback(
         &mut self,
-        yield_data: YieldedAuthenticationData, // "yield_data" field from json! args in promise_yield_create()
-        // #[callback_unwrap] auth_response: AuthenticationResponseJSON, // argument from promise_yield_resume()
-        #[callback_result] auth_response: Result<AuthenticationResponseJSON, PromiseError> // argument from promise_yield_resume()
-    ) -> String {
+        authentication_response: AuthenticationResponseJSON,
+        commitment_id: String,
+    ) -> VerifiedAuthenticationResponse {
+        log!("Verifying authentication with on-chain commitment id: {}", commitment_id);
 
-        log!("Processing authentication callback with yielded commitment");
-        require!(
-            env::current_account_id() == env::predecessor_account_id(),
-            "resume_authentication_callback is only called by the contract itself"
-        );
-        require!(
-            env::promise_results_count() == 1,
-            "resume_authentication_callback is only called once"
-        );
-
-        let auth_response = match auth_response {
-            Ok(response) => response,
-            Err(e) => {
-                let err_msg = format!("Error parsing `auth_response` input: {:?}", e);
-                log!("{}", err_msg);
-                // Log structured error result for server to parse
-                log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&serde_json::json!({
-                    "verified": false,
-                    "error": err_msg
-                })).unwrap_or_default());
-                return err_msg;
+        // 1. Fetch and remove the pending authentication data
+        let yield_data = match self.pending_authentications.remove(&commitment_id) {
+            Some(data) => data,
+            None => {
+                log!("No pending authentication found for commitment_id: {}", commitment_id);
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
             }
         };
 
-        // Use internal_process_authentication with the yielded data and verification parameters
-        let result = self.internal_process_authentication(
+        log!("Found and removed pending authentication data. Proceeding with verification.");
+
+        // Clean up the pending prune promise immediately
+        if let Some(yield_resume_id_bytes) = self.pending_prunes.remove(&commitment_id) {
+            let yield_resume_id: CryptoHash = yield_resume_id_bytes
+                .try_into()
+                .expect("Invalid yield_resume_id format in pending_prunes");
+
+            log!("Explicitly pruning auth commitment by resuming yield with id: {:?}", yield_resume_id);
+            env::promise_yield_resume(&yield_resume_id, &[]);
+        } else {
+            log!("Warning: No pending prune found for auth commitment_id: {}", commitment_id);
+        }
+
+        // 2. Use internal_process_authentication with the stored data
+        self.internal_process_authentication(
             yield_data.commitment_b64url,
             yield_data.original_challenge_b64url,
-            yield_data.salt_b64url.clone(),
-            auth_response.clone(),
+            yield_data.salt_b64url,
+            authentication_response,
             yield_data.rp_id,
             yield_data.expected_origin,
             yield_data.authenticator,
             yield_data.require_user_verification,
+        )
+    }
+
+    /// This callback is triggered automatically by the runtime if the corresponding
+    /// promise from `generate_authentication_options` is not resumed within the timeout period.
+    #[private]
+    pub fn prune_auth_commitment_callback(
+        &mut self,
+        commitment_id: String
+    ) {
+        log!("Pruning auth commitment via automatic callback: {}", commitment_id);
+        require!(
+            env::current_account_id() == env::predecessor_account_id(),
+            "prune_auth_commitment_callback can only be called by the contract itself"
         );
 
-        // Log the verification result in structured format for server to parse
-        if result.verified && result.authentication_info.is_some() {
-            let auth_info = result.authentication_info.as_ref().unwrap();
-            let structured_result = serde_json::json!({
-                "verified": true,
-                "authentication_info": {
-                    "credential_id": auth_info.credential_id,
-                    "new_counter": auth_info.new_counter,
-                    "user_verified": auth_info.user_verified,
-                    "credential_device_type": auth_info.credential_device_type,
-                    "credential_backed_up": auth_info.credential_backed_up,
-                    "origin": auth_info.origin,
-                    "rp_id": auth_info.rp_id
-                }
-            });
-            log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&structured_result).unwrap_or_default());
-        } else {
-            let structured_result = serde_json::json!({
-                "verified": false
-            });
-            log!("WEBAUTHN_AUTH_RESULT: {}", serde_json::to_string(&structured_result).unwrap_or_default());
-        }
-
-        log!("Authentication callback completed with result: verified={}", result.verified);
-
-        //// Testing only
-        let new_greeting = format!("CALLBACK RESULT: {}", yield_data.salt_b64url.to_string());
-        self.set_greeting(new_greeting.clone());
-        // Return the salt for identification purposes
-        new_greeting
+        // This callback is now responsible for cleaning up both maps.
+        // It's idempotent - if the entry is already gone, it does nothing.
+        self.pending_authentications.remove(&commitment_id);
+        self.pending_prunes.remove(&commitment_id);
     }
 
     #[private]
@@ -707,3 +669,4 @@ mod tests {
     }
 
 }
+

@@ -42,13 +42,13 @@ interface ContractGenerateOptionsArgs {
 interface ContractRegistrationOptionsResponse {
   options: PublicKeyCredentialCreationOptionsJSON; // This is the standard WebAuthn options object
   derpAccountId: string | undefined;
-  yieldResumeId: string | null;
+  commitmentId: string | null;
 }
 
 // Interface for contract arguments (verify_registration_response)
 interface ContractCompleteRegistrationArgs {
   registration_response: RegistrationResponseJSON; // The client's WebAuthn response
-  yield_resume_id: string; // The yield_resume_id received from generate_registration_options
+  commitment_id: string; // The commitment_id received from generate_registration_options
 }
 
 // Helper function to get registration options from SimpleWebAuthn
@@ -82,8 +82,8 @@ async function getRegistrationOptionsSimpleWebAuthn(
 
   return {
     options: optionsFromSimpleWebAuthn,
-    derpAccountId: user.derpAccountId,
-    yieldResumeId: `simplewebauthn_unused_${Date.now()}`,
+    derpAccountId: user.derpAccountId || undefined,
+    commitmentId: `simplewebauthn_unused_${Date.now()}`,
   };
 }
 
@@ -162,9 +162,9 @@ async function getRegistrationOptionsContract(
   }
 
   // Validate based on the nested options structure
-  if (!contractResponse.options || !contractResponse.options.challenge || !contractResponse.options.rp || typeof contractResponse.yieldResumeId === 'undefined') {
+  if (!contractResponse.options || !contractResponse.options.challenge || !contractResponse.options.rp || typeof contractResponse.commitmentId === 'undefined') {
     console.error('Invalid parsed response from contract.generate_registration_options (missing core fields or nested options):', contractResponse);
-    throw new Error('Contract did not return valid core registration options (options.challenge, options.rp) or yieldResumeId field after parsing.');
+    throw new Error('Contract did not return valid core registration options (options.challenge, options.rp) or commitmentId field after parsing.');
   }
 
   return contractResponse;
@@ -186,14 +186,15 @@ async function getRegistrationOptions(
     // Using a server-generated UUID or deriving from the first passkey's rawId are options.
     // For simplicity here, we'll use a timestamped ID, but this is NOT suitable for production if it needs to be guess-resistant or perfectly stable before first credential.
     const newUserId = `user_${Date.now()}_${isoBase64URL.fromBuffer(crypto.getRandomValues(new Uint8Array(8)))}`;
-    user = {
+    const newUser: User = {
       id: newUserId,
       username: usernameInput,
       derpAccountId: potentialDerpAccountId,
-      currentChallenge: null, // Ensure all User fields are present
-      currentYieldResumeId: null,    // Ensure all User fields are present
+      currentChallenge: null,
+      currentCommitmentId: null,
     };
-    userOperations.create(user); // Now `user` is a full User object
+    userOperations.create(newUser);
+    user = newUser;
     console.log(`New user created for registration: ${usernameInput}, assigned ID: ${user.id}`);
   } else {
     if (!user.derpAccountId || !user.derpAccountId.endsWith(`.${config.relayerAccountId}`)) {
@@ -231,10 +232,10 @@ router.post('/generate-registration-options', async (req: Request, res: Response
         throw new Error("Server failed to prepare valid registration options challenge.");
     }
 
-    userOperations.updateChallengeAndYieldResumeId(userForChallenge.id, resultFromService.options.challenge, resultFromService.yieldResumeId);
+    userOperations.updateChallengeAndCommitmentId(userForChallenge.id, resultFromService.options.challenge, resultFromService.commitmentId);
     console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
 
-    // `resultFromService` already has the structure { options: {...}, derpAccountId, yieldResumeId }
+    // `resultFromService` already has the structure { options: {...}, derpAccountId, commitmentId }
     // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
     return res.json(resultFromService);
 
@@ -275,15 +276,15 @@ async function verifyRegistrationResponseSimpleWebAuthn(
 // Verify and complete registration via NEAR Contract
 async function verifyRegistrationResponseContract(
   attestationResponse: RegistrationResponseJSON,
-  yieldResumeId: string // The yield_resume_id received from generate_registration_options
+  commitmentId: string // The commitment_id received from generate_registration_options
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
-  console.log('Using NEAR contract to complete registration with yieldResumeId:', yieldResumeId);
+  console.log('Using NEAR contract to complete registration with commitmentId:', commitmentId);
 
   try {
     const account = nearClient.getRelayerAccount();
     const contractArgs: ContractCompleteRegistrationArgs = {
       registration_response: attestationResponse,
-      yield_resume_id: yieldResumeId,
+      commitment_id: commitmentId,
     };
 
     console.log("Calling contract.verify_registration_response with args:", JSON.stringify(contractArgs));
@@ -305,57 +306,27 @@ async function verifyRegistrationResponseContract(
       throw new Error(`Contract verify_registration_response failed: ${errorInfo}`);
     }
 
-    // With yield-resume, `verify_registration_response` typically just returns true/false or an empty success.
-    // The actual `VerifiedRegistrationResponse` comes from the *callback* `resume_registration_callback`.
-    // The server cannot directly get the callback's return value in this single transaction.
-    // For now, we assume success if the transaction didn't fail outright.
-    let simulatedRegistrationInfo: any = undefined;
-    let verified = true; // Assume verified if verify_registration_response tx succeeded.
+    // Since we are no longer using yield-resume, the result is returned directly.
+    // Ensure we are accessing the SuccessValue correctly from the status object.
+    if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status && transactionOutcome.status.SuccessValue) {
+      const successValue = transactionOutcome.status.SuccessValue;
+      const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
 
-    if (attestationResponse.response.attestationObject && attestationResponse.response.clientDataJSON) {
-        try {
-            const rawId = isoBase64URL.toBuffer(attestationResponse.rawId);
+      if (verificationResult && verificationResult.verified) {
+          console.log("Contract verification successful. Registration Info:", verificationResult.registration_info);
+      } else {
+          console.warn("Contract verification failed or returned no data.");
+      }
 
-            // Properly extract credential public key using SimpleWebAuthn functions
-            const attestationObjectBuffer = isoBase64URL.toBuffer(attestationResponse.response.attestationObject);
-
-            // Decode the attestation object to get authData
-            const decodedAttestationObject = decodeAttestationObject(attestationObjectBuffer);
-
-            // Parse the authenticator data to extract credential information
-            const parsedAuthData = parseAuthenticatorData(decodedAttestationObject.get('authData'));
-
-            // Extract the credential public key from the parsed authenticator data
-            let credentialPublicKey = new Uint8Array();
-            if (parsedAuthData.credentialPublicKey) {
-                // The credentialPublicKey should contain the raw COSE key bytes
-                credentialPublicKey = new Uint8Array(parsedAuthData.credentialPublicKey);
-            }
-
-            console.log('Debug Registration: Extracted credential public key length:', credentialPublicKey.length);
-            console.log('Debug Registration: First 10 bytes:', Array.from(credentialPublicKey).slice(0, 10));
-
-            simulatedRegistrationInfo = {
-                credentialID: rawId,
-                credentialPublicKey: credentialPublicKey,
-                counter: parsedAuthData.counter || 0,
-            }
-        } catch (parseError) {
-            console.warn('Could not parse attestationResponse for credential public key extraction:', parseError);
-            const rawId = isoBase64URL.toBuffer(attestationResponse.rawId);
-            simulatedRegistrationInfo = {
-                credentialID: rawId,
-                credentialPublicKey: new Uint8Array(), // Fallback to empty
-                counter: 0,
-            };
-        }
+      // The result from the contract is already in the desired format.
+      return {
+        verified: verificationResult.verified,
+        registrationInfo: verificationResult.registration_info,
+      };
+    } else {
+      console.error("Contract call succeeded but did not return a SuccessValue.");
+      throw new Error("Contract did not return a valid verification result.");
     }
-
-    return {
-      verified: verified,
-      registrationInfo: simulatedRegistrationInfo // This is NOT from contract callback in this flow
-    };
-
   } catch (e: any) {
     console.error('Error calling contract verify_registration_response:', e.message, e.stack, e.type, e.context);
     throw new Error(`Failed to complete verify_registration via contract: ${e.message}`);
@@ -364,17 +335,17 @@ async function verifyRegistrationResponseContract(
 
 // Verify registration Endpoint
 router.post('/verify-registration', async (req: Request, res: Response) => {
-  const { username, attestationResponse, yieldResumeId } = req.body as {
+  const { username, attestationResponse, commitmentId } = req.body as {
     username: string,
     attestationResponse: RegistrationResponseJSON,
-    yieldResumeId?: string
+    commitmentId?: string
   };
 
   if (!username || !attestationResponse) {
     return res.status(400).json({ error: 'Username and attestationResponse are required' });
   }
-  if (config.useContractMethod && !yieldResumeId) {
-    return res.status(400).json({ error: 'yieldResumeId is required for contract method verification' });
+  if (config.useContractMethod && !commitmentId) {
+    return res.status(400).json({ error: 'commitmentId is required for contract method verification' });
   }
 
   let userForChallengeClear: User | undefined;
@@ -388,20 +359,20 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     }
 
     const expectedChallenge = user.currentChallenge;
-    const storedyieldResumeId = user.currentYieldResumeId;
+    const storedCommitmentId = user.currentCommitmentId;
 
     if (!expectedChallenge) {
       return res.status(400).json({ error: 'No challenge found. Registration might have timed out or was not initiated correctly.' });
     }
-    if (config.useContractMethod && storedyieldResumeId !== yieldResumeId) {
-        console.warn(`yieldResumeId mismatch. Stored: ${storedyieldResumeId}, Received: ${yieldResumeId}`);
-        // If yieldResumeId is echoed by client, it should match what server stored from generate_registration_options.
+    if (config.useContractMethod && storedCommitmentId !== commitmentId) {
+        console.warn(`commitmentId mismatch. Stored: ${storedCommitmentId}, Received: ${commitmentId}`);
+        // If commitmentId is echoed by client, it should match what server stored from generate_registration_options.
     }
 
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
-    if (config.useContractMethod && yieldResumeId) {
-      verificationResult = await verifyRegistrationResponseContract(attestationResponse, yieldResumeId);
+    if (config.useContractMethod && commitmentId) {
+      verificationResult = await verifyRegistrationResponseContract(attestationResponse, commitmentId);
     } else if (!config.useContractMethod && expectedChallenge) {
       verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
     } else {
@@ -436,7 +407,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         // Set to null initially, to be updated by a separate key association flow
       });
 
-      userOperations.updateChallengeAndYieldResumeId(user.id, null, null);
+      userOperations.updateChallengeAndCommitmentId(user.id, null, null);
       console.log('Registration verification successful for:', username);
 
       return res.json({
@@ -445,7 +416,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         derpAccountId: user.derpAccountId,
       });
     } else {
-      if (user) userOperations.updateChallengeAndYieldResumeId(user.id, null, null);
+      if (user) userOperations.updateChallengeAndCommitmentId(user.id, null, null);
       return res.status(400).json({
         verified: false,
         error: 'Could not verify attestation with passkey hardware.'
@@ -455,7 +426,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     console.error('Error verifying registration:', e.message, e.stack);
     if (req.body.username) { // Check if user was determined to clear their challenge
         const userToClear = userOperations.findByUsername(req.body.username);
-        if (userToClear) userOperations.updateChallengeAndYieldResumeId(userToClear.id, null, null);
+        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.id, null, null);
     }
     return res.status(500).json({
       verified: false,

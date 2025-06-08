@@ -6,9 +6,9 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 export interface User {
   id: string; // Unique identifier for the user (e.g., a UUID or derived from first passkey rawId)
   username: string;
-  derpAccountId?: string; // Suggested NEAR account ID, like <username>.passkeyfactory.testnet
-  currentChallenge?: string | null; // Store the current WebAuthn challenge for this user
-  currentYieldResumeId?: string | null; // Store the current yieldResumeId from contract yield for this user
+  derpAccountId: string | null;
+  currentChallenge: string | null;
+  currentCommitmentId: string | null;
 }
 
 /**
@@ -43,6 +43,7 @@ export enum ActionType {
   AddKey = "AddKey",
   DeleteKey = "DeleteKey",
   DeleteAccount = "DeleteAccount",
+  DiscoverableLogin = "DiscoverableLogin"
 }
 
 // Interface for the arguments expected by the contract's execute_delegated_actions method

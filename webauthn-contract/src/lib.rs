@@ -17,11 +17,16 @@ pub use generate_registration_options::{
 };
 pub use verify_registration_response::{
     VerifiedRegistrationResponse,
-    VerifiedAuthenticationResponse,
     AuthenticatorSelectionCriteria,
 };
-use near_sdk::{log, near, BorshStorageKey, CryptoHash};
+use near_sdk::{log, near, CryptoHash};
 use near_sdk::store::{LookupMap, IterableMap};
+use crate::generate_registration_options::YieldedRegistrationData;
+
+pub use crate::verify_authentication_response::{
+    VerifiedAuthenticationResponse,
+    YieldedAuthenticationData
+};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -31,6 +36,9 @@ use near_sdk::store::{LookupMap, IterableMap};
 pub struct WebAuthnContract {
     greeting: String,
     contract_name: String,
+    pending_registrations: LookupMap<String, YieldedRegistrationData>,
+    pending_authentications: LookupMap<String, YieldedAuthenticationData>,
+    pending_prunes: LookupMap<String, Vec<u8>>, // Stores commitment_id -> yield_resume_id
 }
 
 impl Default for WebAuthnContract {
@@ -38,6 +46,9 @@ impl Default for WebAuthnContract {
         Self {
             greeting: "Hello".to_string(),
             contract_name: "webauthn-contract.testnet".to_string(),
+            pending_registrations: LookupMap::new(b"r"),
+            pending_authentications: LookupMap::new(b"a"),
+            pending_prunes: LookupMap::new(b"p"),
         }
     }
 }
@@ -50,11 +61,18 @@ impl WebAuthnContract {
         Self {
             contract_name,
             greeting: "Hello".to_string(),
+            pending_registrations: LookupMap::new(b"r"),
+            pending_authentications: LookupMap::new(b"a"),
+            pending_prunes: LookupMap::new(b"p"),
         }
     }
 
     pub fn get_greeting(&self) -> String {
         self.greeting.clone()
+    }
+
+    pub fn get_pending_prune_id(&self, commitment_id: String) -> Option<Vec<u8>> {
+        self.pending_prunes.get(&commitment_id).cloned()
     }
 
     pub fn set_greeting(&mut self, greeting: String) {
@@ -69,6 +87,19 @@ impl WebAuthnContract {
     pub fn set_contract_name(&mut self, contract_name: String) {
         log!("Saving contract name: {}", contract_name);
         self.contract_name = contract_name;
+    }
+
+    pub fn get_yield_id(&self, commitment_id: String) -> Option<CryptoHash> {
+        match self.pending_prunes.get(&commitment_id) {
+            None => None,
+            Some(yield_resume_id_bytes) => {
+                let yield_resume_id: CryptoHash = yield_resume_id_bytes.clone()
+                    .try_into()
+                    .expect("Invalid yield_resume_id format in pending_prunes");
+
+                Some(yield_resume_id.clone())
+            }
+        }
     }
 
     // pub fn generate_registration_options(

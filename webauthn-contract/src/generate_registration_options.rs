@@ -1,3 +1,5 @@
+use crate::generate_authentication_options::DATA_REGISTER_ID;
+
 use super::{WebAuthnContract, WebAuthnContractExt};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
@@ -114,8 +116,8 @@ pub struct PublicKeyCredentialCreationOptionsJSON {
 }
 
 // Structure to hold yielded registration data
-#[near_sdk::near(serializers = [json])]
-#[derive(Debug)]
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
 pub struct YieldedRegistrationData {
     pub(crate) commitment_b64url: String,
     pub(crate) original_challenge_b64url: String,
@@ -130,8 +132,8 @@ pub struct RegistrationOptionsJSON {
     pub options: PublicKeyCredentialCreationOptionsJSON,
     #[serde(rename = "derpAccountId")]
     pub derp_account_id: Option<String>,
-    #[serde(rename = "yieldResumeId")]
-    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
+    #[serde(rename = "commitmentId")]
+    pub commitment_id: Option<String>,
 }
 
 // Authentication-specific types (equivalent to @simplewebauthn/server types)
@@ -183,8 +185,6 @@ impl Default for AuthenticationExtensionsClientInputs {
 #[near]
 impl WebAuthnContract {
 
-    /// YIELD-RESUME REGISTRATION FLOW
-    /// This yield-resume implementation eliminates server-side challenge storage
     pub fn generate_registration_options(
         &mut self,
         rp_name: String,
@@ -304,32 +304,35 @@ impl WebAuthnContract {
             require_user_verification: require_user_verification_for_yield,
         };
 
-        // 5. Yield with the data
-        let yield_args_bytes = serde_json::to_vec(&yield_data).expect("Failed to serialize yield data");
 
-        // Generate a unique register ID to avoid concurrency issues
-        let yield_resume_id = self.generate_yield_resume_id();
+        // NEW: Store commitment data in a LookupMap
+        let commitment_id = BASE64_URL_ENGINE.encode(&env::random_seed()[..16]);
+        self.pending_registrations.insert(commitment_id.clone(), yield_data);
+        log!("Stored registration commitment with id: {}", commitment_id);
 
         env::promise_yield_create(
-            "resume_registration_callback",
-            &yield_args_bytes,
-            Gas::from_tgas(10), // Reduced from 50 to 10 TGas
+            "prune_commitment_callback",
+            &serde_json::json!({
+                "commitment_id": commitment_id
+            }).to_string().into_bytes().as_slice(),
+            Gas::from_tgas(10),
             GasWeight(1),
-            yield_resume_id,
+            DATA_REGISTER_ID,
         );
 
-        // Read the yield_resume_id from the register
-        let yield_resume_id_bytes = env::read_register(yield_resume_id)
+        // Read the yield_resume_id from the register and store it for explicit pruning
+        let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
-        let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
+        self.pending_prunes.insert(commitment_id.clone(), yield_resume_id_bytes.clone());
 
-        log!("Yielding registration with commitment stored securely, yield_resume_id: {}", yield_resume_id_b64url);
+        let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
+        log!("Yielding prune callback with yield_resume_id: {}", yield_resume_id_b64url);
 
         // 6. Return only the options (without commitment info)
         let response = RegistrationOptionsJSON {
             options,
             derp_account_id: Some(suggested_derp_account_id),
-            yield_resume_id: Some(yield_resume_id_b64url),
+            commitment_id: Some(commitment_id),
         };
 
         serde_json::to_string(&response).expect("Failed to serialize registration options")

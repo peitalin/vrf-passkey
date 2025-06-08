@@ -14,6 +14,7 @@ use crate::verify_authentication_response::{
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use near_sdk::{env, log, near, Gas, GasWeight, NearToken};
+use serde_json;
 
 pub const DEFAULT_CHALLENGE_SIZE: u64 = 16;
 pub const DATA_REGISTER_ID: u64 = 0;
@@ -39,8 +40,8 @@ pub struct PublicKeyCredentialRequestOptionsJSON {
 #[derive(Debug)]
 pub struct AuthenticationOptionsJSON {
     pub options: PublicKeyCredentialRequestOptionsJSON,
-    #[serde(rename = "yieldResumeId")]
-    pub yield_resume_id: Option<String>, // Base64url encoded yield_resume_id for yield-resume
+    #[serde(rename = "commitmentId")]
+    pub commitment_id: Option<String>,
 }
 
 /////////////////////////////////////
@@ -110,58 +111,40 @@ impl WebAuthnContract {
             extensions: Some(final_extensions),
         };
 
-        // 6. Yield with the data
-        let yield_promise = env::promise_yield_create(
-            "resume_authentication_callback",
-            &serde_json::json!({
-                "yield_data": YieldedAuthenticationData {
+        let yield_data = YieldedAuthenticationData {
                     authenticator,
-                        // credential_id: authenticator.credential_id,
-                        // credential_public_key: authenticator.credential_public_key,
-                        // counter: authenticator.counter,
-                        // transports: authenticator.transports,
                     commitment_b64url,
                     expected_origin,
                     original_challenge_b64url: challenge_b64url,
                     rp_id: final_rp_id,
                     require_user_verification,
                     salt_b64url,
-                }
-            }).to_string().into_bytes().as_slice(),
-            // serde_json::json!({ "raw_data1": "YIELDING" }).to_string().into_bytes().as_slice(),
-            Gas::from_tgas(30), // +16.9 TGas for signature verification
+        };
+
+        // NEW: Store commitment data in a LookupMap
+        let commitment_id = BASE64_URL_ENGINE.encode(&env::random_seed()[..16]);
+        self.pending_authentications.insert(commitment_id.clone(), yield_data);
+
+        log!("Stored authentication commitment with id: {}", commitment_id);
+
+        // Yield a promise to prune this commitment later if it's not used
+        env::promise_yield_create(
+            "prune_auth_commitment_callback",
+            &serde_json::json!({ "commitment_id": commitment_id }).to_string().into_bytes(),
+            Gas::from_tgas(10),
             GasWeight(1),
             DATA_REGISTER_ID,
         );
 
-        // // The yield promise is composable with the usual promise API features. We can choose to
-        // // chain another function call and it will receive the output of the `resume_authentication_callback`
-        // // callback. Note that this chained promise can be a cross-contract call.
-        // env::promise_then(
-        //     yield_promise,
-        //     env::current_account_id(),
-        //     "finally_log_result",
-        //     // "eee_arg".to_string().into_bytes().as_slice(),
-        //     &[],
-        //     NearToken::from_near(0),
-        //     Gas::from_tgas(30),
-        // );
-
-        // // The return value for this function call will be the value
-        // // returned by the `resume_authentication_callback` callback.
-        // env::promise_return(yield_promise);
-
-        // 7. Read the yield_resume_id from the register
+        // Read the yield_resume_id from the register and store it for explicit pruning
         let yield_resume_id_bytes = env::read_register(DATA_REGISTER_ID)
             .expect("Failed to read yield_resume_id from register after yield creation");
-        let yield_resume_id_b64url = BASE64_URL_ENGINE.encode(&yield_resume_id_bytes);
+        self.pending_prunes.insert(commitment_id.clone(), yield_resume_id_bytes);
 
-        log!("Yielding authentication with commitment stored securely, yield_resume_id: {}", yield_resume_id_b64url);
-
-        // 8. Return the options with yield_resume_id
+        // 8. Return the options with commitment_id
         let response = AuthenticationOptionsJSON {
             options,
-            yield_resume_id: Some(yield_resume_id_b64url),
+            commitment_id: Some(commitment_id),
         };
 
         response
