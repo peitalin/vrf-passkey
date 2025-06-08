@@ -22,6 +22,7 @@ server/dist
 webauthn-contract/target
 target
 
+commands.sh
 
 *.local
 
