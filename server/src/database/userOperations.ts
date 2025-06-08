@@ -13,6 +13,11 @@ export const userOperations = {
     return stmt.get(id) as User | undefined;
   },
 
+  findByNearAccountId: (nearAccountId: string): User | undefined => {
+    const stmt = db.prepare('SELECT * FROM users WHERE nearAccountId = ?');
+    return stmt.get(nearAccountId) as User | undefined;
+  },
+
   create: (user: User): RunResult => {
     const stmt = db.prepare('INSERT INTO users (id, username, nearAccountId) VALUES (?, ?, ?)');
     return stmt.run(user.id, user.username, user.nearAccountId) as RunResult;

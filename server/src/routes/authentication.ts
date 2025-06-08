@@ -415,7 +415,8 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     return res.status(404).json({ error: `Authenticator '${body.rawId}' not found.` });
   }
 
-  user = userOperations.findById(authenticator.userId);
+  // Note: authenticator.userId is actually the nearAccountId, not the internal user ID
+  user = userOperations.findByNearAccountId(authenticator.userId);
 
   if (!user) {
     return res.status(404).json({ error: `User for authenticator '${body.rawId}' not found.` });
