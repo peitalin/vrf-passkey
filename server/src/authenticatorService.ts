@@ -10,25 +10,34 @@ export class AuthenticatorService {
    */
   async findByUserId(nearAccountId: string): Promise<StoredAuthenticator[]> {
     try {
+      // Debug: Check total cache entries
+      const { db } = await import('./database');
+      const totalCacheEntries = db.prepare('SELECT COUNT(*) as count FROM authenticators_cache').get() as { count: number };
+      console.log(`🔍 Total entries in authenticators_cache: ${totalCacheEntries.count}`);
+
       // Try cache first
       const cached = authenticatorCacheOperations.findByUserId(nearAccountId);
       if (cached.length > 0) {
-        console.log(`Found ${cached.length} authenticators in cache for user ${nearAccountId}`);
+        console.log(`🔍 Found ${cached.length} authenticators in cache for user ${nearAccountId}`);
         return cached.map(mapCachedToStoredAuthenticator);
       }
 
+      console.log(`🔍 No authenticators found in cache for user ${nearAccountId}`);
+
       // Cache miss, fetch from contract
-      console.log(`Cache miss for user ${nearAccountId}, fetching from contract`);
+      console.log(`🔍 Cache miss for user ${nearAccountId}, fetching from contract`);
       const fromContract = await contractOperations.findByUserId(nearAccountId);
+      console.log(`🔍 Contract returned ${fromContract.length} authenticators for user ${nearAccountId}`);
 
       // Update cache with contract data
       await this.syncCacheFromContract(nearAccountId, fromContract);
 
       return fromContract;
     } catch (error) {
-      console.error('Error in findByUserId:', error);
+      console.error('🔍 Error in findByUserId:', error);
       // If contract fails, try cache as backup
       const cached = authenticatorCacheOperations.findByUserId(nearAccountId);
+      console.log(`🔍 Fallback to cache returned ${cached.length} authenticators`);
       return cached.map(mapCachedToStoredAuthenticator);
     }
   }
@@ -96,31 +105,46 @@ export class AuthenticatorService {
     clientManagedNearPublicKey?: string | null;
   }): Promise<boolean> {
     try {
+      console.log(`🔍 Creating authenticator for ${authenticator.nearAccountId}:`, {
+        credentialID: authenticator.credentialID,
+        counter: authenticator.counter,
+        transports: authenticator.transports
+      });
+
       // Write to contract first (source of truth)
       const contractSuccess = await contractOperations.create(authenticator);
+      console.log(`🔍 Contract create result:`, contractSuccess);
 
       if (contractSuccess) {
         // Update cache
-        authenticatorCacheOperations.upsert({
-          nearAccountId: authenticator.nearAccountId,
-          credentialID: authenticator.credentialID,
-          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey),
-          counter: authenticator.counter,
-          transports: authenticator.transports ? JSON.stringify(authenticator.transports) : null,
-          clientManagedNearPublicKey: authenticator.clientManagedNearPublicKey || null,
-          name: authenticator.name || null,
-          registered: authenticator.registered.toISOString(),
-          lastUsed: null,
-          backedUp: authenticator.backedUp ? 1 : 0,
-        });
+        console.log(`🔍 Updating cache for ${authenticator.credentialID}`);
+        try {
+          authenticatorCacheOperations.upsert({
+            nearAccountId: authenticator.nearAccountId,
+            credentialID: authenticator.credentialID,
+            credentialPublicKey: Buffer.from(authenticator.credentialPublicKey),
+            counter: authenticator.counter,
+            transports: authenticator.transports ? JSON.stringify(authenticator.transports) : null,
+            clientManagedNearPublicKey: authenticator.clientManagedNearPublicKey || null,
+            name: authenticator.name || null,
+            registered: authenticator.registered.toISOString(),
+            lastUsed: null,
+            backedUp: authenticator.backedUp ? 1 : 0,
+          });
+          console.log(`🔍 Cache update successful for ${authenticator.credentialID}`);
+        } catch (cacheError) {
+          console.error(`🔍 Cache update failed for ${authenticator.credentialID}:`, cacheError);
+        }
 
         console.log(`Created authenticator ${authenticator.credentialID} in contract and cache`);
         return true;
+      } else {
+        console.warn(`🔍 Contract create failed for ${authenticator.credentialID}`);
       }
 
       return false;
     } catch (error) {
-      console.error('Error creating authenticator:', error);
+      console.error('🔍 Error creating authenticator:', error);
       return false;
     }
   }

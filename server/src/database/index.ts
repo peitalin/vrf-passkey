@@ -75,24 +75,41 @@ export const authenticatorCacheOperations = {
     backedUp: number;
   }) => {
     const syncedAt = new Date().toISOString();
-    return db.prepare(`
-      INSERT OR REPLACE INTO authenticators_cache (
-        nearAccountId, credentialID, credentialPublicKey, counter, transports,
-        clientManagedNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      authenticator.nearAccountId,
-      authenticator.credentialID,
-      authenticator.credentialPublicKey,
-      authenticator.counter,
-      authenticator.transports,
-      authenticator.clientManagedNearPublicKey,
-      authenticator.name,
-      authenticator.registered,
-      authenticator.lastUsed,
-      authenticator.backedUp,
-      syncedAt
-    );
+    console.log(`🔍 Database upsert for authenticator:`, {
+      nearAccountId: authenticator.nearAccountId,
+      credentialID: authenticator.credentialID,
+      counter: authenticator.counter,
+      transports: authenticator.transports,
+      name: authenticator.name,
+      registered: authenticator.registered,
+      backedUp: authenticator.backedUp
+    });
+
+    try {
+      const result = db.prepare(`
+        INSERT OR REPLACE INTO authenticators_cache (
+          nearAccountId, credentialID, credentialPublicKey, counter, transports,
+          clientManagedNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        authenticator.nearAccountId,
+        authenticator.credentialID,
+        authenticator.credentialPublicKey,
+        authenticator.counter,
+        authenticator.transports,
+        authenticator.clientManagedNearPublicKey,
+        authenticator.name,
+        authenticator.registered,
+        authenticator.lastUsed,
+        authenticator.backedUp,
+        syncedAt
+      );
+      console.log(`🔍 Database upsert result:`, result);
+      return result;
+    } catch (error) {
+      console.error(`🔍 Database upsert failed:`, error);
+      throw error;
+    }
   },
 
   updateCounter: (nearAccountId: string, credentialId: string, counter: number, lastUsed: string) => {

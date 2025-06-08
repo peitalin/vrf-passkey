@@ -273,16 +273,23 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       const userRec = userOperations.findByUsername(username);
       if (userRec) {
         userForChallengeStorageInDB = userRec;
+        console.log(`🔍 Found user record for ${username}, nearAccountId: ${userRec.nearAccountId}`);
+
         const userAuthenticators: StoredAuthenticator[] = userRec.nearAccountId ?
           await authenticatorService.findByUserId(userRec.nearAccountId) : [];
 
+        console.log(`🔍 Found ${userAuthenticators.length} authenticators for nearAccountId: ${userRec.nearAccountId}`);
+
         if (userAuthenticators.length > 0) {
           firstAuthenticator = userAuthenticators[0]; // Use first authenticator for contract call
+          console.log(`🔍 Using first authenticator: ${firstAuthenticator.credentialID}`);
           allowCredentialsList = userAuthenticators.map(auth => ({
             id: isoBase64URL.toBuffer(auth.credentialID),
             type: 'public-key',
             transports: auth.transports as AuthenticatorTransport[],
           }));
+        } else {
+          console.warn(`🔍 No authenticators found for user ${username} with nearAccountId ${userRec.nearAccountId}`);
         }
       } else {
         console.warn(`Username '${username}' provided for auth options but not found. Treating as discoverable.`);

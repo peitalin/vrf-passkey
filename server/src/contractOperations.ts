@@ -1,69 +1,7 @@
 import config from './config';
-import { connect, keyStores, Account, Contract } from 'near-api-js';
+import { view } from '@near-js/client';
+import { nearClient } from './nearService';
 import type { StoredAuthenticator } from './types';
-
-const keyStore = new keyStores.InMemoryKeyStore();
-
-// Contract interface for TypeScript
-interface WebAuthnContract extends Contract {
-  get_authenticators_by_user(args: { user_id: string }): Promise<Array<[string, any]>>;
-  get_authenticator(args: { user_id: string, credential_id: string }): Promise<any | null>;
-  store_authenticator(args: {
-    user_id: string;
-    credential_id: string;
-    credential_public_key: number[];
-    counter: number;
-    transports?: string[];
-    client_managed_near_public_key?: string;
-    name?: string;
-    registered: string;
-    backed_up: boolean;
-  }): Promise<boolean>;
-  update_authenticator_usage(args: {
-    user_id: string;
-    credential_id: string;
-    new_counter: number;
-    last_used: string;
-  }): Promise<boolean>;
-  update_authenticator_near_key(args: {
-    user_id: string;
-    credential_id: string;
-    client_managed_near_public_key: string;
-  }): Promise<boolean>;
-  get_latest_authenticator_by_user(args: { user_id: string }): Promise<string | null>;
-}
-
-let contractInstance: WebAuthnContract | null = null;
-
-async function getContract(): Promise<WebAuthnContract> {
-  if (contractInstance) {
-    return contractInstance;
-  }
-
-  const near = await connect({
-    networkId: config.networkId,
-    nodeUrl: config.nodeUrl,
-    keyStore,
-  });
-
-  const account = await near.account(config.relayerAccountId);
-
-  contractInstance = new Contract(account, config.contractId, {
-    viewMethods: [
-      'get_authenticators_by_user',
-      'get_authenticator',
-      'get_latest_authenticator_by_user'
-    ],
-    changeMethods: [
-      'store_authenticator',
-      'update_authenticator_usage',
-      'update_authenticator_near_key'
-    ],
-    useLocalViewExecution: false,
-  }) as WebAuthnContract;
-
-  return contractInstance;
-}
 
 // Convert contract transport strings to AuthenticatorTransport enum values
 function parseTransports(transports?: string[]): any[] | undefined {
@@ -100,27 +38,40 @@ function mapContractAuthenticator(contractAuth: any, credentialID: string): Stor
 export const contractOperations = {
   async findByUserId(nearAccountId: string): Promise<StoredAuthenticator[]> {
     try {
-      const contract = await getContract();
-      const result = await contract.get_authenticators_by_user({ user_id: nearAccountId });
+      console.log(`🔍 Calling contract.get_authenticators_by_user with user_id: ${nearAccountId}`);
+
+      const result = await view({
+        account: config.contractId,
+        method: 'get_authenticators_by_user',
+        args: { user_id: nearAccountId },
+        deps: { rpcProvider: nearClient.getProvider() },
+      }) as Array<[string, any]>;
+
+      console.log(`🔍 Contract returned:`, result);
 
       return result.map(([credentialId, auth]) => {
         const mapped = mapContractAuthenticator(auth, credentialId);
         mapped.userId = nearAccountId;
+        console.log(`🔍 Mapped authenticator:`, { credentialId, counter: auth.counter, transports: auth.transports });
         return mapped;
       });
     } catch (error) {
-      console.error('Error finding authenticators by user ID:', error);
+      console.error('🔍 Error finding authenticators by user ID:', error);
       return [];
     }
   },
 
   async findByCredentialId(credentialId: string, nearAccountId: string): Promise<StoredAuthenticator | undefined> {
     try {
-      const contract = await getContract();
-      const result = await contract.get_authenticator({
-        user_id: nearAccountId,
-        credential_id: credentialId
-      });
+      const result = await view({
+        account: config.contractId,
+        method: 'get_authenticator',
+        args: {
+          user_id: nearAccountId,
+          credential_id: credentialId
+        },
+        deps: { rpcProvider: nearClient.getProvider() },
+      }) as any;
 
       if (!result) return undefined;
 
@@ -145,15 +96,13 @@ export const contractOperations = {
     clientManagedNearPublicKey?: string | null;
   }): Promise<boolean> {
     try {
-      const contract = await getContract();
-
       const transportStrings = authenticator.transports?.map(t => {
         if (typeof t === 'string') return t;
         // Handle enum-like objects
         return t.toString().toLowerCase();
       });
 
-      const result = await contract.store_authenticator({
+      const contractArgs = {
         user_id: authenticator.nearAccountId,
         credential_id: authenticator.credentialID,
         credential_public_key: Array.from(authenticator.credentialPublicKey),
@@ -163,27 +112,65 @@ export const contractOperations = {
         name: authenticator.name || undefined,
         registered: authenticator.registered.toISOString(),
         backed_up: authenticator.backedUp,
+      };
+
+      console.log(`🔍 Calling contract.store_authenticator with args:`, {
+        user_id: contractArgs.user_id,
+        credential_id: contractArgs.credential_id,
+        counter: contractArgs.counter,
+        transports: contractArgs.transports
       });
 
-      return result;
+      const transactionOutcome = await nearClient.callFunction(
+        config.contractId,
+        'store_authenticator',
+        contractArgs,
+        '50000000000000', // 50 TGas
+        '0'
+      );
+
+      // Check if the transaction was successful
+      if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
+        const successValue = transactionOutcome.status.SuccessValue;
+        const result = JSON.parse(Buffer.from(successValue, 'base64').toString());
+        console.log(`🔍 Contract store_authenticator result:`, result);
+        return result === true;
+      } else if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'Failure' in transactionOutcome.status) {
+        console.error('🔍 Contract store_authenticator failed:', transactionOutcome.status.Failure);
+        return false;
+      }
+
+      console.log(`🔍 Contract store_authenticator result:`, true);
+      return true;
     } catch (error) {
-      console.error('Error creating authenticator:', error);
+      console.error('🔍 Error creating authenticator in contract:', error);
       return false;
     }
   },
 
   async updateCounter(credentialId: string, counter: number, lastUsed: Date, nearAccountId: string): Promise<boolean> {
     try {
-      const contract = await getContract();
+      const transactionOutcome = await nearClient.callFunction(
+        config.contractId,
+        'update_authenticator_usage',
+        {
+          user_id: nearAccountId,
+          credential_id: credentialId,
+          new_counter: counter,
+          last_used: lastUsed.toISOString(),
+        },
+        '30000000000000', // 30 TGas
+        '0'
+      );
 
-      const result = await contract.update_authenticator_usage({
-        user_id: nearAccountId,
-        credential_id: credentialId,
-        new_counter: counter,
-        last_used: lastUsed.toISOString(),
-      });
+      // Check if the transaction was successful
+      if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
+        const successValue = transactionOutcome.status.SuccessValue;
+        const result = JSON.parse(Buffer.from(successValue, 'base64').toString());
+        return result === true;
+      }
 
-      return result;
+      return true; // Assume success if no explicit failure
     } catch (error) {
       console.error('Error updating authenticator counter:', error);
       return false;
@@ -192,15 +179,26 @@ export const contractOperations = {
 
   async updateClientManagedKey(credentialID: string, clientNearPublicKey: string, nearAccountId: string): Promise<boolean> {
     try {
-      const contract = await getContract();
+      const transactionOutcome = await nearClient.callFunction(
+        config.contractId,
+        'update_authenticator_near_key',
+        {
+          user_id: nearAccountId,
+          credential_id: credentialID,
+          client_managed_near_public_key: clientNearPublicKey,
+        },
+        '30000000000000', // 30 TGas
+        '0'
+      );
 
-      const result = await contract.update_authenticator_near_key({
-        user_id: nearAccountId,
-        credential_id: credentialID,
-        client_managed_near_public_key: clientNearPublicKey,
-      });
+      // Check if the transaction was successful
+      if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status) {
+        const successValue = transactionOutcome.status.SuccessValue;
+        const result = JSON.parse(Buffer.from(successValue, 'base64').toString());
+        return result === true;
+      }
 
-      return result;
+      return true; // Assume success if no explicit failure
     } catch (error) {
       console.error('Error updating client managed key:', error);
       return false;
@@ -209,8 +207,12 @@ export const contractOperations = {
 
   async getLatestByUserId(nearAccountId: string): Promise<{ credentialID: string } | undefined> {
     try {
-      const contract = await getContract();
-      const result = await contract.get_latest_authenticator_by_user({ user_id: nearAccountId });
+      const result = await view({
+        account: config.contractId,
+        method: 'get_latest_authenticator_by_user',
+        args: { user_id: nearAccountId },
+        deps: { rpcProvider: nearClient.getProvider() },
+      }) as string | null;
 
       return result ? { credentialID: result } : undefined;
     } catch (error) {
