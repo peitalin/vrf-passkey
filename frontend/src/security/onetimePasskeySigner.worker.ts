@@ -241,13 +241,23 @@ async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfM
     console.log('WORKER: Parsed encryptedPrivateKey:', encryptedPrivateKey);
 
     console.log('WORKER: PREPARING to store key in IndexedDB...');
-    await storeEncryptedKey({
+    const keyToStore = {
       nearAccountId,
       encryptedData: encryptedPrivateKey.encrypted_data_b64u,
       iv: encryptedPrivateKey.iv_b64u,
       timestamp: Date.now()
-    });
+    };
+    console.log('WORKER: Storing key data:', keyToStore);
+
+    await storeEncryptedKey(keyToStore);
     console.log('WORKER: Finished storing key.');
+
+    // Verify storage worked
+    const retrievedKey = await getEncryptedKey(nearAccountId);
+    console.log('WORKER: Verification - retrieved key:', retrievedKey);
+    if (!retrievedKey) {
+      console.error('WORKER: ❌ CRITICAL: Key storage failed - could not retrieve stored key!');
+    }
 
     console.log('WORKER: Posting ENCRYPTION_SUCCESS message.');
     self.postMessage({

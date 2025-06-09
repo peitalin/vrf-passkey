@@ -153,7 +153,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   }, []);
 
   useEffect(() => {
-    const loadUserData = () => {
+    const loadUserData = async () => {
       try {
         // Get the last user from ClientUserManager
         const lastUser = ClientUserManager.getLastUser();
@@ -164,6 +164,21 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
           // Update last login time
           ClientUserManager.updateLastLogin(lastUser.nearAccountId);
+
+          // Also load the client-managed NEAR public key from WebAuthnManager
+          try {
+            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.username);
+            if (webAuthnUserData?.clientNearPublicKey) {
+              setServerDerivedNearPK(webAuthnUserData.clientNearPublicKey);
+              console.log('Loaded client-managed NEAR public key from WebAuthnManager:', webAuthnUserData.clientNearPublicKey);
+            } else {
+              console.log('No client-managed NEAR public key found in WebAuthnManager for:', lastUser.username);
+              setServerDerivedNearPK(null);
+            }
+          } catch (webAuthnError) {
+            console.warn('Error loading WebAuthn user data:', webAuthnError);
+            setServerDerivedNearPK(null);
+          }
 
           console.log('Loaded user data from ClientUserManager:', {
             username: lastUser.username,
@@ -187,22 +202,47 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting]);
 
-  const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }> => {
+    const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }> => {
+    console.log('🎯 registerPasskey CALLED for username:', currentUsername, 'at', new Date().toISOString());
+    console.log('🎯 Current state:', { isProcessing, isLoggedIn, username });
+
     if (!currentUsername) {
       return { success: false, error: 'Username is required for registration.' };
     }
     if (!window.isSecureContext) {
       return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost).' };
     }
+
+    // Prevent multiple concurrent registrations
+    if (isProcessing) {
+      console.warn('🚫 Registration already in progress, rejecting additional call');
+      return { success: false, error: 'Registration already in progress. Please wait.' };
+    }
+
+    // Check if user already has credentials - warn but allow re-registration
+    const existingUserData = await webAuthnManager.getUserData(currentUsername);
+    if (existingUserData?.passkeyCredential) {
+      console.warn(`⚠️ User '${currentUsername}' already has credential data. Attempting re-registration...`);
+    }
+
     setIsProcessing(true);
     setStatusMessage('Registering passkey...');
 
-    try {
+    // Clear any existing challenges to prevent conflicts
+    webAuthnManager.clearAllChallenges();
+
+        try {
+      console.log('🔄 Step 1: Starting WebAuthn credential creation & PRF...');
+      console.log('🔍 Current processing state:', { isProcessing, currentUsername, useOptimisticAuth });
+
       // Step 1: WebAuthn credential creation & PRF (if applicable)
       const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, useOptimisticAuth);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
+      console.log('✅ Step 1 complete: WebAuthn credential created, PRF enabled:', prfEnabled);
+
       // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
+      console.log('🔄 Step 2: Starting client-side key generation...');
       let clientManagedPublicKey: string | null = null;
       const userNearAccountIdToUse = ClientUserManager.generateNearAccountId(currentUsername, RELAYER_ACCOUNT_ID);
 
@@ -221,7 +261,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           );
           if (prfRegistrationResult.success) {
             clientManagedPublicKey = prfRegistrationResult.publicKey;
-            console.log('PasskeyContext: Client-managed public key obtained/generated:', clientManagedPublicKey);
+            console.log('✅ Step 2 complete: Client-managed public key obtained/generated:', clientManagedPublicKey);
           } else {
             throw new Error('Client-side key generation/encryption with PRF failed.');
           }
@@ -243,14 +283,17 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
 
       // Step 3: Prepare payload for server's /verify-registration
+      console.log('🔄 Step 3: Preparing server verification payload...');
       const verifyPayload: any = {
         username: currentUsername,
         attestationResponse: attestationForServer,
         commitmentId: commitmentId,
         useOptimistic: useOptimisticAuth,
+        clientManagedNearPublicKey: clientManagedPublicKey, // Send the generated public key to server
       };
 
       // Step 4: Call server to verify WebAuthn attestation and store authenticator
+      console.log('🔄 Step 4: Calling server to verify WebAuthn attestation...');
       const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,7 +304,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       if (!verifyResponse.ok || !serverVerifyData.verified) {
         throw new Error(serverVerifyData.error || 'Passkey verification failed by server.');
       }
-      console.log(`Server WebAuthn verification successful. NEAR Account: ${userNearAccountIdToUse}`);
+      console.log(`✅ Step 4 complete: Server WebAuthn verification successful. NEAR Account: ${userNearAccountIdToUse}`);
 
       // Step 5: (Optional but recommended) Associate client public key with NEAR account on-chain via server
       // This step makes the client-managed key an authorized key for the NEAR account.
@@ -288,6 +331,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
 
       // Step 6: Store user data locally using both WebAuthnManager and ClientUserManager
+      console.log('🔄 Step 6: Storing user data locally...');
+      console.log('🔑 Storing user data in WebAuthnManager with clientNearPublicKey:', clientManagedPublicKey);
       await webAuthnManager.storeUserData({
           username: currentUsername,
           nearAccountId: userNearAccountIdToUse,
@@ -297,6 +342,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           lastUpdated: Date.now(),
       });
 
+      // Verify storage worked
+      const storedData = await webAuthnManager.getUserData(currentUsername);
+      console.log('🔍 Verification - stored user data:', storedData);
+      if (!storedData?.clientNearPublicKey) {
+        console.error('❌ CRITICAL: User data stored but clientNearPublicKey is missing!');
+      }
+
       // Register user in ClientUserManager
       ClientUserManager.registerUser(currentUsername, RELAYER_ACCOUNT_ID, {
         preferences: {
@@ -305,6 +357,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       });
 
       // Step 7: Update React context state
+      console.log('🔄 Step 7: Updating React context state...');
       setIsLoggedIn(true);
       setUsername(currentUsername);
       setNearAccountId(userNearAccountIdToUse);
@@ -312,6 +365,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setCurrentUser(userNearAccountIdToUse); // Update settings context
       setStatusMessage('Passkey registered, verified, and key managed successfully!');
       setIsProcessing(false);
+
+      console.log('🎉 Registration completed successfully!');
       return {
           success: true,
           nearAccountId: userNearAccountIdToUse,
@@ -321,9 +376,16 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     } catch (err: any) {
       console.error('Registration error in PasskeyContext:', err.message, err.stack);
-      setStatusMessage(`Registration Error: ${err.message}`);
+
+      // Handle specific WebAuthn errors
+      let errorMessage = err.message;
+      if (err.message?.includes('one of the credentials already registered')) {
+        errorMessage = `A passkey for '${currentUsername}' already exists. Please try logging in instead, or clear your browser data to re-register.`;
+      }
+
+      setStatusMessage(`Registration Error: ${errorMessage}`);
       setIsProcessing(false);
-      return { success: false, error: err.message };
+      return { success: false, error: errorMessage };
     }
   }, [useOptimisticAuth, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK, setCurrentUser]);
 

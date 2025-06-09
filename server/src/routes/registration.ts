@@ -357,78 +357,21 @@ async function getRegistrationOptionsSimpleWebAuthn(
   });
 
   // Return SimpleWebAuthn options immediately for fast user experience
+  // No background contract sync needed - we'll handle contract integration during verification
   const response = {
     nearAccountId: user.nearAccountId || undefined,
-    commitmentId: null, // Will be set by background sync
+    commitmentId: null, // FastAuth doesn't need commitmentId for options generation
     options: optionsFromSimpleWebAuthn,
   };
 
-  // Start background contract challenge sync (async, non-blocking)
-  syncChallengeWithContractInBackground(user, rawAuthenticators, optionsFromSimpleWebAuthn.challenge)
-    .catch(error => {
-      console.warn(`Background challenge sync failed for user ${user.username}:`, error);
-    });
+  console.log(`✅ FastAuth registration options generated for ${user.username} - no contract sync needed`);
 
   return response;
 }
 
-// Background function to sync challenge with contract
-async function syncChallengeWithContractInBackground(
-  user: User,
-  rawAuthenticators: any[],
-  challenge: string
-): Promise<void> {
-  console.log(`🔄 Starting background challenge sync for user: ${user.username}`);
-
-  try {
-    const account = nearClient.getRelayerAccount();
-    const contractArgs = {
-      rp_name: config.rpName,
-      rp_id: config.rpID,
-      user_name: user.username,
-      user_id: user.id,
-      challenge: challenge, // Use SimpleWebAuthn's challenge
-      user_display_name: user.username,
-      timeout: 60000,
-      attestation_type: "none",
-      exclude_credentials: rawAuthenticators.length > 0 ? rawAuthenticators.map(auth => ({
-        id: auth.credentialID,
-        type: 'public-key' as const,
-        transports: auth.transports ? (typeof auth.transports === 'string' ? auth.transports.split(',') : auth.transports).map((t: string) => String(t)) : undefined,
-      })) : null,
-      authenticator_selection: { residentKey: 'required', userVerification: 'preferred' },
-      extensions: { cred_props: true },
-      supported_algorithm_ids: [-7, -257],
-      preferred_authenticator_type: null,
-    };
-
-    const rawResult: any = await account.callFunction({
-      contractId: config.contractId,
-      methodName: 'generate_registration_options',
-      args: contractArgs,
-      gas: BigInt(DEFAULT_GAS_STRING),
-    });
-
-    // Parse the contract response to get the commitmentId
-    let contractResponse: any;
-    if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status) {
-      const contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
-      contractResponse = JSON.parse(contractResponseString);
-    } else {
-      throw new Error('Failed to parse contract response');
-    }
-
-    // Store the commitmentId for later verification
-    const commitmentId = contractResponse.commitment_id;
-    userOperations.updateChallengeAndCommitmentId(user.id, challenge, commitmentId);
-
-    console.log(`✅ Background challenge sync completed for user ${user.username}. CommitmentId: ${commitmentId}`);
-
-  } catch (error) {
-    console.error(`❌ Background challenge sync failed for user ${user.username}:`, error);
-    throw error;
-  }
-}
+// NOTE: Removed syncChallengeWithContractInBackground function
+// In FastAuth mode, we don't sync with contract during options generation
+// This was causing double passkey prompts. Contract sync happens during verification instead.
 
 // get registration options from NEAR Contract (Secure mode)
 async function getRegistrationOptionsContract(
@@ -616,17 +559,23 @@ async function verifyRegistrationResponseContract(
 
 // Verify registration Endpoint
 router.post('/verify-registration', async (req: Request, res: Response) => {
-  const { username, attestationResponse, commitmentId } = req.body as {
+  const { username, attestationResponse, commitmentId, clientManagedNearPublicKey } = req.body as {
     username: string,
     attestationResponse: RegistrationResponseJSON,
     commitmentId?: string,
-    useOptimistic?: boolean
+    useOptimistic?: boolean,
+    clientManagedNearPublicKey?: string
   };
 
   const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
 
   // Check if client wants SSE progress tracking
   const wantsSSEProgress = req.query.sse === 'true' || req.headers['x-enable-sse'] === 'true';
+
+  console.log(`🔑 Registration verification for ${username}: clientManagedNearPublicKey = ${clientManagedNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
+  if (clientManagedNearPublicKey) {
+    console.log(`🔑 Client-managed NEAR public key: ${clientManagedNearPublicKey}`);
+  }
 
   if (!username || !attestationResponse) {
     return res.status(400).json({ error: 'Username and attestationResponse are required' });
@@ -737,7 +686,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
       }
 
       if (user.nearAccountId) {
-        // Store authenticator
+        // Store authenticator with client-managed NEAR public key
         await authenticatorService.create({
         credentialID: credentialIDForDB,
           credentialPublicKey: publicKeyForDB,
@@ -747,7 +696,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
         name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
           registered: new Date(),
           backedUp: credentialBackedUpForDB,
-        clientManagedNearPublicKey: null,
+        clientManagedNearPublicKey: clientManagedNearPublicKey || null, // Use received public key from frontend
       });
       }
 

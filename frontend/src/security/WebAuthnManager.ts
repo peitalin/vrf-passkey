@@ -93,7 +93,7 @@ export class WebAuthnManager {
   /**
    * IndexedDB helper methods for user data management
    */
-  private async openUserDataDB(): Promise<IDBDatabase> {
+  async openUserDataDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
 
@@ -186,6 +186,127 @@ export class WebAuthnManager {
     // For now, we'll assume if we have user data with this nearAccountId, we have the key
     const allUsers = await this.getAllUserData();
     return allUsers.some(user => user.nearAccountId === nearAccountId);
+  }
+
+  /**
+   * Clear user data from IndexedDB (for debugging/cleanup)
+   */
+  async clearUserData(username: string): Promise<void> {
+    const db = await this.openUserDataDB();
+    const transaction = db.transaction([USER_DATA_STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(USER_DATA_STORE_NAME);
+
+    return new Promise((resolve, reject) => {
+      const request = store.delete(username);
+      request.onsuccess = () => {
+        db.close();
+        console.log(`🗑️ Cleared user data for: ${username}`);
+        resolve();
+      };
+      request.onerror = () => {
+        db.close();
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Clear all user data from IndexedDB (for debugging/cleanup)
+   */
+  async clearAllUserData(): Promise<void> {
+    const allUsers = await this.getAllUserData();
+    for (const user of allUsers) {
+      await this.clearUserData(user.username);
+    }
+    console.log('🗑️ Cleared all user data');
+  }
+
+  /**
+   * Clear everything for a completely fresh start (debugging/cleanup)
+   */
+  async clearEverything(): Promise<void> {
+    try {
+      // Clear WebAuthnManager user data
+      await this.clearAllUserData();
+
+      // Clear ClientUserManager data
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('webauthn_') || key.startsWith('passkey_'))) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        console.log('🗑️ Cleared localStorage keys:', keysToRemove);
+      }
+
+      // Clear worker IndexedDB (PasskeyNearKeys)
+      try {
+        const dbs = await indexedDB.databases();
+        for (const db of dbs) {
+          if (db.name && (db.name.includes('Passkey') || db.name.includes('webauthn'))) {
+            indexedDB.deleteDatabase(db.name);
+            console.log('🗑️ Deleted database:', db.name);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not clear worker databases:', error);
+      }
+
+      console.log('🧹 Everything cleared! You can now register fresh.');
+      console.log('💡 Note: You may still need to clear WebAuthn credentials in browser settings');
+
+    } catch (error) {
+      console.error('Error clearing everything:', error);
+    }
+  }
+
+  /**
+   * Debug utility to check IndexedDB state
+   */
+  async debugIndexedDBState(username?: string): Promise<{
+    userDataDB: any[];
+    encryptedKeysDB: any;
+    summary: string;
+  }> {
+    try {
+      // Get all user data from WebAuthnManager
+      const allUserData = await this.getAllUserData();
+
+      // Filter by username if provided
+      const filteredUserData = username
+        ? allUserData.filter(user => user.username === username)
+        : allUserData;
+
+      // For encrypted keys, we need to check the worker's IndexedDB
+      // This is a simplified check - the worker has its own IndexedDB
+      const encryptedKeysInfo = "Encrypted keys are stored in worker's separate IndexedDB (PasskeyNearKeys)";
+
+      const summary = `
+📊 IndexedDB Debug Summary:
+👤 User Data Entries: ${filteredUserData.length}
+🔐 Encrypted Keys: Stored in worker's IndexedDB
+${filteredUserData.map(user =>
+  `  • ${user.username}: ${user.nearAccountId} | PRF: ${user.prfSupported ? '✅' : '❌'} | ClientPK: ${user.clientNearPublicKey ? '✅' : '❌'}`
+).join('\n')}`;
+
+      console.log('🔍 IndexedDB Debug State:', {
+        userDataDB: filteredUserData,
+        encryptedKeysDB: encryptedKeysInfo,
+        summary
+      });
+
+      return {
+        userDataDB: filteredUserData,
+        encryptedKeysDB: encryptedKeysInfo,
+        summary
+      };
+    } catch (error) {
+      console.error('Error debugging IndexedDB state:', error);
+      throw error;
+    }
   }
 
   /**
@@ -379,6 +500,9 @@ export class WebAuthnManager {
    * Register with PRF extension support
    */
   async registerWithPrf(username: string, useOptimistic?: boolean): Promise<WebAuthnRegistrationWithPrf> {
+    console.log('🔒 WebAuthnManager.registerWithPrf called for:', username, 'useOptimistic:', useOptimistic);
+    console.log('🔒 Active challenges before registration:', this.activeChallenges.size);
+
     const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username, useOptimistic);
 
     if (typeof options?.challenge !== 'string') {
@@ -659,119 +783,62 @@ export class WebAuthnManager {
     }
   }
 
-    /**
-   * Optimistic registration with real-time progress tracking via Server Sent Events
-   * Returns immediately after WebAuthn verification, streams background progress
-   */
-  async registerWithOptimistic(
-    username: string,
-    onProgress?: (update: { type: string; message: string; timestamp: number; [key: string]: any }) => void
-  ): Promise<{
-    verified: boolean;
-    sessionId?: string;
-    nearAccountId?: string;
-    registrationInfo?: any;
-    progressUrl?: string;
-  }> {
-    try {
-      // Step 1: Get registration options (always fast mode for optimistic)
-      const { options, challengeId } = await this.getRegistrationOptions(username, true);
 
-      // Step 2: Perform WebAuthn ceremony
-      const { credential, prfEnabled } = await this.registerWithPrf(username, true);
-      const attestationForServer = publicKeyCredentialToJSON(credential);
-
-      // Step 3: Send to unified verification endpoint with SSE enabled
-      const response = await fetch(`${SERVER_URL}/verify-registration?sse=true`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Enable-SSE': 'true' // Alternative header-based approach
-        },
-        body: JSON.stringify({
-          username,
-          attestationResponse: attestationForServer,
-          useOptimistic: true, // Ensure optimistic mode
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed optimistic registration' }));
-        throw new Error(errorData.error || `Server error ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.verified) {
-        throw new Error('WebAuthn verification failed');
-      }
-
-      // Step 4: Set up SSE connection for progress tracking if sessionId provided
-      if (result.sessionId && onProgress) {
-        this.trackRegistrationProgress(result.sessionId, onProgress);
-      }
-
-      return {
-        verified: result.verified,
-        sessionId: result.sessionId,
-        nearAccountId: result.nearAccountId,
-        progressUrl: result.progressUrl,
-        registrationInfo: {
-          prfEnabled,
-          credential: credential
-        }
-      };
-
-    } catch (error: any) {
-      console.error('WebAuthnManager: Optimistic SSE registration failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Track registration progress using Server Sent Events
-   */
-  private trackRegistrationProgress(
-    sessionId: string,
-    onProgress: (update: { type: string; message: string; timestamp: number; [key: string]: any }) => void
-  ): void {
-    const eventSource = new EventSource(`${SERVER_URL}/registration-progress/${sessionId}`);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-        onProgress(update);
-
-        // Close connection on completion or error
-        if (update.type === 'contract_confirmed' || update.type === 'error') {
-          eventSource.close();
-        }
-      } catch (error) {
-        console.error('WebAuthnManager: Failed to parse SSE message:', error);
-        eventSource.close();
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      console.error('WebAuthnManager: SSE connection error:', error);
-      eventSource.close();
-      onProgress({
-        type: 'error',
-        message: 'Connection to progress updates lost',
-        timestamp: Date.now()
-      });
-    };
-
-    // Cleanup after 5 minutes
-    setTimeout(() => {
-      if (eventSource.readyState !== EventSource.CLOSED) {
-        eventSource.close();
-      }
-    }, 5 * 60 * 1000);
-  }
 
 
 }
 
 // Export a singleton instance
 export const webAuthnManager = new WebAuthnManager();
+
+// Add debug utilities to global scope for easy debugging
+if (typeof window !== 'undefined') {
+  (window as any).debugWebAuthn = {
+    checkIndexedDB: (username?: string) => webAuthnManager.debugIndexedDBState(username),
+    getUserData: (username: string) => webAuthnManager.getUserData(username),
+    getAllUserData: () => webAuthnManager.getAllUserData(),
+    clearUserData: (username: string) => webAuthnManager.clearUserData(username),
+    clearAllData: () => webAuthnManager.clearAllUserData(),
+    clearEverything: () => webAuthnManager.clearEverything(),
+    testIndexedDB: async () => {
+      console.log('🧪 Testing IndexedDB operations...');
+
+      // Test storing dummy data
+      const testData = {
+        username: 'test-user',
+        nearAccountId: 'test.testnet',
+        clientNearPublicKey: 'ed25519:TestKeyABC123',
+        prfSupported: true,
+        lastUpdated: Date.now()
+      };
+
+      try {
+        console.log('📝 Storing test data:', testData);
+        await webAuthnManager.storeUserData(testData);
+
+        console.log('📖 Retrieving test data...');
+        const retrieved = await webAuthnManager.getUserData('test-user');
+        console.log('📄 Retrieved data:', retrieved);
+
+        if (retrieved && retrieved.clientNearPublicKey === testData.clientNearPublicKey) {
+          console.log('✅ IndexedDB test PASSED');
+        } else {
+          console.log('❌ IndexedDB test FAILED - data mismatch');
+        }
+
+        // Clean up
+        await webAuthnManager.clearUserData('test-user');
+        console.log('🧹 Test data cleaned up');
+
+      } catch (error) {
+        console.error('❌ IndexedDB test FAILED with error:', error);
+      }
+    }
+  };
+  console.log('🔍 Debug utilities available: window.debugWebAuthn');
+  console.log('   • window.debugWebAuthn.checkIndexedDB(username)');
+  console.log('   • window.debugWebAuthn.clearUserData(username)');
+  console.log('   • window.debugWebAuthn.clearAllData()');
+  console.log('   • window.debugWebAuthn.clearEverything() - Clears ALL data for fresh start');
+  console.log('   • window.debugWebAuthn.testIndexedDB() - Test if IndexedDB works');
+}
