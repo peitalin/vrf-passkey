@@ -1,5 +1,5 @@
 import { SERVER_URL, WASM_WORKER_FILENAME } from '../config';
-import { bufferEncode, bufferDecode } from '../utils';
+import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils';
 
 // IndexedDB configuration
 const USER_DATA_DB_NAME = 'PasskeyUserData';
@@ -312,12 +312,12 @@ export class WebAuthnManager {
   /**
    * Get registration options from server and register challenge
    */
-  async getRegistrationOptions(username: string): Promise<{ options: any; challengeId: string; commitmentId?: string }> {
+  async getRegistrationOptions(username: string, useOptimistic?: boolean): Promise<{ options: any; challengeId: string; commitmentId?: string }> {
     try {
       const response = await fetch(`${SERVER_URL}/generate-registration-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, useOptimistic }),
       });
 
       if (!response.ok) {
@@ -378,8 +378,8 @@ export class WebAuthnManager {
   /**
    * Register with PRF extension support
    */
-  async registerWithPrf(username: string): Promise<WebAuthnRegistrationWithPrf> {
-    const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username);
+  async registerWithPrf(username: string, useOptimistic?: boolean): Promise<WebAuthnRegistrationWithPrf> {
+    const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username, useOptimistic);
 
     if (typeof options?.challenge !== 'string') {
         const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
@@ -658,6 +658,119 @@ export class WebAuthnManager {
       throw error;
     }
   }
+
+    /**
+   * Optimistic registration with real-time progress tracking via Server Sent Events
+   * Returns immediately after WebAuthn verification, streams background progress
+   */
+  async registerWithOptimistic(
+    username: string,
+    onProgress?: (update: { type: string; message: string; timestamp: number; [key: string]: any }) => void
+  ): Promise<{
+    verified: boolean;
+    sessionId?: string;
+    nearAccountId?: string;
+    registrationInfo?: any;
+    progressUrl?: string;
+  }> {
+    try {
+      // Step 1: Get registration options (always fast mode for optimistic)
+      const { options, challengeId } = await this.getRegistrationOptions(username, true);
+
+      // Step 2: Perform WebAuthn ceremony
+      const { credential, prfEnabled } = await this.registerWithPrf(username, true);
+      const attestationForServer = publicKeyCredentialToJSON(credential);
+
+      // Step 3: Send to unified verification endpoint with SSE enabled
+      const response = await fetch(`${SERVER_URL}/verify-registration?sse=true`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Enable-SSE': 'true' // Alternative header-based approach
+        },
+        body: JSON.stringify({
+          username,
+          attestationResponse: attestationForServer,
+          useOptimistic: true, // Ensure optimistic mode
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed optimistic registration' }));
+        throw new Error(errorData.error || `Server error ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (!result.verified) {
+        throw new Error('WebAuthn verification failed');
+      }
+
+      // Step 4: Set up SSE connection for progress tracking if sessionId provided
+      if (result.sessionId && onProgress) {
+        this.trackRegistrationProgress(result.sessionId, onProgress);
+      }
+
+      return {
+        verified: result.verified,
+        sessionId: result.sessionId,
+        nearAccountId: result.nearAccountId,
+        progressUrl: result.progressUrl,
+        registrationInfo: {
+          prfEnabled,
+          credential: credential
+        }
+      };
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: Optimistic SSE registration failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Track registration progress using Server Sent Events
+   */
+  private trackRegistrationProgress(
+    sessionId: string,
+    onProgress: (update: { type: string; message: string; timestamp: number; [key: string]: any }) => void
+  ): void {
+    const eventSource = new EventSource(`${SERVER_URL}/registration-progress/${sessionId}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data);
+        onProgress(update);
+
+        // Close connection on completion or error
+        if (update.type === 'contract_confirmed' || update.type === 'error') {
+          eventSource.close();
+        }
+      } catch (error) {
+        console.error('WebAuthnManager: Failed to parse SSE message:', error);
+        eventSource.close();
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('WebAuthnManager: SSE connection error:', error);
+      eventSource.close();
+      onProgress({
+        type: 'error',
+        message: 'Connection to progress updates lost',
+        timestamp: Date.now()
+      });
+    };
+
+    // Cleanup after 5 minutes
+    setTimeout(() => {
+      if (eventSource.readyState !== EventSource.CLOSED) {
+        eventSource.close();
+      }
+    }, 5 * 60 * 1000);
+  }
+
+
 }
 
 // Export a singleton instance

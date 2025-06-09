@@ -20,8 +20,8 @@ pub use verify_registration_response::{
     VerifiedRegistrationResponse,
     AuthenticatorSelectionCriteria,
 };
-use near_sdk::{log, near, CryptoHash, AccountId, PanicOnDefault, BorshStorageKey};
-use near_sdk::store::{LookupMap, IterableMap};
+use near_sdk::{log, near, CryptoHash, AccountId, PanicOnDefault, BorshStorageKey, env};
+use near_sdk::store::{LookupMap, IterableSet, IterableMap};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use crate::generate_registration_options::YieldedRegistrationData;
 
@@ -54,6 +54,16 @@ pub struct StoredAuthenticator {
     pub backed_up: bool,
 }
 
+#[near_sdk::near(serializers=[borsh, json])]
+#[derive(Debug, Clone)]
+pub struct UserProfile {
+    pub account_id: AccountId,
+    pub registered_at: u64, // Block timestamp
+    pub last_activity: u64, // Block timestamp
+    pub authenticator_count: u32,
+    pub username: Option<String>, // Optional display name
+}
+
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct WebAuthnContract {
@@ -63,6 +73,8 @@ pub struct WebAuthnContract {
     pub pending_authentications: LookupMap<String, AuthYieldData>,
     pub pending_prunes: LookupMap<String, UserIdYieldId>,
     pub authenticators: IterableMap<(AccountId, String), StoredAuthenticator>,
+    pub registered_users: IterableSet<AccountId>,
+    pub user_profiles: LookupMap<AccountId, UserProfile>,
 }
 
 #[derive(BorshSerialize, BorshStorageKey)]
@@ -72,6 +84,8 @@ pub enum StorageKey {
     PendingAuthentications,
     PendingPrunes,
     Authenticators,
+    RegisteredUsers,
+    UserProfiles,
 }
 
 #[near]
@@ -86,6 +100,8 @@ impl WebAuthnContract {
             pending_authentications: LookupMap::new(StorageKey::PendingAuthentications),
             pending_prunes: LookupMap::new(StorageKey::PendingPrunes),
             authenticators: IterableMap::new(StorageKey::Authenticators),
+            registered_users: IterableSet::new(StorageKey::RegisteredUsers),
+            user_profiles: LookupMap::new(StorageKey::UserProfiles),
         }
     }
 
@@ -125,7 +141,98 @@ impl WebAuthnContract {
         }
     }
 
-    // Authenticator management methods
+    /// Register a new user in the contract
+    pub fn register_user(&mut self, user_id: AccountId, username: Option<String>) -> bool {
+        // Only allow the user themselves to register
+        if env::predecessor_account_id() != user_id {
+            env::panic_str("Only the user can register themselves");
+        }
+
+        if self.registered_users.contains(&user_id) {
+            log!("User {} already registered", user_id);
+            return false;
+        }
+
+        let current_timestamp = env::block_timestamp_ms();
+
+        // Add to registry
+        self.registered_users.insert(user_id.clone());
+
+        // Create user profile
+        let profile = UserProfile {
+            account_id: user_id.clone(),
+            registered_at: current_timestamp,
+            last_activity: current_timestamp,
+            authenticator_count: 0,
+            username,
+        };
+
+        self.user_profiles.insert(user_id.clone(), profile);
+
+        log!("User {} registered successfully", user_id);
+        true
+    }
+
+    /// Check if a user is registered
+    pub fn is_user_registered(&self, user_id: AccountId) -> bool {
+        self.registered_users.contains(&user_id)
+    }
+
+    /// Get user profile
+    pub fn get_user_profile(&self, user_id: AccountId) -> Option<UserProfile> {
+        self.user_profiles.get(&user_id).cloned()
+    }
+
+    /// Update user activity timestamp
+    pub fn update_user_activity(&mut self, user_id: AccountId) -> bool {
+        if let Some(mut profile) = self.user_profiles.get(&user_id).cloned() {
+            profile.last_activity = env::block_timestamp_ms();
+            self.user_profiles.insert(user_id, profile);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Update user's authenticator count
+    pub fn update_user_authenticator_count(&mut self, user_id: AccountId) -> bool {
+        if let Some(mut profile) = self.user_profiles.get(&user_id).cloned() {
+            // Count authenticators for this user
+            let count = self.authenticators
+                .iter()
+                .filter(|((account_id, _), _)| *account_id == user_id)
+                .count() as u32;
+
+            profile.authenticator_count = count;
+            profile.last_activity = env::block_timestamp_ms();
+            self.user_profiles.insert(user_id, profile);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get total number of registered users
+    pub fn get_total_users(&self) -> u32 {
+        self.registered_users.len() as u32
+    }
+
+    /// Update user's display name
+    pub fn update_username(&mut self, user_id: AccountId, username: Option<String>) -> bool {
+        // Only allow the user themselves to update their username
+        if env::predecessor_account_id() != user_id {
+            env::panic_str("Only the user can update their own username");
+        }
+
+        if let Some(mut profile) = self.user_profiles.get(&user_id).cloned() {
+            profile.username = username;
+            profile.last_activity = env::block_timestamp_ms();
+            self.user_profiles.insert(user_id, profile);
+            true
+        } else {
+            false
+        }
+    }
 
     /// Get all authenticators for a specific user
     pub fn get_authenticators_by_user(&self, user_id: AccountId) -> Vec<(String, StoredAuthenticator)> {
@@ -167,7 +274,13 @@ impl WebAuthnContract {
             backed_up,
         };
 
-        self.authenticators.insert((user_id, credential_id), authenticator);
+        self.authenticators.insert((user_id.clone(), credential_id), authenticator);
+
+        // Update user's authenticator count if user is registered
+        if self.registered_users.contains(&user_id) {
+            self.update_user_authenticator_count(user_id);
+        }
+
         true
     }
 
@@ -184,6 +297,9 @@ impl WebAuthnContract {
             authenticator.counter = new_counter;
             authenticator.last_used = Some(last_used);
             self.authenticators.insert(key, authenticator);
+
+            // Update user activity
+            self.update_user_activity(user_id);
             true
         } else {
             false
@@ -201,6 +317,9 @@ impl WebAuthnContract {
         if let Some(mut authenticator) = self.authenticators.get(&key).cloned() {
             authenticator.client_managed_near_public_key = Some(client_managed_near_public_key);
             self.authenticators.insert(key, authenticator);
+
+            // Update user activity
+            self.update_user_activity(user_id);
             true
         } else {
             false

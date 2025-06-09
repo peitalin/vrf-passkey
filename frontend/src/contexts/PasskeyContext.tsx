@@ -14,6 +14,8 @@ import {
   WEBAUTHN_CONTRACT_ID
 } from '../config';
 import { useSettings } from './SettingsContext';
+import { ClientUserManager } from '../services/ClientUserManager';
+import { WebAuthnChallengeManager } from '../services/WebAuthnChallengeManager';
 
 
 
@@ -112,7 +114,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
-  const { useOptimisticAuth } = useSettings();
+  const { useOptimisticAuth, setCurrentUser } = useSettings();
 
 
   const getRpcProvider = () => {
@@ -151,23 +153,33 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   }, []);
 
   useEffect(() => {
-    const loadUserData = async () => {
+    const loadUserData = () => {
       try {
-        const lastUsername = await webAuthnManager.getLastUsedUsername();
-        if (lastUsername) {
-          setUsername(lastUsername);
-          const userData = await webAuthnManager.getUserData(lastUsername);
-          if (userData?.nearAccountId) {
-            setNearAccountId(userData.nearAccountId);
-          }
+        // Get the last user from ClientUserManager
+        const lastUser = ClientUserManager.getLastUser();
+        if (lastUser) {
+          setUsername(lastUser.username);
+          setNearAccountId(lastUser.nearAccountId);
+          setCurrentUser(lastUser.nearAccountId);
+
+          // Update last login time
+          ClientUserManager.updateLastLogin(lastUser.nearAccountId);
+
+          console.log('Loaded user data from ClientUserManager:', {
+            username: lastUser.username,
+            nearAccountId: lastUser.nearAccountId,
+            registeredAt: new Date(lastUser.registeredAt).toISOString(),
+          });
+        } else {
+          console.log('No previous user found in ClientUserManager');
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
+        console.error('Error loading user data from ClientUserManager:', error);
       }
     };
 
     loadUserData();
-  }, []);
+  }, [setCurrentUser]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -187,12 +199,12 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     try {
       // Step 1: WebAuthn credential creation & PRF (if applicable)
-      const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername);
+      const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, useOptimisticAuth);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
       let clientManagedPublicKey: string | null = null;
-      const userNearAccountIdToUse = `${currentUsername.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32)}.${RELAYER_ACCOUNT_ID}`;
+      const userNearAccountIdToUse = ClientUserManager.generateNearAccountId(currentUsername, RELAYER_ACCOUNT_ID);
 
       if (prfEnabled) {
         const extensionResults = credential.getClientExtensionResults();
@@ -235,6 +247,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         username: currentUsername,
         attestationResponse: attestationForServer,
         commitmentId: commitmentId,
+        useOptimistic: useOptimisticAuth,
       };
 
       // Step 4: Call server to verify WebAuthn attestation and store authenticator
@@ -274,7 +287,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         // Decide if this is a fatal error for registration or just a warning
       }
 
-      // Step 6: Store user data locally (including client-managed key)
+      // Step 6: Store user data locally using both WebAuthnManager and ClientUserManager
       await webAuthnManager.storeUserData({
           username: currentUsername,
           nearAccountId: userNearAccountIdToUse,
@@ -284,11 +297,19 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           lastUpdated: Date.now(),
       });
 
+      // Register user in ClientUserManager
+      ClientUserManager.registerUser(currentUsername, RELAYER_ACCOUNT_ID, {
+        preferences: {
+          useOptimisticAuth: useOptimisticAuth, // Use the mode chosen during registration
+        },
+      });
+
       // Step 7: Update React context state
       setIsLoggedIn(true);
       setUsername(currentUsername);
       setNearAccountId(userNearAccountIdToUse);
       setServerDerivedNearPK(clientManagedPublicKey); // Use the client-managed key for UI state
+      setCurrentUser(userNearAccountIdToUse); // Update settings context
       setStatusMessage('Passkey registered, verified, and key managed successfully!');
       setIsProcessing(false);
       return {
@@ -304,7 +325,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
+  }, [useOptimisticAuth, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK, setCurrentUser]);
 
   const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }> => {
     const userToLogin = currentUsername || username;
@@ -368,9 +389,27 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         // Fetch comprehensive user data from local storage, which should include the clientNearPublicKey
         const localUserData = await webAuthnManager.getUserData(loggedInUsername);
 
+        const finalNearAccountId = serverVerifyData.nearAccountId || localUserData?.nearAccountId;
+
         setIsLoggedIn(true);
         setUsername(loggedInUsername);
-        setNearAccountId(serverVerifyData.nearAccountId || localUserData?.nearAccountId);
+        setNearAccountId(finalNearAccountId);
+
+        // Update ClientUserManager with login
+        if (finalNearAccountId) {
+          // Check if user exists in ClientUserManager, create if not
+          let clientUser = ClientUserManager.getUser(finalNearAccountId);
+          if (!clientUser) {
+            console.log(`Creating ClientUserManager entry for existing user: ${loggedInUsername}`);
+            clientUser = ClientUserManager.registerUser(loggedInUsername, RELAYER_ACCOUNT_ID);
+          } else {
+            // Update last login time
+            ClientUserManager.updateLastLogin(finalNearAccountId);
+          }
+
+          // Update settings context
+          setCurrentUser(finalNearAccountId);
+        }
 
         // Set the UI-driving public key state from the locally stored clientNearPublicKey
         if (localUserData?.clientNearPublicKey) {
@@ -387,7 +426,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           success: true,
           loggedInUsername,
           clientNearPublicKey: localUserData?.clientNearPublicKey || null,
-          nearAccountId: serverVerifyData.nearAccountId || localUserData?.nearAccountId
+          nearAccountId: finalNearAccountId
         };
       } else {
         throw new Error(serverVerifyData.error || 'Passkey authentication failed by server.');
@@ -406,8 +445,9 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     setServerDerivedNearPK(null);
     setCurrentGreeting(null);
     setNearAccountId(null);
+    setCurrentUser(null); // Clear current user from settings
     setStatusMessage('Logged out.');
-  }, [setStatusMessage]);
+  }, [setStatusMessage, setCurrentUser]);
 
   const executeDirectActionViaWorker = useCallback(async (
     serializableActionForContract: SerializableActionArgs,

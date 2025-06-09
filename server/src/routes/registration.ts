@@ -52,13 +52,209 @@ interface ContractCompleteRegistrationArgs {
   commitment_id: string; // The commitment_id received from generate_registration_options
 }
 
+interface RegistrationSession {
+  id: string;
+  username: string;
+  nearAccountId: string;
+  status: 'pending' | 'contract_dispatched' | 'contract_confirmed' | 'error';
+  result?: any;
+  error?: string;
+  timestamp: number;
+}
+
+// Store active registration sessions
+const registrationSessions = new Map<string, RegistrationSession>();
+
+// Cleanup old sessions every 5 minutes
+setInterval(() => {
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+  for (const [id, session] of registrationSessions.entries()) {
+    if (session.timestamp < fiveMinutesAgo) {
+      registrationSessions.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// SSE clients for each session
+const sseClients = new Map<string, Response[]>();
+
+// Background user registration with progress updates
+async function registerUserInContractWithProgress(
+  sessionId: string,
+  nearAccountId: string,
+  username: string
+): Promise<void> {
+  try {
+    console.log(`🔄 Background registration with progress: ${nearAccountId}`);
+
+    // Update session and notify clients
+    const session = registrationSessions.get(sessionId);
+    if (session) {
+      session.status = 'contract_dispatched';
+      notifySSEClients(sessionId, {
+        type: 'contract_dispatched',
+        message: 'Contract call dispatched',
+        nearAccountId,
+        timestamp: Date.now()
+      });
+    }
+
+    const account = nearClient.getRelayerAccount();
+    const result = await account.functionCall({
+      contractId: config.contractId,
+      methodName: 'register_user',
+      args: {
+        user_id: nearAccountId,
+        username: username
+      },
+      gas: BigInt(DEFAULT_GAS_STRING),
+    });
+
+    console.log(`✅ Background registration successful for ${nearAccountId}:`, result);
+
+    // Update session and notify clients
+    if (session) {
+      session.status = 'contract_confirmed';
+      session.result = result;
+      notifySSEClients(sessionId, {
+        type: 'contract_confirmed',
+        message: 'Contract registration confirmed',
+        nearAccountId,
+        result: result,
+        timestamp: Date.now()
+      });
+
+      // Clean up after successful completion
+      setTimeout(() => {
+        registrationSessions.delete(sessionId);
+        sseClients.delete(sessionId);
+      }, 30000); // 30 seconds
+    }
+  } catch (error) {
+    console.error(`❌ Background registration failed for ${nearAccountId}:`, error);
+
+    // Check if this is a method not found error (contract deployment issue)
+    const isMethodNotFound = error instanceof Error &&
+      (error.message.includes('MethodNotFound') || error.message.includes('method not found'));
+
+    if (isMethodNotFound) {
+      console.warn(`Method 'register_user' not found in contract. This likely means the contract needs to be redeployed with the latest code.`);
+    }
+
+    // Update session and notify clients
+    const session = registrationSessions.get(sessionId);
+    if (session) {
+      session.status = 'error';
+      session.error = isMethodNotFound
+        ? 'Contract deployment issue - method not found'
+        : (error instanceof Error ? error.message : String(error));
+      notifySSEClients(sessionId, {
+        type: 'error',
+        message: isMethodNotFound
+          ? 'Contract registration skipped (deployment issue)'
+          : 'Contract registration failed',
+        error: session.error,
+        timestamp: Date.now()
+      });
+    }
+  }
+}
+
+// Notify all SSE clients for a session
+function notifySSEClients(sessionId: string, data: any) {
+  const clients = sseClients.get(sessionId) || [];
+  const message = `data: ${JSON.stringify(data)}\n\n`;
+
+  clients.forEach((res, index) => {
+    try {
+      res.write(message);
+    } catch (error) {
+      console.error('Failed to write to SSE client:', error);
+      // Remove failed client
+      clients.splice(index, 1);
+    }
+  });
+}
+
+// SSE endpoint for registration progress
+router.get('/registration-progress/:sessionId', (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+
+  const session = registrationSessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control',
+  });
+
+  // Add client to session
+  if (!sseClients.has(sessionId)) {
+    sseClients.set(sessionId, []);
+  }
+  sseClients.get(sessionId)!.push(res);
+
+  // Send current status immediately
+  const currentStatus = {
+    type: 'status',
+    status: session.status,
+    message: `Current status: ${session.status}`,
+    timestamp: Date.now()
+  };
+  res.write(`data: ${JSON.stringify(currentStatus)}\n\n`);
+
+  // If already completed, send final result and close
+  if (session.status === 'contract_confirmed') {
+    const finalResult = {
+      type: 'contract_confirmed',
+      message: 'Registration completed',
+      result: session.result,
+      timestamp: Date.now()
+    };
+    res.write(`data: ${JSON.stringify(finalResult)}\n\n`);
+    res.end();
+    return;
+  }
+
+  if (session.status === 'error') {
+    const errorResult = {
+      type: 'error',
+      message: 'Registration failed',
+      error: session.error,
+      timestamp: Date.now()
+    };
+    res.write(`data: ${JSON.stringify(errorResult)}\n\n`);
+    res.end();
+    return;
+  }
+
+  // Handle client disconnect
+  req.on('close', () => {
+    const clients = sseClients.get(sessionId) || [];
+    const index = clients.indexOf(res);
+    if (index !== -1) {
+      clients.splice(index, 1);
+    }
+  });
+});
+
+
+
 // Generate registration options Endpoint
 router.post('/generate-registration-options', async (req: Request, res: Response) => {
   const { username } = req.body;
+  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
+
   if (!username) return res.status(400).json({ error: 'Username is required' });
 
   try {
-    const resultFromService = await getRegistrationOptions(username, config.useContractMethod);
+    const resultFromService = await getRegistrationOptions(username, !useOptimistic && config.useContractMethod);
 
     const userForChallenge = userOperations.findByUsername(username);
     if (!userForChallenge) {
@@ -72,7 +268,9 @@ router.post('/generate-registration-options', async (req: Request, res: Response
     }
 
     userOperations.updateChallengeAndCommitmentId(userForChallenge.id, resultFromService.options.challenge, resultFromService.commitmentId);
-    console.log('Generated registration options for:', username, 'Sending to client:', JSON.stringify(resultFromService, null, 2));
+
+    const mode = useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)';
+    console.log(`Generated registration options for: ${username} using ${mode}. Sending to client:`, JSON.stringify(resultFromService, null, 2));
 
     // `resultFromService` already has the structure { options: {...}, nearAccountId, commitmentId }
     // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
@@ -133,12 +331,12 @@ async function getRegistrationOptions(
   }
 }
 
-// get registration options from SimpleWebAuthn
+// get registration options from SimpleWebAuthn (Fast mode)
 async function getRegistrationOptionsSimpleWebAuthn(
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> { // Update return type to match contract for consistency
-  console.log(`Using SimpleWebAuthn for registration options for user: ${user.username}`);
+  console.log(`Using SimpleWebAuthn for registration options for user: ${user.username} (Fast mode)`);
 
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
@@ -149,7 +347,7 @@ async function getRegistrationOptionsSimpleWebAuthn(
     excludeCredentials: rawAuthenticators.map(auth => ({
       id: isoBase64URL.toBuffer(auth.credentialID),
       type: 'public-key' as const,
-      transports: auth.transports ? JSON.parse(auth.transports) as AuthenticatorTransport[] : undefined,
+      transports: auth.transports ? (typeof auth.transports === 'string' ? auth.transports.split(',') : auth.transports) as AuthenticatorTransport[] : undefined,
     })),
     authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
     supportedAlgorithmIDs: [-7, -257],
@@ -159,22 +357,22 @@ async function getRegistrationOptionsSimpleWebAuthn(
 
   return {
     nearAccountId: user.nearAccountId || undefined,
-    commitmentId: `simplewebauthn_unused_${Date.now()}`,
+    commitmentId: null, // No commitment for fast mode
     options: optionsFromSimpleWebAuthn,
   };
 }
 
-// get registration options from NEAR Contract
+// get registration options from NEAR Contract (Secure mode)
 async function getRegistrationOptionsContract(
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> {
-  console.log(`Using NEAR contract for registration options for user: ${user.username}, userID for contract: ${user.id}`);
+  console.log(`Using NEAR contract for registration options for user: ${user.username}, userID for contract: ${user.id} (Secure mode)`);
 
   const authenticatorsForContractExclusion = rawAuthenticators.map(auth => ({
     id: auth.credentialID, // Contract expects base64url string id
     type: 'public-key' as const,
-    transports: auth.transports ? JSON.parse(auth.transports).map((t: string) => String(t)) : undefined,
+    transports: auth.transports ? (typeof auth.transports === 'string' ? auth.transports.split(',') : auth.transports).map((t: string) => String(t)) : undefined,
   }));
 
   const contractArgs: ContractGenerateOptionsArgs = {
@@ -246,15 +444,12 @@ async function getRegistrationOptionsContract(
   return contractResponse;
 }
 
-
-
-
-// verifyRegistrationResponseSimpleWebAuthn
+// verifyRegistrationResponseSimpleWebAuthn (Fast mode)
 async function verifyRegistrationResponseSimpleWebAuthn(
   attestationResponse: RegistrationResponseJSON,
   expectedChallenge: string
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
-  console.log('Using SimpleWebAuthn for registration verification');
+  console.log('Using SimpleWebAuthn for registration verification (Fast mode)');
   const verification = await simpleWebAuthnVerifyRegistrationResponse({
     response: attestationResponse,
     expectedChallenge,
@@ -268,12 +463,12 @@ async function verifyRegistrationResponseSimpleWebAuthn(
   };
 }
 
-// Verify and complete registration via NEAR Contract
+// Verify and complete registration via NEAR Contract (Secure mode)
 async function verifyRegistrationResponseContract(
   attestationResponse: RegistrationResponseJSON,
   commitmentId: string // The commitment_id received from generate_registration_options
 ): Promise<{ verified: boolean; registrationInfo?: any }> {
-  console.log('Using NEAR contract to complete registration with commitmentId:', commitmentId);
+  console.log('Using NEAR contract to complete registration with commitmentId:', commitmentId, '(Secure mode)');
 
   try {
     const account = nearClient.getRelayerAccount();
@@ -333,13 +528,19 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
   const { username, attestationResponse, commitmentId } = req.body as {
     username: string,
     attestationResponse: RegistrationResponseJSON,
-    commitmentId?: string
+    commitmentId?: string,
+    useOptimistic?: boolean
   };
+
+  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
+
+  // Check if client wants SSE progress tracking
+  const wantsSSEProgress = req.query.sse === 'true' || req.headers['x-enable-sse'] === 'true';
 
   if (!username || !attestationResponse) {
     return res.status(400).json({ error: 'Username and attestationResponse are required' });
   }
-  if (config.useContractMethod && !commitmentId) {
+  if (!useOptimistic && config.useContractMethod && !commitmentId) {
     return res.status(400).json({ error: 'commitmentId is required for contract method verification' });
   }
 
@@ -359,14 +560,20 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     if (!expectedChallenge) {
       return res.status(400).json({ error: 'No challenge found. Registration might have timed out or was not initiated correctly.' });
     }
-    if (config.useContractMethod && storedCommitmentId !== commitmentId) {
+    if (!useOptimistic && config.useContractMethod && storedCommitmentId !== commitmentId) {
         console.warn(`commitmentId mismatch. Stored: ${storedCommitmentId}, Received: ${commitmentId}`);
         // If commitmentId is echoed by client, it should match what server stored from generate_registration_options.
     }
 
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
-    if (config.useContractMethod && commitmentId) {
+    if (useOptimistic) {
+      // Fast mode: Use SimpleWebAuthn verification
+      console.log('Using optimistic registration verification');
+      verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+    } else if (config.useContractMethod && commitmentId) {
+      // Secure mode: Use contract verification
+      console.log('Using synchronous registration verification with contract');
       verificationResult = await verifyRegistrationResponseContract(attestationResponse, commitmentId);
     } else if (!config.useContractMethod && expectedChallenge) {
       verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
@@ -377,52 +584,109 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     const { verified, registrationInfo } = verificationResult;
 
     if (verified) {
-      // The registrationInfo from the contract uses snake_case keys.
-      // Destructure them correctly.
-      const {
-        credential_id: rawCredentialIDBuffer,
-        credential_public_key: rawPublicKeyBuffer,
-        counter,
-        credentialBackedUp
-      } = registrationInfo || {};
+      let credentialIDForDB: string;
+      let publicKeyForDB: Uint8Array;
+      let counterForDB: number;
+      let credentialBackedUpForDB: boolean;
 
-      // Ensure we have the necessary info, especially from the contract path
-      if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
-        // If these are missing, verification should not have passed.
-        // This indicates a problem with the contract response or logic.
-        throw new Error('Verification succeeded but registration info was incomplete.');
+                  if (useOptimistic) {
+        // SimpleWebAuthn returns registrationInfo with fields directly on the object
+        const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
+
+        if (!credentialID || !credentialPublicKey) {
+          throw new Error('Verification succeeded but registration info was incomplete.');
+        }
+
+        // Convert credentialID from Uint8Array to base64url string
+        credentialIDForDB = Buffer.from(credentialID).toString('base64url');
+        publicKeyForDB = new Uint8Array(credentialPublicKey);
+        counterForDB = counter || 0;
+        credentialBackedUpForDB = credentialBackedUp || false;
+      } else {
+        // Contract returns registrationInfo with snake_case keys
+        const {
+          credential_id: rawCredentialIDBuffer,
+          credential_public_key: rawPublicKeyBuffer,
+          counter,
+          credentialBackedUp
+        } = registrationInfo || {};
+
+        if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
+          throw new Error('Verification succeeded but registration info was incomplete.');
+        }
+
+        // The contract returns the raw credential ID bytes.
+        // We need to encode them as base64url to match the browser's credential ID format.
+        credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
+        publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
+        counterForDB = counter || 0;
+        credentialBackedUpForDB = credentialBackedUp || false;
       }
 
-
-
-      // The contract returns the raw credential ID bytes.
-      // We need to encode them as base64url to match the browser's credential ID format.
-      const credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
-      const publicKeyForDB = Buffer.from(rawPublicKeyBuffer);
-      const counterForDB = counter || 0;
-
       if (user.nearAccountId) {
+        // Store authenticator
         await authenticatorService.create({
-          credentialID: credentialIDForDB,
-          credentialPublicKey: new Uint8Array(publicKeyForDB),
-          counter: counterForDB,
+        credentialID: credentialIDForDB,
+          credentialPublicKey: publicKeyForDB,
+        counter: counterForDB,
           transports: attestationResponse.response.transports || [],
           nearAccountId: user.nearAccountId,
-          name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
+        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
           registered: new Date(),
-          backedUp: credentialBackedUp || false,
-          clientManagedNearPublicKey: null,
-        });
+          backedUp: credentialBackedUpForDB,
+        clientManagedNearPublicKey: null,
+      });
       }
 
       userOperations.updateChallengeAndCommitmentId(user.id, null, null);
-      console.log('Registration verification successful for:', username);
 
-      return res.json({
+      // Create session for SSE progress tracking if requested and using optimistic mode
+      let sessionId: string | undefined;
+      let progressUrl: string | undefined;
+
+      if (useOptimistic && wantsSSEProgress && user.nearAccountId) {
+        sessionId = `reg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+        progressUrl = `/registration-progress/${sessionId}`;
+
+        const session: RegistrationSession = {
+          id: sessionId,
+          username: user.username,
+          nearAccountId: user.nearAccountId,
+          status: 'pending',
+          timestamp: Date.now()
+        };
+
+        registrationSessions.set(sessionId, session);
+
+        // Start background contract registration with progress tracking
+        registerUserInContractWithProgress(sessionId, user.nearAccountId, user.username);
+      } else if (useOptimistic && user.nearAccountId) {
+        // Standard background registration without progress tracking
+        const bgSessionId = `bg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+        registerUserInContractWithProgress(bgSessionId, user.nearAccountId, user.username);
+      }
+
+      const mode = useOptimistic ?
+        (wantsSSEProgress ? 'FastAuth (Optimistic with SSE)' : 'FastAuth (Optimistic)') :
+        'SecureAuth (Contract Sync)';
+
+      console.log(`Registration verification successful for: ${username} using ${mode}`);
+
+      // Build response object
+      const response: any = {
         verified: true,
         username: user.username,
         nearAccountId: user.nearAccountId,
-      });
+        mode: mode,
+      };
+
+      // Add SSE fields if requested
+      if (sessionId) {
+        response.sessionId = sessionId;
+        response.progressUrl = progressUrl;
+      }
+
+      return res.json(response);
     } else {
       if (user) userOperations.updateChallengeAndCommitmentId(user.id, null, null);
       return res.status(400).json({

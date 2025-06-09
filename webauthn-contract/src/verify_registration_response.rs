@@ -622,6 +622,18 @@ impl WebAuthnContract {
             backed_up,
         );
 
+        // Phase 2: Register user in user registry if not already registered
+        if !self.registered_users.contains(&user_account_id) {
+            log!("Registering new user in user registry: {}", user_account_id);
+            // Use account ID as username for contract-based registrations
+            let username = user_account_id.to_string();
+            self.register_user(user_account_id.clone(), Some(username));
+        } else {
+            log!("User already registered in user registry: {}", user_account_id);
+            // Update user activity
+            self.update_user_activity(user_account_id.clone());
+        }
+
         log!(
             "Stored authenticator for user '{}' with credential ID '{}'",
             user_account_id,

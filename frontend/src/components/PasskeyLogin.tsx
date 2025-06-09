@@ -80,47 +80,122 @@ export function PasskeyLogin() {
       toast.error('Please enter a username to register.');
       return;
     }
+
     const toastId = toast.loading('Registering passkey...', { style: { background: '#2196F3', color: 'white' } });
-    const result = await registerPasskey(localUsernameInput.trim());
-    if (result.success) {
-      let successMessage = `Registered and logged in as ${localUsernameInput.trim()}!`;
-      let toastDuration = 6000;
 
-      if (result.nearAccountId && result.clientNearPublicKey) {
-        successMessage += `\nAccount ID: ${result.nearAccountId}\nClient PK: ${shortenString(result.clientNearPublicKey, 10, 10)}`;
-        toastDuration = 8000; // Longer duration if more info
-      }
+    try {
+      // If FastAuth is enabled, use optimistic registration with progress tracking
+      if (useOptimisticAuth) {
+        const progressUpdates: string[] = [];
 
-      if (result.transactionId) {
-        const txLink = `https://testnet.nearblocks.io/txns/${result.transactionId}`;
-        const shortTxId = shortenString(result.transactionId, 10, 6);
-        const successContent = (
-          <span>
-            {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
-            Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
-          </span>
+        const optimisticResult = await webAuthnManager.registerWithOptimistic(
+          localUsernameInput.trim(),
+          (update) => {
+            // Handle real-time progress updates
+            console.log('Registration progress:', update);
+            progressUpdates.push(`${update.type}: ${update.message}`);
+
+            switch (update.type) {
+              case 'status':
+                toast.loading(`Status: ${update.message}`, { id: toastId });
+                break;
+              case 'contract_dispatched':
+                toast.loading('✓ Registration verified, contract call dispatched...', { id: toastId });
+                break;
+              case 'contract_confirmed':
+                toast.success('✅ Registration fully confirmed on-chain!', { id: toastId });
+                break;
+              case 'error':
+                toast.error(`Contract error: ${update.error}`, { id: toastId });
+                break;
+            }
+          }
         );
-        toast.success(successContent, {
-          id: toastId,
-          duration: toastDuration, // Use updated duration
-          style: { background: '#4CAF50', color: 'white' }
-        });
-      } else {
-        // If no transactionId, but we have accountId and PK, still show them
-        const successContentNoTx = (
-            <span>
+
+        if (optimisticResult.verified) {
+          // Continue with normal registration flow for context updates
+          const result = await registerPasskey(localUsernameInput.trim());
+
+          if (result.success) {
+            let successMessage = `Registered with FastAuth! ${localUsernameInput.trim()}`;
+            let toastDuration = 6000;
+
+            if (result.nearAccountId && result.clientNearPublicKey) {
+              successMessage += `\nAccount: ${result.nearAccountId}\nClient PK: ${shortenString(result.clientNearPublicKey, 10, 10)}`;
+              toastDuration = 8000;
+            }
+
+            if (optimisticResult.sessionId) {
+              successMessage += `\nSession: ${optimisticResult.sessionId}`;
+            }
+
+            const successContent = (
+              <span>
                 {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
-            </span>
-        );
-        toast.success(successContentNoTx, {
-            id: toastId,
-            duration: toastDuration, // Use updated duration
-            style: { background: '#4CAF50', color: 'white' }
-        });
+                Progress updates: {progressUpdates.length}
+              </span>
+            );
+            toast.success(successContent, {
+              id: toastId,
+              duration: toastDuration,
+              style: { background: '#4CAF50', color: 'white' }
+            });
+
+            console.log('FastAuth registration complete:', { optimisticResult, contextResult: result, progressUpdates });
+          } else {
+            toast.error(`Context registration failed: ${result.error}`, { id: toastId });
+          }
+        } else {
+          toast.error('Optimistic registration verification failed', { id: toastId });
+        }
+      } else {
+        // Use standard registration (SecureAuth)
+        const result = await registerPasskey(localUsernameInput.trim());
+
+        if (result.success) {
+          let successMessage = `Registered with SecureAuth! ${localUsernameInput.trim()}`;
+          let toastDuration = 6000;
+
+          if (result.nearAccountId && result.clientNearPublicKey) {
+            successMessage += `\nAccount: ${result.nearAccountId}\nClient PK: ${shortenString(result.clientNearPublicKey, 10, 10)}`;
+            toastDuration = 8000;
+          }
+
+          if (result.transactionId) {
+            const txLink = `https://testnet.nearblocks.io/txns/${result.transactionId}`;
+            const shortTxId = shortenString(result.transactionId, 10, 6);
+            const successContent = (
+              <span>
+                {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
+                Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
+              </span>
+            );
+            toast.success(successContent, {
+              id: toastId,
+              duration: toastDuration,
+              style: { background: '#4CAF50', color: 'white' }
+            });
+          } else {
+            const successContentNoTx = (
+              <span>
+                {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
+              </span>
+            );
+            toast.success(successContentNoTx, {
+              id: toastId,
+              duration: toastDuration,
+              style: { background: '#4CAF50', color: 'white' }
+            });
+          }
+        } else {
+          toast.error(result.error || 'Registration failed.', { id: toastId });
+        }
       }
+
       setLastTxDetails(null);
-    } else {
-      toast.error(result.error || 'Registration failed.', { id: toastId });
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      toast.error(`Registration failed: ${error.message}`, { id: toastId });
     }
   };
 
@@ -214,6 +289,10 @@ export function PasskeyLogin() {
       }
     );
   };
+
+
+
+
 
   if (!isSecureContext) {
     return (
