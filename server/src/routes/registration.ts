@@ -335,9 +335,10 @@ async function getRegistrationOptions(
 async function getRegistrationOptionsSimpleWebAuthn(
   user: User,
   rawAuthenticators: any[]
-): Promise<ContractRegistrationOptionsResponse> { // Update return type to match contract for consistency
+): Promise<ContractRegistrationOptionsResponse> {
   console.log(`Using SimpleWebAuthn for registration options for user: ${user.username} (Fast mode)`);
 
+  // generate options with SimpleWebAuthn to get a challenge
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
     rpID: config.rpID,
@@ -355,11 +356,78 @@ async function getRegistrationOptionsSimpleWebAuthn(
     timeout: 60000,
   });
 
-  return {
+  // Return SimpleWebAuthn options immediately for fast user experience
+  const response = {
     nearAccountId: user.nearAccountId || undefined,
-    commitmentId: null, // No commitment for fast mode
+    commitmentId: null, // Will be set by background sync
     options: optionsFromSimpleWebAuthn,
   };
+
+  // Start background contract challenge sync (async, non-blocking)
+  syncChallengeWithContractInBackground(user, rawAuthenticators, optionsFromSimpleWebAuthn.challenge)
+    .catch(error => {
+      console.warn(`Background challenge sync failed for user ${user.username}:`, error);
+    });
+
+  return response;
+}
+
+// Background function to sync challenge with contract
+async function syncChallengeWithContractInBackground(
+  user: User,
+  rawAuthenticators: any[],
+  challenge: string
+): Promise<void> {
+  console.log(`🔄 Starting background challenge sync for user: ${user.username}`);
+
+  try {
+    const account = nearClient.getRelayerAccount();
+    const contractArgs = {
+      rp_name: config.rpName,
+      rp_id: config.rpID,
+      user_name: user.username,
+      user_id: user.id,
+      challenge: challenge, // Use SimpleWebAuthn's challenge
+      user_display_name: user.username,
+      timeout: 60000,
+      attestation_type: "none",
+      exclude_credentials: rawAuthenticators.length > 0 ? rawAuthenticators.map(auth => ({
+        id: auth.credentialID,
+        type: 'public-key' as const,
+        transports: auth.transports ? (typeof auth.transports === 'string' ? auth.transports.split(',') : auth.transports).map((t: string) => String(t)) : undefined,
+      })) : null,
+      authenticator_selection: { residentKey: 'required', userVerification: 'preferred' },
+      extensions: { cred_props: true },
+      supported_algorithm_ids: [-7, -257],
+      preferred_authenticator_type: null,
+    };
+
+    const rawResult: any = await account.callFunction({
+      contractId: config.contractId,
+      methodName: 'generate_registration_options',
+      args: contractArgs,
+      gas: BigInt(DEFAULT_GAS_STRING),
+    });
+
+    // Parse the contract response to get the commitmentId
+    let contractResponse: any;
+    if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status) {
+      const contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
+      contractResponse = JSON.parse(contractResponseString);
+    } else {
+      throw new Error('Failed to parse contract response');
+    }
+
+    // Store the commitmentId for later verification
+    const commitmentId = contractResponse.commitment_id;
+    userOperations.updateChallengeAndCommitmentId(user.id, challenge, commitmentId);
+
+    console.log(`✅ Background challenge sync completed for user ${user.username}. CommitmentId: ${commitmentId}`);
+
+  } catch (error) {
+    console.error(`❌ Background challenge sync failed for user ${user.username}:`, error);
+    throw error;
+  }
 }
 
 // get registration options from NEAR Contract (Secure mode)
@@ -442,6 +510,29 @@ async function getRegistrationOptionsContract(
   }
 
   return contractResponse;
+}
+
+// Background function to verify with contract and send SSE updates
+async function verifyWithContractInBackground(
+  username: string,
+  attestationResponse: RegistrationResponseJSON,
+  commitmentId: string
+): Promise<void> {
+  console.log(`🔄 Starting background contract verification for user: ${username}`);
+
+  try {
+    const contractResult = await verifyRegistrationResponseContract(attestationResponse, commitmentId);
+
+    if (contractResult.verified) {
+      console.log(`✅ Background contract verification succeeded for user: ${username}`);
+      // Could send SSE notification here if needed
+    } else {
+      console.log(`❌ Background contract verification failed for user: ${username}`);
+    }
+  } catch (error: any) {
+    console.error(`❌ Background contract verification error for user ${username}:`, error);
+    throw error;
+  }
 }
 
 // verifyRegistrationResponseSimpleWebAuthn (Fast mode)
@@ -568,9 +659,31 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
     if (useOptimistic) {
-      // Fast mode: Use SimpleWebAuthn verification
+      // Fast mode: Always verify with SimpleWebAuthn immediately, contract verification is optional
       console.log('Using optimistic registration verification');
-      verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+
+      // Verify with SimpleWebAuthn immediately
+      const simpleWebAuthnResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+
+      if (simpleWebAuthnResult.verified) {
+        // SimpleWebAuthn verification succeeded - return success immediately
+        verificationResult = simpleWebAuthnResult;
+
+        // If background challenge sync completed (we have commitmentId), also verify with contract in background
+        if (storedCommitmentId) {
+          console.log('Background challenge sync completed - also verifying with contract');
+                     // Don't await - let contract verification happen in background with SSE updates
+           verifyWithContractInBackground(user.username, attestationResponse, storedCommitmentId)
+             .catch((error: any) => {
+               console.warn('Background contract verification failed:', error);
+             });
+        } else {
+          console.log('Background challenge sync still pending or failed - using SimpleWebAuthn only');
+        }
+      } else {
+        // SimpleWebAuthn verification failed
+        verificationResult = { verified: false };
+      }
     } else if (config.useContractMethod && commitmentId) {
       // Secure mode: Use contract verification
       console.log('Using synchronous registration verification with contract');
@@ -658,10 +771,13 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
 
         registrationSessions.set(sessionId, session);
 
-        // Start background contract registration with progress tracking
+        // For optimistic mode, always do background user registration
+        console.log('Starting background user registration for optimistic mode');
         registerUserInContractWithProgress(sessionId, user.nearAccountId, user.username);
+
       } else if (useOptimistic && user.nearAccountId) {
         // Standard background registration without progress tracking
+        console.log('Starting background user registration without SSE');
         const bgSessionId = `bg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
         registerUserInContractWithProgress(bgSessionId, user.nearAccountId, user.username);
       }

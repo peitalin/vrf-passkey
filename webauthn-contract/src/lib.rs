@@ -75,6 +75,7 @@ pub struct WebAuthnContract {
     pub authenticators: IterableMap<(AccountId, String), StoredAuthenticator>,
     pub registered_users: IterableSet<AccountId>,
     pub user_profiles: LookupMap<AccountId, UserProfile>,
+    pub admins: IterableSet<AccountId>,
 }
 
 #[derive(BorshSerialize, BorshStorageKey)]
@@ -86,6 +87,7 @@ pub enum StorageKey {
     Authenticators,
     RegisteredUsers,
     UserProfiles,
+    Admins,
 }
 
 #[near]
@@ -102,6 +104,7 @@ impl WebAuthnContract {
             authenticators: IterableMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
             user_profiles: LookupMap::new(StorageKey::UserProfiles),
+            admins: IterableSet::new(StorageKey::Admins),
         }
     }
 
@@ -141,11 +144,15 @@ impl WebAuthnContract {
         }
     }
 
-    /// Register a new user in the contract
+        /// Register a new user in the contract
     pub fn register_user(&mut self, user_id: AccountId, username: Option<String>) -> bool {
-        // Only allow the user themselves to register
-        if env::predecessor_account_id() != user_id {
-            env::panic_str("Only the user can register themselves");
+        // Allow the user themselves, contract owner, or any admin to register
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+        let is_admin = self.admins.contains(&predecessor);
+
+        if predecessor != user_id && predecessor != contract_account && !is_admin {
+            env::panic_str("Only the user, contract owner, or admins can register users");
         }
 
         if self.registered_users.contains(&user_id) {
@@ -346,6 +353,54 @@ impl WebAuthnContract {
         }
 
         earliest_credential_id
+    }
+
+    /// Add a new admin (only contract owner can call this)
+    pub fn add_admin(&mut self, admin_id: AccountId) -> bool {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can add admins");
+        }
+
+        if self.admins.contains(&admin_id) {
+            log!("Admin {} already exists", admin_id);
+            return false;
+        }
+
+        self.admins.insert(admin_id.clone());
+        log!("Admin {} added successfully", admin_id);
+        true
+    }
+
+    /// Remove an admin (only contract owner can call this)
+    pub fn remove_admin(&mut self, admin_id: AccountId) -> bool {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can remove admins");
+        }
+
+        if !self.admins.contains(&admin_id) {
+            log!("Admin {} does not exist", admin_id);
+            return false;
+        }
+
+        self.admins.remove(&admin_id);
+        log!("Admin {} removed successfully", admin_id);
+        true
+    }
+
+    /// Check if an account is an admin
+    pub fn is_admin(&self, account_id: AccountId) -> bool {
+        self.admins.contains(&account_id)
+    }
+
+    /// Get all admins
+    pub fn get_admins(&self) -> Vec<AccountId> {
+        self.admins.iter().cloned().collect()
     }
 
     // pub fn generate_registration_options(
