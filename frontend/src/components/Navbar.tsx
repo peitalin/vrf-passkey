@@ -2,21 +2,25 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { usePasskeyContext } from '../contexts/PasskeyContext';
 import toast from 'react-hot-toast';
+import { MUTED_GREEN } from '../config';
 
-
-const shortPK = (pk: string | null | undefined, len = 8) => {
+const shortPK = (pk: string | null | undefined) => {
   if (!pk) return '';
-  if (pk.length <= len * 2 + 3) return pk;
-  return `${pk.substring(0, pk.indexOf(':') + 1 + len)}...${pk.substring(pk.length - len)}`;
+
+  // Remove the "ed25519:" prefix if present
+  const keyPart = pk.includes(':') ? pk.substring(pk.indexOf(':') + 1) : pk;
+
+  if (keyPart.length <= 11) return keyPart; // 4 + 3 ("...") + 4 = 11
+  return `${keyPart.substring(0, 4)}...${keyPart.substring(keyPart.length - 4)}`;
 };
 
 export const Navbar: React.FC = () => {
-  const { isLoggedIn, username, serverDerivedNearPK, logoutPasskey } = usePasskeyContext();
+  const { isLoggedIn, username, nearPublicKey, logoutPasskey } = usePasskeyContext();
 
   const handleLogout = () => {
     logoutPasskey();
     toast.success('Logged out successfully!', {
-      style: { background: '#16a34a', color: 'white' }
+      style: { background: MUTED_GREEN, color: 'white' }
     });
   };
 
@@ -35,17 +39,14 @@ export const Navbar: React.FC = () => {
         <Link to="/test-onetime-worker" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
           Worker Test
         </Link>
-        <Link to="/test-near-account" style={{ textDecoration: 'none', color: '#666', fontSize: '14px' }}>
-          NEAR Account Test
-        </Link>
       </div>
 
       {isLoggedIn && (
         <div className="navbar-user-info">
           {username && <span>Welcome, {username}</span>}
-          {serverDerivedNearPK && (
-            <span className="navbar-pk" title={serverDerivedNearPK}>
-              ({shortPK(serverDerivedNearPK)})
+          {nearPublicKey && (
+            <span className="navbar-pk" title={nearPublicKey}>
+              ({shortPK(nearPublicKey)})
             </span>
           )}
           <button

@@ -148,16 +148,32 @@ const TestOnetimeWorker: React.FC = () => {
   };
 
   return (
-    <div style={{ fontFamily: 'Arial, sans-serif', maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
+    <div style={{
+      maxWidth: '800px',
+      margin: '0 auto',
+      padding: '20px'
+    }}>
       <h1>One-Time Worker Pattern Test</h1>
-      <div style={{ margin: '20px 0', padding: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
+      <div style={{
+        margin: '20px 0',
+        padding: '20px',
+        border: '1px solid #ccc',
+        backgroundColor: '#fefefe',
+        borderRadius: '5px'
+      }}>
         <h2>Test Controls</h2>
         <button onClick={testWorkerCreation} style={{ padding: '10px 20px', margin: '5px', cursor: 'pointer' }}>Test Worker Creation (5x)</button>
         <button onClick={testWasmCaching} style={{ padding: '10px 20px', margin: '5px', cursor: 'pointer' }}>Test WASM Caching</button>
         <button onClick={clearWasmCache} style={{ padding: '10px 20px', margin: '5px', cursor: 'pointer' }}>Clear WASM Cache</button>
         <button onClick={clearLogs} style={{ padding: '10px 20px', margin: '5px', cursor: 'pointer' }}>Clear Logs</button>
       </div>
-      <div style={{ margin: '20px 0', padding: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
+      <div style={{
+        margin: '20px 0',
+        padding: '20px',
+        border: '1px solid #ccc',
+        borderRadius: '5px',
+        backgroundColor: '#fefefe',
+      }}>
         <h2>Test Results</h2>
         <div id="results">
           {logs.map((log, index) => (

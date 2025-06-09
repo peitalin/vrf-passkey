@@ -36,15 +36,12 @@ async function initializeWasmWithCache() {
     const cachedResponse = await cache.match(wasmUrl);
 
     if (cachedResponse) {
-      console.log('WORKER: Loading WASM from cache');
       const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
       await init({ module: wasmModule });
-      console.log('WORKER: WASM module initialized from cache');
       return;
     }
 
     // If not in cache, fetch and cache it
-    console.log('WORKER: WASM not in cache, fetching...');
     const response = await fetch(wasmUrl);
 
     // Clone the response before using it
@@ -55,7 +52,6 @@ async function initializeWasmWithCache() {
 
     // Cache the response for future use
     await cache.put(wasmUrl, responseToCache);
-    console.log('WORKER: WASM module cached');
 
     // Initialize with the compiled module using modern object syntax
     await init({ module: wasmModule });

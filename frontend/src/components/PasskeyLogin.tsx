@@ -6,8 +6,13 @@ import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './RefreshIcon'
 import { webAuthnManager } from '../security/WebAuthnManager'
 import { shortenString } from '../utils/strings'
-import { WEBAUTHN_CONTRACT_ID } from '../config'
-
+import {
+  WEBAUTHN_CONTRACT_ID,
+  MUTED_GREEN,
+  MUTED_BLUE,
+  MUTED_ORANGE,
+  TOAST_TEXT_COLOR
+} from '../config'
 
 interface LastTxDetails {
   id: string;
@@ -19,7 +24,7 @@ export function PasskeyLogin() {
   const {
     isLoggedIn,
     username,
-    serverDerivedNearPK,
+    nearPublicKey,
     isProcessing,
     currentGreeting,
     setUsernameState,
@@ -75,7 +80,7 @@ export function PasskeyLogin() {
     }
   };
 
-    const onRegister = async () => {
+  const onRegister = async () => {
     if (!localUsernameInput.trim()) {
       toast.error('Please enter a username to register.');
       return;
@@ -102,11 +107,14 @@ export function PasskeyLogin() {
     const userToAttemptLogin = localUsernameInput.trim();
     const toastId = toast.loading(
       `Attempting login${userToAttemptLogin ? ' for ' + userToAttemptLogin : ' (discoverable passkey)'}...`,
-      { style: { background: '#64748b', color: 'white' } }
+      { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
     );
     const result = await loginPasskey(userToAttemptLogin || undefined);
     if (result.success) {
-      toast.success(`Logged in as ${result.loggedInUsername || userToAttemptLogin}!`, { id: toastId, style: { background: '#16a34a', color: 'white' } });
+      toast.success(
+        `Logged in as ${result.loggedInUsername || userToAttemptLogin}!`,
+        { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
+      );
       setLastTxDetails(null);
     } else {
       toast.error(result.error || 'Login failed.', { id: toastId });
@@ -114,10 +122,16 @@ export function PasskeyLogin() {
   };
 
   const onFetchGreeting = async () => {
-    const toastId = toast.loading('Refreshing greeting...', { style: { background: '#64748b', color: 'white' } });
+    const toastId = toast.loading(
+      'Refreshing greeting...',
+      { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
+    );
     const result = await fetchCurrentGreeting();
     if (result.success) {
-      toast.success('Greeting refreshed!', { id: toastId, style: { background: '#16a34a', color: 'white' } });
+      toast.success(
+        'Greeting refreshed!',
+        { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
+      );
     } else {
       toast.error(result.error || "Failed to refresh greeting", { id: toastId });
     }
@@ -151,7 +165,10 @@ export function PasskeyLogin() {
       actionToExecute,
       {
         beforeDispatch: () => {
-          toastId = toast.loading('Dispatching Set Greeting (Direct Action)... ', { style: { background: '#64748b', color: 'white' } });
+          toastId = toast.loading(
+            'Dispatching Set Greeting (Direct Action)... ',
+            { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
+          );
         },
         afterDispatch: (success, data) => {
           if (success && data?.transaction_outcome?.id) {
@@ -159,12 +176,12 @@ export function PasskeyLogin() {
             const txLink = `https://testnet.nearblocks.io/txns/${txId}`;
             const shortTxId = shortenString(txId, 10, 6);
             const greetingSet = newGreetingMessage;
-            const successMessage = `Set Greeting to "${greetingSet}" (Direct) successful!`;
+            const successMessage = `Set Greeting to "${greetingSet}" successful!`;
 
             setLastTxDetails({
               id: txId,
               link: txLink,
-              message: `Set to: "${greetingSet}"`
+              message: `${greetingSet}`
             });
 
             const successContent = (
@@ -175,10 +192,10 @@ export function PasskeyLogin() {
             toast.success(successContent, {
               id: toastId,
               duration: 8000,
-              style: { background: '#16a34a', color: 'white' }
+              style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
             });
           } else if (success) {
-            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: '#16a34a', color: 'white' } });
+            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } });
             setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
           } else {
             toast.error(data?.error || 'Direct Action failed.', { id: toastId });
@@ -188,10 +205,6 @@ export function PasskeyLogin() {
       }
     );
   };
-
-
-
-
 
   if (!isSecureContext) {
     return (
@@ -206,118 +219,126 @@ export function PasskeyLogin() {
   }
 
   return (
-    <div className="passkey-container">
-      <h3>Passkey Authentication with NEAR</h3>
-      {!isLoggedIn ? (
-        <>
-          <div>
-            <input
-              type="text"
-              value={localUsernameInput}
-              onChange={handleLocalUsernameChange}
-              placeholder="Enter username for passkey"
-              className="styled-input"
-            />
-          </div>
-
-          <div className="auth-mode-toggle">
-            <label className="toggle-label">
+    <div className="passkey-container-root">
+      <div className="passkey-container">
+        {!isLoggedIn ? (
+          <>
+            <h2>Passkey Login</h2>
+            <p className="caption">Authenticate onchain with Passkeys</p>
+          </>
+        ) : (
+          <>
+            <h2>Welcome, {username}</h2>
+            <p className="caption">Send NEAR transactions with Passkeys</p>
+          </>
+        )}
+        {!isLoggedIn ? (
+          <>
+            <div className="input-wrapper">
               <input
-                type="checkbox"
-                checked={useOptimisticAuth}
-                onChange={(e) => setUseOptimisticAuth(e.target.checked)}
-                className="toggle-checkbox"
+                type="text"
+                value={localUsernameInput}
+                onChange={handleLocalUsernameChange}
+                placeholder="Enter username for passkey"
+                className="styled-input"
               />
-              <span className="toggle-slider"></span>
-              <span className="toggle-text">
-                {useOptimisticAuth ? 'Fast Auth (Optimistic)' : 'Secure Auth (Contract Sync)'}
-              </span>
-            </label>
-            <div className="auth-mode-description">
-              {useOptimisticAuth
-                ? 'Immediate response with background contract update'
-                : 'Wait for contract verification before response'
-              }
+              {isPasskeyRegisteredForLocalInput && localUsernameInput && (
+                <div className="account-exists-badge">
+                  account exists
+                </div>
+              )}
             </div>
-          </div>
 
-          <div className="auth-buttons">
-            <button onClick={onRegister} className="action-button"
-              disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>
-              Register Passkey
-            </button>
-            <button onClick={onLogin} className="action-button primary"
-              disabled={(!localUsernameInput && isPasskeyRegisteredForLocalInput && !isProcessing) ? false : (!localUsernameInput || isProcessing)}>
-              {localUsernameInput ? 'Login with Passkey' : 'Login (enter username or try discoverable)'}
-            </button>
-            {!localUsernameInput && (
-              <button onClick={() => loginPasskey()} className="action-button primary"
-                      disabled={isProcessing || isPasskeyRegisteredForLocalInput}>
-                Login with Discoverable Passkey
-              </button>
-            )}
-          </div>
-          {isPasskeyRegisteredForLocalInput && localUsernameInput && <div className="info-message">Passkey registered for '{localUsernameInput}'. Try Login.</div>}
-        </>
-      ) : (
-        <>
-          <div className="user-info-box">
-            <h4>Logged in as: {username}</h4>
-            <button onClick={logoutPasskey} className="action-button logout-button">
-              Logout
-            </button>
-          </div>
-
-          {serverDerivedNearPK ? (
-            <div className="greeting-controls-box">
-              <h4>Manage Greeting on {WEBAUTHN_CONTRACT_ID}</h4>
-
-              <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
-                <RefreshIcon size={22} />
-              </button>
-
-              {currentGreeting && (
-                <div className="on-chain-greeting-box">
-                  <p><strong>On-Chain Greeting:</strong></p>
-                  <p>"{currentGreeting}"</p>
-                </div>
-              )}
-
-              {lastTxDetails && lastTxDetails.id !== 'N/A' && (
-                <div className="last-tx-display">
-                  <span>Last Set Greeting Tx: </span>
-                  <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer" title={lastTxDetails.id} className="tx-link">
-                    {shortenString(lastTxDetails.id, 10, 6)}
-                  </a>
-                  {lastTxDetails.message && <span className="tx-message">{lastTxDetails.message}</span>}
-                </div>
-              )}
-
-              <div className="greeting-input-group">
+            <div className="auth-mode-toggle">
+              <label
+                className="toggle-label"
+                data-tooltip={useOptimisticAuth
+                  ? 'Immediate response with background contract update'
+                  : 'Wait for contract verification before response'
+                }
+              >
                 <input
-                  type="text"
-                  value={customGreetingInput}
-                  onChange={(e) => setCustomGreetingInput(e.target.value)}
-                  placeholder="Enter new greeting"
-                  className="styled-input" /* Keep styled-input for consistency, greeting-input-group handles layout */
+                  type="checkbox"
+                  checked={useOptimisticAuth}
+                  onChange={(e) => setUseOptimisticAuth(e.target.checked)}
+                  className="toggle-checkbox"
                 />
-                <button
-                  onClick={onExecuteDirectAction}
-                  className="action-button" /* Keep action-button for base styling */
-                  disabled={isProcessing || !customGreetingInput.trim()}
-                >
-                  {isProcessing ? 'Processing...' : 'Set New Greeting (Direct)'}
+                <span className="toggle-slider"></span>
+                <span className="toggle-text">
+                  {useOptimisticAuth ? 'Fast Auth (Optimistic)' : 'Secure Auth (Contract Sync)'}
+                </span>
+              </label>
+            </div>
+
+            <div className="auth-buttons">
+              <button onClick={onRegister} className={`action-button ${!isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
+                disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>
+                Register Passkey
+              </button>
+              <button onClick={onLogin} className={`action-button ${isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
+                disabled={!localUsernameInput || !isPasskeyRegisteredForLocalInput || isProcessing}>
+                {localUsernameInput ? 'Login with Passkey' : 'Login (enter username or try discoverable)'}
+              </button>
+              {!localUsernameInput && (
+                <button onClick={() => loginPasskey()} className="action-button"
+                        disabled={isProcessing}>
+                  Login with Discoverable Passkey
                 </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {nearPublicKey ? (
+              <div className="greeting-controls-box">
+                <div className="webauthn-contract-link">Onchain message on <a href="https://testnet.nearblocks.io/address/webauthn-contract.testnet" target="_blank" rel="noopener noreferrer">{WEBAUTHN_CONTRACT_ID}</a>:</div>
+                {currentGreeting && (
+                  <div className="on-chain-greeting-box">
+                    <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
+                      <RefreshIcon size={22} color={MUTED_GREEN}/>
+                    </button>
+                    <p><strong>{currentGreeting}</strong></p>
+                  </div>
+                )}
+
+                {lastTxDetails && lastTxDetails.id !== 'N/A' && (
+                  <div className="last-tx-display">
+                    <span>Transaction ID: </span>
+                    <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer"
+                      title={lastTxDetails.id}
+                      className="tx-link"
+                    >
+                      {shortenString(lastTxDetails.id, 10, 6)}
+                    </a>
+                  </div>
+                )}
+
+                <div className="greeting-input-group">
+                  <input
+                    type="text"
+                    value={customGreetingInput}
+                    onChange={(e) => setCustomGreetingInput(e.target.value)}
+                    placeholder="Enter new greeting"
+                    className="styled-input" /* Keep styled-input for consistency, greeting-input-group handles layout */
+                  />
+                  <button
+                    onClick={onExecuteDirectAction}
+                    className="action-button"
+                    disabled={isProcessing || !customGreetingInput.trim()}
+                  >
+                    {isProcessing ? 'Processing...' : 'Set New Greeting'}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="info-box">
-              <p>✅ Passkey registered successfully!</p>
-              <p>Server-derived NEAR public key not available for greeting functionality.</p>
-            </div>
-          )}
-        </>
-      )}
+            ) : (
+              <div className="info-box">
+                <p>✅ Passkey registered successfully!</p>
+                <p>Server-derived NEAR public key not available for greeting functionality.</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

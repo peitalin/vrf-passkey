@@ -213,9 +213,6 @@ class NearClient {
       const errMsg = `NearClient: createAccount can only create subaccounts of ${this.relayerAccount.accountId}. Received: ${accountId}`;
       console.error(errMsg);
       // Throwing error here is consistent with strict validation,
-      // but API endpoint might catch and return structured error.
-      // For now, let NearClient throw, and endpoint handles the HTTP response.
-      // However, user's previous change suggests returning a structured error, so adhering to that:
       return { success: false, message: errMsg, error: new Error(errMsg) };
     }
 

@@ -591,6 +591,14 @@ async function handleRegistrationWithSSE(
   };
 
   try {
+    // Early validation: Check if account already exists
+    if (clientManagedNearPublicKey && user.nearAccountId) {
+      const accountExists = await nearClient.checkAccountExists(user.nearAccountId);
+      if (accountExists) {
+        throw new Error(`Account ${user.nearAccountId} already exists. Please use a different username or login instead.`);
+      }
+    }
+
     // Step 1: WebAuthn Verification
     sendSSEUpdate('webauthn-verification', 'progress', { message: 'Verifying WebAuthn credentials...' });
 
@@ -635,99 +643,117 @@ async function handleRegistrationWithSSE(
       mode: useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)'
     });
 
-    // Step 3: Background database storage
-    sendSSEUpdate('database-storage', 'progress', { message: 'Storing authenticator in database...' });
+    // Steps 3, 4 & 5: Run database storage, account creation, and contract registration concurrently
+    const concurrentTasks = [];
 
-    const { verified, registrationInfo } = verificationResult;
-    let credentialIDForDB: string;
-    let publicKeyForDB: Uint8Array;
-    let counterForDB: number;
-    let credentialBackedUpForDB: boolean;
-
-    if (useOptimistic) {
-      const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
-      if (!credentialID || !credentialPublicKey) {
-        throw new Error('Incomplete registration info from SimpleWebAuthn');
-      }
-      credentialIDForDB = Buffer.from(credentialID).toString('base64url');
-      publicKeyForDB = new Uint8Array(credentialPublicKey);
-      counterForDB = counter || 0;
-      credentialBackedUpForDB = credentialBackedUp || false;
-    } else {
-      const { credential_id: rawCredentialIDBuffer, credential_public_key: rawPublicKeyBuffer, counter, credentialBackedUp } = registrationInfo || {};
-      if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
-        throw new Error('Incomplete registration info from contract');
-      }
-      credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
-      publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
-      counterForDB = counter || 0;
-      credentialBackedUpForDB = credentialBackedUp || false;
-    }
-
-    if (user.nearAccountId) {
-      await authenticatorService.create({
-        credentialID: credentialIDForDB,
-        credentialPublicKey: publicKeyForDB,
-        counter: counterForDB,
-        transports: attestationResponse.response.transports || [],
-        nearAccountId: user.nearAccountId,
-        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
-        registered: new Date(),
-        backedUp: credentialBackedUpForDB,
-        clientManagedNearPublicKey: clientManagedNearPublicKey || null,
-      });
-    }
-
-    sendSSEUpdate('database-storage', 'success', { message: 'Authenticator stored successfully' });
-
-    // Step 4: Add access key to NEAR account
-    if (clientManagedNearPublicKey && user.nearAccountId) {
-      sendSSEUpdate('access-key-addition', 'progress', { message: 'Adding access key to NEAR account...' });
+    // Task 1: Database storage
+    const databaseTask = (async () => {
+      sendSSEUpdate('database-storage', 'progress', { message: 'Storing authenticator in database...' });
 
       try {
-        // Check if account exists, create if not, and add access key
-        const accountExists = await nearClient.checkAccountExists(user.nearAccountId);
-        if (!accountExists) {
-          console.log(`Account ${user.nearAccountId} does not exist. Creating with access key...`);
-          const creationResult = await nearClient.createAccount(user.nearAccountId, clientManagedNearPublicKey);
+        const { verified, registrationInfo } = verificationResult;
+        let credentialIDForDB: string;
+        let publicKeyForDB: Uint8Array;
+        let counterForDB: number;
+        let credentialBackedUpForDB: boolean;
+
+        if (useOptimistic) {
+          const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
+          if (!credentialID || !credentialPublicKey) {
+            throw new Error('Incomplete registration info from SimpleWebAuthn');
+          }
+          credentialIDForDB = Buffer.from(credentialID).toString('base64url');
+          publicKeyForDB = new Uint8Array(credentialPublicKey);
+          counterForDB = counter || 0;
+          credentialBackedUpForDB = credentialBackedUp || false;
+        } else {
+          const { credential_id: rawCredentialIDBuffer, credential_public_key: rawPublicKeyBuffer, counter, credentialBackedUp } = registrationInfo || {};
+          if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
+            throw new Error('Incomplete registration info from contract');
+          }
+          credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
+          publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
+          counterForDB = counter || 0;
+          credentialBackedUpForDB = credentialBackedUp || false;
+        }
+
+        if (user.nearAccountId) {
+          await authenticatorService.create({
+            credentialID: credentialIDForDB,
+            credentialPublicKey: publicKeyForDB,
+            counter: counterForDB,
+            transports: attestationResponse.response.transports || [],
+            nearAccountId: user.nearAccountId,
+            name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
+            registered: new Date(),
+            backedUp: credentialBackedUpForDB,
+            clientManagedNearPublicKey: clientManagedNearPublicKey || null,
+          });
+        }
+
+        sendSSEUpdate('database-storage', 'success', { message: 'Authenticator stored successfully' });
+      } catch (error: any) {
+        console.error('Failed to store authenticator in database:', error);
+        sendSSEUpdate('database-storage', 'error', {
+          message: 'Failed to store authenticator (account still secured)',
+          error: error.message
+        });
+      }
+    })();
+
+    concurrentTasks.push(databaseTask);
+
+    // Task 2: Create NEAR account with access key
+    if (clientManagedNearPublicKey && user.nearAccountId) {
+      const accessKeyTask = (async () => {
+        sendSSEUpdate('access-key-addition', 'progress', { message: 'Creating NEAR account...' });
+
+        try {
+          const nearAccountId = user.nearAccountId!; // Already checked in if condition
+          console.log(`Creating account ${nearAccountId} with access key...`);
+          const creationResult = await nearClient.createAccount(nearAccountId, clientManagedNearPublicKey);
           if (!creationResult.success) {
             throw new Error(`Failed to create account: ${creationResult.message}`);
           }
-        } else {
-          console.log(`Account ${user.nearAccountId} exists. Adding access key...`);
-          const addKeyResult = await nearClient.addAccessKey(user.nearAccountId, clientManagedNearPublicKey);
-          if (!addKeyResult.success) {
-            throw new Error(`Failed to add access key: ${addKeyResult.message}`);
-          }
+
+          sendSSEUpdate('access-key-addition', 'success', { message: 'NEAR account created successfully' });
+        } catch (error: any) {
+          console.error('Failed to create NEAR account:', error);
+          sendSSEUpdate('access-key-addition', 'error', {
+            message: 'Failed to create NEAR account (account still secured)',
+            error: error.message
+          });
         }
+      })();
 
-        sendSSEUpdate('access-key-addition', 'success', { message: 'Access key added to NEAR account successfully' });
-      } catch (error: any) {
-        console.error('Failed to add access key to NEAR account:', error);
-        sendSSEUpdate('access-key-addition', 'error', {
-          message: 'Failed to add access key (account still secured)',
-          error: error.message
-        });
-      }
+      concurrentTasks.push(accessKeyTask);
     }
 
-    // Step 5: Background contract user registration (for optimistic mode)
+    // Task 3: Contract user registration (for optimistic mode)
     if (useOptimistic && user.nearAccountId) {
-      sendSSEUpdate('contract-registration', 'progress', { message: 'Registering user in contract...' });
+      const contractTask = (async () => {
+        sendSSEUpdate('contract-registration', 'progress', { message: 'Registering user in contract...' });
 
-      try {
-        await registerUserInContractWithProgress(sessionId, user.nearAccountId, user.username);
-        sendSSEUpdate('contract-registration', 'success', { message: 'User registered in contract successfully' });
-      } catch (error: any) {
-        console.warn('Contract registration failed:', error);
-        sendSSEUpdate('contract-registration', 'error', {
-          message: 'Contract registration failed (non-fatal)',
-          error: error.message
-        });
-      }
+        try {
+          const nearAccountId = user.nearAccountId!; // Already checked in if condition
+          await registerUserInContractWithProgress(sessionId, nearAccountId, user.username);
+          sendSSEUpdate('contract-registration', 'success', { message: 'User registered in contract successfully' });
+        } catch (error: any) {
+          console.warn('Contract registration failed:', error);
+          sendSSEUpdate('contract-registration', 'error', {
+            message: 'Contract registration failed (non-fatal)',
+            error: error.message
+          });
+        }
+      })();
+
+      concurrentTasks.push(contractTask);
     }
 
-    // Step 5: Final completion
+    // Wait for all concurrent tasks to complete
+    await Promise.allSettled(concurrentTasks);
+
+    // Step 7: Final completion
     sendSSEUpdate('registration-complete', 'success', {
       message: 'Registration completed successfully!',
       sessionId

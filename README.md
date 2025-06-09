@@ -106,7 +106,7 @@ graph TD
 
 ### **Client-Side Components**
 - **ClientUserManager**: Local user data and preferences
-- **WebAuthnChallengeManager**: Challenge lifecycle management
+
 - **PasskeyContext**: React state management
 - **SettingsContext**: User preferences and mode selection
 

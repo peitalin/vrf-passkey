@@ -11,19 +11,18 @@ import {
   RPC_NODE_URL,
   DEFAULT_GAS_STRING,
   RELAYER_ACCOUNT_ID,
-  WEBAUTHN_CONTRACT_ID
+  WEBAUTHN_CONTRACT_ID,
+  MAX_CONCURRENT_TOASTS,
+  MUTED_GREEN,
+  MUTED_BLUE,
+  MUTED_ORANGE
 } from '../config';
 import { useSettings } from './SettingsContext';
 import { ClientUserManager } from '../services/ClientUserManager';
-import { WebAuthnChallengeManager } from '../services/WebAuthnChallengeManager';
 import toast from 'react-hot-toast';
 
 // Toast queue management to limit concurrent toasts
 const activeToasts = new Set<string>();
-const MAX_CONCURRENT_TOASTS = 2;
-const MUTED_GREEN = '#6B8E6E';
-const MUTED_BLUE = '#5B7C99';
-const MUTED_ORANGE = '#D39B5E';
 
 
 const managedToast = {
@@ -74,67 +73,17 @@ const managedToast = {
 };
 
 
-
 let frontendRpcProvider: Provider;
 
-// Helper to convert ArrayBuffer to string (UTF-8)
-function bufferSourceToString(bs: ArrayBuffer | ArrayBufferView): string {
-    return new TextDecoder().decode(bs);
-}
-
-// PLACEHOLDER: Securely derive encryption key from attestation response
-async function deriveEncryptionKeyFromAttestation(attestationResponse: AuthenticatorAttestationResponse): Promise<CryptoKey> {
-  console.warn('MAIN_THREAD: Using insecure key derivation from attestation for demo. IMPLEMENT SECURE KDF.');
-  const clientDataJSONStr = bufferSourceToString(attestationResponse.clientDataJSON);
-  const clientData = JSON.parse(clientDataJSONStr);
-  const challenge = clientData.challenge;
-  const encoder = new TextEncoder();
-  const simplisticInputForKeyMaterial = encoder.encode(challenge.slice(0, 16) + "_ENCRYPTION_SALT_DEMO_MAIN_THREAD");
-
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    simplisticInputForKeyMaterial,
-    { name: "PBKDF2" },
-    false,
-    ['deriveKey']
-  );
-
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: encoder.encode('main-thread-encryption-salt'), iterations: 100000, hash: 'SHA-256' },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-}
-
-// PLACEHOLDER: Securely encrypt data
-async function encryptNearPrivateKeyWithDerivedKey(privateKeyString: string, encryptionKey: CryptoKey): Promise<{ encryptedData: string; iv: string }> {
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // AES-GCM recommended IV size
-  const encodedPrivateKey = new TextEncoder().encode(privateKeyString);
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv },
-    encryptionKey,
-    encodedPrivateKey
-  );
-  return {
-    encryptedData: bufferEncode(encryptedBuffer), // Using your existing bufferEncode (base64url)
-    iv: bufferEncode(iv.buffer), // Store IV as base64url
-  };
-}
-
-// 1. Define Context State and Value Types
 interface PasskeyState {
   isLoggedIn: boolean;
   username: string | null;
-  serverDerivedNearPK: string | null;
+  nearPublicKey: string | null;
   nearAccountId: string | null;
   isProcessing: boolean;
-  statusMessage: string | null;
   currentGreeting: string | null;
 }
 
-// Define types for callbacks
 export interface ExecuteActionCallbacks {
   beforeDispatch?: () => void;
   afterDispatch?: (success: boolean, data?: any) => void;
@@ -142,7 +91,6 @@ export interface ExecuteActionCallbacks {
 
 interface PasskeyContextType extends PasskeyState {
   setUsernameState: (username: string) => void;
-  setNearAccountIdState: (accountId: string) => void;
   registerPasskey: (username: string) => Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }>;
   loginPasskey: (username?: string) => Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }>;
   logoutPasskey: () => void;
@@ -153,10 +101,8 @@ interface PasskeyContextType extends PasskeyState {
   fetchCurrentGreeting: () => Promise<{ success: boolean; greeting?: string; error?: string }>;
 }
 
-// 2. Create Context
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
-// 3. Create Context Provider Component
 interface PasskeyContextProviderProps {
   children: ReactNode;
 }
@@ -164,10 +110,9 @@ interface PasskeyContextProviderProps {
 export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
-  const [serverDerivedNearPK, setServerDerivedNearPK] = useState<string | null>(null);
+  const [nearPublicKey, setNearPublicKey] = useState<string | null>(null);
   const [nearAccountId, setNearAccountId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
     const { useOptimisticAuth, setCurrentUser } = useSettings();
@@ -181,9 +126,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
   const setUsernameState = (name: string) => {
     setUsername(name);
-  };
-  const setNearAccountIdState = (accountId: string) => {
-    setNearAccountId(accountId);
   };
 
   const fetchCurrentGreeting = useCallback(async () => {
@@ -224,15 +166,15 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
           try {
             const webAuthnUserData = await webAuthnManager.getUserData(lastUser.username);
             if (webAuthnUserData?.clientNearPublicKey) {
-              setServerDerivedNearPK(webAuthnUserData.clientNearPublicKey);
+              setNearPublicKey(webAuthnUserData.clientNearPublicKey);
               console.log('Loaded client-managed NEAR public key from WebAuthnManager:', webAuthnUserData.clientNearPublicKey);
             } else {
               console.log('No client-managed NEAR public key found in WebAuthnManager for:', lastUser.username);
-              setServerDerivedNearPK(null);
+              setNearPublicKey(null);
             }
-          } catch (webAuthnError) {
-            console.warn('Error loading WebAuthn user data:', webAuthnError);
-            setServerDerivedNearPK(null);
+          } catch (webAuthnDataError) {
+            console.warn('Failed to load WebAuthn user data, setting nearPublicKey to null:', webAuthnDataError);
+            setNearPublicKey(null);
           }
 
           console.log('Loaded user data from ClientUserManager:', {
@@ -257,7 +199,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
   }, [isLoggedIn, fetchCurrentGreeting]);
 
-    const registerPasskey = useCallback(async (currentUsername: string): Promise<{ success: boolean; error?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null; transactionId?: string | null }> => {
+  const registerPasskey = useCallback(async (currentUsername: string): Promise<{
+    success: boolean;
+    error?: string;
+    clientNearPublicKey?: string | null;
+    nearAccountId?: string | null;
+    transactionId?: string | null
+  }> => {
     console.log('🎯 registerPasskey CALLED for username:', currentUsername, 'at', new Date().toISOString());
     console.log('🎯 Current state:', { isProcessing, isLoggedIn, username });
 
@@ -281,7 +229,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     }
 
     setIsProcessing(true);
-    setStatusMessage('Registering passkey...');
 
     // Clear any existing challenges to prevent conflicts
     webAuthnManager.clearAllChallenges();
@@ -358,12 +305,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       console.log('🔄 Step 3: Starting SSE registration verification...');
 
       return new Promise((resolve, reject) => {
-        // Setup SSE connection
-        const eventSource = new EventSource(`${SERVER_URL}/verify-registration`, {
-          // Note: EventSource doesn't support POST, so we'll modify the server endpoint
-        });
-
-        // Store data for manual fetch since EventSource doesn't support POST
+        // Store data for SSE request
         const verifyPayload = {
           username: currentUsername,
           attestationResponse: attestationForServer,
@@ -399,8 +341,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
             nearAccountId: userNearAccountIdToUse,
             transactionId: null as string | null
           };
-
-
 
           const processStream = () => {
             reader.read().then(({ value, done }) => {
@@ -453,9 +393,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
                              setIsLoggedIn(true);
                              setUsername(currentUsername);
                              setNearAccountId(userNearAccountIdToUse);
-                             setServerDerivedNearPK(clientManagedPublicKey);
+                             setNearPublicKey(clientManagedPublicKey);
                              setCurrentUser(userNearAccountIdToUse);
-                             setStatusMessage('Registration successful!');
                              setIsProcessing(false);
 
                              // Store user data locally
@@ -485,16 +424,21 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
                          case 'database-storage':
                            if (data.status === 'progress') {
-                             console.log('🔄 Step 6: Storing authenticator in database...');
+                             console.log('🔄 Step 6a: Storing authenticator in database...');
                              managedToast.loading('✅ Account registered, storing authenticator...', {
                                id: processingToast,
                                style: { background: MUTED_BLUE, color: 'white' }
                              });
                            } else if (data.status === 'success') {
-                             console.log('✅ Step 6: Authenticator stored successfully');
+                             console.log('✅ Step 6a: Authenticator stored successfully');
                              managedToast.success('✅ Account registered, authenticator stored!', {
                                id: processingToast,
                                style: { background: MUTED_GREEN, color: 'white' },
+                               duration: 5000
+                             });
+                           } else if (data.status === 'error') {
+                             console.warn('⚠️ Step 6a: Database storage failed:', data.error);
+                             managedToast.error('⚠️ Database storage failed (account still secured)', {
                                duration: 5000
                              });
                            }
@@ -502,19 +446,19 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
                          case 'access-key-addition':
                            if (data.status === 'progress') {
-                             console.log('🔄 Step 7: Adding access key to NEAR account...');
-                             managedToast.loading('🔑 Step 7: Adding access key to account...', {
+                             console.log('🔄 Step 6b: Creating NEAR account...');
+                             managedToast.loading('🔑 Creating NEAR account...', {
                                style: { background: MUTED_BLUE, color: 'white' }
                              });
                            } else if (data.status === 'success') {
-                             console.log('✅ Step 7: Access key added successfully');
-                             managedToast.success('✅ Step 7: Access key added to account!', {
+                             console.log('✅ Step 6b: NEAR account created successfully');
+                             managedToast.success('✅ NEAR account created!', {
                                style: { background: MUTED_GREEN, color: 'white' },
                                duration: 5000
                              });
                            } else if (data.status === 'error') {
-                             console.warn('⚠️ Step 7: Access key addition failed:', data.error);
-                             managedToast.error('⚠️ Step 7: Access key addition failed (account still secured)', {
+                             console.warn('⚠️ Step 6b: NEAR account creation failed:', data.error);
+                             managedToast.error('⚠️ NEAR account creation failed (account still secured)', {
                                duration: 5000
                              });
                            }
@@ -522,19 +466,19 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
                                                   case 'contract-registration':
                            if (data.status === 'progress') {
-                             console.log('🔄 Step 8: Registering user in contract...');
-                             managedToast.loading('📄 Step 8: Finalizing registration...', {
+                             console.log('🔄 Step 6c: Registering user in contract...');
+                             managedToast.loading('📄 Finalizing registration...', {
                                style: { background: MUTED_BLUE, color: 'white' }
                              });
                            } else if (data.status === 'success') {
-                             console.log('✅ Step 8: User registered in contract successfully');
-                             managedToast.success('✅ Step 8: Registration finalized!', {
+                             console.log('✅ Step 6c: User registered in contract successfully');
+                             managedToast.success('✅ Registration finalized!', {
                                style: { background: MUTED_GREEN, color: 'white' },
                                duration: 5000
                              });
                            } else if (data.status === 'error') {
-                             console.warn('⚠️ Step 8: Contract registration failed (non-fatal):', data.error);
-                             managedToast.error('⚠️ Step 8: Registration finalization failed (account still secured)', {
+                             console.warn('⚠️ Step 6c: Contract registration failed (non-fatal):', data.error);
+                             managedToast.error('⚠️ Registration finalization failed (account still secured)', {
                                duration: 5000
                              });
                            }
@@ -542,7 +486,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
                          case 'registration-complete':
                            if (data.status === 'success') {
-                             console.log('🎉 Registration completed successfully!');
+                             console.log('🎉 Step 7: Registration completed successfully!');
                              managedToast.success(`🎉 Welcome ${currentUsername}! All setup complete!`, {
                                duration: 5000,
                                style: { background: MUTED_GREEN, color: 'white' }
@@ -579,11 +523,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         errorMessage = `A passkey for '${currentUsername}' already exists. Please try logging in instead, or clear your browser data to re-register.`;
       }
 
-      setStatusMessage(`Registration Error: ${errorMessage}`);
       setIsProcessing(false);
       return { success: false, error: errorMessage };
     }
-  }, [useOptimisticAuth, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK, setCurrentUser]);
+  }, [useOptimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey, setCurrentUser]);
 
   const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }> => {
     const userToLogin = currentUsername || username;
@@ -594,7 +537,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       return { success: false, error: 'Passkey operations require a secure context (HTTPS or localhost).' };
     }
     setIsProcessing(true);
-    setStatusMessage('Attempting passkey login...');
 
     try {
       // Step 1: Get authentication options from server
@@ -671,14 +613,13 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
         // Set the UI-driving public key state from the locally stored clientNearPublicKey
         if (localUserData?.clientNearPublicKey) {
-          setServerDerivedNearPK(localUserData.clientNearPublicKey);
+          setNearPublicKey(localUserData.clientNearPublicKey);
           console.log(`Login successful for ${loggedInUsername}. Client-managed PK set from local store: ${localUserData.clientNearPublicKey}`);
         } else {
-          setServerDerivedNearPK(null); // Explicitly set to null if not found
+          setNearPublicKey(null); // Explicitly set to null if not found
           console.warn(`User ${loggedInUsername} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
         }
 
-        setStatusMessage('Login successful.');
         setIsProcessing(false);
         return {
           success: true,
@@ -691,21 +632,19 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
     } catch (err: any) {
       console.error('Login error in PasskeyContext:', err.message, err.stack);
-      setStatusMessage(`Login Error: ${err.message}`);
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [username, useOptimisticAuth, setIsProcessing, setStatusMessage, setIsLoggedIn, setUsername, setNearAccountId, setServerDerivedNearPK]);
+  }, [username, useOptimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey]);
 
   const logoutPasskey = useCallback(() => {
     setIsLoggedIn(false);
     setUsername(null);
-    setServerDerivedNearPK(null);
+    setNearPublicKey(null);
     setCurrentGreeting(null);
     setNearAccountId(null);
     setCurrentUser(null); // Clear current user from settings
-    setStatusMessage('Logged out.');
-  }, [setStatusMessage, setCurrentUser]);
+  }, [setIsLoggedIn, setUsername, setNearPublicKey, setCurrentGreeting, setNearAccountId, setCurrentUser]);
 
   const executeDirectActionViaWorker = useCallback(async (
     serializableActionForContract: SerializableActionArgs,
@@ -713,13 +652,11 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   ) => {
     callbacks?.beforeDispatch?.();
     setIsProcessing(true);
-    setStatusMessage('Processing direct action...');
     console.log('[Direct Action] Initiating...', { serializableActionForContract });
 
     if (!isLoggedIn || !username || !nearAccountId) {
       const errorMsg = 'User not logged in or NEAR account ID not set for direct action.';
       console.error('[Direct Action] Error:', errorMsg, { isLoggedIn, username, nearAccountId });
-      setStatusMessage(errorMsg);
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: errorMsg });
       return;
@@ -755,10 +692,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
       console.log('[Direct Action] Client NEAR public key found:', publicKeyStr);
 
-      console.log('[Direct Action] Fetching access key info for:', nearAccountId, publicKeyStr);
+            console.log('[Direct Action] Fetching access key info for:', nearAccountId, publicKeyStr);
       const accessKeyInfo = await provider.query({
         request_type: 'view_access_key',
-        finality: 'final',
+        finality: 'optimistic', // Use optimistic for more recent state
         account_id: nearAccountId,
         public_key: publicKeyStr,
       });
@@ -792,7 +729,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       console.log('[Direct Action] PRF-based secure transaction signing result:', signingResult);
 
       // Continue with transaction broadcast...
-      setStatusMessage('Transaction signed. Sending to network...');
       const signedTransactionBorsh = new Uint8Array(signingResult.signedTransactionBorsh);
       console.log('[Direct Action] Broadcasting transaction to RPC node:', RPC_NODE_URL);
 
@@ -815,7 +751,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
 
       console.log("[Direct Action] Transaction sent successfully:", result);
-      setStatusMessage('Direct action successful!');
 
       if (serializableActionForContract.method_name === 'set_greeting') {
         console.log('[Direct Action] Action was set_greeting, fetching new greeting...');
@@ -828,22 +763,19 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     } catch (error: any) {
       console.error('[Direct Action] Error during execution:', error);
-      setStatusMessage(`Error: ${error.message}`);
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: error.message });
     }
-  }, [isLoggedIn, username, nearAccountId, fetchCurrentGreeting, setStatusMessage, setIsProcessing]);
+  }, [isLoggedIn, username, nearAccountId, fetchCurrentGreeting, setIsProcessing]);
 
   const value = {
     isLoggedIn,
     username,
-    serverDerivedNearPK,
+    nearPublicKey,
     nearAccountId,
     isProcessing,
-    statusMessage,
     currentGreeting,
     setUsernameState,
-    setNearAccountIdState,
     registerPasskey,
     loginPasskey,
     logoutPasskey,
@@ -854,7 +786,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;
 };
 
-// 4. Create Custom Hook to use Context
 export const usePasskeyContext = () => {
   const context = useContext(PasskeyContext);
   if (context === undefined) {
