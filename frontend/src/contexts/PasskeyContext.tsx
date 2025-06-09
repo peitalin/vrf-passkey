@@ -16,6 +16,62 @@ import {
 import { useSettings } from './SettingsContext';
 import { ClientUserManager } from '../services/ClientUserManager';
 import { WebAuthnChallengeManager } from '../services/WebAuthnChallengeManager';
+import toast from 'react-hot-toast';
+
+// Toast queue management to limit concurrent toasts
+const activeToasts = new Set<string>();
+const MAX_CONCURRENT_TOASTS = 2;
+const MUTED_GREEN = '#6B8E6E';
+const MUTED_BLUE = '#5B7C99';
+const MUTED_ORANGE = '#D39B5E';
+
+
+const managedToast = {
+  loading: (message: string, options: any = {}) => {
+    if (activeToasts.size >= MAX_CONCURRENT_TOASTS) {
+      // Dismiss oldest toast to make room
+      const [oldestToast] = activeToasts;
+      toast.dismiss(oldestToast);
+      activeToasts.delete(oldestToast);
+    }
+    const id = toast.loading(message, options);
+    activeToasts.add(id);
+    return id;
+  },
+  success: (message: string, options: any = {}) => {
+    if (options.id) {
+      // Update existing toast
+      activeToasts.delete(options.id);
+      const newId = toast.success(message, options);
+      activeToasts.add(newId);
+      return newId;
+    } else {
+      // New toast
+      if (activeToasts.size >= MAX_CONCURRENT_TOASTS) {
+        const [oldestToast] = activeToasts;
+        toast.dismiss(oldestToast);
+        activeToasts.delete(oldestToast);
+      }
+      const id = toast.success(message, options);
+      activeToasts.add(id);
+      return id;
+    }
+  },
+  error: (message: string, options: any = {}) => {
+    if (activeToasts.size >= MAX_CONCURRENT_TOASTS) {
+      const [oldestToast] = activeToasts;
+      toast.dismiss(oldestToast);
+      activeToasts.delete(oldestToast);
+    }
+    const id = toast.error(message, options);
+    activeToasts.add(id);
+    return id;
+  },
+  dismiss: (id: string) => {
+    toast.dismiss(id);
+    activeToasts.delete(id);
+  }
+};
 
 
 
@@ -114,8 +170,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
-  const { useOptimisticAuth, setCurrentUser } = useSettings();
-
+    const { useOptimisticAuth, setCurrentUser } = useSettings();
 
   const getRpcProvider = () => {
     if (!frontendRpcProvider) {
@@ -231,18 +286,35 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     // Clear any existing challenges to prevent conflicts
     webAuthnManager.clearAllChallenges();
 
-        try {
+    try {
       console.log('🔄 Step 1: Starting WebAuthn credential creation & PRF...');
       console.log('🔍 Current processing state:', { isProcessing, currentUsername, useOptimisticAuth });
+
+            // Show initial toast for Step 1
+      const step1Toast = managedToast.loading('🔐 Step 1: Creating passkey with PRF...', {
+        style: { background: MUTED_BLUE, color: 'white' },
+        duration: 5000
+      });
 
       // Step 1: WebAuthn credential creation & PRF (if applicable)
       const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, useOptimisticAuth);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       console.log('✅ Step 1 complete: WebAuthn credential created, PRF enabled:', prfEnabled);
+            managedToast.success('✅ Step 1: Passkey created successfully', {
+        id: step1Toast,
+        style: { background: MUTED_GREEN, color: 'white' },
+        duration: 5000
+      });
 
-      // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
+                  // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
       console.log('🔄 Step 2: Starting client-side key generation...');
+      // Dismiss step 1 toast to make room for processing toast
+      managedToast.dismiss(step1Toast);
+      const processingToast = managedToast.loading('🔐 Securing your account...', {
+        style: { background: MUTED_BLUE, color: 'white' }
+      });
+
       let clientManagedPublicKey: string | null = null;
       const userNearAccountIdToUse = ClientUserManager.generateNearAccountId(currentUsername, RELAYER_ACCOUNT_ID);
 
@@ -282,97 +354,221 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         throw new Error("Failed to obtain client-managed public key.");
       }
 
-      // Step 3: Prepare payload for server's /verify-registration
-      console.log('🔄 Step 3: Preparing server verification payload...');
-      const verifyPayload: any = {
-        username: currentUsername,
-        attestationResponse: attestationForServer,
-        commitmentId: commitmentId,
-        useOptimistic: useOptimisticAuth,
-        clientManagedNearPublicKey: clientManagedPublicKey, // Send the generated public key to server
-      };
+      // Step 3: Call server via SSE for verification and background processing
+      console.log('🔄 Step 3: Starting SSE registration verification...');
 
-      // Step 4: Call server to verify WebAuthn attestation and store authenticator
-      console.log('🔄 Step 4: Calling server to verify WebAuthn attestation...');
-      const verifyResponse = await fetch(`${SERVER_URL}/verify-registration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(verifyPayload),
-      });
-      const serverVerifyData = await verifyResponse.json();
-
-      if (!verifyResponse.ok || !serverVerifyData.verified) {
-        throw new Error(serverVerifyData.error || 'Passkey verification failed by server.');
-      }
-      console.log(`✅ Step 4 complete: Server WebAuthn verification successful. NEAR Account: ${userNearAccountIdToUse}`);
-
-      // Step 5: (Optional but recommended) Associate client public key with NEAR account on-chain via server
-      // This step makes the client-managed key an authorized key for the NEAR account.
-      let associationTransactionId: string | null = null;
-      try {
-        const associatePkResponse = await fetch(`${SERVER_URL}/api/associate-account-pk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: currentUsername,
-            nearAccountId: userNearAccountIdToUse,
-            clientNearPublicKey: clientManagedPublicKey
-          }),
+      return new Promise((resolve, reject) => {
+        // Setup SSE connection
+        const eventSource = new EventSource(`${SERVER_URL}/verify-registration`, {
+          // Note: EventSource doesn't support POST, so we'll modify the server endpoint
         });
-        const associatePkData = await associatePkResponse.json();
-        if (!associatePkResponse.ok || !associatePkData.success) {
-          throw new Error(associatePkData.error || 'Failed to associate client NEAR PK with NEAR account.');
-        }
-        associationTransactionId = associatePkData.transactionId || associatePkData.txId || null;
-        console.log('Client PK associated with NEAR account. Tx:', associationTransactionId);
-      } catch (assocError: any) {
-        console.warn('Failed to associate client PK with NEAR account:', assocError.message);
-        // Decide if this is a fatal error for registration or just a warning
-      }
 
-      // Step 6: Store user data locally using both WebAuthnManager and ClientUserManager
-      console.log('🔄 Step 6: Storing user data locally...');
-      console.log('🔑 Storing user data in WebAuthnManager with clientNearPublicKey:', clientManagedPublicKey);
-      await webAuthnManager.storeUserData({
+        // Store data for manual fetch since EventSource doesn't support POST
+        const verifyPayload = {
           username: currentUsername,
-          nearAccountId: userNearAccountIdToUse,
-          clientNearPublicKey: clientManagedPublicKey,
-          passkeyCredential: { id: credential.id, rawId: bufferEncode(credential.rawId) },
-          prfSupported: prfEnabled,
-          lastUpdated: Date.now(),
+          attestationResponse: attestationForServer,
+          commitmentId: commitmentId,
+          useOptimistic: useOptimisticAuth,
+          clientManagedNearPublicKey: clientManagedPublicKey,
+        };
+
+        // Use fetch but stream the response
+        fetch(`${SERVER_URL}/verify-registration`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+          body: JSON.stringify(verifyPayload),
+        }).then(response => {
+          if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+          }
+
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error('Unable to read response stream');
+          }
+
+          let buffer = '';
+          let userLoggedIn = false;
+          let finalResult = {
+            success: false,
+            clientNearPublicKey: clientManagedPublicKey,
+            nearAccountId: userNearAccountIdToUse,
+            transactionId: null as string | null
+          };
+
+
+
+          const processStream = () => {
+            reader.read().then(({ value, done }) => {
+              if (done) {
+                console.log('🎉 SSE stream completed');
+                if (userLoggedIn) {
+                  resolve(finalResult);
+                } else {
+                  reject(new Error('Registration completed but user not logged in'));
+                }
+                return;
+              }
+
+              if (value) {
+                buffer += new TextDecoder().decode(value);
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                                 for (const line of lines) {
+                   if (line.startsWith('data: ')) {
+                     try {
+                       const data = JSON.parse(line.substring(6));
+                       console.log('📡 SSE Message:', data);
+
+                                                                     // Update processing toast on first SSE message
+                       if (data.step === 'webauthn-verification' && data.status === 'progress') {
+                         managedToast.loading('🔐 Verifying credentials...', {
+                           id: processingToast,
+                           style: { background: MUTED_BLUE, color: 'white' }
+                         });
+                       }
+
+                       switch (data.step) {
+                         case 'webauthn-verification':
+                           if (data.status === 'progress') {
+                             console.log('🔄 Step 4: Verifying WebAuthn credentials...');
+                             // Keep using the same processingToast
+                           } else if (data.status === 'success') {
+                             console.log('✅ Step 4: WebAuthn verification successful');
+                             // Keep using the same processingToast
+                           }
+                           break;
+
+                                                  case 'user-ready':
+                           if (data.status === 'success') {
+                             console.log('✅ Step 5: Registration verified - updating UI state...');
+                             // Don't show toast here - will show combined message at step 6
+
+                             // Update React state immediately for user login
+                             setIsLoggedIn(true);
+                             setUsername(currentUsername);
+                             setNearAccountId(userNearAccountIdToUse);
+                             setServerDerivedNearPK(clientManagedPublicKey);
+                             setCurrentUser(userNearAccountIdToUse);
+                             setStatusMessage('Registration successful!');
+                             setIsProcessing(false);
+
+                             // Store user data locally
+                             webAuthnManager.storeUserData({
+                               username: currentUsername,
+                               nearAccountId: userNearAccountIdToUse,
+                               clientNearPublicKey: clientManagedPublicKey,
+                               passkeyCredential: {
+                                 id: credential.id,
+                                 rawId: bufferEncode(credential.rawId)
+                               },
+                               prfSupported: prfEnabled,
+                               lastUpdated: Date.now(),
+                             });
+
+                             // Register user in ClientUserManager
+                             ClientUserManager.registerUser(currentUsername, RELAYER_ACCOUNT_ID, {
+                               preferences: {
+                                 useOptimisticAuth: useOptimisticAuth,
+                               },
+                             });
+
+                             userLoggedIn = true;
+                             finalResult.success = true;
+                           }
+                           break;
+
+                         case 'database-storage':
+                           if (data.status === 'progress') {
+                             console.log('🔄 Step 6: Storing authenticator in database...');
+                             managedToast.loading('✅ Account registered, storing authenticator...', {
+                               id: processingToast,
+                               style: { background: MUTED_BLUE, color: 'white' }
+                             });
+                           } else if (data.status === 'success') {
+                             console.log('✅ Step 6: Authenticator stored successfully');
+                             managedToast.success('✅ Account registered, authenticator stored!', {
+                               id: processingToast,
+                               style: { background: MUTED_GREEN, color: 'white' },
+                               duration: 5000
+                             });
+                           }
+                           break;
+
+                         case 'access-key-addition':
+                           if (data.status === 'progress') {
+                             console.log('🔄 Step 7: Adding access key to NEAR account...');
+                             managedToast.loading('🔑 Step 7: Adding access key to account...', {
+                               style: { background: MUTED_BLUE, color: 'white' }
+                             });
+                           } else if (data.status === 'success') {
+                             console.log('✅ Step 7: Access key added successfully');
+                             managedToast.success('✅ Step 7: Access key added to account!', {
+                               style: { background: MUTED_GREEN, color: 'white' },
+                               duration: 5000
+                             });
+                           } else if (data.status === 'error') {
+                             console.warn('⚠️ Step 7: Access key addition failed:', data.error);
+                             managedToast.error('⚠️ Step 7: Access key addition failed (account still secured)', {
+                               duration: 5000
+                             });
+                           }
+                           break;
+
+                                                  case 'contract-registration':
+                           if (data.status === 'progress') {
+                             console.log('🔄 Step 8: Registering user in contract...');
+                             managedToast.loading('📄 Step 8: Finalizing registration...', {
+                               style: { background: MUTED_BLUE, color: 'white' }
+                             });
+                           } else if (data.status === 'success') {
+                             console.log('✅ Step 8: User registered in contract successfully');
+                             managedToast.success('✅ Step 8: Registration finalized!', {
+                               style: { background: MUTED_GREEN, color: 'white' },
+                               duration: 5000
+                             });
+                           } else if (data.status === 'error') {
+                             console.warn('⚠️ Step 8: Contract registration failed (non-fatal):', data.error);
+                             managedToast.error('⚠️ Step 8: Registration finalization failed (account still secured)', {
+                               duration: 5000
+                             });
+                           }
+                           break;
+
+                         case 'registration-complete':
+                           if (data.status === 'success') {
+                             console.log('🎉 Registration completed successfully!');
+                             managedToast.success(`🎉 Welcome ${currentUsername}! All setup complete!`, {
+                               duration: 5000,
+                               style: { background: MUTED_GREEN, color: 'white' }
+                             });
+                           }
+                           break;
+
+                         case 'registration-error':
+                           console.error('❌ Registration error:', data.error);
+                           reject(new Error(data.error || 'Registration failed'));
+                           return;
+                      }
+                    } catch (parseError) {
+                      console.warn('Failed to parse SSE message:', line);
+                    }
+                  }
+                }
+              }
+
+              processStream(); // Continue reading
+            }).catch(reject);
+          };
+
+          processStream();
+        }).catch(reject);
       });
-
-      // Verify storage worked
-      const storedData = await webAuthnManager.getUserData(currentUsername);
-      console.log('🔍 Verification - stored user data:', storedData);
-      if (!storedData?.clientNearPublicKey) {
-        console.error('❌ CRITICAL: User data stored but clientNearPublicKey is missing!');
-      }
-
-      // Register user in ClientUserManager
-      ClientUserManager.registerUser(currentUsername, RELAYER_ACCOUNT_ID, {
-        preferences: {
-          useOptimisticAuth: useOptimisticAuth, // Use the mode chosen during registration
-        },
-      });
-
-      // Step 7: Update React context state
-      console.log('🔄 Step 7: Updating React context state...');
-      setIsLoggedIn(true);
-      setUsername(currentUsername);
-      setNearAccountId(userNearAccountIdToUse);
-      setServerDerivedNearPK(clientManagedPublicKey); // Use the client-managed key for UI state
-      setCurrentUser(userNearAccountIdToUse); // Update settings context
-      setStatusMessage('Passkey registered, verified, and key managed successfully!');
-      setIsProcessing(false);
-
-      console.log('🎉 Registration completed successfully!');
-      return {
-          success: true,
-          nearAccountId: userNearAccountIdToUse,
-          clientNearPublicKey: clientManagedPublicKey,
-          transactionId: associationTransactionId
-      };
 
     } catch (err: any) {
       console.error('Registration error in PasskeyContext:', err.message, err.stack);

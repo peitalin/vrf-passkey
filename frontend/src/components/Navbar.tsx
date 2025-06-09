@@ -16,7 +16,7 @@ export const Navbar: React.FC = () => {
   const handleLogout = () => {
     logoutPasskey();
     toast.success('Logged out successfully!', {
-      style: { background: '#2196F3', color: 'white' }
+      style: { background: '#16a34a', color: 'white' }
     });
   };
 

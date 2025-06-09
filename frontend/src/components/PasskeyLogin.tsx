@@ -75,62 +75,26 @@ export function PasskeyLogin() {
     }
   };
 
-  const onRegister = async () => {
+    const onRegister = async () => {
     if (!localUsernameInput.trim()) {
       toast.error('Please enter a username to register.');
       return;
     }
 
-    const toastId = toast.loading('Registering passkey...', { style: { background: '#2196F3', color: 'white' } });
-
     try {
-             // Use the context registerPasskey for both FastAuth and SecureAuth
-       const result = await registerPasskey(localUsernameInput.trim());
+      // Use the context registerPasskey which now handles SSE and all toast notifications
+      const result = await registerPasskey(localUsernameInput.trim());
 
-       if (result.success) {
-         const authMode = useOptimisticAuth ? 'FastAuth' : 'SecureAuth';
-         let successMessage = `Registered with ${authMode}! ${localUsernameInput.trim()}`;
-         let toastDuration = 6000;
-
-         if (result.nearAccountId && result.clientNearPublicKey) {
-           successMessage += `\nAccount: ${result.nearAccountId}\nClient PK: ${shortenString(result.clientNearPublicKey, 10, 10)}`;
-           toastDuration = 8000;
-         }
-
-         if (result.transactionId) {
-           const txLink = `https://testnet.nearblocks.io/txns/${result.transactionId}`;
-           const shortTxId = shortenString(result.transactionId, 10, 6);
-           const successContent = (
-             <span>
-               {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
-               Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>
-             </span>
-           );
-           toast.success(successContent, {
-             id: toastId,
-             duration: toastDuration,
-             style: { background: '#4CAF50', color: 'white' }
-           });
-         } else {
-           const successContentNoTx = (
-             <span>
-               {successMessage.split('\n').map((line, i) => (<span key={i}>{line}<br/></span>))}
-             </span>
-           );
-           toast.success(successContentNoTx, {
-             id: toastId,
-             duration: toastDuration,
-             style: { background: '#4CAF50', color: 'white' }
-           });
-         }
-       } else {
-         toast.error(result.error || 'Registration failed.', { id: toastId });
-       }
+      // The PasskeyContext handles all step-by-step toast notifications
+      // We only need to handle final error states here since success is handled by SSE
+      if (!result.success) {
+        toast.error(result.error || 'Registration failed.');
+      }
 
       setLastTxDetails(null);
     } catch (error: any) {
       console.error('Registration error:', error);
-      toast.error(`Registration failed: ${error.message}`, { id: toastId });
+      toast.error(`Registration failed: ${error.message}`);
     }
   };
 
@@ -138,11 +102,11 @@ export function PasskeyLogin() {
     const userToAttemptLogin = localUsernameInput.trim();
     const toastId = toast.loading(
       `Attempting login${userToAttemptLogin ? ' for ' + userToAttemptLogin : ' (discoverable passkey)'}...`,
-      { style: { background: '#2196F3', color: 'white' } }
+      { style: { background: '#64748b', color: 'white' } }
     );
     const result = await loginPasskey(userToAttemptLogin || undefined);
     if (result.success) {
-      toast.success(`Logged in as ${result.loggedInUsername || userToAttemptLogin}!`, { id: toastId, style: { background: '#4CAF50', color: 'white' } });
+      toast.success(`Logged in as ${result.loggedInUsername || userToAttemptLogin}!`, { id: toastId, style: { background: '#16a34a', color: 'white' } });
       setLastTxDetails(null);
     } else {
       toast.error(result.error || 'Login failed.', { id: toastId });
@@ -150,10 +114,10 @@ export function PasskeyLogin() {
   };
 
   const onFetchGreeting = async () => {
-    const toastId = toast.loading('Refreshing greeting...', { style: { background: '#2196F3', color: 'white' } });
+    const toastId = toast.loading('Refreshing greeting...', { style: { background: '#64748b', color: 'white' } });
     const result = await fetchCurrentGreeting();
     if (result.success) {
-      toast.success('Greeting refreshed!', { id: toastId, style: { background: '#2196F3', color: 'white' } });
+      toast.success('Greeting refreshed!', { id: toastId, style: { background: '#16a34a', color: 'white' } });
     } else {
       toast.error(result.error || "Failed to refresh greeting", { id: toastId });
     }
@@ -187,7 +151,7 @@ export function PasskeyLogin() {
       actionToExecute,
       {
         beforeDispatch: () => {
-          toastId = toast.loading('Dispatching Set Greeting (Direct Action)... ', { style: { background: '#2196F3', color: 'white' } });
+          toastId = toast.loading('Dispatching Set Greeting (Direct Action)... ', { style: { background: '#64748b', color: 'white' } });
         },
         afterDispatch: (success, data) => {
           if (success && data?.transaction_outcome?.id) {
@@ -211,10 +175,10 @@ export function PasskeyLogin() {
             toast.success(successContent, {
               id: toastId,
               duration: 8000,
-              style: { background: '#4CAF50', color: 'white' }
+              style: { background: '#16a34a', color: 'white' }
             });
           } else if (success) {
-            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: '#4CAF50', color: 'white' } });
+            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: '#16a34a', color: 'white' } });
             setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
           } else {
             toast.error(data?.error || 'Direct Action failed.', { id: toastId });
@@ -282,18 +246,18 @@ export function PasskeyLogin() {
               disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>
               Register Passkey
             </button>
-            <button onClick={onLogin} className="action-button"
+            <button onClick={onLogin} className="action-button primary"
               disabled={(!localUsernameInput && isPasskeyRegisteredForLocalInput && !isProcessing) ? false : (!localUsernameInput || isProcessing)}>
               {localUsernameInput ? 'Login with Passkey' : 'Login (enter username or try discoverable)'}
             </button>
             {!localUsernameInput && (
-              <button onClick={() => loginPasskey()} className="action-button"
+              <button onClick={() => loginPasskey()} className="action-button primary"
                       disabled={isProcessing || isPasskeyRegisteredForLocalInput}>
                 Login with Discoverable Passkey
               </button>
             )}
           </div>
-          {isPasskeyRegisteredForLocalInput && localUsernameInput && <p style={{fontSize: '0.8em'}}>Passkey registered for '{localUsernameInput}'. Try Login.</p>}
+          {isPasskeyRegisteredForLocalInput && localUsernameInput && <div className="info-message">Passkey registered for '{localUsernameInput}'. Try Login.</div>}
         </>
       ) : (
         <>

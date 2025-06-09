@@ -273,6 +273,52 @@ class NearClient {
       throw error; // Rethrow other errors
     }
   }
+
+    async addAccessKey(
+    accountId: string,
+    publicKeyString: string,
+    allowance?: bigint
+  ): Promise<CreateAccountResult> {
+    await this._ensureSignerAndRelayerAccount();
+    console.log(`NearClient: Adding access key ${publicKeyString} to account ${accountId}`);
+
+        try {
+      const publicKey = PublicKey.fromString(publicKeyString);
+
+      // Use the relayer account to add the access key to the target account
+      // The relayer has permission to manage subaccount keys
+      const result = await this.relayerAccount.signAndSendTransaction({
+        receiverId: accountId,
+        actions: [
+          // @ts-ignore: enum action-type typings mismatch
+          {
+            addKey: {
+              publicKey: publicKey,
+              accessKey: {
+                nonce: BigInt(0),
+                // @ts-ignore: enum permission typings mismatch
+                permission: { fullAccess: {} }
+              }
+            }
+          }
+        ]
+      });
+
+      console.log(`NearClient: Successfully added access key to ${accountId}`);
+      return {
+        success: true,
+        message: 'Access key added successfully',
+        result: {
+          accountId: accountId,
+          publicKey: publicKeyString,
+        }
+      };
+    } catch (error: any) {
+      console.error(`NearClient: Error adding access key to ${accountId}:`, error);
+      const msg = error.message || 'Failed to add access key';
+      return { success: false, message: msg, error: error };
+    }
+  }
 }
 
 export const nearClient = new NearClient();

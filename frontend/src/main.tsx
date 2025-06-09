@@ -23,7 +23,18 @@ function App() {
       <BrowserRouter>
         <SettingsProvider>
           <PasskeyContextProvider>
-            <Toaster position="bottom-center" reverseOrder={false} />
+            <Toaster
+              position="bottom-center"
+              reverseOrder={false}
+              toastOptions={{
+                duration: 5000, // Default longer duration
+              }}
+              containerStyle={{
+                bottom: 40,
+              }}
+              gutter={8}
+              containerClassName=""
+            />
             <Navbar />
             <Routes>
               <Route path="/" element={<HomePage />} />

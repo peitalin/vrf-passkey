@@ -469,7 +469,7 @@ async function verifyWithContractInBackground(
     if (contractResult.verified) {
       console.log(`✅ Background contract verification succeeded for user: ${username}`);
       // Could send SSE notification here if needed
-    } else {
+  } else {
       console.log(`❌ Background contract verification failed for user: ${username}`);
     }
   } catch (error: any) {
@@ -557,7 +557,201 @@ async function verifyRegistrationResponseContract(
   }
 }
 
-// Verify registration Endpoint
+// Enhanced SSE registration flow with step-by-step updates
+async function handleRegistrationWithSSE(
+  user: User,
+  attestationResponse: RegistrationResponseJSON,
+  expectedChallenge: string,
+  storedCommitmentId: string | null,
+  clientManagedNearPublicKey: string | null,
+  useOptimistic: boolean,
+  res: Response
+): Promise<void> {
+  const sessionId = `reg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control',
+  });
+
+  const sendSSEUpdate = (step: string, status: 'progress' | 'success' | 'error', data: any = {}) => {
+    const message = {
+      type: 'registration-update',
+      sessionId,
+      step,
+      status,
+      timestamp: Date.now(),
+      ...data
+    };
+    res.write(`data: ${JSON.stringify(message)}\n\n`);
+  };
+
+  try {
+    // Step 1: WebAuthn Verification
+    sendSSEUpdate('webauthn-verification', 'progress', { message: 'Verifying WebAuthn credentials...' });
+
+    let verificationResult: { verified: boolean; registrationInfo?: any };
+
+    if (useOptimistic) {
+      // Fast mode: Use SimpleWebAuthn immediately
+      verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
+
+      if (verificationResult.verified) {
+        sendSSEUpdate('webauthn-verification', 'success', {
+          message: 'WebAuthn verification successful (FastAuth)',
+          mode: 'optimistic'
+        });
+      } else {
+        throw new Error('WebAuthn verification failed');
+      }
+    } else {
+      // Secure mode: Use contract verification
+      if (!storedCommitmentId) {
+        throw new Error('Missing commitment ID for secure verification');
+      }
+      verificationResult = await verifyRegistrationResponseContract(attestationResponse, storedCommitmentId);
+
+      if (verificationResult.verified) {
+        sendSSEUpdate('webauthn-verification', 'success', {
+          message: 'WebAuthn verification successful (SecureAuth)',
+          mode: 'secure'
+        });
+      } else {
+        throw new Error('Contract verification failed');
+      }
+    }
+
+    // Step 2: Send immediate success response for user login
+    sendSSEUpdate('user-ready', 'success', {
+      message: 'Registration verified - you can now log in!',
+      verified: true,
+      username: user.username,
+      nearAccountId: user.nearAccountId,
+      clientNearPublicKey: clientManagedNearPublicKey,
+      mode: useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)'
+    });
+
+    // Step 3: Background database storage
+    sendSSEUpdate('database-storage', 'progress', { message: 'Storing authenticator in database...' });
+
+    const { verified, registrationInfo } = verificationResult;
+    let credentialIDForDB: string;
+    let publicKeyForDB: Uint8Array;
+    let counterForDB: number;
+    let credentialBackedUpForDB: boolean;
+
+    if (useOptimistic) {
+      const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
+      if (!credentialID || !credentialPublicKey) {
+        throw new Error('Incomplete registration info from SimpleWebAuthn');
+      }
+      credentialIDForDB = Buffer.from(credentialID).toString('base64url');
+      publicKeyForDB = new Uint8Array(credentialPublicKey);
+      counterForDB = counter || 0;
+      credentialBackedUpForDB = credentialBackedUp || false;
+    } else {
+      const { credential_id: rawCredentialIDBuffer, credential_public_key: rawPublicKeyBuffer, counter, credentialBackedUp } = registrationInfo || {};
+      if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
+        throw new Error('Incomplete registration info from contract');
+      }
+      credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
+      publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
+      counterForDB = counter || 0;
+      credentialBackedUpForDB = credentialBackedUp || false;
+    }
+
+    if (user.nearAccountId) {
+      await authenticatorService.create({
+        credentialID: credentialIDForDB,
+        credentialPublicKey: publicKeyForDB,
+        counter: counterForDB,
+        transports: attestationResponse.response.transports || [],
+        nearAccountId: user.nearAccountId,
+        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
+        registered: new Date(),
+        backedUp: credentialBackedUpForDB,
+        clientManagedNearPublicKey: clientManagedNearPublicKey || null,
+      });
+    }
+
+    sendSSEUpdate('database-storage', 'success', { message: 'Authenticator stored successfully' });
+
+    // Step 4: Add access key to NEAR account
+    if (clientManagedNearPublicKey && user.nearAccountId) {
+      sendSSEUpdate('access-key-addition', 'progress', { message: 'Adding access key to NEAR account...' });
+
+      try {
+        // Check if account exists, create if not, and add access key
+        const accountExists = await nearClient.checkAccountExists(user.nearAccountId);
+        if (!accountExists) {
+          console.log(`Account ${user.nearAccountId} does not exist. Creating with access key...`);
+          const creationResult = await nearClient.createAccount(user.nearAccountId, clientManagedNearPublicKey);
+          if (!creationResult.success) {
+            throw new Error(`Failed to create account: ${creationResult.message}`);
+          }
+        } else {
+          console.log(`Account ${user.nearAccountId} exists. Adding access key...`);
+          const addKeyResult = await nearClient.addAccessKey(user.nearAccountId, clientManagedNearPublicKey);
+          if (!addKeyResult.success) {
+            throw new Error(`Failed to add access key: ${addKeyResult.message}`);
+          }
+        }
+
+        sendSSEUpdate('access-key-addition', 'success', { message: 'Access key added to NEAR account successfully' });
+      } catch (error: any) {
+        console.error('Failed to add access key to NEAR account:', error);
+        sendSSEUpdate('access-key-addition', 'error', {
+          message: 'Failed to add access key (account still secured)',
+          error: error.message
+        });
+      }
+    }
+
+    // Step 5: Background contract user registration (for optimistic mode)
+    if (useOptimistic && user.nearAccountId) {
+      sendSSEUpdate('contract-registration', 'progress', { message: 'Registering user in contract...' });
+
+      try {
+        await registerUserInContractWithProgress(sessionId, user.nearAccountId, user.username);
+        sendSSEUpdate('contract-registration', 'success', { message: 'User registered in contract successfully' });
+      } catch (error: any) {
+        console.warn('Contract registration failed:', error);
+        sendSSEUpdate('contract-registration', 'error', {
+          message: 'Contract registration failed (non-fatal)',
+          error: error.message
+        });
+      }
+    }
+
+    // Step 5: Final completion
+    sendSSEUpdate('registration-complete', 'success', {
+      message: 'Registration completed successfully!',
+      sessionId
+    });
+
+    // Clear challenge
+    userOperations.updateChallengeAndCommitmentId(user.id, null, null);
+
+    res.end();
+
+  } catch (error: any) {
+    console.error('SSE Registration error:', error);
+    sendSSEUpdate('registration-error', 'error', {
+      message: error.message,
+      error: error.message
+    });
+
+    // Clear challenge on error
+    userOperations.updateChallengeAndCommitmentId(user.id, null, null);
+    res.end();
+  }
+}
+
+// Verify registration Endpoint - Modified for SSE
 router.post('/verify-registration', async (req: Request, res: Response) => {
   const { username, attestationResponse, commitmentId, clientManagedNearPublicKey } = req.body as {
     username: string,
@@ -568,9 +762,6 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
   };
 
   const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
-
-  // Check if client wants SSE progress tracking
-  const wantsSSEProgress = req.query.sse === 'true' || req.headers['x-enable-sse'] === 'true';
 
   console.log(`🔑 Registration verification for ${username}: clientManagedNearPublicKey = ${clientManagedNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
   if (clientManagedNearPublicKey) {
@@ -584,12 +775,8 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'commitmentId is required for contract method verification' });
   }
 
-  let userForChallengeClear: User | undefined;
-
   try {
     const user = userOperations.findByUsername(username);
-    userForChallengeClear = user;
-
     if (!user) {
       return res.status(404).json({ error: `User '${username}' not found or registration not initiated.` });
     }
@@ -602,166 +789,22 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     }
     if (!useOptimistic && config.useContractMethod && storedCommitmentId !== commitmentId) {
         console.warn(`commitmentId mismatch. Stored: ${storedCommitmentId}, Received: ${commitmentId}`);
-        // If commitmentId is echoed by client, it should match what server stored from generate_registration_options.
     }
 
-    let verificationResult: { verified: boolean; registrationInfo?: any };
+    // Handle registration via SSE
+    await handleRegistrationWithSSE(
+      user,
+      attestationResponse,
+      expectedChallenge,
+      storedCommitmentId,
+      clientManagedNearPublicKey || null,
+      useOptimistic,
+      res
+    );
 
-    if (useOptimistic) {
-      // Fast mode: Always verify with SimpleWebAuthn immediately, contract verification is optional
-      console.log('Using optimistic registration verification');
-
-      // Verify with SimpleWebAuthn immediately
-      const simpleWebAuthnResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
-
-      if (simpleWebAuthnResult.verified) {
-        // SimpleWebAuthn verification succeeded - return success immediately
-        verificationResult = simpleWebAuthnResult;
-
-        // If background challenge sync completed (we have commitmentId), also verify with contract in background
-        if (storedCommitmentId) {
-          console.log('Background challenge sync completed - also verifying with contract');
-                     // Don't await - let contract verification happen in background with SSE updates
-           verifyWithContractInBackground(user.username, attestationResponse, storedCommitmentId)
-             .catch((error: any) => {
-               console.warn('Background contract verification failed:', error);
-             });
-        } else {
-          console.log('Background challenge sync still pending or failed - using SimpleWebAuthn only');
-        }
-      } else {
-        // SimpleWebAuthn verification failed
-        verificationResult = { verified: false };
-      }
-    } else if (config.useContractMethod && commitmentId) {
-      // Secure mode: Use contract verification
-      console.log('Using synchronous registration verification with contract');
-      verificationResult = await verifyRegistrationResponseContract(attestationResponse, commitmentId);
-    } else if (!config.useContractMethod && expectedChallenge) {
-      verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
-    } else {
-      return res.status(400).json({ error: 'Invalid state for verification process.'});
-    }
-
-    const { verified, registrationInfo } = verificationResult;
-
-    if (verified) {
-      let credentialIDForDB: string;
-      let publicKeyForDB: Uint8Array;
-      let counterForDB: number;
-      let credentialBackedUpForDB: boolean;
-
-                  if (useOptimistic) {
-        // SimpleWebAuthn returns registrationInfo with fields directly on the object
-        const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
-
-        if (!credentialID || !credentialPublicKey) {
-          throw new Error('Verification succeeded but registration info was incomplete.');
-        }
-
-        // Convert credentialID from Uint8Array to base64url string
-        credentialIDForDB = Buffer.from(credentialID).toString('base64url');
-        publicKeyForDB = new Uint8Array(credentialPublicKey);
-        counterForDB = counter || 0;
-        credentialBackedUpForDB = credentialBackedUp || false;
-      } else {
-        // Contract returns registrationInfo with snake_case keys
-        const {
-          credential_id: rawCredentialIDBuffer,
-          credential_public_key: rawPublicKeyBuffer,
-          counter,
-          credentialBackedUp
-        } = registrationInfo || {};
-
-        if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
-          throw new Error('Verification succeeded but registration info was incomplete.');
-        }
-
-        // The contract returns the raw credential ID bytes.
-        // We need to encode them as base64url to match the browser's credential ID format.
-        credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
-        publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
-        counterForDB = counter || 0;
-        credentialBackedUpForDB = credentialBackedUp || false;
-      }
-
-      if (user.nearAccountId) {
-        // Store authenticator with client-managed NEAR public key
-        await authenticatorService.create({
-        credentialID: credentialIDForDB,
-          credentialPublicKey: publicKeyForDB,
-        counter: counterForDB,
-          transports: attestationResponse.response.transports || [],
-          nearAccountId: user.nearAccountId,
-        name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
-          registered: new Date(),
-          backedUp: credentialBackedUpForDB,
-        clientManagedNearPublicKey: clientManagedNearPublicKey || null, // Use received public key from frontend
-      });
-      }
-
-      userOperations.updateChallengeAndCommitmentId(user.id, null, null);
-
-      // Create session for SSE progress tracking if requested and using optimistic mode
-      let sessionId: string | undefined;
-      let progressUrl: string | undefined;
-
-      if (useOptimistic && wantsSSEProgress && user.nearAccountId) {
-        sessionId = `reg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-        progressUrl = `/registration-progress/${sessionId}`;
-
-        const session: RegistrationSession = {
-          id: sessionId,
-          username: user.username,
-          nearAccountId: user.nearAccountId,
-          status: 'pending',
-          timestamp: Date.now()
-        };
-
-        registrationSessions.set(sessionId, session);
-
-        // For optimistic mode, always do background user registration
-        console.log('Starting background user registration for optimistic mode');
-        registerUserInContractWithProgress(sessionId, user.nearAccountId, user.username);
-
-      } else if (useOptimistic && user.nearAccountId) {
-        // Standard background registration without progress tracking
-        console.log('Starting background user registration without SSE');
-        const bgSessionId = `bg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-        registerUserInContractWithProgress(bgSessionId, user.nearAccountId, user.username);
-      }
-
-      const mode = useOptimistic ?
-        (wantsSSEProgress ? 'FastAuth (Optimistic with SSE)' : 'FastAuth (Optimistic)') :
-        'SecureAuth (Contract Sync)';
-
-      console.log(`Registration verification successful for: ${username} using ${mode}`);
-
-      // Build response object
-      const response: any = {
-        verified: true,
-        username: user.username,
-        nearAccountId: user.nearAccountId,
-        mode: mode,
-      };
-
-      // Add SSE fields if requested
-      if (sessionId) {
-        response.sessionId = sessionId;
-        response.progressUrl = progressUrl;
-      }
-
-      return res.json(response);
-    } else {
-      if (user) userOperations.updateChallengeAndCommitmentId(user.id, null, null);
-      return res.status(400).json({
-        verified: false,
-        error: 'Could not verify attestation with passkey hardware.'
-      });
-    }
   } catch (e: any) {
     console.error('Error verifying registration:', e.message, e.stack);
-    if (req.body.username) { // Check if user was determined to clear their challenge
+    if (req.body.username) {
         const userToClear = userOperations.findByUsername(req.body.username);
         if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.id, null, null);
     }
