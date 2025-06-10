@@ -333,11 +333,11 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       // Secure mode: Use contract method with on-chain commitment
       console.log('Using secure authentication options generation (contract)');
       response = await generateAuthenticationOptions({
-        rpID: config.rpID,
-        userVerification: 'preferred',
-        allowCredentials: allowCredentialsList,
+      rpID: config.rpID,
+      userVerification: 'preferred',
+      allowCredentials: allowCredentialsList,
         authenticator: firstAuthenticator!,
-      });
+    });
     }
 
     if (userForChallengeStorageInDB) {
@@ -352,7 +352,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       console.log(`Stored challenge ${response.options.challenge} in actionChallengeStore for discoverable login.`);
     }
 
-        console.log('Generated authentication options:', JSON.stringify(response, null, 2));
+    console.log('Generated authentication options:', JSON.stringify(response, null, 2));
 
     // The contract response for options is now nested.
     // The top-level response has `options` and `commitmentId`.
@@ -388,36 +388,36 @@ async function verifyAuthenticationResponseContract(
   console.log('Contract `verify_authentication_response` args:', JSON.stringify(contractArgs, null, 2));
 
   try {
-    const rawResult: any = await nearClient.callFunction(
-      config.contractId,
-      'verify_authentication_response',
-      contractArgs,
-      AUTHENTICATION_VERIFICATION_GAS_STRING,
-      '0'
-    );
+  const rawResult: any = await nearClient.callFunction(
+    config.contractId,
+    'verify_authentication_response',
+    contractArgs,
+    AUTHENTICATION_VERIFICATION_GAS_STRING,
+    '0'
+  );
 
     // Add logging for the raw result from the contract
     console.log('Raw result from `verify_authentication_response`:', JSON.stringify(rawResult, null, 2));
 
-    // Check for transaction failures
-    if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status) {
-      const errorInfo = (rawResult.status.Failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
-      console.error("Contract verify_authentication_response call failed:", errorInfo);
-      throw new Error(`Contract verify_authentication_response failed: ${errorInfo}`);
-    }
+  // Check for transaction failures
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status) {
+    const errorInfo = (rawResult.status.Failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
+    console.error("Contract verify_authentication_response call failed:", errorInfo);
+    throw new Error(`Contract verify_authentication_response failed: ${errorInfo}`);
+  }
 
-    // Parse direct result
-    if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && rawResult.status.SuccessValue) {
-      const successValue = rawResult.status.SuccessValue;
-      const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
+  // Parse direct result
+  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && rawResult.status.SuccessValue) {
+    const successValue = rawResult.status.SuccessValue;
+    const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
       console.log('Parsed verification result from contract:', verificationResult);
-      return {
-        verified: verificationResult.verified,
-        authenticationInfo: verificationResult.authentication_info,
-      };
-    } else {
-      console.error("Contract call succeeded but did not return a SuccessValue.");
-      throw new Error("Contract did not return a valid verification result.");
+    return {
+      verified: verificationResult.verified,
+      authenticationInfo: verificationResult.authentication_info,
+    };
+  } else {
+    console.error("Contract call succeeded but did not return a SuccessValue.");
+    throw new Error("Contract did not return a valid verification result.");
     }
   } catch (error) {
     console.error('Caught error during `verifyAuthenticationResponseContract`:', error);
@@ -573,11 +573,11 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       // Only update counter synchronously if not using optimistic mode
       if (!useOptimistic && user?.nearAccountId) {
         await authenticatorService.updateCounter(
-          authenticator.credentialID,
+        authenticator.credentialID,
           verification.authenticationInfo.new_counter,
           new Date(),
           user.nearAccountId
-        );
+      );
       }
 
       // Clear the challenge and commitment from user record

@@ -23,7 +23,8 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      {isLoggedIn && <ProfileButton />}
+      {/* {isLoggedIn && <ProfileButton />} */}
+      <ProfileButton/>
     </nav>
   );
 };
