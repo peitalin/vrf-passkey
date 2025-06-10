@@ -1,4 +1,4 @@
-import { KeyPair, PublicKey, type KeyPairString } from '@near-js/crypto';
+import { KeyPair, type KeyPairString } from '@near-js/crypto';
 import { serialize } from 'borsh';
 import {
   SCHEMA,
@@ -14,8 +14,16 @@ import { sha256 } from 'js-sha256';
 import init, * as wasmModule from '../../wasm-worker/pkg/passkey_crypto_worker.js';
 // @ts-ignore - WASM binary import
 import wasmUrl from '../../wasm-worker/pkg/passkey_crypto_worker_bg.wasm?url';
-// ?url: lets Vite treat WASM file as a URL asset, which it serves with the correct MIME type
 
+// === CONSTANTS ===
+const WASM_CACHE_NAME = 'passkey-wasm-v1';
+const DB_NAME = 'PasskeyNearKeys';
+const DB_VERSION = 1;
+const STORE_NAME = 'encryptedKeys';
+const HKDF_INFO = 'near-key-encryption';
+const HKDF_SALT = '';
+
+// === WASM MODULE FUNCTIONS ===
 const {
   encrypt_data_aes_gcm,
   decrypt_data_aes_gcm,
@@ -23,15 +31,13 @@ const {
   generate_and_encrypt_near_keypair_with_prf
 } = wasmModule;
 
-// Cache name for WASM module
-const WASM_CACHE_NAME = 'passkey-wasm-v1';
+// === UTILITY FUNCTIONS ===
 
-// Initialize WASM module with caching
-async function initializeWasmWithCache() {
-  console.log('WORKER: Initializing WASM module with cache support');
-
+/**
+ * Initialize WASM module with caching support
+ */
+async function initializeWasmWithCache(): Promise<void> {
   try {
-    // Try to get the WASM module from cache
     const cache = await caches.open(WASM_CACHE_NAME);
     const cachedResponse = await cache.match(wasmUrl);
 
@@ -41,33 +47,53 @@ async function initializeWasmWithCache() {
       return;
     }
 
-    // If not in cache, fetch and cache it
     const response = await fetch(wasmUrl);
-
-    // Clone the response before using it
     const responseToCache = response.clone();
-
-    // Compile the module
     const wasmModule = await WebAssembly.compileStreaming(response);
 
-    // Cache the response for future use
     await cache.put(wasmUrl, responseToCache);
-
-    // Initialize with the compiled module using modern object syntax
     await init({ module: wasmModule });
-    console.log('WORKER: WASM module initialized');
-
   } catch (error) {
-    console.error('WORKER: Failed to initialize WASM with cache, falling back to default init:', error);
-    // Fallback to default initialization (no parameters needed for default)
+    console.error('WORKER: WASM initialization failed, using fallback:', error);
     await init();
   }
 }
 
-// IndexedDB helper functions
-const DB_NAME = 'PasskeyNearKeys';
-const DB_VERSION = 1;
-const STORE_NAME = 'encryptedKeys';
+/**
+ * Send response message and terminate worker
+ */
+function sendResponseAndTerminate(response: WorkerResponse): void {
+  self.postMessage(response);
+  self.close();
+}
+
+/**
+ * Create error response
+ */
+function createErrorResponse(error: string): WorkerResponse {
+  return {
+    type: 'ERROR',
+    payload: { error }
+  };
+}
+
+/**
+ * Parse WASM result with proper typing
+ */
+function parseWasmResult(resultJson: string | object): WasmResult {
+  const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
+
+  const encryptedPrivateKey = typeof result.encryptedPrivateKey === 'string'
+    ? JSON.parse(result.encryptedPrivateKey)
+    : result.encryptedPrivateKey;
+
+  return {
+    publicKey: result.publicKey,
+    encryptedPrivateKey
+  };
+}
+
+// === TYPE DEFINITIONS ===
 
 interface EncryptedKeyData {
   nearAccountId: string;
@@ -76,6 +102,21 @@ interface EncryptedKeyData {
   timestamp: number;
 }
 
+interface WorkerResponse {
+  type: string;
+  payload: any;
+}
+
+interface WasmResult {
+  publicKey: string;
+  encryptedPrivateKey: any;
+}
+
+// === INDEXEDDB OPERATIONS ===
+
+/**
+ * Open IndexedDB connection
+ */
 async function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -92,46 +133,62 @@ async function openDB(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * Store encrypted key data
+ */
 async function storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
-  console.log(`WORKER: Storing encrypted key for nearAccountId: "${data.nearAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readwrite');
   const store = transaction.objectStore(STORE_NAME);
 
   return new Promise((resolve, reject) => {
     const request = store.put(data);
+
     request.onsuccess = () => {
-      console.log(`WORKER: Successfully stored key for nearAccountId: "${data.nearAccountId}"`);
       db.close();
       resolve();
     };
-    request.onerror = (event) => {
-      console.error(`WORKER: FAILED to store key for nearAccountId: "${data.nearAccountId}"`, (event.target as any).error);
+
+    request.onerror = () => {
       db.close();
       reject(request.error);
     };
   });
 }
 
+/**
+ * Retrieve encrypted key data
+ */
 async function getEncryptedKey(nearAccountId: string): Promise<EncryptedKeyData | null> {
-  console.log(`WORKER: Retrieving encrypted key for nearAccountId: "${nearAccountId}"`);
   const db = await openDB();
   const transaction = db.transaction([STORE_NAME], 'readonly');
   const store = transaction.objectStore(STORE_NAME);
 
   return new Promise((resolve, reject) => {
     const request = store.get(nearAccountId);
+
     request.onsuccess = () => {
-      console.log(`WORKER: Retrieved data for "${nearAccountId}":`, request.result);
       db.close();
       resolve(request.result || null);
     };
-    request.onerror = (event) => {
-      console.error(`WORKER: FAILED to retrieve key for nearAccountId: "${nearAccountId}"`, (event.target as any).error);
+
+    request.onerror = () => {
       db.close();
       reject(request.error);
     };
   });
+}
+
+/**
+ * Verify key storage by attempting retrieval
+ */
+async function verifyKeyStorage(nearAccountId: string): Promise<boolean> {
+  try {
+    const retrievedKey = await getEncryptedKey(nearAccountId);
+    return !!retrievedKey;
+  } catch {
+    return false;
+  }
 }
 
 interface EncryptPrivateKeyWithPrfMessage {
@@ -159,18 +216,13 @@ interface DecryptAndSignTransactionWithPrfMessage {
 
 type WorkerMessage = EncryptPrivateKeyWithPrfMessage | DecryptAndSignTransactionWithPrfMessage;
 
-// Track if we've processed a message
+// === MAIN MESSAGE HANDLER ===
+
 let messageProcessed = false;
 
-// Main message handler - ONE TIME USE
-self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
-  // Ensure we only process one message
+self.onmessage = async (event: MessageEvent<WorkerMessage>): Promise<void> => {
   if (messageProcessed) {
-    console.warn('WORKER: Attempted to process multiple messages in one-time worker');
-    self.postMessage({
-      type: 'ERROR',
-      payload: { error: 'Worker has already processed a message' }
-    });
+    sendResponseAndTerminate(createErrorResponse('Worker has already processed a message'));
     return;
   }
 
@@ -178,7 +230,6 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type, payload } = event.data;
 
   try {
-    // Initialize WASM with caching
     await initializeWasmWithCache();
 
     switch (type) {
@@ -191,185 +242,176 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         break;
 
       default:
-        self.postMessage({
-          type: 'ERROR',
-          payload: { error: `Unknown message type: ${type}` }
-        });
+        sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
     }
   } catch (error: any) {
-    console.error('WORKER: Error processing message:', error);
-    self.postMessage({
-      type: 'ERROR',
-      payload: { error: error.message || 'Unknown error occurred' }
-    });
-  } finally {
-    // Self-terminate after processing
-    console.log('WORKER: Self-terminating after processing message');
-    self.close();
+    console.error('WORKER: Message processing failed:', error.message);
+    sendResponseAndTerminate(createErrorResponse(error.message || 'Unknown error occurred'));
   }
 };
 
-async function handleEncryptPrivateKeyWithPrf(payload: EncryptPrivateKeyWithPrfMessage['payload']) {
-  const { prfOutput, nearAccountId } = payload;
-  console.log('WORKER: Entered handleEncryptPrivateKeyWithPrf for', nearAccountId);
+// === ENCRYPTION WORKFLOW ===
 
+/**
+ * Generate and encrypt NEAR keypair using PRF
+ */
+async function generateAndEncryptKeypair(
+  prfOutput: string,
+  nearAccountId: string
+): Promise<{ publicKey: string; keyData: EncryptedKeyData }> {
+  const resultJson = generate_and_encrypt_near_keypair_with_prf(prfOutput);
+  const { publicKey, encryptedPrivateKey } = parseWasmResult(resultJson);
+
+  const keyData: EncryptedKeyData = {
+    nearAccountId,
+    encryptedData: encryptedPrivateKey.encrypted_data_b64u,
+    iv: encryptedPrivateKey.iv_b64u,
+    timestamp: Date.now()
+  };
+
+  return { publicKey, keyData };
+}
+
+/**
+ * Handle private key encryption with PRF
+ */
+async function handleEncryptPrivateKeyWithPrf(
+  payload: EncryptPrivateKeyWithPrfMessage['payload']
+): Promise<void> {
   try {
-    console.log('WORKER: Calling WASM generate_and_encrypt_near_keypair_with_prf...');
-    const resultJson = generate_and_encrypt_near_keypair_with_prf(prfOutput);
-    console.log('WORKER: WASM returned:', typeof resultJson, resultJson);
+    const { prfOutput, nearAccountId } = payload;
+    const { publicKey, keyData } = await generateAndEncryptKeypair(prfOutput, nearAccountId);
 
-    let result;
-    console.log('WORKER: Parsing resultJson...');
-    if (typeof resultJson === 'string') {
-      result = JSON.parse(resultJson);
-    } else {
-      result = resultJson;
-    }
-    console.log('WORKER: Parsed result:', result);
+    await storeEncryptedKey(keyData);
 
-    let encryptedPrivateKey;
-    console.log('WORKER: Parsing result.encryptedPrivateKey...');
-    if (typeof result.encryptedPrivateKey === 'string') {
-      encryptedPrivateKey = JSON.parse(result.encryptedPrivateKey);
-    } else {
-      encryptedPrivateKey = result.encryptedPrivateKey;
-    }
-    console.log('WORKER: Parsed encryptedPrivateKey:', encryptedPrivateKey);
-
-    console.log('WORKER: PREPARING to store key in IndexedDB...');
-    const keyToStore = {
-      nearAccountId,
-      encryptedData: encryptedPrivateKey.encrypted_data_b64u,
-      iv: encryptedPrivateKey.iv_b64u,
-      timestamp: Date.now()
-    };
-    console.log('WORKER: Storing key data:', keyToStore);
-
-    await storeEncryptedKey(keyToStore);
-    console.log('WORKER: Finished storing key.');
-
-    // Verify storage worked
-    const retrievedKey = await getEncryptedKey(nearAccountId);
-    console.log('WORKER: Verification - retrieved key:', retrievedKey);
-    if (!retrievedKey) {
-      console.error('WORKER: ❌ CRITICAL: Key storage failed - could not retrieve stored key!');
+    const verified = await verifyKeyStorage(nearAccountId);
+    if (!verified) {
+      throw new Error('Key storage verification failed');
     }
 
-    console.log('WORKER: Posting ENCRYPTION_SUCCESS message.');
-    self.postMessage({
+    sendResponseAndTerminate({
       type: 'ENCRYPTION_SUCCESS',
       payload: {
         nearAccountId,
-        publicKey: result.publicKey,
+        publicKey,
         stored: true,
       }
     });
   } catch (error: any) {
-    console.error('WORKER: PRF encryption failed inside handleEncryptPrivateKeyWithPrf:', error);
-    self.postMessage({
+    console.error('WORKER: Encryption failed:', error.message);
+    sendResponseAndTerminate({
       type: 'ENCRYPTION_FAILURE',
       payload: { error: error.message || 'PRF encryption failed' }
     });
   }
 }
 
-async function handleDecryptAndSignTransactionWithPrf(payload: DecryptAndSignTransactionWithPrfMessage['payload']) {
-  const {
-    nearAccountId,
-    prfOutput,
-    receiverId,
-    contractMethodName,
-    contractArgs,
-    gasAmount,
-    depositAmount,
-    nonce,
-    blockHashBytes
-  } = payload;
+// === DECRYPTION AND SIGNING WORKFLOW ===
 
+/**
+ * Decrypt private key from stored data
+ */
+function decryptPrivateKey(
+  encryptedKeyData: EncryptedKeyData,
+  prfOutput: string
+): KeyPair {
+  const decryptionKey = derive_encryption_key_from_prf(prfOutput, HKDF_INFO, HKDF_SALT);
+  const decryptedPrivateKeyString = decrypt_data_aes_gcm(
+    encryptedKeyData.encryptedData,
+    encryptedKeyData.iv,
+    decryptionKey
+  );
+
+  return KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
+}
+
+/**
+ * Create NEAR transaction from parameters
+ */
+function createNearTransaction(
+  nearAccountId: string,
+  keyPair: KeyPair,
+  payload: DecryptAndSignTransactionWithPrfMessage['payload']
+): any {
+  const { receiverId, contractMethodName, contractArgs, gasAmount, depositAmount, nonce, blockHashBytes } = payload;
+
+  const actions: Action[] = [
+    ({
+      functionCall: {
+        methodName: contractMethodName,
+        args: Buffer.from(JSON.stringify(contractArgs)),
+        gas: BigInt(gasAmount),
+        deposit: BigInt(depositAmount)
+      }
+    } as any)
+  ];
+
+  return createTransaction(
+    nearAccountId,
+    keyPair.getPublicKey(),
+    receiverId,
+    BigInt(nonce),
+    actions,
+    Buffer.from(blockHashBytes)
+  );
+}
+
+/**
+ * Sign transaction and create signed transaction
+ */
+function signTransaction(transaction: any, keyPair: KeyPair): Uint8Array {
+  const serializedTx = serialize(SCHEMA.Transaction, transaction);
+  const hash = new Uint8Array(sha256.array(serializedTx));
+  const signatureFromKeyPair = keyPair.sign(hash);
+
+  const nearSignature = new Signature({
+    keyType: keyPair.getPublicKey().keyType,
+    data: signatureFromKeyPair.signature
+  });
+
+  const signedTransaction = new SignedTransaction({
+    transaction,
+    signature: nearSignature
+  });
+
+  return serialize(SCHEMA.SignedTransaction, signedTransaction);
+}
+
+/**
+ * Handle transaction decryption and signing with PRF
+ */
+async function handleDecryptAndSignTransactionWithPrf(
+  payload: DecryptAndSignTransactionWithPrfMessage['payload']
+): Promise<void> {
   try {
-    // Retrieve encrypted key from IndexedDB
+    const { nearAccountId, prfOutput } = payload;
+
     const encryptedKeyData = await getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    // Fixed parameters must match those used during encryption
-    const INFO = "near-key-encryption";
-    const HKDF_SALT = "";
+    const keyPair = decryptPrivateKey(encryptedKeyData, prfOutput);
+    const transaction = createNearTransaction(nearAccountId, keyPair, payload);
+    const serializedSignedTx = signTransaction(transaction, keyPair);
 
-    // Derive decryption key from PRF output
-    const decryptionKey = derive_encryption_key_from_prf(prfOutput, INFO, HKDF_SALT);
-
-    // Decrypt the NEAR private key
-    const decryptedPrivateKeyString = decrypt_data_aes_gcm(
-      encryptedKeyData.encryptedData,
-      encryptedKeyData.iv,
-      decryptionKey
-    );
-
-    // Create KeyPair from decrypted private key
-    const keyPair = KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
-    const publicKey = keyPair.getPublicKey();
-
-    // Construct the action(s) for the transaction
-    const actions: Action[] = [
-      ({
-        functionCall: {
-            methodName: contractMethodName,
-            args: Buffer.from(JSON.stringify(contractArgs)),
-            gas: BigInt(gasAmount),
-            deposit: BigInt(depositAmount)
-        }
-      } as any) // Type assertion for Borsh compatibility
-    ];
-
-    // Create the transaction
-    const transaction = createTransaction(
-      nearAccountId,     // Signer
-      publicKey,         // Signer's public key
-      receiverId,        // Receiver of this transaction
-      BigInt(nonce),     // Nonce must be BigInt
-      actions,           // Array of Action objects
-      Buffer.from(blockHashBytes) // Use Buffer.from(blockHashBytes)
-    );
-
-    // Serialize and sign the transaction
-    const serializedTx = serialize(SCHEMA.Transaction, transaction);
-    const hash = new Uint8Array(sha256.array(serializedTx));
-    const signatureFromKeyPair = keyPair.sign(hash);
-
-    // Create the signed transaction
-    const nearSignature = new Signature({
-      keyType: publicKey.keyType,
-      data: signatureFromKeyPair.signature
-    });
-
-    const signedTransaction = new SignedTransaction({
-      transaction: transaction,
-      signature: nearSignature
-    });
-
-    // Serialize the signed transaction
-    const serializedSignedTx = serialize(SCHEMA.SignedTransaction, signedTransaction);
-
-    self.postMessage({
+    sendResponseAndTerminate({
       type: 'SIGNATURE_SUCCESS',
       payload: {
         signedTransactionBorsh: Array.from(serializedSignedTx),
         nearAccountId
       }
     });
-
   } catch (error: any) {
-    console.error('WORKER: PRF decryption/signing failed:', error);
-    self.postMessage({
+    console.error('WORKER: Signing failed:', error.message);
+    sendResponseAndTerminate({
       type: 'SIGNATURE_FAILURE',
       payload: { error: error.message || 'PRF decryption/signing failed' }
     });
   }
 }
 
-// Export types for use in main thread
+// === EXPORTS ===
 export type {
   WorkerMessage,
   EncryptPrivateKeyWithPrfMessage,

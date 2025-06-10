@@ -17,3 +17,4 @@ export const MUTED_ORANGE_HOVER = '#FF6B00';
 export const TOAST_TEXT_COLOR = '#fefefe';
 export const MUTED_OFF_WHITE = '#fafafa';
 export const BONE = '#f0eee6';
+export const OUTLINE_COLOR = '#ababab'; // Medium grey for all outlines

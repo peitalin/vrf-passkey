@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePasskeyContext } from '../contexts/PasskeyContext'
-import { useSettings } from '../contexts/SettingsContext'
 import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './icons/RefreshIcon'
@@ -36,9 +35,9 @@ export function PasskeyLogin() {
     executeDirectActionViaWorker,
     fetchCurrentGreeting,
     logoutPasskey,
+    optimisticAuth,
+    setOptimisticAuth,
   } = usePasskeyContext();
-
-  const { optimisticAuth, setOptimisticAuth } = useSettings();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
@@ -342,7 +341,7 @@ export function PasskeyLogin() {
               {!localUsernameInput && (
                 <button onClick={() => loginPasskey()} className="action-button"
                         disabled={isProcessing}>
-                  Login with Discoverable Passkey
+                  Login with Passkey
                 </button>
               )}
             </div>

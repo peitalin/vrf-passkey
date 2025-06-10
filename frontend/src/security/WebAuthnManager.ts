@@ -1,26 +1,26 @@
 import { SERVER_URL, WASM_WORKER_FILENAME } from '../config';
-import { bufferEncode, bufferDecode, publicKeyCredentialToJSON } from '../utils';
+import { bufferEncode, bufferDecode } from '../utils';
 
-// IndexedDB configuration
+// === CONSTANTS ===
 const USER_DATA_DB_NAME = 'PasskeyUserData';
 const USER_DATA_DB_VERSION = 1;
 const USER_DATA_STORE_NAME = 'userData';
+
+// === TYPE DEFINITIONS ===
 
 interface UserData {
   username: string;
   nearAccountId?: string;
   clientNearPublicKey?: string;
+  lastUpdated: number;
+  prfSupported?: boolean;
+  deterministicKey?: boolean;
   passkeyCredential?: {
     id: string;
     rawId: string;
   };
-  lastUpdated: number;
-  // PRF indicator
-  prfSupported?: boolean;
-  deterministicKey?: boolean;
 }
 
-// Types for WebAuthn operations
 interface WebAuthnChallenge {
   id: string;
   challenge: string; // Base64url encoded challenge from server
@@ -38,7 +38,7 @@ interface SigningPayload {
   nearAccountId: string;
   receiverId: string;
   contractMethodName: string;
-  contractArgs: any;
+  contractArgs: Record<string, any>;
   gasAmount: string;
   depositAmount: string;
   nonce: string;
@@ -47,12 +47,17 @@ interface SigningPayload {
 
 interface WorkerResponse {
   type: string;
-  payload: any;
+  payload: {
+    error?: string;
+    publicKey?: string;
+    nearAccountId?: string;
+    signedTransactionBorsh?: number[];
+    stored?: boolean;
+  };
 }
 
-// PRF-related interfaces
 interface PrfSaltConfig {
-  nearKeyEncryption: Uint8Array; // Fixed salt for NEAR key encryption
+  nearKeyEncryption: Uint8Array;
 }
 
 interface WebAuthnRegistrationWithPrf {
@@ -63,8 +68,21 @@ interface WebAuthnRegistrationWithPrf {
 
 interface WebAuthnAuthenticationWithPrf {
   credential: PublicKeyCredential;
-  prfOutput?: ArrayBuffer; // Present if PRF was used
+  prfOutput?: ArrayBuffer;
 }
+
+interface RegistrationOptions {
+  options: PublicKeyCredentialCreationOptions;
+  challengeId: string;
+  commitmentId?: string;
+}
+
+interface AuthenticationOptions {
+  options: PublicKeyCredentialRequestOptions;
+  challengeId: string;
+}
+
+
 
 /**
  * WebAuthnManager - Secure encapsulation of WebAuthn operations and WASM workers
@@ -78,20 +96,21 @@ interface WebAuthnAuthenticationWithPrf {
  * - PRF extension support for enhanced security
  */
 export class WebAuthnManager {
-  private activeChallenges = new Map<string, WebAuthnChallenge>();
+  private readonly activeChallenges = new Map<string, WebAuthnChallenge>();
   private readonly CHALLENGE_TIMEOUT = 30000; // 30 seconds
   private readonly CLEANUP_INTERVAL = 60000; // 1 minute
   private readonly PRF_SALTS: PrfSaltConfig = {
-    nearKeyEncryption: new Uint8Array(new Array(32).fill(42)) // Fixed salt for NEAR key encryption
+    nearKeyEncryption: new Uint8Array(new Array(32).fill(42))
   };
 
   constructor() {
-    // Periodically clean up expired challenges
     setInterval(() => this.cleanupExpiredChallenges(), this.CLEANUP_INTERVAL);
   }
 
+  // === INDEXEDDB OPERATIONS ===
+
   /**
-   * IndexedDB helper methods for user data management
+   * Open IndexedDB connection for user data
    */
   async openUserDataDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -109,6 +128,9 @@ export class WebAuthnManager {
     });
   }
 
+  /**
+   * Store user data in IndexedDB
+   */
   async storeUserData(userData: UserData): Promise<void> {
     const db = await this.openUserDataDB();
     const transaction = db.transaction([USER_DATA_STORE_NAME], 'readwrite');
@@ -127,6 +149,9 @@ export class WebAuthnManager {
     });
   }
 
+  /**
+   * Retrieve user data from IndexedDB
+   */
   async getUserData(username: string): Promise<UserData | null> {
     const db = await this.openUserDataDB();
     const transaction = db.transaction([USER_DATA_STORE_NAME], 'readonly');
@@ -145,6 +170,9 @@ export class WebAuthnManager {
     });
   }
 
+  /**
+   * Get all user data from IndexedDB
+   */
   async getAllUserData(): Promise<UserData[]> {
     const db = await this.openUserDataDB();
     const transaction = db.transaction([USER_DATA_STORE_NAME], 'readonly');
@@ -163,158 +191,48 @@ export class WebAuthnManager {
     });
   }
 
-  async getLastUsedUsername(): Promise<string | null> {
-    const allUsers = await this.getAllUserData();
-    if (allUsers.length === 0) return null;
+  // === CONVENIENCE METHODS ===
 
-    // Return the most recently updated user
-    const lastUser = allUsers.reduce((latest, current) =>
-      current.lastUpdated > latest.lastUpdated ? current : latest
-    );
-
-    return lastUser.username;
-  }
-
+  /**
+   * Check if a passkey credential exists for a username
+   */
   async hasPasskeyCredential(username: string): Promise<boolean> {
-    const userData = await this.getUserData(username);
-    return !!(userData?.passkeyCredential);
-  }
-
-  async hasEncryptedKey(nearAccountId: string): Promise<boolean> {
-    // Check if encrypted key exists in the worker's IndexedDB
-    // This is a placeholder - the actual check would need to query the worker's DB
-    // For now, we'll assume if we have user data with this nearAccountId, we have the key
-    const allUsers = await this.getAllUserData();
-    return allUsers.some(user => user.nearAccountId === nearAccountId);
-  }
-
-  /**
-   * Clear user data from IndexedDB (for debugging/cleanup)
-   */
-  async clearUserData(username: string): Promise<void> {
-    const db = await this.openUserDataDB();
-    const transaction = db.transaction([USER_DATA_STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(USER_DATA_STORE_NAME);
-
-    return new Promise((resolve, reject) => {
-      const request = store.delete(username);
-      request.onsuccess = () => {
-        db.close();
-        console.log(`🗑️ Cleared user data for: ${username}`);
-        resolve();
-      };
-      request.onerror = () => {
-        db.close();
-        reject(request.error);
-      };
-    });
-  }
-
-  /**
-   * Clear all user data from IndexedDB (for debugging/cleanup)
-   */
-  async clearAllUserData(): Promise<void> {
-    const allUsers = await this.getAllUserData();
-    for (const user of allUsers) {
-      await this.clearUserData(user.username);
-    }
-    console.log('🗑️ Cleared all user data');
-  }
-
-  /**
-   * Clear everything for a completely fresh start (debugging/cleanup)
-   */
-  async clearEverything(): Promise<void> {
     try {
-      // Clear WebAuthnManager user data
-      await this.clearAllUserData();
-
-      // Clear ClientUserManager data
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('webauthn_') || key.startsWith('passkey_'))) {
-            keysToRemove.push(key);
-          }
-        }
-        keysToRemove.forEach(key => localStorage.removeItem(key));
-        console.log('🗑️ Cleared localStorage keys:', keysToRemove);
-      }
-
-      // Clear worker IndexedDB (PasskeyNearKeys)
-      try {
-        const dbs = await indexedDB.databases();
-        for (const db of dbs) {
-          if (db.name && (db.name.includes('Passkey') || db.name.includes('webauthn'))) {
-            indexedDB.deleteDatabase(db.name);
-            console.log('🗑️ Deleted database:', db.name);
-          }
-        }
-      } catch (error) {
-        console.warn('Could not clear worker databases:', error);
-      }
-
-      console.log('🧹 Everything cleared! You can now register fresh.');
-      console.log('💡 Note: You may still need to clear WebAuthn credentials in browser settings');
-
+      const userData = await this.getUserData(username);
+      return !!userData && !!userData.clientNearPublicKey;
     } catch (error) {
-      console.error('Error clearing everything:', error);
+      console.warn('Error checking passkey credential:', error);
+      return false;
     }
   }
 
   /**
-   * Debug utility to check IndexedDB state
+   * Get the last used username from stored user data
    */
-  async debugIndexedDBState(username?: string): Promise<{
-    userDataDB: any[];
-    encryptedKeysDB: any;
-    summary: string;
-  }> {
+  async getLastUsedUsername(): Promise<string | null> {
     try {
-      // Get all user data from WebAuthnManager
-      const allUserData = await this.getAllUserData();
+      const allUsers = await this.getAllUserData();
+      if (allUsers.length === 0) return null;
 
-      // Filter by username if provided
-      const filteredUserData = username
-        ? allUserData.filter(user => user.username === username)
-        : allUserData;
-
-      // For encrypted keys, we need to check the worker's IndexedDB
-      // This is a simplified check - the worker has its own IndexedDB
-      const encryptedKeysInfo = "Encrypted keys are stored in worker's separate IndexedDB (PasskeyNearKeys)";
-
-      const summary = `
-📊 IndexedDB Debug Summary:
-👤 User Data Entries: ${filteredUserData.length}
-🔐 Encrypted Keys: Stored in worker's IndexedDB
-${filteredUserData.map(user =>
-  `  • ${user.username}: ${user.nearAccountId} | PRF: ${user.prfSupported ? '✅' : '❌'} | ClientPK: ${user.clientNearPublicKey ? '✅' : '❌'}`
-).join('\n')}`;
-
-      console.log('🔍 IndexedDB Debug State:', {
-        userDataDB: filteredUserData,
-        encryptedKeysDB: encryptedKeysInfo,
-        summary
-      });
-
-      return {
-        userDataDB: filteredUserData,
-        encryptedKeysDB: encryptedKeysInfo,
-        summary
-      };
+      // Sort by lastUpdated timestamp and return the most recent
+      const sortedUsers = allUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
+      return sortedUsers[0].username;
     } catch (error) {
-      console.error('Error debugging IndexedDB state:', error);
-      throw error;
+      console.warn('Error getting last used username:', error);
+      return null;
     }
   }
+
+  // === CHALLENGE MANAGEMENT ===
 
   /**
    * Register a server-generated challenge for tracking
    */
-  private registerServerChallenge(serverChallenge: string, operation: 'registration' | 'authentication'): string {
+  private registerServerChallenge(
+    serverChallenge: string,
+    operation: 'registration' | 'authentication'
+  ): string {
     const challengeId = crypto.randomUUID();
-
     const challenge: WebAuthnChallenge = {
       id: challengeId,
       challenge: serverChallenge,
@@ -332,7 +250,10 @@ ${filteredUserData.map(user =>
   /**
    * Validate and consume a challenge (single-use)
    */
-  private validateAndConsumeChallenge(challengeId: string, operation: 'registration' | 'authentication'): WebAuthnChallenge {
+  private validateAndConsumeChallenge(
+    challengeId: string,
+    operation: 'registration' | 'authentication'
+  ): WebAuthnChallenge {
     const challenge = this.activeChallenges.get(challengeId);
 
     if (!challenge) {
@@ -352,10 +273,8 @@ ${filteredUserData.map(user =>
       throw new Error('Challenge expired');
     }
 
-    // Mark as used and remove from active challenges
     challenge.used = true;
     this.activeChallenges.delete(challengeId);
-
     return challenge;
   }
 
@@ -372,7 +291,17 @@ ${filteredUserData.map(user =>
   }
 
   /**
-   * Create a one-time WASM worker (only callable after WebAuthn validation)
+   * Clear all active challenges
+   */
+  clearAllChallenges(): void {
+    this.activeChallenges.clear();
+    console.log('WebAuthnManager: Cleared all active challenges');
+  }
+
+  // === WORKER OPERATIONS ===
+
+  /**
+   * Create a one-time WASM worker
    */
   private createSecureWorker(): Worker {
     const worker = new Worker(
@@ -389,13 +318,12 @@ ${filteredUserData.map(user =>
    */
   private async executeWorkerOperation(
     worker: Worker,
-    message: any,
+    message: Record<string, any>,
     timeoutMs: number = 30000
   ): Promise<WorkerResponse> {
     return new Promise((resolve, reject) => {
       let completed = false;
 
-      // Set up timeout
       const timeoutId = setTimeout(() => {
         if (!completed) {
           completed = true;
@@ -404,18 +332,15 @@ ${filteredUserData.map(user =>
         }
       }, timeoutMs);
 
-      // Set up message handler
-      worker.onmessage = (event: MessageEvent) => {
+      worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
         if (!completed) {
           completed = true;
           clearTimeout(timeoutId);
           resolve(event.data);
-          // Worker will self-terminate, but we can also terminate it here for safety
           setTimeout(() => worker.terminate(), 100);
         }
       };
 
-      // Set up error handler
       worker.onerror = (error: ErrorEvent) => {
         if (!completed) {
           completed = true;
@@ -425,15 +350,19 @@ ${filteredUserData.map(user =>
         }
       };
 
-      // Send the message
       worker.postMessage(message);
     });
   }
 
+  // === SERVER COMMUNICATION ===
+
   /**
    * Get registration options from server and register challenge
    */
-  async getRegistrationOptions(username: string, useOptimistic?: boolean): Promise<{ options: any; challengeId: string; commitmentId?: string }> {
+  async getRegistrationOptions(
+    username: string,
+    useOptimistic?: boolean
+  ): Promise<RegistrationOptions> {
     try {
       const response = await fetch(`${SERVER_URL}/generate-registration-options`, {
         method: 'POST',
@@ -442,21 +371,25 @@ ${filteredUserData.map(user =>
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch registration options' }));
+        const errorData = await response.json().catch(() => ({
+          error: 'Failed to fetch registration options'
+        }));
         throw new Error(errorData.error || `Server error ${response.status}`);
       }
 
       const serverResponseObject = await response.json();
 
-      // Ensure options and challenge exist before trying to use them
-      if (!serverResponseObject || !serverResponseObject.options || typeof serverResponseObject.options.challenge !== 'string') {
-        console.error("[FRONTEND ERROR] Invalid or missing options.challenge in server response:", serverResponseObject);
+      if (!serverResponseObject?.options?.challenge ||
+          typeof serverResponseObject.options.challenge !== 'string') {
+        console.error("[FRONTEND ERROR] Invalid or missing options.challenge in server response:",
+                     serverResponseObject);
         throw new Error('Invalid or missing options.challenge in server response.');
       }
-      if (serverResponseObject.options.excludeCredentials && !Array.isArray(serverResponseObject.options.excludeCredentials)) {
-        console.error("[FRONTEND ERROR] options.excludeCredentials is not an array:", serverResponseObject.options.excludeCredentials);
-        // Decide if this is a critical error or if it can be handled (e.g., treat as empty array)
-        // For now, let it proceed but be aware it might cause issues later if not an array or undefined.
+
+      if (serverResponseObject.options.excludeCredentials &&
+          !Array.isArray(serverResponseObject.options.excludeCredentials)) {
+        console.error("[FRONTEND ERROR] options.excludeCredentials is not an array:",
+                     serverResponseObject.options.excludeCredentials);
       }
 
       const options = serverResponseObject.options;
@@ -473,9 +406,12 @@ ${filteredUserData.map(user =>
   /**
    * Get authentication options from server and register challenge
    */
-  async getAuthenticationOptions(username?: string, useOptimistic?: boolean): Promise<{ options: any; challengeId: string }> {
+  async getAuthenticationOptions(
+    username?: string,
+    useOptimistic?: boolean
+  ): Promise<AuthenticationOptions> {
     try {
-      const payload: any = {};
+      const payload: Record<string, any> = {};
       if (username) payload.username = username;
       if (useOptimistic !== undefined) payload.useOptimistic = useOptimistic;
 
@@ -486,7 +422,9 @@ ${filteredUserData.map(user =>
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch authentication options' }));
+        const errorData = await response.json().catch(() => ({
+          error: 'Failed to fetch authentication options'
+        }));
         throw new Error(errorData.error || `Server error ${response.status}`);
       }
 
@@ -500,40 +438,57 @@ ${filteredUserData.map(user =>
     }
   }
 
+  // === WEBAUTHN OPERATIONS ===
+
   /**
    * Register with PRF extension support
    */
-  async registerWithPrf(username: string, useOptimistic?: boolean): Promise<WebAuthnRegistrationWithPrf> {
+  async registerWithPrf(
+    username: string,
+    useOptimistic?: boolean
+  ): Promise<WebAuthnRegistrationWithPrf> {
     console.log('🔒 WebAuthnManager.registerWithPrf called for:', username, 'useOptimistic:', useOptimistic);
     console.log('🔒 Active challenges before registration:', this.activeChallenges.size);
 
     const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username, useOptimistic);
 
     if (typeof options?.challenge !== 'string') {
-        const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
-        console.error(errorMsg, "Value:", options?.challenge, "Full options:", options);
-        throw new TypeError(errorMsg);
+      const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
+      console.error(errorMsg, "Value:", options?.challenge, "Full options:", options);
+      throw new TypeError(errorMsg);
     }
 
-    let processedExcludeCredentials = undefined;
+    let processedExcludeCredentials: PublicKeyCredentialDescriptor[] | undefined;
     if (options.excludeCredentials && Array.isArray(options.excludeCredentials)) {
-        processedExcludeCredentials = options.excludeCredentials.map((c, index) => {
-            if (typeof c?.id !== 'string') {
-                const errorMsg = `[CRITICAL ERROR] In registerWithPrf, excludeCredentials[${index}].id is NOT a string.`;
-                console.error(errorMsg, "Value:", c?.id, "Full credential object:" , c);
-                return { ...c, id: '' };
-            }
-            return { ...c, id: bufferDecode(c.id) };
-        });
-    } else if (options.excludeCredentials) {
+      processedExcludeCredentials = options.excludeCredentials.map((c, index) => {
+        // Handle server response where id is a base64url string that needs decoding
+        const credentialId = c.id;
+        if (typeof credentialId === 'string') {
+          return { ...c, id: bufferDecode(credentialId) };
+        } else {
+          // If it's already a BufferSource, use as-is
+          console.warn(`[WARNING] excludeCredentials[${index}].id is not a string:`, credentialId);
+          return { ...c, id: credentialId || new ArrayBuffer(0) };
+        }
+      });
     }
 
-    const extendedOptions = {
+    const extendedOptions: PublicKeyCredentialCreationOptions = {
       ...options,
-      challenge: bufferDecode(options.challenge),
-      user: { ...options.user, id: new TextEncoder().encode(options.user.id) },
+      challenge: typeof options.challenge === 'string'
+        ? bufferDecode(options.challenge)
+        : options.challenge,
+      user: {
+        ...options.user,
+        id: typeof options.user.id === 'string'
+          ? new TextEncoder().encode(options.user.id)
+          : options.user.id
+      },
       excludeCredentials: processedExcludeCredentials,
-      authenticatorSelection: options.authenticatorSelection || { residentKey: "required", userVerification: "preferred" },
+      authenticatorSelection: options.authenticatorSelection || {
+        residentKey: "required",
+        userVerification: "preferred"
+      },
       extensions: {
         ...options.extensions,
         prf: {
@@ -571,12 +526,16 @@ ${filteredUserData.map(user =>
   ): Promise<WebAuthnAuthenticationWithPrf> {
     const { options, challengeId } = await this.getAuthenticationOptions(username, useOptimistic);
 
-    // Add PRF extension with appropriate salt
-    const extendedOptions = {
+    const extendedOptions: PublicKeyCredentialRequestOptions = {
       ...options,
-      challenge: bufferDecode(options.challenge),
+      challenge: typeof options.challenge === 'string'
+        ? bufferDecode(options.challenge)
+        : options.challenge,
       rpId: options.rpId,
-      allowCredentials: options.allowCredentials?.map(c => ({ ...c, id: bufferDecode(c.id) })),
+      allowCredentials: options.allowCredentials?.map(c => ({
+        ...c,
+        id: typeof c.id === 'string' ? bufferDecode(c.id) : c.id
+      })),
       userVerification: options.userVerification || "preferred",
       timeout: options.timeout || 60000,
       extensions: {
@@ -605,6 +564,8 @@ ${filteredUserData.map(user =>
     return { credential, prfOutput };
   }
 
+  // === SECURE WORKFLOWS ===
+
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
@@ -616,46 +577,41 @@ ${filteredUserData.map(user =>
     skipChallengeValidation: boolean = false
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
-      // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
       if (!skipChallengeValidation && challengeId) {
-        const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
+        this.validateAndConsumeChallenge(challengeId, 'registration');
         console.log('WebAuthnManager: Challenge validated for PRF registration');
       }
 
       console.log('WebAuthnManager: Starting secure registration with PRF');
 
-      // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
-
-      // Execute encryption operation with PRF
       const response = await this.executeWorkerOperation(worker, {
         type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
         payload: {
-          prfOutput: bufferEncode(prfOutput), // Convert to base64
+          prfOutput: bufferEncode(prfOutput),
           nearAccountId: payload.nearAccountId
         }
       });
 
       if (response.type === 'ENCRYPTION_SUCCESS') {
         console.log('WebAuthnManager: PRF registration successful');
-        // Store user data with PRF flag
+
         await this.storeUserData({
           username,
           nearAccountId: payload.nearAccountId,
-          clientNearPublicKey: response.payload.publicKey,
-          prfSupported: true, // Flag to indicate PRF was used
+          clientNearPublicKey: response.payload.publicKey!,
+          prfSupported: true,
           lastUpdated: Date.now()
         });
 
         return {
           success: true,
-          nearAccountId: response.payload.nearAccountId,
-          publicKey: response.payload.publicKey
+          nearAccountId: response.payload.nearAccountId!,
+          publicKey: response.payload.publicKey!
         };
       } else {
         throw new Error(response.payload?.error || 'PRF encryption failed');
       }
-
     } catch (error: any) {
       console.error('WebAuthnManager: PRF registration failed:', error);
       throw error;
@@ -672,20 +628,15 @@ ${filteredUserData.map(user =>
     challengeId: string
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      // Validate and consume the challenge
-      const challenge = this.validateAndConsumeChallenge(challengeId, 'authentication');
-
+      this.validateAndConsumeChallenge(challengeId, 'authentication');
       console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
-      // Create worker only after successful WebAuthn validation
       const worker = this.createSecureWorker();
-
-      // Execute signing operation with PRF
       const response = await this.executeWorkerOperation(worker, {
         type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
         payload: {
           nearAccountId: payload.nearAccountId,
-          prfOutput: bufferEncode(prfOutput), // Convert to base64
+          prfOutput: bufferEncode(prfOutput),
           receiverId: payload.receiverId,
           contractMethodName: payload.contractMethodName,
           contractArgs: payload.contractArgs,
@@ -699,147 +650,18 @@ ${filteredUserData.map(user =>
       if (response.type === 'SIGNATURE_SUCCESS') {
         console.log('WebAuthnManager: PRF transaction signing successful');
         return {
-          signedTransactionBorsh: response.payload.signedTransactionBorsh,
-          nearAccountId: response.payload.nearAccountId
+          signedTransactionBorsh: response.payload.signedTransactionBorsh!,
+          nearAccountId: response.payload.nearAccountId!
         };
       } else {
         throw new Error(response.payload?.error || 'PRF signing failed');
       }
-
     } catch (error: any) {
       console.error('WebAuthnManager: PRF transaction signing failed:', error);
       throw error;
     }
   }
-
-  /**
-   * Get active challenge count (for debugging/monitoring)
-   */
-  getActiveChallengeCount(): number {
-    return this.activeChallenges.size;
-  }
-
-  /**
-   * Force cleanup of all challenges (for testing or emergency cleanup)
-   */
-  clearAllChallenges(): void {
-    this.activeChallenges.clear();
-  }
-
-  /**
-   * Secure registration flow with PRF and deterministic key derivation from WebAuthn
-   */
-  async secureRegistrationWithPrfDeterministic(
-    username: string,
-    prfOutput: ArrayBuffer,
-    attestationObjectB64u: string,
-    payload: RegistrationPayload,
-    challengeId?: string,
-    skipChallengeValidation: boolean = false
-  ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
-    try {
-      // Only validate challenge if not skipped (for cases where WebAuthn ceremony already completed)
-      if (!skipChallengeValidation && challengeId) {
-        const challenge = this.validateAndConsumeChallenge(challengeId, 'registration');
-        console.log('WebAuthnManager: Challenge validated for deterministic PRF registration');
-      }
-
-      console.log('WebAuthnManager: Starting secure deterministic registration with PRF');
-
-      // Create worker only after successful WebAuthn validation
-      const worker = this.createSecureWorker();
-
-      // Execute deterministic encryption operation with PRF and attestationObject
-      const response = await this.executeWorkerOperation(worker, {
-        type: 'DETERMINISTIC_ENCRYPT_PRIVATE_KEY_WITH_PRF',
-        payload: {
-          prfOutput: bufferEncode(prfOutput), // Convert to base64
-          attestationObjectB64u: attestationObjectB64u,
-          nearAccountId: payload.nearAccountId
-        }
-      });
-
-      if (response.type === 'DETERMINISTIC_ENCRYPTION_SUCCESS') {
-        console.log('WebAuthnManager: Deterministic PRF registration successful');
-        console.log('WebAuthnManager: Derived public key:', response.payload.publicKey);
-
-        // Store user data with PRF flag and deterministic key info
-        await this.storeUserData({
-          username,
-          nearAccountId: payload.nearAccountId,
-          clientNearPublicKey: response.payload.publicKey,
-          prfSupported: true, // Flag to indicate PRF was used
-          deterministicKey: true, // Flag to indicate deterministic derivation
-          lastUpdated: Date.now()
-        });
-
-        return {
-          success: true,
-          nearAccountId: response.payload.nearAccountId,
-          publicKey: response.payload.publicKey
-        };
-      } else {
-        throw new Error(response.payload?.error || 'Deterministic PRF encryption failed');
-      }
-
-    } catch (error: any) {
-      console.error('WebAuthnManager: Deterministic PRF registration failed:', error);
-      throw error;
-    }
-  }
 }
 
-// Export a singleton instance
+// === EXPORTS ===
 export const webAuthnManager = new WebAuthnManager();
-
-// Add debug utilities to global scope for easy debugging
-if (typeof window !== 'undefined') {
-  (window as any).debugWebAuthn = {
-    checkIndexedDB: (username?: string) => webAuthnManager.debugIndexedDBState(username),
-    getUserData: (username: string) => webAuthnManager.getUserData(username),
-    getAllUserData: () => webAuthnManager.getAllUserData(),
-    clearUserData: (username: string) => webAuthnManager.clearUserData(username),
-    clearAllData: () => webAuthnManager.clearAllUserData(),
-    clearEverything: () => webAuthnManager.clearEverything(),
-    testIndexedDB: async () => {
-      console.log('🧪 Testing IndexedDB operations...');
-
-      // Test storing dummy data
-      const testData = {
-        username: 'test-user',
-        nearAccountId: 'test.testnet',
-        clientNearPublicKey: 'ed25519:TestKeyABC123',
-        prfSupported: true,
-        lastUpdated: Date.now()
-      };
-
-      try {
-        console.log('📝 Storing test data:', testData);
-        await webAuthnManager.storeUserData(testData);
-
-        console.log('📖 Retrieving test data...');
-        const retrieved = await webAuthnManager.getUserData('test-user');
-        console.log('📄 Retrieved data:', retrieved);
-
-        if (retrieved && retrieved.clientNearPublicKey === testData.clientNearPublicKey) {
-          console.log('✅ IndexedDB test PASSED');
-        } else {
-          console.log('❌ IndexedDB test FAILED - data mismatch');
-        }
-
-        // Clean up
-        await webAuthnManager.clearUserData('test-user');
-        console.log('🧹 Test data cleaned up');
-
-      } catch (error) {
-        console.error('❌ IndexedDB test FAILED with error:', error);
-      }
-    }
-  };
-  console.log('🔍 Debug utilities available: window.debugWebAuthn');
-  console.log('   • window.debugWebAuthn.checkIndexedDB(username)');
-  console.log('   • window.debugWebAuthn.clearUserData(username)');
-  console.log('   • window.debugWebAuthn.clearAllData()');
-  console.log('   • window.debugWebAuthn.clearEverything() - Clears ALL data for fresh start');
-  console.log('   • window.debugWebAuthn.testIndexedDB() - Test if IndexedDB works');
-}
