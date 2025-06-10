@@ -5,6 +5,9 @@ export const VERIFY_REGISTRATION_RESPONSE_GAS_STRING = "30000000000000"; // 30 T
 export const AUTHENTICATION_VERIFICATION_GAS_STRING  = "45000000000000"; // 45 TGas
 // 45 TGas: higher for signature verification
 
+// URL constants
+export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
+
 // Main configuration object
 const config = {
   port: process.env.PORT || 3001,

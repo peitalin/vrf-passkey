@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePasskeyContext } from '../contexts/PasskeyContext'
 import { useSettings } from '../contexts/SettingsContext'
 import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
-import { RefreshIcon } from './RefreshIcon'
+import { RefreshIcon } from './icons/RefreshIcon'
 import { webAuthnManager } from '../security/WebAuthnManager'
 import { shortenString } from '../utils/strings'
+import { Toggle } from './Toggle'
 import {
   WEBAUTHN_CONTRACT_ID,
   MUTED_GREEN,
   MUTED_BLUE,
   MUTED_ORANGE,
-  TOAST_TEXT_COLOR
+  TOAST_TEXT_COLOR,
+  NEAR_ACCOUNT_POSTFIX,
+  NEAR_EXPLORER_BASE_URL
 } from '../config'
 
 interface LastTxDetails {
@@ -35,7 +38,7 @@ export function PasskeyLogin() {
     logoutPasskey,
   } = usePasskeyContext();
 
-  const { useOptimisticAuth, setUseOptimisticAuth } = useSettings();
+  const { optimisticAuth, setOptimisticAuth } = useSettings();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
@@ -43,10 +46,43 @@ export function PasskeyLogin() {
   const [isSecureContext] = useState(() => window.isSecureContext);
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
   const [hasManuallyClearedInput, setHasManuallyClearedInput] = useState(false);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const postfixRef = useRef<HTMLSpanElement>(null);
+
+  // Handle auth mode toggle without affecting username input
+  const handleAuthModeToggle = useCallback((checked: boolean) => {
+    // Preserve the current username input value
+    const preservedUsername = localUsernameInput;
+
+    // Update the auth mode
+    setOptimisticAuth(checked);
+
+    // Ensure username is preserved after state update
+    if (preservedUsername && preservedUsername !== localUsernameInput) {
+      // Use requestAnimationFrame to ensure state update happens after re-render
+      requestAnimationFrame(() => {
+        setLocalUsernameInput(preservedUsername);
+      });
+    }
+  }, [localUsernameInput, setOptimisticAuth]);
+
+  // Prevent username from being overwritten by useEffect when auth mode changes
+  const authModeToggleRef = useRef(false);
+
+  const handleAuthModeToggleWithRef = useCallback((checked: boolean) => {
+    authModeToggleRef.current = true;
+    handleAuthModeToggle(checked);
+
+    // Reset the flag after a short delay
+    setTimeout(() => {
+      authModeToggleRef.current = false;
+    }, 100);
+  }, [handleAuthModeToggle]);
 
   useEffect(() => {
     const loadUserData = async () => {
-      if (hasManuallyClearedInput) return; // Don't override manual clearing
+      // Don't overwrite username if user is actively toggling auth mode
+      if (hasManuallyClearedInput || authModeToggleRef.current) return;
 
       if (username) {
         setLocalUsernameInput(username);
@@ -63,7 +99,37 @@ export function PasskeyLogin() {
     };
 
     loadUserData();
-  }, [username, hasManuallyClearedInput]);
+  }, [username, hasManuallyClearedInput]); // Removed optimisticAuth from dependencies
+
+  // Update postfix position when username changes
+  useEffect(() => {
+    if (usernameInputRef.current && postfixRef.current) {
+      const input = usernameInputRef.current;
+      const postfix = postfixRef.current;
+
+      if (localUsernameInput.length > 0) {
+        // Show postfix and position it
+        postfix.style.visibility = 'visible';
+
+        // Create a temporary element to measure text width
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context) {
+          const computedStyle = window.getComputedStyle(input);
+          context.font = `${computedStyle.fontWeight} ${computedStyle.fontSize} ${computedStyle.fontFamily}`;
+
+          const textWidth = context.measureText(localUsernameInput).width;
+          const inputPaddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
+
+          // Position postfix right after the text
+          postfix.style.left = `${inputPaddingLeft + textWidth + 2}px`; // +2px for small gap
+        }
+      } else {
+        // Hide postfix when no text
+        postfix.style.visibility = 'hidden';
+      }
+    }
+  }, [localUsernameInput]);
 
   const handleLocalUsernameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newUsername = e.target.value;
@@ -147,7 +213,7 @@ export function PasskeyLogin() {
       return;
     }
 
-    const newGreetingMessage = `${customGreetingInput.trim()} (updated: ${new Date().toLocaleTimeString()})`;
+    const newGreetingMessage = `${customGreetingInput.trim()} [updated: ${new Date().toLocaleTimeString()}]`;
 
     const actionToExecute: SerializableActionArgs = {
       action_type: ActionType.FunctionCall,
@@ -161,49 +227,47 @@ export function PasskeyLogin() {
     let toastId = '';
     setLastTxDetails(null);
 
-    await executeDirectActionViaWorker(
-      actionToExecute,
-      {
-        beforeDispatch: () => {
-          toastId = toast.loading(
-            'Dispatching Set Greeting (Direct Action)... ',
-            { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
+    await executeDirectActionViaWorker(actionToExecute, {
+      optimisticAuth: optimisticAuth, // Use greeting-specific auth mode
+      beforeDispatch: () => {
+        toastId = toast.loading(
+          optimisticAuth ? 'Dispatching Set Greeting (Fast)... ' : 'Dispatching Set Greeting (via Contract)... ',
+          { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
+        );
+      },
+      afterDispatch: (success, data) => {
+        if (success && data?.transaction_outcome?.id) {
+          const txId = data.transaction_outcome.id;
+          const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
+          const shortTxId = shortenString(txId, 10, 6);
+          const greetingSet = newGreetingMessage;
+          const successMessage = `Set Greeting to "${greetingSet}" successful!`;
+
+          setLastTxDetails({
+            id: txId,
+            link: txLink,
+            message: `${greetingSet}`
+          });
+
+          const successContent = (
+            <span>
+              {successMessage} Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>.
+            </span>
           );
-        },
-        afterDispatch: (success, data) => {
-          if (success && data?.transaction_outcome?.id) {
-            const txId = data.transaction_outcome.id;
-            const txLink = `https://testnet.nearblocks.io/txns/${txId}`;
-            const shortTxId = shortenString(txId, 10, 6);
-            const greetingSet = newGreetingMessage;
-            const successMessage = `Set Greeting to "${greetingSet}" successful!`;
-
-            setLastTxDetails({
-              id: txId,
-              link: txLink,
-              message: `${greetingSet}`
-            });
-
-            const successContent = (
-              <span>
-                {successMessage} Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>.
-              </span>
-            );
-            toast.success(successContent, {
-              id: toastId,
-              duration: 8000,
-              style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
-            });
-          } else if (success) {
-            toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } });
-            setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
-          } else {
-            toast.error(data?.error || 'Direct Action failed.', { id: toastId });
-            setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
-          }
+          toast.success(successContent, {
+            id: toastId,
+            duration: 8000,
+            style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
+          });
+        } else if (success) {
+          toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } });
+          setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
+        } else {
+          toast.error(data?.error || 'Direct Action failed.', { id: toastId });
+          setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
         }
       }
-    );
+    });
   };
 
   if (!isSecureContext) {
@@ -235,13 +299,17 @@ export function PasskeyLogin() {
         {!isLoggedIn ? (
           <>
             <div className="input-wrapper">
-              <input
-                type="text"
-                value={localUsernameInput}
-                onChange={handleLocalUsernameChange}
-                placeholder="Enter username for passkey"
-                className="styled-input"
-              />
+              <div className="username-input-container">
+                <input
+                  ref={usernameInputRef}
+                  type="text"
+                  value={localUsernameInput}
+                  onChange={handleLocalUsernameChange}
+                  placeholder="Enter username for passkey"
+                  className="styled-input username-input"
+                />
+                <span ref={postfixRef} className="account-postfix">{NEAR_ACCOUNT_POSTFIX}</span>
+              </div>
               {isPasskeyRegisteredForLocalInput && localUsernameInput && (
                 <div className="account-exists-badge">
                   account exists
@@ -249,26 +317,18 @@ export function PasskeyLogin() {
               )}
             </div>
 
-            <div className="auth-mode-toggle">
-              <label
-                className="toggle-label"
-                data-tooltip={useOptimisticAuth
-                  ? 'Immediate response with background contract update'
-                  : 'Wait for contract verification before response'
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={useOptimisticAuth}
-                  onChange={(e) => setUseOptimisticAuth(e.target.checked)}
-                  className="toggle-checkbox"
-                />
-                <span className="toggle-slider"></span>
-                <span className="toggle-text">
-                  {useOptimisticAuth ? 'Fast Auth (Optimistic)' : 'Secure Auth (Contract Sync)'}
-                </span>
-              </label>
-            </div>
+            <Toggle
+              checked={optimisticAuth}
+              onChange={handleAuthModeToggleWithRef}
+              label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
+              tooltip={optimisticAuth
+                ? 'Fast transaction signing with optimistic response'
+                : 'Contract signed Passkey authentication (slower)'
+              }
+              className="auth-mode-toggle"
+              size="small"
+              textPosition="left"
+            />
 
             <div className="auth-buttons">
               <button onClick={onRegister} className={`action-button ${!isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
@@ -291,15 +351,13 @@ export function PasskeyLogin() {
           <>
             {nearPublicKey ? (
               <div className="greeting-controls-box">
-                <div className="webauthn-contract-link">Onchain message on <a href="https://testnet.nearblocks.io/address/webauthn-contract.testnet" target="_blank" rel="noopener noreferrer">{WEBAUTHN_CONTRACT_ID}</a>:</div>
-                {currentGreeting && (
-                  <div className="on-chain-greeting-box">
-                    <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
-                      <RefreshIcon size={22} color={MUTED_GREEN}/>
-                    </button>
-                    <p><strong>{currentGreeting}</strong></p>
-                  </div>
-                )}
+                <div className="webauthn-contract-link">Onchain message on <a href={`${NEAR_EXPLORER_BASE_URL}/address/webauthn-contract.testnet`} target="_blank" rel="noopener noreferrer">{WEBAUTHN_CONTRACT_ID}</a>:</div>
+                <div className="on-chain-greeting-box">
+                  <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
+                    <RefreshIcon size={22} color={MUTED_GREEN}/>
+                  </button>
+                  <p><strong>{currentGreeting || "..."}</strong></p>
+                </div>
 
                 {lastTxDetails && lastTxDetails.id !== 'N/A' && (
                   <div className="last-tx-display">
@@ -312,6 +370,18 @@ export function PasskeyLogin() {
                     </a>
                   </div>
                 )}
+
+                <Toggle
+                  checked={optimisticAuth}
+                  onChange={setOptimisticAuth}
+                  label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
+                  tooltip={optimisticAuth
+                    ? 'Fast transaction signing with optimistic response'
+                    : 'Contract signed Passkey authentication (slower)'
+                  }
+                  className="greeting-auth-mode-toggle"
+                  size="small"
+                />
 
                 <div className="greeting-input-group">
                   <input

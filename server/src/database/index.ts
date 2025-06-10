@@ -91,17 +91,17 @@ export const authenticatorCacheOperations = {
           nearAccountId, credentialID, credentialPublicKey, counter, transports,
           clientManagedNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+    `).run(
         authenticator.nearAccountId,
-        authenticator.credentialID,
-        authenticator.credentialPublicKey,
-        authenticator.counter,
-        authenticator.transports,
+      authenticator.credentialID,
+      authenticator.credentialPublicKey,
+      authenticator.counter,
+      authenticator.transports,
         authenticator.clientManagedNearPublicKey,
         authenticator.name,
-        authenticator.registered,
+      authenticator.registered,
         authenticator.lastUsed,
-        authenticator.backedUp,
+      authenticator.backedUp,
         syncedAt
       );
       console.log(`🔍 Database upsert result:`, result);

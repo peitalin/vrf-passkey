@@ -87,6 +87,7 @@ interface PasskeyState {
 export interface ExecuteActionCallbacks {
   beforeDispatch?: () => void;
   afterDispatch?: (success: boolean, data?: any) => void;
+  optimisticAuth?: boolean; // Override the global setting for this action
 }
 
 interface PasskeyContextType extends PasskeyState {
@@ -99,6 +100,8 @@ interface PasskeyContextType extends PasskeyState {
     callbacks?: ExecuteActionCallbacks
   ) => Promise<void>;
   fetchCurrentGreeting: () => Promise<{ success: boolean; greeting?: string; error?: string }>;
+  optimisticAuth: boolean;
+  setOptimisticAuth: (value: boolean) => void;
 }
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
@@ -115,7 +118,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
-    const { useOptimisticAuth, setCurrentUser } = useSettings();
+  const { optimisticAuth, setOptimisticAuth, setCurrentUser } = useSettings();
 
   const getRpcProvider = () => {
     if (!frontendRpcProvider) {
@@ -235,26 +238,26 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
     try {
       console.log('🔄 Step 1: Starting WebAuthn credential creation & PRF...');
-      console.log('🔍 Current processing state:', { isProcessing, currentUsername, useOptimisticAuth });
+      console.log('🔍 Current processing state:', { isProcessing, currentUsername, optimisticAuth });
 
-            // Show initial toast for Step 1
+      // Show initial toast for Step 1
       const step1Toast = managedToast.loading('🔐 Step 1: Creating passkey with PRF...', {
         style: { background: MUTED_BLUE, color: 'white' },
         duration: 5000
       });
 
       // Step 1: WebAuthn credential creation & PRF (if applicable)
-      const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, useOptimisticAuth);
+      const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, optimisticAuth);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       console.log('✅ Step 1 complete: WebAuthn credential created, PRF enabled:', prfEnabled);
-            managedToast.success('✅ Step 1: Passkey created successfully', {
+      managedToast.success('✅ Step 1: Passkey created successfully', {
         id: step1Toast,
         style: { background: MUTED_GREEN, color: 'white' },
         duration: 5000
       });
 
-                  // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
+      // Step 2: Client-side key generation/management using PRF output (if prfEnabled)
       console.log('🔄 Step 2: Starting client-side key generation...');
       // Dismiss step 1 toast to make room for processing toast
       managedToast.dismiss(step1Toast);
@@ -307,10 +310,10 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       return new Promise((resolve, reject) => {
         // Store data for SSE request
         const verifyPayload = {
-          username: currentUsername,
-          attestationResponse: attestationForServer,
+        username: currentUsername,
+        attestationResponse: attestationForServer,
           commitmentId: commitmentId,
-          useOptimistic: useOptimisticAuth,
+          useOptimistic: optimisticAuth,
           clientManagedNearPublicKey: clientManagedPublicKey,
         };
 
@@ -399,21 +402,21 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
 
                              // Store user data locally
                              webAuthnManager.storeUserData({
-                               username: currentUsername,
+          username: currentUsername,
                                nearAccountId: userNearAccountIdToUse,
-                               clientNearPublicKey: clientManagedPublicKey,
+          clientNearPublicKey: clientManagedPublicKey,
                                passkeyCredential: {
                                  id: credential.id,
                                  rawId: bufferEncode(credential.rawId)
                                },
-                               prfSupported: prfEnabled,
-                               lastUpdated: Date.now(),
-                             });
+          prfSupported: prfEnabled,
+          lastUpdated: Date.now(),
+      });
 
                              // Register user in ClientUserManager
                              ClientUserManager.registerUser(currentUsername, RELAYER_ACCOUNT_ID, {
                                preferences: {
-                                 useOptimisticAuth: useOptimisticAuth,
+                                 optimisticAuth: optimisticAuth,
                                },
                              });
 
@@ -526,7 +529,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: errorMessage };
     }
-  }, [useOptimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey, setCurrentUser]);
+  }, [optimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey, setCurrentUser]);
 
   const loginPasskey = useCallback(async (currentUsername?: string): Promise<{ success: boolean; error?: string; loggedInUsername?: string; clientNearPublicKey?: string | null; nearAccountId?: string | null }> => {
     const userToLogin = currentUsername || username;
@@ -543,7 +546,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const authOptionsResponse = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userToLogin ? { username: userToLogin, useOptimistic: useOptimisticAuth } : { useOptimistic: useOptimisticAuth }),
+        body: JSON.stringify(userToLogin ? { username: userToLogin, useOptimistic: optimisticAuth } : { useOptimistic: optimisticAuth }),
       });
       if (!authOptionsResponse.ok) {
         const errorData = await authOptionsResponse.json().catch(() => ({ error: 'Failed to fetch auth options' }));
@@ -571,7 +574,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       const verificationPayload: any = {
         ...assertionJSON,
         commitmentId,
-        useOptimistic: useOptimisticAuth,
+        useOptimistic: optimisticAuth,
       };
 
       // Step 4: Send assertion to server for verification
@@ -635,7 +638,7 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       setIsProcessing(false);
       return { success: false, error: err.message };
     }
-  }, [username, useOptimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey]);
+  }, [username, optimisticAuth, setIsProcessing, setIsLoggedIn, setUsername, setNearAccountId, setNearPublicKey]);
 
   const logoutPasskey = useCallback(() => {
     setIsLoggedIn(false);
@@ -672,19 +675,21 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
         throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
       }
 
-      console.log('[Direct Action] User has PRF support, using PRF-based signing');
+      // Use the callback's auth mode if provided, otherwise fall back to global setting
+      const authModeForThisAction = callbacks?.optimisticAuth ?? optimisticAuth;
+      console.log('[Direct Action] User has PRF support, using PRF-based signing with auth mode:', authModeForThisAction ? 'FastAuth' : 'SecureAuth');
 
-      // Authenticate with PRF to get PRF output
-      const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrf(username, 'signing');
+      // Step 1: Authenticate with PRF to get PRF output (must be first)
+      const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrf(username, 'signing', authModeForThisAction);
 
       if (!passkeyAssertion || !prfOutput) {
         throw new Error('PRF authentication failed or no PRF output');
       }
 
-      const { options, challengeId } = await webAuthnManager.getAuthenticationOptions(username);
+      console.log('[Direct Action] PRF authentication successful, starting concurrent operations...');
 
+      // Get provider and public key synchronously
       const provider = getRpcProvider();
-      console.log('[Direct Action] Fetching user data for public key...');
       const publicKeyStr = userData?.clientNearPublicKey;
       if (!publicKeyStr) {
         console.error('[Direct Action] Client NEAR public key not found in user data for user:', username);
@@ -692,18 +697,31 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       }
       console.log('[Direct Action] Client NEAR public key found:', publicKeyStr);
 
-            console.log('[Direct Action] Fetching access key info for:', nearAccountId, publicKeyStr);
-      const accessKeyInfo = await provider.query({
+      // Steps 2, 3, 4: Run these operations concurrently for better performance
+      const [
+        { options, challengeId },
+        accessKeyInfo,
+        blockInfo
+      ] = await Promise.all([
+        // Step 2: Get authentication options
+        webAuthnManager.getAuthenticationOptions(username, authModeForThisAction),
+
+        // Step 3: Get access key info
+        provider.query({
         request_type: 'view_access_key',
-        finality: 'optimistic', // Use optimistic for more recent state
-        account_id: nearAccountId,
+          finality: 'optimistic', // Use optimistic for more recent state
+          account_id: nearAccountId,
         public_key: publicKeyStr,
-      });
+        }),
+
+        // Step 4: Get latest block info
+        provider.viewBlock({ finality: 'final' })
+      ]);
+
+      console.log('[Direct Action] Concurrent operations completed');
       console.log('[Direct Action] Access key info received:', accessKeyInfo);
 
       const nonce = (accessKeyInfo as any).nonce + 1;
-      console.log('[Direct Action] Fetching latest block info...');
-      const blockInfo = await provider.block({ finality: 'final' });
       const blockHashString = blockInfo.header.hash;
       const blockHashBytes = Array.from(bs58.decode(blockHashString));
       console.log('[Direct Action] Nonce and blockHash (base58) ready:', { nonce, blockHashString });
@@ -765,8 +783,9 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
       console.error('[Direct Action] Error during execution:', error);
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: error.message });
+
     }
-  }, [isLoggedIn, username, nearAccountId, fetchCurrentGreeting, setIsProcessing]);
+  }, [isLoggedIn, username, nearAccountId, fetchCurrentGreeting, setIsProcessing, optimisticAuth]);
 
   const value = {
     isLoggedIn,
@@ -781,6 +800,8 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
     logoutPasskey,
     executeDirectActionViaWorker,
     fetchCurrentGreeting,
+    optimisticAuth: optimisticAuth,
+    setOptimisticAuth: setOptimisticAuth,
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;

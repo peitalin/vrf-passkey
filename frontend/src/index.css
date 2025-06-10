@@ -17,9 +17,12 @@
   /* Color constants */
   --muted-green: #8db58e;
   --muted-blue: #6a9bcc;
-  --muted-orange: #D39B5E;
+  --muted-orange: #FF8C42;
+  --muted-orange-hover: #FF6B00;
   --toast-text-color: #fefefe;
   --muted-off-white: #fafafa;
+  --slate-grey: #808080;
+  --slate-grey-dark: #666666;
 }
 
 a {
@@ -386,9 +389,9 @@ header { /* Duplicate definition */
 
 /* Styles from the end of App.css that were not fully captured in the initial read */
 .action-button {
-    background-color: #FF8C42;
+    background-color: var(--muted-orange);
     color: white;
-    border: 1px solid #FF8C42;
+    border: 1px solid var(--muted-orange);
     padding: 0.75rem 1.5rem;
     text-align: center;
     text-decoration: none;
@@ -403,8 +406,8 @@ header { /* Duplicate definition */
 }
 
 .action-button:hover {
-    background-color: #FF6B00;
-    border-color: #FF6B00;
+    background-color: var(--muted-orange-hover);
+    border-color: var(--muted-orange-hover);
     color: white;
 }
 
@@ -516,14 +519,14 @@ header { /* Duplicate definition */
 }
 
 .navbar-pk {
-  font-size: 0.8em;
+  font-size: 0.85rem;
   opacity: 0.7;
   font-family: monospace;
   color: #666666;
 }
 
 .navbar-logout-button {
-  background: #ff6b35;
+  background: var(--muted-orange);
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -533,7 +536,7 @@ header { /* Duplicate definition */
 }
 
 .navbar-logout-button:hover {
-  background: #e55a2b;
+  background: var(--muted-orange-hover);
 }
 
 /* PasskeyLogin Component Styles */
@@ -567,6 +570,7 @@ header { /* Duplicate definition */
   width: 100%;
   box-sizing: border-box;
   margin-right: 0;
+  height: 48px;
 }
 
 .on-chain-greeting-box p {
@@ -688,6 +692,16 @@ header { /* Duplicate definition */
 .auth-mode-toggle {
   margin: 0.5rem;
   position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Greeting Authentication Mode Toggle Styles */
+.greeting-auth-mode-toggle {
+  margin: 0.5rem 0;
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .toggle-label {
@@ -698,6 +712,7 @@ header { /* Duplicate definition */
   font-weight: 500;
   color: #333333;
   position: relative;
+  flex-direction: row-reverse;
 }
 
 .toggle-checkbox {
@@ -715,7 +730,7 @@ header { /* Duplicate definition */
   background-color: #ccc;
   border-radius: 8px;
   transition: background-color 0.3s;
-  margin-right: 8px;
+  margin-left: 8px;
 }
 
 .toggle-slider:before {
@@ -743,6 +758,7 @@ header { /* Duplicate definition */
   font-weight: 500;
   font-size: 0.8rem;
   color: #333333;
+  margin-left: 8px;
 }
 
 /* Hover Tooltip */
@@ -795,14 +811,74 @@ header { /* Duplicate definition */
   width: 100%;
 }
 
+.username-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+  transition: border-color 0.25s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.username-input-container:hover {
+  border-color: #747bff;
+}
+
+.username-input-container:focus-within {
+  border-color: #747bff;
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+.username-input {
+  width: 100%;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  padding: 0.6em 1.2em !important;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  color: #213547;
+  height: 40px;
+  box-sizing: border-box;
+}
+
+.account-postfix {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1em;
+  font-weight: 500;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+  visibility: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .username-input-container {
+    background-color: #1a1a1a;
+  }
+
+  .username-input {
+    color: rgba(255, 255, 255, 0.87) !important;
+  }
+
+  .account-postfix {
+    color: var(--slate-grey-dark);
+  }
+}
+
 .account-exists-badge {
   position: absolute;
-  height: 40px;
-  top: 0px;
-  right: 0px;
+  bottom: 12px;
+  right: 12px;
   background-color: rgba(0,0,0,0);
-  color: #ff6b35;
-  padding: 0px 12px;
+  color: var(--slate-grey-dark);
   border-radius: 0px 4px 4px 0px;
   font-size: 0.7rem;
   font-weight: 600;
@@ -816,4 +892,225 @@ header { /* Duplicate definition */
   margin-right: 2px;
   font-size: 0.7rem;
   font-weight: bold;
+}
+
+/* ProfileButton Component Styles */
+.profile-button-root {
+  position: relative;
+  display: inline-block;
+}
+
+.profile-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background-color: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  box-shadow: none;
+}
+
+.profile-button:hover {
+  border-color: #d1d5db;
+}
+
+.profile-button.open {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.profile-button-icon {
+  color: #374151;
+}
+
+.profile-button-username {
+  display: block;
+}
+
+.profile-button-username.hidden {
+  display: none;
+}
+
+.profile-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 0px;
+  width: 288px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  padding: 4px 0;
+  z-index: 50;
+}
+
+.profile-dropdown-user-info {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.profile-dropdown-user-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-dropdown-avatar {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-dropdown-avatar-icon {
+  color: white;
+}
+
+.profile-dropdown-user-details {
+  flex: 1;
+}
+
+.profile-dropdown-username {
+  font-weight: 500;
+  color: #111827;
+  font-size: 14px;
+  margin: 0;
+}
+
+.profile-dropdown-account-id {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.profile-dropdown-menu {
+  padding: 4px 0;
+}
+
+.profile-dropdown-menu-item {
+  width: 100%;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  transition: background-color 0.15s ease;
+  opacity: 1;
+}
+
+.profile-dropdown-menu-item:hover {
+  background-color: #f9fafb;
+}
+
+.profile-dropdown-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.profile-dropdown-menu-item:disabled:hover {
+  background-color: transparent;
+}
+
+.profile-dropdown-menu-item-icon {
+  flex-shrink: 0;
+}
+
+.profile-dropdown-menu-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-dropdown-menu-item-label {
+  font-weight: 500;
+  color: #111827;
+  font-size: 14px;
+  margin: 0;
+}
+
+.profile-dropdown-menu-item.disabled .profile-dropdown-menu-item-label {
+  color: #9ca3af;
+}
+
+.profile-dropdown-menu-item-description {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.profile-dropdown-menu-item.disabled .profile-dropdown-menu-item-description {
+  color: #9ca3af;
+}
+
+.profile-dropdown-toggle-section {
+  padding: 10px 16px;
+}
+
+.profile-dropdown-toggle-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.profile-dropdown-toggle-text {
+  flex: 1;
+}
+
+.profile-dropdown-toggle-title {
+  font-weight: 500;
+  color: #111827;
+  font-size: 14px;
+  margin: 0;
+}
+
+.profile-dropdown-toggle-description {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.profile-dropdown-logout-section {
+  border-top: 1px solid #f3f4f6;
+  padding: 4px 0;
+}
+
+.profile-dropdown-logout-button {
+  width: 100%;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  transition: background-color 0.15s ease;
+}
+
+.profile-dropdown-logout-button:hover {
+  background-color: #f9fafb;
+}
+
+.profile-dropdown-logout-icon {
+  color: #6b7280;
+}
+
+.profile-dropdown-logout-text {
+  font-weight: 500;
+  color: #111827;
+  font-size: 14px;
 }

@@ -5,7 +5,7 @@ export interface ClientUserData {
   registeredAt: number;
   lastLogin?: number;
   preferences?: {
-    useOptimisticAuth: boolean;
+    optimisticAuth: boolean;
   };
 }
 
@@ -113,7 +113,7 @@ export class ClientUserManager {
       registeredAt: Date.now(),
       lastLogin: Date.now(),
       preferences: {
-        useOptimisticAuth: true, // Default to Fast mode for better UX
+        optimisticAuth: true, // Default to Fast mode for better UX
       },
       ...additionalData,
     };

@@ -473,12 +473,16 @@ ${filteredUserData.map(user =>
   /**
    * Get authentication options from server and register challenge
    */
-  async getAuthenticationOptions(username?: string): Promise<{ options: any; challengeId: string }> {
+  async getAuthenticationOptions(username?: string, useOptimistic?: boolean): Promise<{ options: any; challengeId: string }> {
     try {
+      const payload: any = {};
+      if (username) payload.username = username;
+      if (useOptimistic !== undefined) payload.useOptimistic = useOptimistic;
+
       const response = await fetch(`${SERVER_URL}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(username ? { username } : {}),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -562,9 +566,10 @@ ${filteredUserData.map(user =>
    */
   async authenticateWithPrf(
     username?: string,
-    purpose: 'encryption' | 'signing' = 'signing'
+    purpose: 'encryption' | 'signing' = 'signing',
+    useOptimistic: boolean = true
   ): Promise<WebAuthnAuthenticationWithPrf> {
-    const { options, challengeId } = await this.getAuthenticationOptions(username);
+    const { options, challengeId } = await this.getAuthenticationOptions(username, useOptimistic);
 
     // Add PRF extension with appropriate salt
     const extendedOptions = {
@@ -782,10 +787,6 @@ ${filteredUserData.map(user =>
       throw error;
     }
   }
-
-
-
-
 }
 
 // Export a singleton instance

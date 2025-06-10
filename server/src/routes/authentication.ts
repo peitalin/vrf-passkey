@@ -8,7 +8,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { createHash, randomBytes } from 'crypto';
 
-import config, { DEFAULT_GAS_STRING, AUTHENTICATION_VERIFICATION_GAS_STRING } from '../config';
+import config, { DEFAULT_GAS_STRING, AUTHENTICATION_VERIFICATION_GAS_STRING, NEAR_EXPLORER_BASE_URL } from '../config';
 import { userOperations } from '../database';
 import { actionChallengeStore } from '../challengeStore';
 import { nearClient } from '../nearService';
@@ -150,7 +150,7 @@ async function generateAuthenticationOptionsContract(
   const generateTxHash = rawResult?.transaction?.hash;
   if (generateTxHash) {
     console.log('🎯 generate_authentication_options Transaction Hash:', generateTxHash);
-    console.log('🎯 Explorer Link:', `https://testnet.nearblocks.io/txns/${generateTxHash}?tab=execution`);
+    console.log('🎯 Explorer Link:', `${NEAR_EXPLORER_BASE_URL}/txns/${generateTxHash}?tab=execution`);
     console.log('👤 Storing txHash for userId:', authenticator.userId);
     storeTransactionHash(generateTxHash, 'generate_authentication_options', authenticator.userId);
   } else {
@@ -682,7 +682,7 @@ router.get('/debug/transactions', async (req: Request, res: Response) => {
       txHash: tx.txHash,
       purpose: tx.purpose,
       timestamp: new Date(tx.timestamp).toISOString(),
-      explorerLink: `https://testnet.nearblocks.io/txns/${tx.txHash}?tab=execution`,
+      explorerLink: `${NEAR_EXPLORER_BASE_URL}/txns/${tx.txHash}?tab=execution`,
       userId: tx.userId
     }));
 
@@ -722,7 +722,7 @@ router.get('/debug/transaction/:txHash', async (req: Request, res: Response) => 
 
     return res.json({
       txHash,
-      explorerLink: `https://testnet.nearblocks.io/txns/${txHash}?tab=execution`,
+      explorerLink: `${NEAR_EXPLORER_BASE_URL}/txns/${txHash}?tab=execution`,
       summary: {
         isSuccess,
         finalStatus: txResult.status
