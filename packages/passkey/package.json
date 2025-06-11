@@ -17,7 +17,6 @@
       "types": "./dist/types/react/index.d.ts"
     },
     "./react/styles": "./dist/esm/react/index.css",
-    "./dist/esm/react/index.css": "./dist/esm/react/index.css",
     "./worker": "./dist/onetimePasskeySigner.worker.js",
     "./wasm": "./dist/passkey_crypto_worker_bg.wasm",
     "./wasm-js": "./dist/passkey_crypto_worker.js"
@@ -41,9 +40,8 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
-    "link:local": "npm run build && pnpm link",
-    "unlink:local": "pnpm unlink",
-    "dev:link": "npm run build:all && pnpm link && echo '📦 Package built and linked! Use \"pnpm link @web3authn/passkey\" in your project'",
+    "dev:link": "npm run build:all && pnpm link --dir ../../frontend",
+    "dev:unlink": "pnpm unlink --dir ../../frontend",
     "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
     "prepublishOnly": "npm run build && npm test"
   },
@@ -85,8 +83,8 @@
     "tslib": "^2.8.1"
   },
   "devDependencies": {
-    "@near-js/providers": "^2.0.2",
-    "@near-js/transactions": "^2.0.2",
+    "@near-js/providers": "^2.0.1",
+    "@near-js/transactions": "^2.0.1",
     "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-json": "^6.1.0",

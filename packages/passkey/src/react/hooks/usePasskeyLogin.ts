@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { bufferDecode, publicKeyCredentialToJSON } from '../../utils/encoders';
-import { webAuthnManager } from '../../core/WebAuthnManager';
+import { WebAuthnManager } from '../../core/WebAuthnManager';
+import { AuthEventEmitter } from '@/core/AuthEventEmitter';
 import { SERVER_URL, RELAYER_ACCOUNT_ID } from '../../config';
 import { indexDBManager } from '../../core/IndexDBManager';
 import type { ServerAuthenticationOptions } from '../../types';
@@ -30,7 +31,9 @@ export const usePasskeyLogin = (
   setUsername: (username: string | null) => void,
   setNearAccountId: (nearAccountId: string | null) => void,
   setNearPublicKey: (nearPublicKey: string | null) => void,
-): PasskeyLoginHook => {
+  authEventEmitter: AuthEventEmitter,
+  webAuthnManager: WebAuthnManager,
+) => {
   const loginPasskey = useCallback(async (currentUsername?: string): Promise<LoginResult> => {
     const userToLogin = currentUsername || username;
     if (!userToLogin) {

@@ -1,6 +1,6 @@
 import { WebAuthnManager } from './WebAuthnManager';
 import { indexDBManager } from './IndexDBManager';
-import { authEventEmitter } from './AuthEventEmitter';
+import { AuthEventEmitter } from './AuthEventEmitter';
 import {
   AuthenticationError,
   RegistrationError,
@@ -28,10 +28,12 @@ export class PasskeyManager {
   private webAuthnManager: WebAuthnManager;
   private config: PasskeyConfig;
   private currentUser: UserData | null = null;
+  private authEventEmitter: AuthEventEmitter;
 
-  constructor(config: PasskeyConfig) {
+  constructor(config: PasskeyConfig, authEventEmitter: AuthEventEmitter) {
     this.config = { ...config };
     this.webAuthnManager = new WebAuthnManager();
+    this.authEventEmitter = authEventEmitter;
 
     // Initialize with current user if available
     this.loadCurrentUser();
@@ -61,7 +63,7 @@ export class PasskeyManager {
   async register(username: string, options?: {
     optimisticAuth?: boolean;
   }): Promise<RegisterResult> {
-    const toastId = authEventEmitter.loading('🚀 Registering new passkey...');
+    const toastId = this.authEventEmitter.loading('🚀 Registering new passkey...');
     try {
       const useOptimistic = options?.optimisticAuth ?? this.config.optimisticAuth ?? true;
 
@@ -123,7 +125,7 @@ export class PasskeyManager {
 
       this.currentUser = userData;
 
-      authEventEmitter.success('✅ Passkey registered successfully!', { id: toastId });
+      this.authEventEmitter.success('✅ Passkey registered successfully!', { id: toastId });
       return {
         success: true,
         nearAccountId,
@@ -132,7 +134,7 @@ export class PasskeyManager {
       };
 
     } catch (error: any) {
-      authEventEmitter.error(`❌ Registration failed: ${error.message}`, { id: toastId });
+      this.authEventEmitter.error(`❌ Registration failed: ${error.message}`, { id: toastId });
       if (error instanceof RegistrationError) {
         throw error;
       }
@@ -146,7 +148,7 @@ export class PasskeyManager {
   async login(username?: string, options?: {
     optimisticAuth?: boolean;
   }): Promise<LoginResult> {
-    const toastId = authEventEmitter.loading(`🚀 Logging in as ${username || 'discoverable user'}...`);
+    const toastId = this.authEventEmitter.loading(`🚀 Logging in as ${username || 'discoverable user'}...`);
     try {
       const useOptimistic = options?.optimisticAuth ?? this.config.optimisticAuth ?? true;
 
@@ -183,7 +185,7 @@ export class PasskeyManager {
 
       this.currentUser = userData;
 
-      authEventEmitter.success(`✅ Logged in as ${userData.username}!`, { id: toastId });
+      this.authEventEmitter.success(`✅ Logged in as ${userData.username}!`, { id: toastId });
       return {
         success: true,
         loggedInUsername: userData.username,
@@ -192,7 +194,7 @@ export class PasskeyManager {
       };
 
     } catch (error: any) {
-      authEventEmitter.error(`❌ Login failed: ${error.message}`, { id: toastId });
+      this.authEventEmitter.error(`❌ Login failed: ${error.message}`, { id: toastId });
       if (error instanceof AuthenticationError) {
         throw error;
       }
@@ -337,7 +339,7 @@ export class PasskeyManager {
       }
 
       // Emit loading event
-      authEventEmitter.loading('🔐 Authenticating for private key export...');
+      this.authEventEmitter.loading('🔐 Authenticating for private key export...');
 
       // Fresh PRF authentication required for security
       const { credential, prfOutput } = await this.webAuthnManager.authenticateWithPrf(
@@ -374,15 +376,15 @@ export class PasskeyManager {
       // The key will be garbage collected shortly
 
       // Emit success event
-      authEventEmitter.success('🔑 Private key copied to clipboard securely');
+      this.authEventEmitter.success('🔑 Private key copied to clipboard securely');
 
     } catch (error: any) {
       if (error instanceof AuthenticationError) {
-        authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
+        this.authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
         throw error;
       }
       const errorMsg = `Private key export failed: ${error.message}`;
-      authEventEmitter.error(`❌ ${errorMsg}`);
+      this.authEventEmitter.error(`❌ ${errorMsg}`);
       throw new AuthenticationError(errorMsg, error);
     }
   }
@@ -407,7 +409,7 @@ export class PasskeyManager {
       }
 
       // Emit loading event
-      authEventEmitter.loading('🔐 Authenticating for key pair export...');
+      this.authEventEmitter.loading('🔐 Authenticating for key pair export...');
 
       // Fresh PRF authentication required for security
       const { credential, prfOutput } = await this.webAuthnManager.authenticateWithPrf(
@@ -453,15 +455,15 @@ ${decryptedPrivateKey}
       alert(`NEAR Private Key Copied to Clipboard:\n\n${keyPairText}`);
 
       // Emit success event
-      authEventEmitter.success('🔑 Key pair copied to clipboard securely');
+      this.authEventEmitter.success('🔑 Key pair copied to clipboard securely');
 
     } catch (error: any) {
       if (error instanceof AuthenticationError) {
-        authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
+        this.authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
         throw error;
       }
       const errorMsg = `Key pair export failed: ${error.message}`;
-      authEventEmitter.error(`❌ ${errorMsg}`);
+      this.authEventEmitter.error(`❌ ${errorMsg}`);
       throw new AuthenticationError(errorMsg, error);
     }
   }

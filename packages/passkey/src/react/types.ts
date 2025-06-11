@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import type { SerializableActionArgs } from '../types';
+import type { AuthEventEmitter } from '../core/AuthEventEmitter';
+import type { WebAuthnManager } from '../core/WebAuthnManager';
 
 // === CORE STATE TYPES ===
 export interface PasskeyState {
@@ -67,8 +69,8 @@ export interface ManagedToast {
 }
 
 // === HOOK TYPES ===
-export interface RpcProviderHook {
-  getRpcProvider: () => import('@near-js/providers').Provider;
+export interface NearRpcProviderHook {
+  getNearRpcProvider: () => import('@near-js/providers').Provider;
 }
 
 export interface OptimisticAuthOptions {
@@ -97,6 +99,8 @@ export interface PasskeyContextType extends PasskeyState {
   exportPrivateKey: () => Promise<void>;
   exportKeyPair: () => Promise<void>;
   getPublicKey: () => string | null;
+  authEventEmitter: AuthEventEmitter;
+  webAuthnManager: WebAuthnManager;
 }
 
 export interface PasskeyContextProviderProps {

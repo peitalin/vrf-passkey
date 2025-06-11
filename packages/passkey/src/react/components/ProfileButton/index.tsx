@@ -8,7 +8,7 @@ import { useProfileDimensions } from './hooks/useProfileDimensions';
 import { useProfileAnimations } from './hooks/useProfileAnimations';
 import { usePasskeyContext } from '../../context';
 import type { ProfileMenuItem, ProfileCalculationParams } from './types';
-import '../Web3authUserProfile.css';
+import './Web3AuthProfileButton.css';
 
 // Configuration constants
 const MENU_CONFIG = {

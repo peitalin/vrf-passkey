@@ -755,6 +755,3 @@ export class WebAuthnManager {
     }
   }
 }
-
-// === EXPORTS ===
-export const webAuthnManager = new WebAuthnManager();

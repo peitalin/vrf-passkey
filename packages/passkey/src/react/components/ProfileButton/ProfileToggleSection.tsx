@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { Toggle } from '../Toggle';
+import { Toggle } from './Toggle';
 import type { ProfileToggleSectionProps } from './types';
 
 export const ProfileToggleSection = forwardRef<HTMLDivElement, ProfileToggleSectionProps>(

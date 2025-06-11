@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { webAuthnManager } from '../../core/WebAuthnManager';
+import { WebAuthnManager } from '../../core/WebAuthnManager';
+import { AuthEventEmitter } from '../../core/AuthEventEmitter';
 import { indexDBManager } from '../../core/IndexDBManager';
 import { PasskeyManager } from '../../core/PasskeyManager';
 import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
@@ -15,6 +16,10 @@ import type {
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
 export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
+  // Instantiate managers once and provide them throughout the app
+  const [authEventEmitter] = useState(() => new AuthEventEmitter());
+  const [webAuthnManager] = useState(() => new WebAuthnManager());
+
   // State management
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
@@ -24,13 +29,12 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
 
   // Initialize PasskeyManager - we'll create it with minimal config
-  // In a real app, these should be provided via props
   const passkeyManager = new PasskeyManager({
     serverUrl: 'https://webauthn-server.example.com', // Default - should be configurable
     nearNetwork: 'testnet',
     relayerAccount: 'webauthn-contract.testnet', // Default for example
-    optimisticAuth: true // Default value
-  });
+    optimisticAuth: true, // Default value
+  }, authEventEmitter);
 
   // Use the extracted optimistic auth hook, passing current user for proper persistence
   const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
@@ -52,7 +56,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     setUsername,
     setNearAccountId,
     setNearPublicKey,
-    optimisticAuth
+    optimisticAuth,
+    authEventEmitter,
+    webAuthnManager
   );
 
   const { loginPasskey } = usePasskeyLogin(
@@ -63,6 +69,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     setUsername,
     setNearAccountId,
     setNearPublicKey,
+    authEventEmitter,
+    webAuthnManager,
   );
 
   const { executeDirectActionViaWorker } = usePasskeyActions(
@@ -71,7 +79,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     nearAccountId,
     optimisticAuth,
     setIsProcessing,
-    fetchCurrentGreeting
+    fetchCurrentGreeting,
+    authEventEmitter,
+    webAuthnManager
   );
 
   // Key management functions
@@ -138,7 +148,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     };
 
     loadUserData();
-  }, []);
+  }, [webAuthnManager]); // Added webAuthnManager to dependency array
 
   // Fetch greeting when logged in
   useEffect(() => {
@@ -166,6 +176,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     exportPrivateKey,
     exportKeyPair,
     getPublicKey,
+    authEventEmitter,
+    webAuthnManager,
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;

@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
 import bs58 from 'bs58';
-import { webAuthnManager } from '../../core/WebAuthnManager';
-import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
+import { RPC_NODE_URL, DEFAULT_GAS_STRING, MUTED_GREEN, MUTED_BLUE } from '../../config';
 import { useRpcProvider } from './useNearRpcProvider';
 import type { SerializableActionArgs } from '../../types';
 import type {
@@ -9,6 +8,8 @@ import type {
   GreetingResult,
   ActionExecutionResult
 } from '../types';
+import type { AuthEventEmitter } from '../../core/AuthEventEmitter';
+import type { WebAuthnManager } from '../../core/WebAuthnManager';
 
 interface PasskeyActionsHook {
   executeDirectActionViaWorker: (
@@ -47,7 +48,9 @@ export const usePasskeyActions = (
   nearAccountId: string | null,
   optimisticAuth: boolean,
   setIsProcessing: (isProcessing: boolean) => void,
-  fetchCurrentGreeting: () => Promise<GreetingResult>
+  fetchCurrentGreeting: () => Promise<GreetingResult>,
+  authEventEmitter: AuthEventEmitter,
+  webAuthnManager: WebAuthnManager
 ): PasskeyActionsHook => {
   const { getRpcProvider } = useRpcProvider();
 
@@ -55,6 +58,7 @@ export const usePasskeyActions = (
     serializableActionForContract: SerializableActionArgs,
     callbacks?: ExecuteActionCallbacks
   ): Promise<void> => {
+    const toastId = authEventEmitter.loading('Preparing transaction...');
     callbacks?.beforeDispatch?.();
     setIsProcessing(true);
     console.log('[Direct Action] Initiating...', { serializableActionForContract });
@@ -62,6 +66,7 @@ export const usePasskeyActions = (
     if (!isLoggedIn || !username || !nearAccountId) {
       const errorMsg = 'User not logged in or NEAR account ID not set for direct action.';
       console.error('[Direct Action] Error:', errorMsg, { isLoggedIn, username, nearAccountId });
+      authEventEmitter.error(errorMsg, { id: toastId });
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: errorMsg });
       return;
@@ -168,10 +173,12 @@ export const usePasskeyActions = (
       }
 
       setIsProcessing(false);
+      authEventEmitter.success('Transaction sent successfully!', { id: toastId });
       callbacks?.afterDispatch?.(true, result.result);
 
     } catch (error: any) {
       console.error('[Direct Action] Error during execution:', error);
+      authEventEmitter.error(`Action failed: ${error.message}`, { id: toastId });
       setIsProcessing(false);
       callbacks?.afterDispatch?.(false, { error: error.message });
     }
@@ -182,7 +189,9 @@ export const usePasskeyActions = (
     optimisticAuth,
     setIsProcessing,
     getRpcProvider,
-    fetchCurrentGreeting
+    fetchCurrentGreeting,
+    authEventEmitter,
+    webAuthnManager
   ]);
 
   return { executeDirectActionViaWorker };

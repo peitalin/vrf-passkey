@@ -36,7 +36,9 @@ export class AuthEventEmitter {
       type: event.type,
       message: event.message,
       id: id,
-      listenerCount: this.listeners.length
+      listenerCount: this.listeners.length,
+      emitterInstance: this,
+      listenersArray: this.listeners
     });
 
     // Call all registered listeners
@@ -150,8 +152,4 @@ export class AuthEventEmitter {
   }
 }
 
-// Export singleton instance
-export const authEventEmitter = new AuthEventEmitter();
-
-// Add some debugging for the singleton
-console.log('🎪 AuthEventEmitter singleton created:', authEventEmitter);
+// No longer exporting a singleton instance, only the class.

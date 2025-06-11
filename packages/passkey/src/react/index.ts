@@ -4,22 +4,13 @@ export { PasskeyProvider, usePasskeyContext } from './context/index';
 // === REACT HOOKS ===
 export { useOptimisticAuth } from './hooks/useOptimisticAuth';
 export { useGreetingService } from './hooks/useNearGreetingService';
-export { useRpcProvider } from './hooks/useNearRpcProvider';
+export { useNearRpcProvider } from './hooks/useNearRpcProvider';
 export { usePasskeyRegistration } from './hooks/usePasskeyRegistration';
 export { usePasskeyLogin } from './hooks/usePasskeyLogin';
 export { usePasskeyActions } from './hooks/usePasskeyActions';
 
 // === REACT COMPONENTS ===
-export { PasskeyLogin } from './components/PasskeyLogin';
-export { Toggle } from './components/Toggle';
 export { ProfileButton } from './components/ProfileButton';
-
-// === REACT ICONS ===
-export { RefreshIcon } from './components/icons/RefreshIcon';
-export { KeyIcon } from './components/icons/KeyIcon';
-export { PaymentMethodsIcon } from './components/icons/PaymentMethodsIcon';
-export { AvatarGearIcon } from './components/icons/AvatarGearIcon';
-export { UserDetails } from './components/icons/UserDetails';
 
 // === TYPES ===
 export type {
@@ -34,7 +25,7 @@ export type {
   ToastOptions,
   ToastStyleOptions,
   ManagedToast,
-  RpcProviderHook,
+  NearRpcProviderHook,
   OptimisticAuthOptions,
   OptimisticAuthHook
 } from './types';

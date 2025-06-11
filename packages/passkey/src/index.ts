@@ -2,7 +2,7 @@
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { indexDBManager } from './core/IndexDBManager';
-export { authEventEmitter, AuthEventEmitter } from './core/AuthEventEmitter';
+export { AuthEventEmitter } from './core/AuthEventEmitter';
 export type { AuthEvent } from './core/AuthEventEmitter';
 
 // === TYPES ===
