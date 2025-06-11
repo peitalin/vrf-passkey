@@ -93,6 +93,10 @@ export interface PasskeyContextType extends PasskeyState {
   fetchCurrentGreeting: () => Promise<GreetingResult>;
   optimisticAuth: boolean;
   setOptimisticAuth: (value: boolean) => void;
+  // Key management methods
+  exportPrivateKey: () => Promise<void>;
+  exportKeyPair: () => Promise<void>;
+  getPublicKey: () => string | null;
 }
 
 export interface PasskeyContextProviderProps {

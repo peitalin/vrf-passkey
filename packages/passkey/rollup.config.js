@@ -5,6 +5,7 @@ import terser from '@rollup/plugin-terser';
 import copy from 'rollup-plugin-copy';
 import postcss from 'rollup-plugin-postcss';
 import json from '@rollup/plugin-json';
+import alias from '@rollup/plugin-alias';
 
 const external = [
   // React dependencies
@@ -126,16 +127,31 @@ export default [
     },
     external: [], // Don't externalize dependencies for worker
     plugins: [
+      alias({
+        entries: [
+          { find: 'buffer', replacement: 'buffer' }
+        ]
+      }),
       resolve({
         preferBuiltins: false,
         browser: true
       }),
-      commonjs(),
+      commonjs({
+        // Transform buffer to browser-compatible version
+        transformMixedEsModules: true,
+      }),
       json(),
       typescript({
         tsconfig: './tsconfig.json',
         declaration: false,
         declarationMap: false
+      }),
+      // Copy WASM files to the same directory as the worker
+      copy({
+        targets: [
+          { src: 'src/wasm-worker/*.wasm', dest: 'dist' },
+          { src: 'src/wasm-worker/*.js', dest: 'dist' }
+        ]
       })
     ]
   }

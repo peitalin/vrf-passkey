@@ -5,12 +5,12 @@ import type { ProfileStateRefs, ProfileDimensions, ProfileAnimationConfig } from
 const ANIMATION_CONFIGS = {
   container: {
     // Match .web3authn-profile-dropdown-avatar.shrunk CSS animiation timings
-    open: { duration: 150, easing: 'outElastic(0.5, .4)' },
-    close: { duration: 150, delay: 0, easing: 'inOutBack(0.8)' },
+    open: { duration: 100, easing: 'outElastic(0.5, .4)' },
+    close: { duration: 100, delay: 0, easing: 'inOutBack(0.8)' },
   },
   dropdown: {
-    show: { duration: 150, delay: 0 },
-    hide: { duration: 150, delay: 0 },
+    show: { duration: 100, delay: 0 },
+    hide: { duration: 100, delay: 0 },
   },
   menuItems: {
     in: { duration: 150, easing: 'outBack(0.8)', staggerDelay: 0 },
@@ -38,7 +38,7 @@ export const useProfileAnimations = ({
   // Track the current animation state to prevent re-applying on re-renders
   const animationStateRef = useRef<boolean | null>(null);
 
-  useEffect(() => {
+    useEffect(() => {
     // Only animate if isOpen state has actually changed
     if (animationStateRef.current === isOpen) {
       return;
@@ -92,14 +92,14 @@ export const useProfileAnimations = ({
                 duration: 0,
               });
             }
-          });
+              });
 
-          // Staggered slide-in animation
+              // Staggered slide-in animation
           animate(menuItems, {
-            opacity: [0, 1],
-            translateY: [20, 0],
+                opacity: [0, 1],
+                translateY: [20, 0],
             scale: [0.8, 1],
-            duration: ANIMATION_CONFIGS.menuItems.in.duration,
+                duration: ANIMATION_CONFIGS.menuItems.in.duration,
             easing: ANIMATION_CONFIGS.menuItems.in.easing,
             delay: stagger(ANIMATION_CONFIGS.menuItems.in.staggerDelay, { from: 'first' }),
           });
@@ -115,7 +115,7 @@ export const useProfileAnimations = ({
           opacity: [1, 0],
           translateY: [0, -20],
           scale: [1, 0.8],
-          duration: ANIMATION_CONFIGS.menuItems.out.duration,
+              duration: ANIMATION_CONFIGS.menuItems.out.duration,
           easing: ANIMATION_CONFIGS.menuItems.out.easing,
           delay: stagger(ANIMATION_CONFIGS.menuItems.out.staggerDelay, { from: 'last' }),
         });

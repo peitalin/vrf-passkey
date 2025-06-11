@@ -4,9 +4,11 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { HomePage } from './pages/HomePage';
 import TestOnetimeWorker from './pages/TestOnetimeWorker';
 import { Navbar } from './components/Navbar';
-import { PasskeyContextProvider } from './contexts/PasskeyContext';
+import { PasskeyProvider } from '@web3authn/passkey/react';
 import './index.css';
 import { Toaster } from 'react-hot-toast';
+
+import '@web3authn/passkey/react/styles';
 
 // Define global for Node.js libraries that expect it (if not already handled by Vite config)
 // This might still be needed for near-api-js or its dependencies
@@ -19,7 +21,7 @@ function App() {
   return (
     <React.StrictMode>
       <BrowserRouter>
-        <PasskeyContextProvider>
+        <PasskeyProvider>
           <Toaster
             position="bottom-center"
             reverseOrder={false}
@@ -37,7 +39,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/test-onetime-worker" element={<TestOnetimeWorker />} />
           </Routes>
-        </PasskeyContextProvider>
+        </PasskeyProvider>
       </BrowserRouter>
     </React.StrictMode>
   );

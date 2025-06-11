@@ -1,5 +1,6 @@
 import { WebAuthnManager } from './WebAuthnManager';
 import { indexDBManager } from './IndexDBManager';
+import { authEventEmitter } from './AuthEventEmitter';
 import {
   AuthenticationError,
   RegistrationError,
@@ -269,6 +270,202 @@ export class PasskeyManager {
       }
       throw new TransactionError(`Transaction signing failed: ${error.message}`, error);
     }
+  }
+
+  // === KEY MANAGEMENT ===
+
+  /**
+   * Safely write text to clipboard with focus recovery
+   */
+  private async safeClipboardWrite(text: string): Promise<void> {
+    try {
+      // Check if document is focused, try to regain focus if not
+      if (!document.hasFocus()) {
+        console.log('Document not focused, attempting to regain focus...');
+        window.focus();
+
+        // Small delay to allow focus to be regained
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Check again
+        if (!document.hasFocus()) {
+          throw new Error('Cannot access clipboard: document is not focused. Please click on the page and try again.');
+        }
+      }
+
+      // Attempt clipboard write
+      await navigator.clipboard.writeText(text);
+      console.log('✅ Successfully wrote to clipboard');
+
+    } catch (clipboardError: any) {
+      console.error('Clipboard write failed:', clipboardError);
+
+      // Provide helpful error message based on the specific failure
+      if (clipboardError.name === 'NotAllowedError') {
+        throw new Error('Clipboard access denied. Please ensure the page is focused and try again.');
+      } else if (clipboardError.message?.includes('not focused')) {
+        throw new Error('Please click on the page to focus it, then try exporting keys again.');
+      } else {
+        throw new Error(`Clipboard access failed: ${clipboardError.message || 'Unknown error'}`);
+      }
+    }
+  }
+
+  /**
+   * Export private key to clipboard
+   * Requires fresh passkey authentication for security
+   */
+  async exportPrivateKey(): Promise<void> {
+    try {
+      if (!this.currentUser) {
+        throw new AuthenticationError('No user logged in');
+      }
+
+      if (!this.currentUser.nearAccountId || !this.currentUser.username) {
+        throw new AuthenticationError('User data incomplete');
+      }
+
+      // Check if user has PRF support
+      if (!this.currentUser.prfSupported) {
+        throw new AuthenticationError('This application requires PRF support for key export');
+      }
+
+      // Emit loading event
+      authEventEmitter.loading('🔐 Authenticating for private key export...');
+
+      // Fresh PRF authentication required for security
+      const { credential, prfOutput } = await this.webAuthnManager.authenticateWithPrf(
+        this.currentUser.username,
+        'encryption', // Use 'encryption' purpose for key export
+        this.config.optimisticAuth ?? true
+      );
+
+      if (!credential || !prfOutput) {
+        throw new AuthenticationError('PRF authentication failed for private key export');
+      }
+
+      // Get fresh authentication options for challenge
+      const { challengeId } = await this.webAuthnManager.getAuthenticationOptions(
+        this.currentUser.username,
+        this.config.optimisticAuth ?? true
+      );
+
+      // Decrypt private key using PRF
+      const { decryptedPrivateKey } = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
+        this.currentUser.username,
+        prfOutput,
+        challengeId
+      );
+
+      // Small delay to ensure document regains focus after authentication
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Copy to clipboard securely
+      await this.safeClipboardWrite(decryptedPrivateKey);
+
+      // Note: Private key is only in memory briefly and never touches DOM
+      // JavaScript strings are immutable, so we can't overwrite memory
+      // The key will be garbage collected shortly
+
+      // Emit success event
+      authEventEmitter.success('🔑 Private key copied to clipboard securely');
+
+    } catch (error: any) {
+      if (error instanceof AuthenticationError) {
+        authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
+        throw error;
+      }
+      const errorMsg = `Private key export failed: ${error.message}`;
+      authEventEmitter.error(`❌ ${errorMsg}`);
+      throw new AuthenticationError(errorMsg, error);
+    }
+  }
+
+  /**
+   * Export both private and public keys to clipboard
+   * Requires fresh passkey authentication for security
+   */
+  async exportKeyPair(): Promise<void> {
+    try {
+      if (!this.currentUser) {
+        throw new AuthenticationError('No user logged in');
+      }
+
+      if (!this.currentUser.nearAccountId || !this.currentUser.username) {
+        throw new AuthenticationError('User data incomplete');
+      }
+
+      // Check if user has PRF support
+      if (!this.currentUser.prfSupported) {
+        throw new AuthenticationError('This application requires PRF support for key export');
+      }
+
+      // Emit loading event
+      authEventEmitter.loading('🔐 Authenticating for key pair export...');
+
+      // Fresh PRF authentication required for security
+      const { credential, prfOutput } = await this.webAuthnManager.authenticateWithPrf(
+        this.currentUser.username,
+        'encryption', // Use 'encryption' purpose for key export
+        this.config.optimisticAuth ?? true
+      );
+
+      if (!credential || !prfOutput) {
+        throw new AuthenticationError('PRF authentication failed for key pair export');
+      }
+
+      // Get fresh authentication options for challenge
+      const { challengeId } = await this.webAuthnManager.getAuthenticationOptions(
+        this.currentUser.username,
+        this.config.optimisticAuth ?? true
+      );
+
+      // Decrypt private key using PRF
+      const { decryptedPrivateKey } = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
+        this.currentUser.username,
+        prfOutput,
+        challengeId
+      );
+
+      // Small delay to ensure document regains focus after authentication
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Format key pair for export
+      const keyPairText = `Account ID: ${this.currentUser.nearAccountId}
+
+Public Key:
+${this.currentUser.clientNearPublicKey}
+
+Private Key:
+${decryptedPrivateKey}
+`;
+
+      // Copy to clipboard securely
+      await this.safeClipboardWrite(keyPairText);
+
+      // Alert (avoid the DOM)
+      alert(`NEAR Private Key Copied to Clipboard:\n\n${keyPairText}`);
+
+      // Emit success event
+      authEventEmitter.success('🔑 Key pair copied to clipboard securely');
+
+    } catch (error: any) {
+      if (error instanceof AuthenticationError) {
+        authEventEmitter.error(`❌ Authentication failed: ${error.message}`);
+        throw error;
+      }
+      const errorMsg = `Key pair export failed: ${error.message}`;
+      authEventEmitter.error(`❌ ${errorMsg}`);
+      throw new AuthenticationError(errorMsg, error);
+    }
+  }
+
+  /**
+   * Get public key (safe to display)
+   * No authentication required as public keys are not sensitive
+   */
+  getPublicKey(): string | null {
+    return this.currentUser?.clientNearPublicKey || null;
   }
 
   // === STATE MANAGEMENT ===

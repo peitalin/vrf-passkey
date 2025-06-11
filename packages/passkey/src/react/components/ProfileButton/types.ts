@@ -14,6 +14,7 @@ export interface ProfileMenuItem {
   label: string;
   description: string;
   disabled: boolean;
+  onClick?: () => void;
 }
 
 export interface ProfileButtonProps {

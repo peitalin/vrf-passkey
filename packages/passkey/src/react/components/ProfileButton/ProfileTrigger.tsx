@@ -1,5 +1,5 @@
 import React from 'react';
-import { AvatarIcon } from '../icons/AvatarIcon';
+import { AvatarGearIcon } from '../icons/AvatarGearIcon';
 import { UserDetails } from '../icons/UserDetails';
 import type { ProfileTriggerProps } from './types';
 
@@ -20,7 +20,7 @@ export const ProfileTrigger: React.FC<ProfileTriggerProps> = ({
         {...(onMouseLeave && { onMouseLeave })}
       >
         <div className="web3authn-profile-dropdown-user-content">
-          <AvatarIcon isOpen={isOpen} />
+          <AvatarGearIcon isOpen={isOpen} />
           <UserDetails username={username} isOpen={isOpen} />
         </div>
       </div>

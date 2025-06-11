@@ -53,6 +53,7 @@ interface WorkerResponse {
     nearAccountId?: string;
     signedTransactionBorsh?: number[];
     stored?: boolean;
+    decryptedPrivateKey?: string;
   };
 }
 
@@ -304,10 +305,46 @@ export class WebAuthnManager {
    * Create a one-time WASM worker
    */
   private createSecureWorker(): Worker {
-    const worker = new Worker(
-      new URL(WASM_WORKER_FILENAME, import.meta.url),
-      { type: 'module' }
-    );
+    // Environment-aware worker path resolution
+    // For development: try frontend public directory first
+    // For production: fall back to package paths
+
+    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname.includes('example.localhost');
+
+    let workerUrl: URL;
+
+    if (isDevelopment) {
+      // Development: try public workers directory first (temporary dev solution)
+      workerUrl = new URL('/workers/onetimePasskeySigner.worker.js', window.location.origin);
+      console.log('🛠️ Development mode: Using frontend public workers directory');
+    } else {
+      // Production: use package paths with environment detection
+      const currentUrl = new URL(import.meta.url);
+
+      // Navigate up to find the package root (where onetimePasskeySigner.worker.js is located)
+      // This works whether we're in dist/esm/core/ or dist/esm/react/src/core/
+
+      // First try: assume we're in the main esm build (dist/esm/core/)
+      workerUrl = new URL('../../onetimePasskeySigner.worker.js', currentUrl);
+
+      // Check if we're in the react build by looking at the path
+      if (currentUrl.pathname.includes('/react/src/core/')) {
+        // We're in dist/esm/react/src/core/, need to go up 4 levels
+        workerUrl = new URL('../../../../onetimePasskeySigner.worker.js', currentUrl);
+      }
+
+      console.log('🚀 Production mode: Using package worker paths');
+    }
+
+    console.log('WebAuthnManager: Worker config:', {
+      WASM_WORKER_FILENAME,
+      'import.meta.url': import.meta.url,
+      'isDevelopment': isDevelopment,
+      'detected location': import.meta.url.includes('/react/src/core/') ? 'react build' : 'main build',
+      'resolved workerUrl': workerUrl.href
+    });
+
+    const worker = new Worker(workerUrl, { type: 'module' });
 
     console.log('WebAuthnManager: Created secure one-time worker');
     return worker;
@@ -336,6 +373,7 @@ export class WebAuthnManager {
         if (!completed) {
           completed = true;
           clearTimeout(timeoutId);
+          console.log('Worker response received:', event.data);
           resolve(event.data);
           setTimeout(() => worker.terminate(), 100);
         }
@@ -346,10 +384,22 @@ export class WebAuthnManager {
           completed = true;
           clearTimeout(timeoutId);
           worker.terminate();
-          reject(new Error(`Worker error: ${error.message}`));
+          reject(new Error(`Worker error: ${error.message || 'Unknown worker error'}`));
         }
       };
 
+      // Add message error handler for unhandled promise rejections in worker
+      worker.addEventListener('messageerror', (event) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timeoutId);
+          worker.terminate();
+          console.error('Worker message error:', event);
+          reject(new Error('Worker message serialization error'));
+        }
+      });
+
+      console.log('Sending message to worker:', message);
       worker.postMessage(message);
     });
   }
@@ -658,6 +708,49 @@ export class WebAuthnManager {
       }
     } catch (error: any) {
       console.error('WebAuthnManager: PRF transaction signing failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Secure private key decryption with PRF: WebAuthn + WASM worker decryption using PRF
+   * WARNING: This exposes the private key - use only for secure key export workflows
+   */
+  async securePrivateKeyDecryptionWithPrf(
+    username: string,
+    prfOutput: ArrayBuffer,
+    challengeId: string
+  ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
+    try {
+      this.validateAndConsumeChallenge(challengeId, 'authentication');
+      console.log('WebAuthnManager: Starting secure private key decryption with PRF');
+
+      // Get user data first
+      const userData = await this.getUserData(username);
+      if (!userData?.nearAccountId) {
+        throw new Error(`No account data found for user: ${username}`);
+      }
+
+      const worker = this.createSecureWorker();
+      const response = await this.executeWorkerOperation(worker, {
+        type: 'DECRYPT_PRIVATE_KEY_WITH_PRF',
+        payload: {
+          nearAccountId: userData.nearAccountId,
+          prfOutput: bufferEncode(prfOutput),
+        }
+      });
+
+      if (response.type === 'DECRYPTION_SUCCESS') {
+        console.log('WebAuthnManager: PRF private key decryption successful');
+        return {
+          decryptedPrivateKey: response.payload.decryptedPrivateKey!,
+          nearAccountId: response.payload.nearAccountId!
+        };
+      } else {
+        throw new Error(response.payload?.error || 'PRF decryption failed');
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: PRF private key decryption failed:', error);
       throw error;
     }
   }

@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { webAuthnManager } from '../../core/WebAuthnManager';
 import { indexDBManager } from '../../core/IndexDBManager';
+import { PasskeyManager } from '../../core/PasskeyManager';
 import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
 import { useGreetingService } from '../hooks/useNearGreetingService';
 import { usePasskeyRegistration } from '../hooks/usePasskeyRegistration';
@@ -21,6 +22,15 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
   const [nearAccountId, setNearAccountId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
+
+  // Initialize PasskeyManager - we'll create it with minimal config
+  // In a real app, these should be provided via props
+  const passkeyManager = new PasskeyManager({
+    serverUrl: 'https://webauthn-server.example.com', // Default - should be configurable
+    nearNetwork: 'testnet',
+    relayerAccount: 'webauthn-contract.testnet', // Default for example
+    optimisticAuth: true // Default value
+  });
 
   // Use the extracted optimistic auth hook, passing current user for proper persistence
   const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
@@ -63,6 +73,19 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     setIsProcessing,
     fetchCurrentGreeting
   );
+
+  // Key management functions
+  const exportPrivateKey = useCallback(async (): Promise<void> => {
+    return passkeyManager.exportPrivateKey();
+  }, [passkeyManager]);
+
+  const exportKeyPair = useCallback(async (): Promise<void> => {
+    return passkeyManager.exportKeyPair();
+  }, [passkeyManager]);
+
+  const getPublicKey = useCallback((): string | null => {
+    return passkeyManager.getPublicKey();
+  }, [passkeyManager]);
 
   // Logout function
   const logoutPasskey = () => {
@@ -140,6 +163,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ childre
     fetchCurrentGreeting,
     optimisticAuth,
     setOptimisticAuth,
+    exportPrivateKey,
+    exportKeyPair,
+    getPublicKey,
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;

@@ -84,7 +84,14 @@ pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes:
     }
     let nonce = GenericArray::from_slice(&iv_bytes);
 
-    let encrypted_data = Base64UrlUnpadded::decode_vec(encrypted_data_b64u)
+    // Check if the data has the "ed25519:" prefix and strip it
+    let data_to_decode = if encrypted_data_b64u.starts_with("ed25519:") {
+        &encrypted_data_b64u[8..]
+    } else {
+        encrypted_data_b64u
+    };
+
+    let encrypted_data = Base64UrlUnpadded::decode_vec(data_to_decode)
         .map_err(|e| JsValue::from_str(&format!("Base64UrlUnpadded decode error for encrypted data: {}", e)))?;
 
     let decrypted_bytes = cipher.decrypt(nonce, encrypted_data.as_slice())
@@ -98,21 +105,28 @@ pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes:
 pub fn generate_near_keypair() -> Result<String, JsValue> {
     console_log!("RUST: Generating new NEAR key pair");
 
-    // Generate random bytes for the private key
-    let mut private_key_bytes = [0u8; 32];
-    getrandom(&mut private_key_bytes)
+    // Generate random bytes for the private key seed
+    let mut seed_bytes = [0u8; 32];
+    getrandom(&mut seed_bytes)
         .map_err(|e| JsValue::from_str(&format!("Failed to generate random bytes: {}", e)))?;
 
-    // Create signing key from random bytes
-    let signing_key = SigningKey::from_bytes(&private_key_bytes);
+    // Create signing key from the seed
+    let signing_key = SigningKey::from_bytes(&seed_bytes);
 
-    // Encode private key in NEAR format: "ed25519:BASE58_PRIVATE_KEY"
-    let private_key_b58 = bs58::encode(&private_key_bytes).into_string();
-    let private_key_near_format = format!("ed25519:{}", private_key_b58);
-
-    // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
+    // Get the corresponding public key
     let verifying_key = signing_key.verifying_key();
     let public_key_bytes = verifying_key.to_bytes();
+
+    // A full NEAR private key is the 64-byte concatenation of the seed and the public key
+    let mut full_private_key_bytes = Vec::with_capacity(64);
+    full_private_key_bytes.extend_from_slice(&seed_bytes);
+    full_private_key_bytes.extend_from_slice(&public_key_bytes);
+
+    // Encode the full 64-byte private key in NEAR format
+    let private_key_b58 = bs58::encode(&full_private_key_bytes).into_string();
+    let private_key_near_format = format!("ed25519:{}", private_key_b58);
+
+    // Encode public key in NEAR format
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
     let public_key_near_format = format!("ed25519:{}", public_key_b58);
 
@@ -179,11 +193,20 @@ pub fn generate_and_encrypt_near_keypair_with_prf(
 
     // Generate the key pair
     let keypair_json = generate_near_keypair()?;
+
+    // Remove ed25519: prefix before encryption
     let keypair_data: serde_json::Value = serde_json::from_str(&keypair_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse keypair: {}", e)))?;
 
-    let private_key = keypair_data["privateKey"].as_str()
+    let private_key_full = keypair_data["privateKey"].as_str()
         .ok_or_else(|| JsValue::from_str("Failed to extract private key"))?;
+
+    let private_key_seed = if private_key_full.starts_with("ed25519:") {
+        &private_key_full[8..]
+    } else {
+        private_key_full
+    };
+
     let public_key = keypair_data["publicKey"].as_str()
         .ok_or_else(|| JsValue::from_str("Failed to extract public key"))?;
 
@@ -191,8 +214,8 @@ pub fn generate_and_encrypt_near_keypair_with_prf(
     let encryption_key = derive_encryption_key_from_prf_core(prf_output_base64, INFO, HKDF_SALT)
         .map_err(|e| JsValue::from(e))?;
 
-    // Encrypt the private key
-    let encrypted_result = encrypt_data_aes_gcm(private_key, &encryption_key)?;
+    // Encrypt the raw seed
+    let encrypted_result = encrypt_data_aes_gcm(private_key_seed, &encryption_key)?;
 
     // Return combined result
     let result = format!(
@@ -335,5 +358,42 @@ mod tests {
 
         // Should be identical (deterministic)
         assert_eq!(keypair1, keypair2);
+    }
+
+    #[test]
+    fn test_key_length_and_format() {
+        // Generate a new keypair
+        let keypair_json = generate_near_keypair().unwrap();
+        let keypair: serde_json::Value = serde_json::from_str(&keypair_json).unwrap();
+
+        let private_key_full = keypair["privateKey"].as_str().unwrap();
+        let public_key = keypair["publicKey"].as_str().unwrap();
+
+        // 1. Test original key lengths
+        let private_key_b58_part = &private_key_full[8..];
+        let private_key_bytes = bs58::decode(private_key_b58_part).into_vec().unwrap();
+        assert_eq!(private_key_bytes.len(), 64, "Full private key should be 64 bytes");
+
+        let public_key_b58_part = &public_key[8..];
+        let public_key_bytes = bs58::decode(public_key_b58_part).into_vec().unwrap();
+        assert_eq!(public_key_bytes.len(), 32, "Public key should be 32 bytes");
+
+        // 2. Test encryption/decryption roundtrip and length of decrypted key
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
+        let encryption_key = derive_encryption_key_from_prf_core(prf_output_b64, "near-key-encryption", "").unwrap();
+
+        // Encrypt the raw seed (first 32 bytes of the full private key)
+        let seed_bytes = &private_key_bytes[0..32];
+        let seed_b58 = bs58::encode(seed_bytes).into_string();
+        let encrypted_json = encrypt_data_aes_gcm(&seed_b58, &encryption_key).unwrap();
+        let encrypted_obj: serde_json::Value = serde_json::from_str(&encrypted_json).unwrap();
+        let encrypted_data = encrypted_obj["encrypted_data_b64u"].as_str().unwrap();
+        let iv = encrypted_obj["iv_b64u"].as_str().unwrap();
+
+        // Decrypt and check length
+        let decrypted_seed_b58 = decrypt_data_aes_gcm(encrypted_data, iv, &encryption_key).unwrap();
+        let decrypted_seed_bytes = bs58::decode(&decrypted_seed_b58).into_vec().unwrap();
+        assert_eq!(decrypted_seed_bytes.len(), 32, "Decrypted seed should be 32 bytes");
+        assert_eq!(decrypted_seed_bytes, seed_bytes, "Decrypted seed should match original seed");
     }
 }

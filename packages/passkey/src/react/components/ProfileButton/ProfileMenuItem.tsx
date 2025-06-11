@@ -7,6 +7,9 @@ export const ProfileMenuItem = forwardRef<HTMLButtonElement, ProfileMenuItemProp
       e.stopPropagation();
       if (!item.disabled) {
         console.log(`Clicked: ${item.label}`);
+        if (item.onClick) {
+          item.onClick();
+        }
         onClose();
       }
     };

@@ -8,13 +8,32 @@ import {
   Signature
 } from '@near-js/transactions';
 import { sha256 } from 'js-sha256';
+import { KeyPairEd25519 } from '@near-js/crypto';
 
 // Import WASM binary directly
 // @ts-ignore - WASM module types
 import init, * as wasmModule from '../wasm-worker/passkey_crypto_worker.js';
 
-// Use a relative URL to the WASM file that will be copied by rollup
-const wasmUrl = new URL('../wasm-worker/passkey_crypto_worker_bg.wasm', import.meta.url);
+/**
+ * Strips the ed25519: prefix from a NEAR key string
+ */
+function stripKeyPrefix(key: string): string {
+  if (key.startsWith('ed25519:')) {
+    return key.substring(8);
+  }
+  return key;
+}
+
+// Buffer polyfill for Web Workers
+// Workers don't inherit main thread polyfills - they run in an isolated environment
+// without access to Node.js globals like Buffer that bundlers typically provide.
+// Manual polyfill is required for NEAR crypto operations that depend on Buffer.
+import { Buffer } from 'buffer';
+// @ts-ignore
+globalThis.Buffer = Buffer;
+
+// Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
+const wasmUrl = new URL('./passkey_crypto_worker_bg.wasm', import.meta.url);
 
 // === CONSTANTS ===
 const WASM_CACHE_NAME = 'passkey-wasm-v1';
@@ -39,24 +58,53 @@ const {
  */
 async function initializeWasmWithCache(): Promise<void> {
   try {
+    console.log('WORKER: Starting WASM initialization...', {
+      wasmUrl: wasmUrl.href,
+      userAgent: navigator.userAgent,
+      currentUrl: self.location.href
+    });
+
     const cache = await caches.open(WASM_CACHE_NAME);
     const cachedResponse = await cache.match(wasmUrl.href);
 
     if (cachedResponse) {
+      console.log('WORKER: Using cached WASM module');
       const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
       await init({ module: wasmModule });
+      console.log('WORKER: WASM initialized successfully from cache');
       return;
     }
 
+    console.log('WORKER: Fetching fresh WASM module from:', wasmUrl.href);
     const response = await fetch(wasmUrl.href);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+    }
+
+    console.log('WORKER: WASM fetch successful, content-type:', response.headers.get('content-type'));
     const responseToCache = response.clone();
     const wasmModule = await WebAssembly.compileStreaming(response);
 
     await cache.put(wasmUrl.href, responseToCache);
     await init({ module: wasmModule });
-  } catch (error) {
+    console.log('WORKER: WASM initialized successfully from fresh fetch');
+  } catch (error: any) {
     console.error('WORKER: WASM initialization failed, using fallback:', error);
+    console.error('WORKER: Error details:', {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
+
+    try {
+      console.log('WORKER: Attempting fallback WASM initialization...');
     await init();
+      console.log('WORKER: Fallback WASM initialization successful');
+    } catch (fallbackError: any) {
+      console.error('WORKER: Fallback WASM initialization also failed:', fallbackError);
+      throw new Error(`WASM initialization failed: ${error?.message || 'Unknown error'}. Fallback also failed: ${fallbackError?.message || 'Unknown fallback error'}`);
+    }
   }
 }
 
@@ -215,7 +263,15 @@ interface DecryptAndSignTransactionWithPrfMessage {
   };
 }
 
-type WorkerMessage = EncryptPrivateKeyWithPrfMessage | DecryptAndSignTransactionWithPrfMessage;
+interface DecryptPrivateKeyMessage {
+  type: 'DECRYPT_PRIVATE_KEY_WITH_PRF';
+  payload: {
+    nearAccountId: string;
+    prfOutput: string; // Base64-encoded PRF output
+  };
+}
+
+type WorkerMessage = EncryptPrivateKeyWithPrfMessage | DecryptAndSignTransactionWithPrfMessage | DecryptPrivateKeyMessage;
 
 // === MAIN MESSAGE HANDLER ===
 
@@ -230,8 +286,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>): Promise<void> => {
   messageProcessed = true;
   const { type, payload } = event.data;
 
+  console.log('WORKER: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
+
   try {
+    console.log('WORKER: Starting WASM initialization...');
     await initializeWasmWithCache();
+    console.log('WORKER: WASM initialization completed, processing message...');
 
     switch (type) {
       case 'ENCRYPT_PRIVATE_KEY_WITH_PRF':
@@ -242,12 +302,22 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>): Promise<void> => {
         await handleDecryptAndSignTransactionWithPrf(payload);
         break;
 
+      case 'DECRYPT_PRIVATE_KEY_WITH_PRF':
+        await handleDecryptPrivateKeyWithPrf(payload);
+        break;
+
       default:
         sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
     }
   } catch (error: any) {
-    console.error('WORKER: Message processing failed:', error.message);
-    sendResponseAndTerminate(createErrorResponse(error.message || 'Unknown error occurred'));
+    console.error('WORKER: Message processing failed:', {
+      error: error?.message || 'Unknown error',
+      stack: error?.stack,
+      name: error?.name,
+      type,
+      workerLocation: self.location.href
+    });
+    sendResponseAndTerminate(createErrorResponse(error?.message || 'Unknown error occurred'));
   }
 };
 
@@ -310,19 +380,31 @@ async function handleEncryptPrivateKeyWithPrf(
 // === DECRYPTION AND SIGNING WORKFLOW ===
 
 /**
- * Decrypt private key from stored data
+ * Decrypt private key from stored data and return as string
  */
-function decryptPrivateKey(
+function decryptPrivateKeyString(
   encryptedKeyData: EncryptedKeyData,
   prfOutput: string
-): KeyPair {
+): string {
   const decryptionKey = derive_encryption_key_from_prf(prfOutput, HKDF_INFO, HKDF_SALT);
-  const decryptedPrivateKeyString = decrypt_data_aes_gcm(
+  const decryptedBase58Key = decrypt_data_aes_gcm(
     encryptedKeyData.encryptedData,
     encryptedKeyData.iv,
     decryptionKey
   );
 
+  // The decrypted data is the base58 part of the key, just add the prefix
+  return `ed25519:${decryptedBase58Key}`;
+}
+
+/**
+ * Decrypt private key from stored data and return as KeyPair
+ */
+function decryptPrivateKey(
+  encryptedKeyData: EncryptedKeyData,
+  prfOutput: string
+): KeyPair {
+  const decryptedPrivateKeyString = decryptPrivateKeyString(encryptedKeyData, prfOutput);
   return KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
 }
 
@@ -412,9 +494,43 @@ async function handleDecryptAndSignTransactionWithPrf(
   }
 }
 
+/**
+ * Handle private key decryption with PRF
+ */
+async function handleDecryptPrivateKeyWithPrf(
+  payload: DecryptPrivateKeyMessage['payload']
+): Promise<void> {
+  try {
+    const { nearAccountId, prfOutput } = payload;
+
+    const encryptedKeyData = await getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    // Encrypted data is already raw base64, no prefix stripping needed
+    const decryptedPrivateKey = decryptPrivateKeyString(encryptedKeyData, prfOutput);
+
+    sendResponseAndTerminate({
+      type: 'DECRYPTION_SUCCESS',
+      payload: {
+        decryptedPrivateKey,
+        nearAccountId
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: Decryption failed:', error.message);
+    sendResponseAndTerminate({
+      type: 'DECRYPTION_FAILURE',
+      payload: { error: error.message || 'PRF decryption failed' }
+    });
+  }
+}
+
 // === EXPORTS ===
 export type {
   WorkerMessage,
   EncryptPrivateKeyWithPrfMessage,
-  DecryptAndSignTransactionWithPrfMessage
+  DecryptAndSignTransactionWithPrfMessage,
+  DecryptPrivateKeyMessage
 };

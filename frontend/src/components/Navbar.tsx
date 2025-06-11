@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { usePasskeyContext } from '../contexts/PasskeyContext';
-import { ProfileButton } from './Web3AuthUserProfile/ProfileButton';
+import {
+  usePasskeyContext,
+  ProfileButton
+} from '@web3authn/passkey/react';
 
 export const Navbar: React.FC = () => {
   const { isLoggedIn } = usePasskeyContext();
@@ -23,7 +25,8 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      {isLoggedIn && <ProfileButton />}
+      {/* {isLoggedIn && <ProfileButton />} */}
+      <ProfileButton />
     </nav>
   );
 };

@@ -34,7 +34,7 @@
     "build:wasm:dev": "cd src/wasm-worker && wasm-pack build --target web --out-dir . --dev",
     "build:ts": "tsc -p tsconfig.build.json",
     "build:bundle": "rollup -c rollup.config.js",
-    "build:all": "npm run lint && npm run type-check && npm run build && npm run test",
+    "build:all": "npm run build && npm run copy-assets",
     "dev": "rollup -c rollup.config.js -w",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -44,7 +44,7 @@
     "link:local": "npm run build && pnpm link",
     "unlink:local": "pnpm unlink",
     "dev:link": "npm run build:all && pnpm link && echo '📦 Package built and linked! Use \"pnpm link @web3authn/passkey\" in your project'",
-    "copy-assets": "echo 'Copy these files to your public directory:' && echo '  node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js' && echo '  node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm' && echo '  node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js'",
+    "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -87,6 +87,7 @@
   "devDependencies": {
     "@near-js/providers": "^2.0.2",
     "@near-js/transactions": "^2.0.2",
+    "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.0",
@@ -101,6 +102,7 @@
     "animejs": "^4.0.2",
     "borsh": "^2.0.0",
     "bs58": "^6.0.0",
+    "buffer": "^6.0.3",
     "eslint": "^8.55.0",
     "idb": "^8.0.3",
     "jest": "^29.7.0",

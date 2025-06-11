@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccountIcon } from '../icons/AccountIcon';
+import { KeyIcon } from '../icons/KeyIcon';
 import { PaymentMethodsIcon } from '../icons/PaymentMethodsIcon';
 import { ProfileTrigger } from './ProfileTrigger';
 import { ProfileDropdown } from './ProfileDropdown';
@@ -19,22 +19,6 @@ const MENU_CONFIG = {
   logoutSectionHeight: 46,
   bottomBuffer: 4,
 } as const;
-
-// Menu items configuration
-const MENU_ITEMS: ProfileMenuItem[] = [
-  {
-    icon: <AccountIcon />,
-    label: 'Account',
-    description: 'Privacy and sharing',
-    disabled: true
-  },
-  {
-    icon: <PaymentMethodsIcon />,
-    label: 'Payments',
-    description: 'Manage payment methods',
-    disabled: true
-  },
-];
 
 export interface ProfileButtonProps {
   username?: string | null;
@@ -57,7 +41,8 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
     nearAccountId: contextNearAccountId,
     optimisticAuth: contextOptimisticAuth,
     logoutPasskey,
-    setOptimisticAuth
+    setOptimisticAuth,
+    exportKeyPair
   } = usePasskeyContext();
 
   // Use props if provided, otherwise fall back to context
@@ -66,6 +51,23 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
   const optimisticAuth = optimisticAuthProp !== undefined ? optimisticAuthProp : contextOptimisticAuth;
   const onLogout = onLogoutProp || logoutPasskey;
   const onOptimisticAuthChange = onOptimisticAuthChangeProp || setOptimisticAuth;
+
+  // Menu items configuration with context-aware handlers
+  const MENU_ITEMS: ProfileMenuItem[] = [
+    {
+      icon: <KeyIcon />,
+      label: 'Export Keys',
+      description: 'Export your NEAR private keys',
+      disabled: false,
+      onClick: exportKeyPair
+    },
+    {
+      icon: <PaymentMethodsIcon />,
+      label: 'Payments',
+      description: 'Manage payment methods',
+      disabled: true
+    },
+  ];
 
   // State management
   const {

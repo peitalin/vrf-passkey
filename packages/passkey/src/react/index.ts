@@ -16,9 +16,9 @@ export { ProfileButton } from './components/ProfileButton';
 
 // === REACT ICONS ===
 export { RefreshIcon } from './components/icons/RefreshIcon';
-export { AccountIcon } from './components/icons/AccountIcon';
+export { KeyIcon } from './components/icons/KeyIcon';
 export { PaymentMethodsIcon } from './components/icons/PaymentMethodsIcon';
-export { AvatarIcon } from './components/icons/AvatarIcon';
+export { AvatarGearIcon } from './components/icons/AvatarGearIcon';
 export { UserDetails } from './components/icons/UserDetails';
 
 // === TYPES ===

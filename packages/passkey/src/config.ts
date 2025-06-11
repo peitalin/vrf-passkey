@@ -1,6 +1,6 @@
 export const SERVER_URL = 'http://localhost:3001';
 
-export const WASM_WORKER_FILENAME = './onetimePasskeySigner.worker.js';
+export const WASM_WORKER_FILENAME = '../../onetimePasskeySigner.worker.js';
 
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
 export const DEFAULT_GAS_STRING = "30000000000000"; // 30 TGas

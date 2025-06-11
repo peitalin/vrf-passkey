@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { usePasskeyContext } from '../contexts/PasskeyContext'
+
+import { WebAuthnManager } from '@web3authn/passkey'
+import { usePasskeyContext } from '@web3authn/passkey/react'
+
 import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './icons/RefreshIcon'
-import { webAuthnManager } from '../security/WebAuthnManager'
 import { shortenString } from '../utils/strings'
 import { Toggle } from './Toggle'
 import {
@@ -38,6 +40,8 @@ export function PasskeyLogin() {
     optimisticAuth,
     setOptimisticAuth,
   } = usePasskeyContext();
+
+  const webAuthnManager = new WebAuthnManager();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);

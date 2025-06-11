@@ -1,16 +1,17 @@
 # @web3authn/passkey
 
-Passkey authentication SDK with onchain WebAuthn.
+> **⚠️ Development Note**: Currently using a temporary solution where worker files are copied to `frontend/public/workers/` for development. The code is environment-aware and will automatically use the correct paths in production. This ensures robust operation across different deployment scenarios.
+
+Web3Authn Passkey SDK for NEAR Protocol integration with React components and TypeScript support.
 
 ## Features
 
-- **Passkey Authentication**: Secure login/registration using WebAuthn
-- **PRF Support**: Pseudorandom Function for enhanced security
-- **Optimistic Auth**: Fast transaction signing
-- **️ React Ready**: Drop-in React components and hooks
-- **Framework Agnostic**: Core functionality works without React
-- **TypeScript**: Full type safety and IntelliSense
-- **WASM Powered**: Efficient cryptographic operations
+- 🔐 **Secure Passkey Authentication** - WebAuthn-based authentication with PRF extension support
+- 🔄 **Worker-based Cryptography** - Isolated Web Workers for secure key operations
+- ⚡ **React Components** - Ready-to-use ProfileButton component
+- 🎯 **TypeScript Support** - Full type definitions included
+- 📦 **Multiple Formats** - ESM and CommonJS builds
+- 🔧 **Context API** - Comprehensive state management for React apps
 
 ## Installation
 
