@@ -646,7 +646,32 @@ async function handleRegistrationWithSSE(
     // Steps 3, 4 & 5: Run database storage, account creation, and contract registration concurrently
     const concurrentTasks = [];
 
-    // Task 1: Database storage
+    // Task 1: Create NEAR account with access key (must complete first)
+    if (clientManagedNearPublicKey && user.nearAccountId) {
+      sendSSEUpdate('access-key-addition', 'progress', { message: 'Creating NEAR account...' });
+      try {
+        const nearAccountId = user.nearAccountId!;
+        console.log(`Creating account ${nearAccountId} with access key...`);
+        const creationResult = await nearClient.createAccount(nearAccountId, clientManagedNearPublicKey);
+        if (!creationResult.success) {
+          throw new Error(`Failed to create account: ${creationResult.message}`);
+        }
+        sendSSEUpdate('access-key-addition', 'success', { message: 'NEAR account created successfully' });
+      } catch (error: any) {
+        console.error('Failed to create NEAR account:', error);
+        sendSSEUpdate('access-key-addition', 'error', {
+          message: 'Failed to create NEAR account. Aborting remaining steps.',
+          error: error.message
+        });
+        // Stop if account creation fails
+        res.end();
+        return Promise.resolve();
+      }
+    }
+
+    // Task 2 & 3: Run database storage and contract registration concurrently
+    const remainingTasks = [];
+
     const databaseTask = (async () => {
       sendSSEUpdate('database-storage', 'progress', { message: 'Storing authenticator in database...' });
 
@@ -677,6 +702,13 @@ async function handleRegistrationWithSSE(
           credentialBackedUpForDB = credentialBackedUp || false;
         }
 
+        // Add the public key to the registration info if it's missing (for optimistic mode)
+        if (useOptimistic && !registrationInfo.credentialPublicKey) {
+          const attestationObject = decodeAttestationObject(isoBase64URL.toBuffer(attestationResponse.response.attestationObject));
+          const authenticatorData = parseAuthenticatorData((attestationObject as any).authData);
+          registrationInfo.credentialPublicKey = authenticatorData.credentialPublicKey;
+        }
+
         if (user.nearAccountId) {
           await authenticatorService.create({
             credentialID: credentialIDForDB,
@@ -700,42 +732,13 @@ async function handleRegistrationWithSSE(
         });
       }
     })();
+    remainingTasks.push(databaseTask);
 
-    concurrentTasks.push(databaseTask);
-
-    // Task 2: Create NEAR account with access key
-    if (clientManagedNearPublicKey && user.nearAccountId) {
-      const accessKeyTask = (async () => {
-        sendSSEUpdate('access-key-addition', 'progress', { message: 'Creating NEAR account...' });
-
-        try {
-          const nearAccountId = user.nearAccountId!; // Already checked in if condition
-          console.log(`Creating account ${nearAccountId} with access key...`);
-          const creationResult = await nearClient.createAccount(nearAccountId, clientManagedNearPublicKey);
-          if (!creationResult.success) {
-            throw new Error(`Failed to create account: ${creationResult.message}`);
-          }
-
-          sendSSEUpdate('access-key-addition', 'success', { message: 'NEAR account created successfully' });
-        } catch (error: any) {
-          console.error('Failed to create NEAR account:', error);
-          sendSSEUpdate('access-key-addition', 'error', {
-            message: 'Failed to create NEAR account (account still secured)',
-            error: error.message
-          });
-        }
-      })();
-
-      concurrentTasks.push(accessKeyTask);
-    }
-
-    // Task 3: Contract user registration (for optimistic mode)
     if (useOptimistic && user.nearAccountId) {
       const contractTask = (async () => {
         sendSSEUpdate('contract-registration', 'progress', { message: 'Registering user in contract...' });
-
         try {
-          const nearAccountId = user.nearAccountId!; // Already checked in if condition
+          const nearAccountId = user.nearAccountId!;
           await registerUserInContractWithProgress(sessionId, nearAccountId, user.username);
           sendSSEUpdate('contract-registration', 'success', { message: 'User registered in contract successfully' });
         } catch (error: any) {
@@ -746,12 +749,10 @@ async function handleRegistrationWithSSE(
           });
         }
       })();
-
-      concurrentTasks.push(contractTask);
+      remainingTasks.push(contractTask);
     }
 
-    // Wait for all concurrent tasks to complete
-    await Promise.allSettled(concurrentTasks);
+    await Promise.allSettled(remainingTasks);
 
     // Step 7: Final completion
     sendSSEUpdate('registration-complete', 'success', {
