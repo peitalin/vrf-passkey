@@ -94,12 +94,12 @@
 
 /* Gear icon animation for AvatarIcon */
 .web3authn-profile-dropdown-gear-icon.open {
-  animation: web3authn-gearRotateIn 1s ease-out;
+  animation: web3authn-gearRotateIn 0.6s ease-out;
   animation-fill-mode: forwards;
 }
 
 .web3authn-profile-dropdown-gear-icon.closed {
-  animation: web3authn-gearRotateOut 1s ease-out;
+  animation: web3authn-gearRotateOut 0.4s ease-out;
 }
 
 @keyframes web3authn-gearRotateIn {
@@ -107,7 +107,7 @@
     transform: rotate(0deg) scale(1);
   }
   to {
-    transform: rotate(360deg) scale(1.5);
+    transform: rotate(360deg) scale(1.8);
   }
 }
 
