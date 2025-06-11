@@ -56,28 +56,35 @@ export const usePasskeyRegistration = (
       console.log('🔄 Step 1: Starting WebAuthn credential creation & PRF...');
 
       // Show initial toast for Step 1
+      console.log('🚨 DEBUG: About to call authEventEmitter.loading for Step 1');
+      console.log('🚨 DEBUG: authEventEmitter instance:', authEventEmitter);
       const step1Toast = authEventEmitter.loading('🔐 Step 1: Creating passkey with PRF...', {
         style: { background: MUTED_BLUE, color: 'white' },
         duration: 5000
       });
+      console.log('🚨 DEBUG: authEventEmitter.loading returned:', step1Toast);
 
       // Step 1: WebAuthn credential creation & PRF
       const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrf(currentUsername, optimisticAuth);
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       console.log('✅ Step 1 complete: WebAuthn credential created, PRF enabled:', prfEnabled);
+      console.log('🚨 DEBUG: About to call authEventEmitter.success for Step 1');
       authEventEmitter.success('✅ Step 1: Passkey created successfully', {
         id: step1Toast,
         style: { background: MUTED_GREEN, color: 'white' },
         duration: 5000
       });
+      console.log('🚨 DEBUG: authEventEmitter.success called');
 
       // Step 2: Client-side key generation/management using PRF output
       console.log('🔄 Step 2: Starting client-side key generation...');
+      console.log('🚨 DEBUG: About to call authEventEmitter.dismiss and loading for Step 2');
       authEventEmitter.dismiss(step1Toast);
       const processingToast = authEventEmitter.loading('🔐 Securing your account...', {
         style: { background: MUTED_BLUE, color: 'white' }
       });
+      console.log('🚨 DEBUG: Step 2 authEventEmitter calls completed');
 
       let clientManagedPublicKey: string | null = null;
       const userNearAccountIdToUse = indexDBManager.generateNearAccountId(currentUsername, RELAYER_ACCOUNT_ID);

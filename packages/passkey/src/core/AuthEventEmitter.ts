@@ -13,9 +13,10 @@ export interface AuthEvent {
   };
 }
 
-export class AuthEventEmitter extends EventTarget {
+export class AuthEventEmitter {
   private activeToasts = new Set<string>();
   private maxConcurrentToasts = 3;
+  private listeners: Array<(event: AuthEvent & { id: string }) => void> = [];
 
   /**
    * Generate a unique ID for auth events
@@ -29,11 +30,25 @@ export class AuthEventEmitter extends EventTarget {
    */
   private emit(event: AuthEvent): string {
     const id = event.id || this.generateId();
-    const toastEvent = new CustomEvent('toast', {
-      detail: { ...event, id }
+    const eventWithId = { ...event, id };
+
+    console.log('🔥 AuthEventEmitter.emit() called:', {
+      type: event.type,
+      message: event.message,
+      id: id,
+      listenerCount: this.listeners.length
     });
 
-    this.dispatchEvent(toastEvent);
+    // Call all registered listeners
+    this.listeners.forEach((listener, index) => {
+      try {
+        console.log(`📞 Calling listener ${index + 1}/${this.listeners.length}`);
+        listener(eventWithId);
+        console.log(`✅ Listener ${index + 1} executed successfully`);
+      } catch (error) {
+        console.error(`❌ Error in listener ${index + 1}:`, error);
+      }
+    });
 
     if (event.type !== 'dismiss') {
       this.activeToasts.add(id);
@@ -54,6 +69,7 @@ export class AuthEventEmitter extends EventTarget {
    * Show loading auth event
    */
   loading(message: string, options?: AuthEvent['options']): string {
+    console.log('🔄 AuthEventEmitter.loading() called:', message);
     return this.emit({
       type: 'loading',
       message,
@@ -65,6 +81,7 @@ export class AuthEventEmitter extends EventTarget {
    * Show success auth event
    */
   success(message: string, options?: AuthEvent['options'] & { id?: string }): string {
+    console.log('✅ AuthEventEmitter.success() called:', message);
     const id = options?.id;
     return this.emit({
       type: 'success',
@@ -81,6 +98,7 @@ export class AuthEventEmitter extends EventTarget {
    * Show error toast
    */
   error(message: string, options?: AuthEvent['options'] & { id?: string }): string {
+    console.log('❌ AuthEventEmitter.error() called:', message);
     const id = options?.id;
     return this.emit({
       type: 'error',
@@ -97,6 +115,7 @@ export class AuthEventEmitter extends EventTarget {
    * Dismiss a toast
    */
   dismiss(id: string): void {
+    console.log('🗑️ AuthEventEmitter.dismiss() called:', id);
     this.emit({
       type: 'dismiss',
       id
@@ -107,18 +126,32 @@ export class AuthEventEmitter extends EventTarget {
    * Listen for auth events
    */
   onAuthEvent(callback: (event: AuthEvent & { id: string }) => void): () => void {
-    const handler = (event: CustomEvent) => {
-      callback(event.detail);
-    };
+    console.log('👂 AuthEventEmitter.onAuthEvent() called - registering listener');
 
-    this.addEventListener('toast', handler as EventListener);
+    // Add callback to listeners array
+    this.listeners.push(callback);
+    console.log(`📡 Listener registered. Total listeners: ${this.listeners.length}`);
+
+    // Test immediately
+    setTimeout(() => {
+      console.log('🧪 Testing with a dummy event...');
+      callback({ type: 'loading', message: 'Test event', id: 'test-123' });
+    }, 50);
 
     // Return cleanup function
     return () => {
-      this.removeEventListener('toast', handler as EventListener);
+      console.log('🛑 Removing event listener');
+      const index = this.listeners.indexOf(callback);
+      if (index > -1) {
+        this.listeners.splice(index, 1);
+        console.log(`🛑 Listener removed. Remaining listeners: ${this.listeners.length}`);
+      }
     };
   }
 }
 
 // Export singleton instance
 export const authEventEmitter = new AuthEventEmitter();
+
+// Add some debugging for the singleton
+console.log('🎪 AuthEventEmitter singleton created:', authEventEmitter);
