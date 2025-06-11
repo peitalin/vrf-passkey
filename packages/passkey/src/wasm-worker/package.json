@@ -1,0 +1,15 @@
+{
+  "name": "passkey-crypto-worker",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "passkey_crypto_worker_bg.wasm",
+    "passkey_crypto_worker.js",
+    "passkey_crypto_worker.d.ts"
+  ],
+  "main": "passkey_crypto_worker.js",
+  "types": "passkey_crypto_worker.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

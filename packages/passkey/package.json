@@ -1,0 +1,105 @@
+{
+  "name": "@web3authn/passkey",
+  "version": "0.1.0",
+  "description": "Web3 Authn passkeys built on NEAR protocol",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/esm/react/index.js",
+      "require": "./dist/cjs/react/index.js",
+      "types": "./dist/types/react/index.d.ts"
+    },
+    "./wasm-worker": "./dist/wasm/passkey-worker.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "npm run build:clean && npm run build:wasm && npm run build:ts && npm run build:bundle",
+    "build:clean": "rm -rf dist/",
+    "build:wasm": "cd src/wasm-worker && wasm-pack build --target web --out-dir . && echo 'WASM build complete'",
+    "build:wasm:dev": "cd src/wasm-worker && wasm-pack build --target web --out-dir . --dev",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build:bundle": "rollup -c rollup.config.js",
+    "dev": "rollup -c rollup.config.js -w",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "NEAR",
+    "passkey",
+    "webauthn",
+    "authentication",
+    "blockchain",
+    "react",
+    "typescript",
+    "sdk"
+  ],
+  "author": "web3authn.org",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/web3-authn/passkey.git"
+  },
+  "bugs": {
+    "url": "https://github.com/web3-authn/passkey/issues"
+  },
+  "homepage": "https://github.com/web3-authn/passkey#readme",
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@near-js/client": "^2.0.1",
+    "@near-js/crypto": "^2.0.1",
+    "@near-js/providers": "^2.0.1",
+    "@near-js/transactions": "^2.0.1",
+    "borsh": "^2.0.0",
+    "bs58": "^6.0.0",
+    "idb": "^8.0.3",
+    "js-sha256": "^0.11.1",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^11.1.0",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "rollup": "^4.9.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  }
+}
