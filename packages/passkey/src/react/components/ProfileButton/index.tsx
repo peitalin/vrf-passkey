@@ -103,17 +103,6 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
     onOptimisticAuthChange?.(value);
   };
 
-  // Show a minimal version if no username is available
-  if (!username) {
-    return (
-      <div className="web3authn-profile-button-container">
-        <div className="web3authn-profile-button-placeholder">
-          <span style={{ fontSize: '12px', color: '#666' }}>Not logged in</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="web3authn-profile-button-container">
       <div
@@ -121,7 +110,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
         className={`web3authn-profile-button-morphable ${isOpen ? 'open' : 'closed'}`}
       >
         <ProfileTrigger
-          username={username}
+          username={username || 'NA'}
           isOpen={isOpen}
           onClick={handleToggle}
         />

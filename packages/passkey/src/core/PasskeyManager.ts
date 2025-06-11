@@ -61,6 +61,7 @@ export class PasskeyManager {
   async register(username: string, options?: {
     optimisticAuth?: boolean;
   }): Promise<RegisterResult> {
+    const toastId = authEventEmitter.loading('🚀 Registering new passkey...');
     try {
       const useOptimistic = options?.optimisticAuth ?? this.config.optimisticAuth ?? true;
 
@@ -122,6 +123,7 @@ export class PasskeyManager {
 
       this.currentUser = userData;
 
+      authEventEmitter.success('✅ Passkey registered successfully!', { id: toastId });
       return {
         success: true,
         nearAccountId,
@@ -130,6 +132,7 @@ export class PasskeyManager {
       };
 
     } catch (error: any) {
+      authEventEmitter.error(`❌ Registration failed: ${error.message}`, { id: toastId });
       if (error instanceof RegistrationError) {
         throw error;
       }
@@ -143,6 +146,7 @@ export class PasskeyManager {
   async login(username?: string, options?: {
     optimisticAuth?: boolean;
   }): Promise<LoginResult> {
+    const toastId = authEventEmitter.loading(`🚀 Logging in as ${username || 'discoverable user'}...`);
     try {
       const useOptimistic = options?.optimisticAuth ?? this.config.optimisticAuth ?? true;
 
@@ -179,6 +183,7 @@ export class PasskeyManager {
 
       this.currentUser = userData;
 
+      authEventEmitter.success(`✅ Logged in as ${userData.username}!`, { id: toastId });
       return {
         success: true,
         loggedInUsername: userData.username,
@@ -187,6 +192,7 @@ export class PasskeyManager {
       };
 
     } catch (error: any) {
+      authEventEmitter.error(`❌ Login failed: ${error.message}`, { id: toastId });
       if (error instanceof AuthenticationError) {
         throw error;
       }

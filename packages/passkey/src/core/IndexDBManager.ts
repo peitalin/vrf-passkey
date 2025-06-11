@@ -35,10 +35,19 @@ const DB_CONFIG: IndexDBManagerConfig = {
 } as const;
 
 class IndexDBManager {
-  private dbPromise: Promise<IDBPDatabase>;
+  private config: IndexDBManagerConfig;
+  private db: IDBPDatabase | null = null;
 
-  constructor() {
-    this.dbPromise = openDB(DB_CONFIG.dbName, DB_CONFIG.dbVersion, {
+  constructor(config: IndexDBManagerConfig) {
+    this.config = config;
+  }
+
+  private async getDB(): Promise<IDBPDatabase> {
+    if (this.db) {
+      return this.db;
+    }
+
+    this.db = await openDB(this.config.dbName, this.config.dbVersion, {
       upgrade(db): void {
         if (!db.objectStoreNames.contains(DB_CONFIG.userStore)) {
           db.createObjectStore(DB_CONFIG.userStore, { keyPath: 'nearAccountId' });
@@ -47,19 +56,33 @@ class IndexDBManager {
           db.createObjectStore(DB_CONFIG.appStateStore, { keyPath: 'key' });
         }
       },
+      // Optional: Add event handlers for better debugging
+      blocked() {
+        console.warn('IndexDB connection is blocked.');
+      },
+      blocking() {
+        console.warn('IndexDB connection is blocking another connection.');
+      },
+      terminated: () => {
+        console.warn('IndexDB connection has been terminated.');
+        // Reset the db property to allow re-opening
+        this.db = null;
+      },
     });
+
+    return this.db;
   }
 
   // === APP STATE METHODS ===
 
   async getAppState<T = any>(key: string): Promise<T | undefined> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     const result = await db.get(DB_CONFIG.appStateStore, key);
     return result?.value as T | undefined;
   }
 
   async setAppState<T = any>(key: string, value: T): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     const entry: AppStateEntry<T> = { key, value };
     await db.put(DB_CONFIG.appStateStore, entry);
   }
@@ -79,7 +102,7 @@ class IndexDBManager {
   }
 
   async storeUser(userData: ClientUserData): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     await db.put(DB_CONFIG.userStore, userData);
     await this.setAppState('lastUserAccountId', userData.nearAccountId);
   }
@@ -87,7 +110,7 @@ class IndexDBManager {
   async getUser(nearAccountId: string): Promise<ClientUserData | null> {
     if (!nearAccountId) return null;
 
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     const result = await db.get(DB_CONFIG.userStore, nearAccountId);
     return result || null;
   }
@@ -148,25 +171,25 @@ class IndexDBManager {
   // === UTILITY METHODS ===
 
   async getAllUsers(): Promise<ClientUserData[]> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     return db.getAll(DB_CONFIG.userStore);
   }
 
   async deleteUser(nearAccountId: string): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     await db.delete(DB_CONFIG.userStore, nearAccountId);
   }
 
   async clearAllUsers(): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     await db.clear(DB_CONFIG.userStore);
   }
 
   async clearAllAppState(): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDB();
     await db.clear(DB_CONFIG.appStateStore);
   }
 }
 
 // Export a singleton instance
-export const indexDBManager = new IndexDBManager();
+export const indexDBManager = new IndexDBManager(DB_CONFIG);
