@@ -1,17 +1,23 @@
 import { useEffect } from 'react';
 import toast from 'react-hot-toast';
-import {
-  toastEmitter,
-  type ToastEvent
-} from '@web3authn/passkey';
+import { authEventEmitter, type AuthEvent } from '@web3authn/passkey';
 
 /**
- * Hook to listen to SDK toast events and display them using react-hot-toast
+ * Hook to listen to Web3Authn SDK events and display them using react-hot-toast
  */
-export const useToastListener = () => {
+export const useWeb3AuthnEventListener = () => {
   useEffect(() => {
-    const handleToastEvent = (event: ToastEvent & { id: string }) => {
+    const handleAuthEvent = (event: AuthEvent & { id: string }) => {
       const { type, message, id, options } = event;
+
+      // Log every event for debugging
+      console.log('🔔 Web3Authn Event:', {
+        type,
+        message,
+        id,
+        options,
+        timestamp: new Date().toISOString()
+      });
 
       switch (type) {
         case 'loading':
@@ -49,14 +55,19 @@ export const useToastListener = () => {
           break;
 
         default:
-          console.warn('Unknown toast event type:', type);
+          console.warn('⚠️ Unknown toast event type:', type, event);
       }
     };
 
+    console.log('📡 Starting Web3Authn event listener...');
+
     // Start listening to toast events
-    const cleanup = toastEmitter.onToast(handleToastEvent);
+    const cleanup = authEventEmitter.onAuthEvent(handleAuthEvent);
 
     // Cleanup listener on unmount
-    return cleanup;
+    return () => {
+      console.log('🛑 Stopping Web3Authn event listener...');
+      cleanup();
+    };
   }, []);
 };

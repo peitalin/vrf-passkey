@@ -7,6 +7,15 @@ export default defineConfig({
     port: 5173, // The port Caddy is reverse_proxying to
     host: 'localhost', // Ensure Vite is accessible by Caddy on localhost
     open: 'https://example.localhost', // Automatically open this URL in the browser
+    fs: {
+      // Allow serving files from the linked package directory
+      allow: [
+        // Default: serve files from project root
+        '..',
+        // Allow serving from the linked passkey package
+        '../packages/passkey/dist'
+      ]
+    }
   },
   plugins: [
     react(),
