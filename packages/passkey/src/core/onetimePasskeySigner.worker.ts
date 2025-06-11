@@ -9,11 +9,12 @@ import {
 } from '@near-js/transactions';
 import { sha256 } from 'js-sha256';
 
-// Import WASM binary directly as URL
+// Import WASM binary directly
 // @ts-ignore - WASM module types
 import init, * as wasmModule from '../wasm-worker/passkey_crypto_worker.js';
-// @ts-ignore - WASM binary import
-import wasmUrl from '../wasm-worker/passkey_crypto_worker_bg.wasm?url';
+
+// Use a relative URL to the WASM file that will be copied by rollup
+const wasmUrl = new URL('../wasm-worker/passkey_crypto_worker_bg.wasm', import.meta.url);
 
 // === CONSTANTS ===
 const WASM_CACHE_NAME = 'passkey-wasm-v1';
@@ -39,7 +40,7 @@ const {
 async function initializeWasmWithCache(): Promise<void> {
   try {
     const cache = await caches.open(WASM_CACHE_NAME);
-    const cachedResponse = await cache.match(wasmUrl);
+    const cachedResponse = await cache.match(wasmUrl.href);
 
     if (cachedResponse) {
       const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
@@ -47,11 +48,11 @@ async function initializeWasmWithCache(): Promise<void> {
       return;
     }
 
-    const response = await fetch(wasmUrl);
+    const response = await fetch(wasmUrl.href);
     const responseToCache = response.clone();
     const wasmModule = await WebAssembly.compileStreaming(response);
 
-    await cache.put(wasmUrl, responseToCache);
+    await cache.put(wasmUrl.href, responseToCache);
     await init({ module: wasmModule });
   } catch (error) {
     console.error('WORKER: WASM initialization failed, using fallback:', error);

@@ -2,6 +2,9 @@ import typescript from '@rollup/plugin-typescript';
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
+import copy from 'rollup-plugin-copy';
+import postcss from 'rollup-plugin-postcss';
+import json from '@rollup/plugin-json';
 
 const external = [
   // React dependencies
@@ -36,6 +39,25 @@ const plugins = [
     declaration: false,
     declarationMap: false,
     outDir: undefined  // Let rollup handle output directory
+  }),
+  postcss({
+    extract: true,
+    minimize: true
+  }),
+  copy({
+    targets: [
+      { src: 'src/wasm-worker/*.wasm', dest: 'dist/wasm-worker' },
+      { src: 'src/wasm-worker/*.js', dest: 'dist/wasm-worker' },
+      // Copy WASM files for worker access at root level too
+      { src: 'src/wasm-worker/*.wasm', dest: 'dist' },
+      { src: 'src/wasm-worker/*.js', dest: 'dist' },
+      // Copy for ESM builds
+      { src: 'src/wasm-worker/*.wasm', dest: 'dist/esm/wasm-worker' },
+      { src: 'src/wasm-worker/*.js', dest: 'dist/esm/wasm-worker' },
+      // Copy for CJS builds
+      { src: 'src/wasm-worker/*.wasm', dest: 'dist/cjs/wasm-worker' },
+      { src: 'src/wasm-worker/*.js', dest: 'dist/cjs/wasm-worker' }
+    ]
   })
 ];
 
@@ -93,5 +115,28 @@ export default [
     },
     external,
     plugins
+  },
+  // Worker build
+  {
+    input: 'src/core/onetimePasskeySigner.worker.ts',
+    output: {
+      file: 'dist/onetimePasskeySigner.worker.js',
+      format: 'esm',
+      sourcemap: true
+    },
+    external: [], // Don't externalize dependencies for worker
+    plugins: [
+      resolve({
+        preferBuiltins: false,
+        browser: true
+      }),
+      commonjs(),
+      json(),
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+        declarationMap: false
+      })
+    ]
   }
 ];

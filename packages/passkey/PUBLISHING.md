@@ -1,6 +1,6 @@
 # NPM Publishing Guide
 
-This guide covers the complete process for packaging and publishing the @near/passkey-sdk to NPM.
+This guide covers the complete process for packaging and publishing the @web3authn/passkey-sdk to NPM.
 
 ## 📋 Pre-Publishing Checklist
 
@@ -77,7 +77,7 @@ cd /path/to/test-project
 npm install /path/to/@near-passkey-sdk-0.1.0.tgz
 
 # Test imports
-node -e "console.log(require('@near/passkey-sdk'))"
+node -e "console.log(require('@web3authn/passkey-sdk'))"
 ```
 
 ### 2. **Dry Run Publishing**
@@ -134,13 +134,13 @@ npm publish --tag next
 ### 3. **Post-Publish Verification**
 ```bash
 # Check package on NPM
-npm info @near/passkey-sdk
+npm info @web3authn/passkey-sdk
 
 # Install from NPM
-npm install @near/passkey-sdk
+npm install @web3authn/passkey-sdk
 
 # Check in browser
-open https://www.npmjs.com/package/@near/passkey-sdk
+open https://www.npmjs.com/package/@web3authn/passkey-sdk
 ```
 
 ## 🔄 Automated Publishing with GitHub Actions
@@ -247,7 +247,7 @@ npm login
 #### **Package Already Exists**
 ```bash
 # Check if version already published
-npm info @near/passkey-sdk versions --json
+npm info @web3authn/passkey-sdk versions --json
 
 # Increment version
 npm version patch
@@ -282,7 +282,7 @@ echo "*.test.ts" >> .npmignore
 # Test in clean environment
 npx create-react-app test-app
 cd test-app
-npm install @near/passkey-sdk
+npm install @web3authn/passkey-sdk
 ```
 
 ### 2. **Update Documentation**
@@ -293,7 +293,7 @@ npm install @near/passkey-sdk
 ### 3. **Monitor Usage**
 ```bash
 # Check download stats
-npm info @near/passkey-sdk
+npm info @web3authn/passkey-sdk
 
 # Monitor for issues
 # - GitHub issues
@@ -306,22 +306,22 @@ npm info @near/passkey-sdk
 ### List Tags
 ```bash
 # Show published tags
-npm info @near/passkey-sdk dist-tags
+npm info @web3authn/passkey-sdk dist-tags
 
 # Show all versions
-npm info @near/passkey-sdk versions
+npm info @web3authn/passkey-sdk versions
 ```
 
 ### Tag Commands
 ```bash
 # Add tag to existing version
-npm dist-tag add @near/passkey-sdk@0.1.1 stable
+npm dist-tag add @web3authn/passkey-sdk@0.1.1 stable
 
 # Remove tag
-npm dist-tag rm @near/passkey-sdk beta
+npm dist-tag rm @web3authn/passkey-sdk beta
 
 # Latest tag is default
-npm dist-tag add @near/passkey-sdk@0.2.0 latest
+npm dist-tag add @web3authn/passkey-sdk@0.2.0 latest
 ```
 
 This guide provides everything needed to successfully package and publish the passkey SDK to NPM!

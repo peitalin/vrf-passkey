@@ -1,5 +1,5 @@
 import { SERVER_URL, WASM_WORKER_FILENAME } from '../config';
-import { bufferEncode, bufferDecode } from '../utils/utils';
+import { bufferEncode, bufferDecode } from '../utils/encoders';
 
 // === CONSTANTS ===
 const USER_DATA_DB_NAME = 'PasskeyUserData';

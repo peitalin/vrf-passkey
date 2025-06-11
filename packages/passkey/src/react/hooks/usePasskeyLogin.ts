@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { bufferDecode, publicKeyCredentialToJSON } from '../../utils/utils';
+import { bufferDecode, publicKeyCredentialToJSON } from '../../utils/encoders';
 import { webAuthnManager } from '../../core/WebAuthnManager';
 import { SERVER_URL, RELAYER_ACCOUNT_ID } from '../../config';
 import { indexDBManager } from '../../core/IndexDBManager';

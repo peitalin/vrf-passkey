@@ -1,5 +1,5 @@
 // === REACT CONTEXT ===
-export { PasskeyContextProvider as PasskeyProvider, usePasskeyContext } from './context/index';
+export { PasskeyProvider, usePasskeyContext } from './context/index';
 
 // === REACT HOOKS ===
 export { useOptimisticAuth } from './hooks/useOptimisticAuth';
@@ -12,6 +12,14 @@ export { usePasskeyActions } from './hooks/usePasskeyActions';
 // === REACT COMPONENTS ===
 export { PasskeyLogin } from './components/PasskeyLogin';
 export { Toggle } from './components/Toggle';
+export { ProfileButton } from './components/ProfileButton';
+
+// === REACT ICONS ===
+export { RefreshIcon } from './components/icons/RefreshIcon';
+export { AccountIcon } from './components/icons/AccountIcon';
+export { PaymentMethodsIcon } from './components/icons/PaymentMethodsIcon';
+export { AvatarIcon } from './components/icons/AvatarIcon';
+export { UserDetails } from './components/icons/UserDetails';
 
 // === TYPES ===
 export type {
@@ -30,6 +38,21 @@ export type {
   OptimisticAuthOptions,
   OptimisticAuthHook
 } from './types';
+
+// === PROFILE BUTTON TYPES ===
+export type {
+  ProfileDimensions,
+  ProfileAnimationConfig,
+  ProfileMenuItem,
+  ProfileButtonProps,
+  ProfileTriggerProps,
+  ProfileDropdownProps,
+  ProfileMenuItemProps,
+  ProfileToggleSectionProps,
+  ProfileLogoutSectionProps,
+  ProfileStateRefs,
+  ProfileCalculationParams,
+} from './components/ProfileButton/types';
 
 // === RE-EXPORT CORE ===
 export type { PasskeyConfig, UserData } from '../core/types';

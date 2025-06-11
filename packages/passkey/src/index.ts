@@ -2,8 +2,8 @@
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { indexDBManager } from './core/IndexDBManager';
-export { toastEmitter, ToastEventEmitter } from './core/ToastEventEmitter';
-export type { ToastEvent } from './core/ToastEventEmitter';
+export { authEventEmitter, AuthEventEmitter } from './core/AuthEventEmitter';
+export type { AuthEvent } from './core/AuthEventEmitter';
 
 // === TYPES ===
 export type {
@@ -37,5 +37,5 @@ export {
 } from './core/types';
 
 // === UTILITIES ===
-export * from './utils/utils';
+export * from './utils/encoders';
 export * from './config';

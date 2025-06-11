@@ -1,6 +1,6 @@
-// === TOAST EVENT EMITTER ===
+// === AUTH EVENT EMITTER ===
 
-export interface ToastEvent {
+export interface AuthEvent {
   type: 'loading' | 'success' | 'error' | 'dismiss';
   message?: string;
   id?: string;
@@ -13,21 +13,21 @@ export interface ToastEvent {
   };
 }
 
-export class ToastEventEmitter extends EventTarget {
+export class AuthEventEmitter extends EventTarget {
   private activeToasts = new Set<string>();
   private maxConcurrentToasts = 3;
 
   /**
-   * Generate a unique ID for toast messages
+   * Generate a unique ID for auth events
    */
   private generateId(): string {
     return `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
-   * Emit a toast event
+   * Emit a auth event
    */
-  private emit(event: ToastEvent): string {
+  private emit(event: AuthEvent): string {
     const id = event.id || this.generateId();
     const toastEvent = new CustomEvent('toast', {
       detail: { ...event, id }
@@ -51,9 +51,9 @@ export class ToastEventEmitter extends EventTarget {
   }
 
   /**
-   * Show loading toast
+   * Show loading auth event
    */
-  loading(message: string, options?: ToastEvent['options']): string {
+  loading(message: string, options?: AuthEvent['options']): string {
     return this.emit({
       type: 'loading',
       message,
@@ -62,9 +62,9 @@ export class ToastEventEmitter extends EventTarget {
   }
 
   /**
-   * Show success toast
+   * Show success auth event
    */
-  success(message: string, options?: ToastEvent['options'] & { id?: string }): string {
+  success(message: string, options?: AuthEvent['options'] & { id?: string }): string {
     const id = options?.id;
     return this.emit({
       type: 'success',
@@ -80,7 +80,7 @@ export class ToastEventEmitter extends EventTarget {
   /**
    * Show error toast
    */
-  error(message: string, options?: ToastEvent['options'] & { id?: string }): string {
+  error(message: string, options?: AuthEvent['options'] & { id?: string }): string {
     const id = options?.id;
     return this.emit({
       type: 'error',
@@ -104,9 +104,9 @@ export class ToastEventEmitter extends EventTarget {
   }
 
   /**
-   * Listen for toast events
+   * Listen for auth events
    */
-  onToast(callback: (event: ToastEvent & { id: string }) => void): () => void {
+  onAuthEvent(callback: (event: AuthEvent & { id: string }) => void): () => void {
     const handler = (event: CustomEvent) => {
       callback(event.detail);
     };
@@ -121,4 +121,4 @@ export class ToastEventEmitter extends EventTarget {
 }
 
 // Export singleton instance
-export const toastEmitter = new ToastEventEmitter();
+export const authEventEmitter = new AuthEventEmitter();

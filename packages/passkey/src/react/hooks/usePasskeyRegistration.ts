@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { bufferEncode, publicKeyCredentialToJSON } from '../../utils/utils';
+import { bufferEncode, publicKeyCredentialToJSON } from '../../utils/encoders';
 import { webAuthnManager } from '../../core/WebAuthnManager';
 import {
   SERVER_URL,
@@ -8,7 +8,7 @@ import {
   MUTED_BLUE
 } from '../../config';
 import { indexDBManager } from '../../core/IndexDBManager';
-import { toastEmitter } from '../../core/ToastEventEmitter';
+import { authEventEmitter } from '../../core/AuthEventEmitter';
 import type { RegistrationResult } from '../types';
 
 interface PasskeyRegistrationHook {
@@ -56,7 +56,7 @@ export const usePasskeyRegistration = (
       console.log('🔄 Step 1: Starting WebAuthn credential creation & PRF...');
 
       // Show initial toast for Step 1
-      const step1Toast = toastEmitter.loading('🔐 Step 1: Creating passkey with PRF...', {
+      const step1Toast = authEventEmitter.loading('🔐 Step 1: Creating passkey with PRF...', {
         style: { background: MUTED_BLUE, color: 'white' },
         duration: 5000
       });
@@ -66,7 +66,7 @@ export const usePasskeyRegistration = (
       const attestationForServer = publicKeyCredentialToJSON(credential);
 
       console.log('✅ Step 1 complete: WebAuthn credential created, PRF enabled:', prfEnabled);
-      toastEmitter.success('✅ Step 1: Passkey created successfully', {
+      authEventEmitter.success('✅ Step 1: Passkey created successfully', {
         id: step1Toast,
         style: { background: MUTED_GREEN, color: 'white' },
         duration: 5000
@@ -74,8 +74,8 @@ export const usePasskeyRegistration = (
 
       // Step 2: Client-side key generation/management using PRF output
       console.log('🔄 Step 2: Starting client-side key generation...');
-      toastEmitter.dismiss(step1Toast);
-      const processingToast = toastEmitter.loading('🔐 Securing your account...', {
+      authEventEmitter.dismiss(step1Toast);
+      const processingToast = authEventEmitter.loading('🔐 Securing your account...', {
         style: { background: MUTED_BLUE, color: 'white' }
       });
 
@@ -176,8 +176,8 @@ export const usePasskeyRegistration = (
 
                       // Handle different steps in the registration process
                       if (data.step === 'webauthn-verification' && data.status === 'progress') {
-                        toastEmitter.dismiss(processingToast);
-                        const newToast = toastEmitter.loading('🔐 Verifying credentials...', {
+                        authEventEmitter.dismiss(processingToast);
+                        const newToast = authEventEmitter.loading('🔐 Verifying credentials...', {
                           style: { background: MUTED_BLUE, color: 'white' }
                         });
                       }
@@ -219,8 +219,8 @@ export const usePasskeyRegistration = (
                       // Handle other steps (database-storage, access-key-addition, etc.)
                       if (data.step === 'database-storage' && data.status === 'success') {
                         console.log('✅ Step 6a: Authenticator stored successfully');
-                        toastEmitter.dismiss(processingToast);
-                        toastEmitter.success('✅ Account registered, authenticator stored!', {
+                        authEventEmitter.dismiss(processingToast);
+                        authEventEmitter.success('✅ Account registered, authenticator stored!', {
                           style: { background: MUTED_GREEN, color: 'white' },
                           duration: 5000
                         });
@@ -228,7 +228,7 @@ export const usePasskeyRegistration = (
 
                       if (data.step === 'registration-complete' && data.status === 'success') {
                         console.log('🎉 Step 7: Registration completed successfully!');
-                        toastEmitter.success(`🎉 Welcome ${currentUsername}! All setup complete!`, {
+                        authEventEmitter.success(`🎉 Welcome ${currentUsername}! All setup complete!`, {
                           duration: 5000,
                           style: { background: MUTED_GREEN, color: 'white' }
                         });

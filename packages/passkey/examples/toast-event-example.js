@@ -1,12 +1,12 @@
 // Example: Using the Toast Event Emitter with different toast libraries
 
-import { toastEmitter } from '@web3authn/passkey';
+import { authEventEmitter } from '@web3authn/passkey';
 
 // === Example 1: Using with react-hot-toast ===
 import toast from 'react-hot-toast';
 
 function setupReactHotToast() {
-  return toastEmitter.onToast((event) => {
+  return authEventEmitter.onToast((event) => {
     const { type, message, id, options } = event;
 
     switch (type) {
@@ -30,7 +30,7 @@ function setupReactHotToast() {
 import { toast as toastify } from 'react-toastify';
 
 function setupReactToastify() {
-  return toastEmitter.onToast((event) => {
+  return authEventEmitter.onToast((event) => {
     const { type, message, id, options } = event;
 
     switch (type) {
@@ -52,7 +52,7 @@ function setupReactToastify() {
 
 // === Example 3: Custom toast implementation ===
 function setupCustomToast() {
-  return toastEmitter.onToast((event) => {
+  return authEventEmitter.onToast((event) => {
     const { type, message, id, options } = event;
 
     console.log(`[CUSTOM TOAST] ${type.toUpperCase()}: ${message}`, { id, options });
@@ -75,20 +75,20 @@ function useToastListener() {
 // === Testing the emitter directly ===
 function testToastEmitter() {
   // Test loading toast
-  const loadingId = toastEmitter.loading('Processing...', {
+  const loadingId = authEventEmitter.loading('Processing...', {
     style: { background: '#3498db', color: 'white' }
   });
 
   setTimeout(() => {
     // Update to success
-    toastEmitter.success('Success!', {
+    authEventEmitter.success('Success!', {
       id: loadingId,
       style: { background: '#2ecc71', color: 'white' }
     });
   }, 2000);
 
   // Test error toast
-  toastEmitter.error('Something went wrong!', {
+  authEventEmitter.error('Something went wrong!', {
     duration: 5000,
     style: { background: '#e74c3c', color: 'white' }
   });

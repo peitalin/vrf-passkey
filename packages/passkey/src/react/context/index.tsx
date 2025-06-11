@@ -13,7 +13,7 @@ import type {
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
-export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
+export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
   // State management
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
@@ -30,12 +30,6 @@ export const PasskeyContextProvider: React.FC<PasskeyContextProviderProps> = ({ 
   // Utility function
   const setUsernameState = (name: string) => {
     setUsername(name);
-  };
-
-  // Current user management (moved from SettingsContext)
-  const setCurrentUser = (nearAccountId: string | null) => {
-    // This is now managed internally - nearAccountId is the source of truth
-    // The useOptimisticAuth hook will react to changes in nearAccountId
   };
 
   // Custom hooks

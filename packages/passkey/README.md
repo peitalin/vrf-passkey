@@ -353,6 +353,70 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Mobile SDK (React Native)
 - [ ] Advanced transaction batching
 
+## Browser Support and Requirements
+
+### Security Context
+- Passkeys require a secure context (HTTPS or localhost)
+- Web Authentication API must be available
+- IndexedDB support for credential storage
+
+### Cross-Browser Compatibility
+- Chrome/Edge 67+
+- Firefox 60+
+- Safari 14+
+- Modern mobile browsers
+
+## Worker Setup and WASM Files
+
+The package includes WebAssembly (WASM) workers for secure cryptographic operations. These files need to be accessible to the browser:
+
+### Files Included
+- `dist/onetimePasskeySigner.worker.js` - The worker script
+- `dist/passkey_crypto_worker_bg.wasm` - WASM binary
+- `dist/passkey_crypto_worker.js` - WASM JavaScript bindings
+
+### Setup Instructions
+
+When using this package in a web application, you need to ensure the worker and WASM files are served as static assets:
+
+1. **Copy the worker files to your public directory:**
+   ```bash
+   cp node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js public/
+   cp node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm public/
+   cp node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js public/
+   ```
+
+2. **Or use a build tool to copy them automatically** (e.g., in webpack):
+   ```js
+   // webpack.config.js
+   const CopyPlugin = require('copy-webpack-plugin');
+
+   module.exports = {
+     plugins: [
+       new CopyPlugin({
+         patterns: [
+           {
+             from: 'node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js',
+             to: 'public/'
+           },
+           {
+             from: 'node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm',
+             to: 'public/'
+           },
+           {
+             from: 'node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js',
+             to: 'public/'
+           }
+         ]
+       })
+     ]
+   };
+   ```
+
+3. **Vite users** can copy to the public directory or use the `vite-plugin-static-copy` plugin.
+
+The package is configured to load these files from the same origin as your application. Make sure they're accessible at the root level of your domain.
+
 ---
 
 Built with ❤️ by the NEAR Protocol team

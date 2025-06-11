@@ -16,7 +16,11 @@
       "require": "./dist/cjs/react/index.js",
       "types": "./dist/types/react/index.d.ts"
     },
-    "./wasm-worker": "./dist/wasm/passkey-worker.js"
+    "./react/styles": "./dist/esm/react/index.css",
+    "./dist/esm/react/index.css": "./dist/esm/react/index.css",
+    "./worker": "./dist/onetimePasskeySigner.worker.js",
+    "./wasm": "./dist/passkey_crypto_worker_bg.wasm",
+    "./wasm-js": "./dist/passkey_crypto_worker.js"
   },
   "files": [
     "dist/",
@@ -30,12 +34,17 @@
     "build:wasm:dev": "cd src/wasm-worker && wasm-pack build --target web --out-dir . --dev",
     "build:ts": "tsc -p tsconfig.build.json",
     "build:bundle": "rollup -c rollup.config.js",
+    "build:all": "npm run lint && npm run type-check && npm run build && npm run test",
     "dev": "rollup -c rollup.config.js -w",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
+    "link:local": "npm run build && pnpm link",
+    "unlink:local": "pnpm unlink",
+    "dev:link": "npm run build:all && pnpm link && echo '📦 Package built and linked! Use \"pnpm link @web3authn/passkey\" in your project'",
+    "copy-assets": "echo 'Copy these files to your public directory:' && echo '  node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js' && echo '  node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm' && echo '  node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js'",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -73,33 +82,37 @@
   "dependencies": {
     "@near-js/client": "^2.0.1",
     "@near-js/crypto": "^2.0.1",
-    "@near-js/providers": "^2.0.1",
-    "@near-js/transactions": "^2.0.1",
-    "borsh": "^2.0.0",
-    "bs58": "^6.0.0",
-    "idb": "^8.0.3",
-    "js-sha256": "^0.11.1",
     "tslib": "^2.8.1"
   },
   "devDependencies": {
+    "@near-js/providers": "^2.0.2",
+    "@near-js/transactions": "^2.0.2",
     "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.0",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.1.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.10.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "animejs": "^4.0.2",
+    "borsh": "^2.0.0",
+    "bs58": "^6.0.0",
     "eslint": "^8.55.0",
+    "idb": "^8.0.3",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "js-sha256": "^0.11.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "rollup": "^4.9.0",
+    "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-postcss": "^4.0.2",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.8.3"
   }
 }
