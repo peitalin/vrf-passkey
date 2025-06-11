@@ -4,12 +4,10 @@ import {
   usePasskeyContext,
   ProfileButton
 } from '@web3authn/passkey/react';
-import { useWeb3AuthnEventListener } from '../hooks/useWeb3AuthnEventListener';
 
 export const Navbar: React.FC = () => {
 
   const { isLoggedIn } = usePasskeyContext();
-  useWeb3AuthnEventListener();
 
   return (
     <nav className="navbar-container">
@@ -25,7 +23,7 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      <ProfileButton />
+      {isLoggedIn && <ProfileButton />}
     </nav>
   );
 };

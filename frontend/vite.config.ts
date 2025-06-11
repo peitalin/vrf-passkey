@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import path from 'path';
 
 export default defineConfig({
   server: {
@@ -31,7 +32,6 @@ export default defineConfig({
   resolve: {
     alias: {
       // The plugin should handle buffer aliasing if needed.
-      // If issues persist, we can re-add: buffer: 'buffer'
     },
   },
   define: {

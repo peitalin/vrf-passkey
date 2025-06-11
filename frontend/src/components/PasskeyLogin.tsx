@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-
-import { WebAuthnManager } from '@web3authn/passkey'
 import { usePasskeyContext } from '@web3authn/passkey/react'
-
-import toast from 'react-hot-toast'
 import { ActionType, type SerializableActionArgs } from '../types'
 import { RefreshIcon } from './icons/RefreshIcon'
 import { shortenString } from '../utils/strings'
@@ -39,9 +35,9 @@ export function PasskeyLogin() {
     logoutPasskey,
     optimisticAuth,
     setOptimisticAuth,
+    webAuthnManager,
+    authEventEmitter,
   } = usePasskeyContext();
-
-  const webAuthnManager = new WebAuthnManager();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
@@ -102,7 +98,13 @@ export function PasskeyLogin() {
     };
 
     loadUserData();
-  }, [username, hasManuallyClearedInput]); // Removed optimisticAuth from dependencies
+  }, [username, hasManuallyClearedInput]);
+
+  useEffect(() => {
+    if (isLoggedIn && !isProcessing) {
+      fetchCurrentGreeting();
+    }
+  }, [isLoggedIn, isProcessing, fetchCurrentGreeting]);
 
   // Update postfix position when username changes
   useEffect(() => {
@@ -151,7 +153,7 @@ export function PasskeyLogin() {
 
   const onRegister = async () => {
     if (!localUsernameInput.trim()) {
-      toast.error('Please enter a username to register.');
+      authEventEmitter.error('Please enter a username to register.');
       return;
     }
 
@@ -162,57 +164,57 @@ export function PasskeyLogin() {
       // The PasskeyContext handles all step-by-step toast notifications
       // We only need to handle final error states here since success is handled by SSE
       if (!result.success) {
-        toast.error(result.error || 'Registration failed.');
+        authEventEmitter.error(result.error || 'Registration failed.');
       }
 
       setLastTxDetails(null);
     } catch (error: any) {
       console.error('Registration error:', error);
-      toast.error(`Registration failed: ${error.message}`);
+      authEventEmitter.error(`Registration failed: ${error.message}`);
     }
   };
 
   const onLogin = async () => {
     const userToAttemptLogin = localUsernameInput.trim();
-    const toastId = toast.loading(
+    const toastId = authEventEmitter.loading(
       `Attempting login${userToAttemptLogin ? ' for ' + userToAttemptLogin : ' (discoverable passkey)'}...`,
       { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
     );
     const result = await loginPasskey(userToAttemptLogin || undefined);
     if (result.success) {
-      toast.success(
+      authEventEmitter.success(
         `Logged in as ${result.loggedInUsername || userToAttemptLogin}!`,
         { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
       );
       setLastTxDetails(null);
     } else {
-      toast.error(result.error || 'Login failed.', { id: toastId });
+      authEventEmitter.error(result.error || 'Login failed.', { id: toastId });
     }
   };
 
   const onFetchGreeting = async () => {
-    const toastId = toast.loading(
+    const toastId = authEventEmitter.loading(
       'Refreshing greeting...',
       { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
     );
     const result = await fetchCurrentGreeting();
     if (result.success) {
-      toast.success(
+      authEventEmitter.success(
         'Greeting refreshed!',
         { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
       );
     } else {
-      toast.error(result.error || "Failed to refresh greeting", { id: toastId });
+      authEventEmitter.error(result.error || "Failed to refresh greeting", { id: toastId });
     }
   };
 
   const onExecuteDirectAction = async () => {
     if (!customGreetingInput.trim()) {
-      toast.error("Please enter a greeting message.");
+      authEventEmitter.error("Please enter a greeting message.");
       return;
     }
     if (!username) {
-      toast.error("Cannot execute action: User not logged in.");
+      authEventEmitter.error("Cannot execute action: User not logged in.");
       return;
     }
 
@@ -233,12 +235,12 @@ export function PasskeyLogin() {
     await executeDirectActionViaWorker(actionToExecute, {
       optimisticAuth: optimisticAuth, // Use greeting-specific auth mode
       beforeDispatch: () => {
-        toastId = toast.loading(
+        toastId = authEventEmitter.loading(
           optimisticAuth ? 'Dispatching Set Greeting (Fast)... ' : 'Dispatching Set Greeting (via Contract)... ',
           { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
         );
       },
-      afterDispatch: (success, data) => {
+      afterDispatch: (success: boolean, data?: any) => {
         if (success && data?.transaction_outcome?.id) {
           const txId = data.transaction_outcome.id;
           const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
@@ -252,21 +254,22 @@ export function PasskeyLogin() {
             message: `${greetingSet}`
           });
 
-          const successContent = (
-            <span>
-              {successMessage} Tx: <a href={txLink} target="_blank" rel="noopener noreferrer" className="toast-tx-link">{shortTxId}</a>.
-            </span>
-          );
-          toast.success(successContent, {
+          // Note: For rich content with JSX, you'd need to handle this in the toast listener
+          const successText = `${successMessage} Tx: ${shortTxId}`;
+          authEventEmitter.success(successText, {
             id: toastId,
             duration: 8000,
             style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
           });
         } else if (success) {
-          toast.success(`Direct Action successful! (No TxID found in response)`, { id: toastId, duration: 6000, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } });
+          authEventEmitter.success(`Direct Action successful! (No TxID found in response)`, {
+            id: toastId,
+            duration: 6000,
+            style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
+          });
           setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
         } else {
-          toast.error(data?.error || 'Direct Action failed.', { id: toastId });
+          authEventEmitter.error(data?.error || 'Direct Action failed.', { id: toastId });
           setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
         }
       }
@@ -392,7 +395,7 @@ export function PasskeyLogin() {
                     value={customGreetingInput}
                     onChange={(e) => setCustomGreetingInput(e.target.value)}
                     placeholder="Enter new greeting"
-                    className="styled-input" /* Keep styled-input for consistency, greeting-input-group handles layout */
+                    className="styled-input"
                   />
                   <button
                     onClick={onExecuteDirectAction}

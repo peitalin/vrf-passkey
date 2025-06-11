@@ -580,21 +580,6 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
       );
       }
 
-      // Store the authenticator in the cache for future logins
-      if (user?.nearAccountId) {
-        await authenticatorService.create({
-          credentialID: authenticator.credentialID,
-          credentialPublicKey: authenticator.credentialPublicKey,
-          counter: verification.authenticationInfo.newCounter,
-          transports: authenticator.transports,
-          nearAccountId: user.nearAccountId,
-          name: `Authenticator for ${user.username}`,
-          registered: new Date(authenticator.registered),
-          backedUp: verification.authenticationInfo.credentialBackedUp,
-          clientManagedNearPublicKey: authenticator.clientManagedNearPublicKey,
-        });
-      }
-
       // Clear the challenge and commitment from user record
       userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
 
