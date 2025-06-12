@@ -7,7 +7,7 @@ import {
 
 export const Navbar: React.FC = () => {
 
-  const { isLoggedIn } = usePasskeyContext();
+  const { loginState } = usePasskeyContext();
 
   return (
     <nav className="navbar-container">
@@ -23,7 +23,7 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      {isLoggedIn && <ProfileButton />}
+      {loginState.isLoggedIn && <ProfileButton />}
     </nav>
   );
 };

@@ -1,50 +1,38 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePasskeyContext } from '@web3authn/passkey/react'
-import { ActionType, type SerializableActionArgs } from '../types'
-import { RefreshIcon } from './icons/RefreshIcon'
-import { shortenString } from '../utils/strings'
 import { Toggle } from './Toggle'
+import { GreetingMenu } from './GreetingMenu'
+import toast from 'react-hot-toast'
+import type {
+  RegistrationSSEEvent,
+  LoginEvent
+} from '@web3authn/passkey/react'
 import {
-  WEBAUTHN_CONTRACT_ID,
-  MUTED_GREEN,
-  MUTED_BLUE,
-  MUTED_ORANGE,
-  TOAST_TEXT_COLOR,
-  NEAR_ACCOUNT_POSTFIX,
-  NEAR_EXPLORER_BASE_URL
+  NEAR_ACCOUNT_POSTFIX
 } from '../config'
-
-interface LastTxDetails {
-  id: string;
-  link: string;
-  message?: string; // Optional: if you want to store the greeting set
-}
 
 export function PasskeyLogin() {
   const {
+    loginState: {
     isLoggedIn,
     username,
     nearPublicKey,
-    isProcessing,
-    currentGreeting,
-    setUsernameState,
-    registerPasskey,
+      nearAccountId
+    },
+    logout,
     loginPasskey,
-    executeDirectActionViaWorker,
-    fetchCurrentGreeting,
-    logoutPasskey,
+    registerPasskey,
     optimisticAuth,
     setOptimisticAuth,
     webAuthnManager,
-    authEventEmitter,
   } = usePasskeyContext();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
-  const [customGreetingInput, setCustomGreetingInput] = useState('Hello from Passkey App!');
   const [isSecureContext] = useState(() => window.isSecureContext);
-  const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
   const [hasManuallyClearedInput, setHasManuallyClearedInput] = useState(false);
+  const [isLoggedInOptimistic, setIsLoggedInOptimistic] = useState(false);
+
   const usernameInputRef = useRef<HTMLInputElement>(null);
   const postfixRef = useRef<HTMLSpanElement>(null);
 
@@ -67,11 +55,9 @@ export function PasskeyLogin() {
 
   // Prevent username from being overwritten by useEffect when auth mode changes
   const authModeToggleRef = useRef(false);
-
   const handleAuthModeToggleWithRef = useCallback((checked: boolean) => {
     authModeToggleRef.current = true;
     handleAuthModeToggle(checked);
-
     // Reset the flag after a short delay
     setTimeout(() => {
       authModeToggleRef.current = false;
@@ -99,12 +85,6 @@ export function PasskeyLogin() {
 
     loadUserData();
   }, [username, hasManuallyClearedInput]);
-
-  useEffect(() => {
-    if (isLoggedIn && !isProcessing) {
-      fetchCurrentGreeting();
-    }
-  }, [isLoggedIn, isProcessing, fetchCurrentGreeting]);
 
   // Update postfix position when username changes
   useEffect(() => {
@@ -139,7 +119,6 @@ export function PasskeyLogin() {
   const handleLocalUsernameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newUsername = e.target.value;
     setLocalUsernameInput(newUsername);
-    setUsernameState(newUsername); // Keep context in sync if needed, or remove if only local state matters
 
     if (newUsername) {
       setHasManuallyClearedInput(false); // User is typing, not clearing
@@ -153,127 +132,72 @@ export function PasskeyLogin() {
 
   const onRegister = async () => {
     if (!localUsernameInput.trim()) {
-      authEventEmitter.error('Please enter a username to register.');
       return;
     }
-
     try {
-      // Use the context registerPasskey which now handles SSE and all toast notifications
-      const result = await registerPasskey(localUsernameInput.trim());
+      const result = await registerPasskey(localUsernameInput.trim(), {
+        optimisticAuth,
+        onEvent: (event: RegistrationSSEEvent) => {
+          switch (event.phase) {
+            case 'webauthn-verification':
+              if (event.status === 'progress') {
+                toast.loading('Starting registration...', { id: 'registration' });
+              }
+              break;
+            case 'user-ready':
+              if (event.status === 'success') {
+                toast.success(`Welcome ${event.username}! Registration complete!`, { id: 'registration' });
+              }
+              break;
+            case 'registration-complete':
+              if (event.status === 'success') {
+                toast.success('Registration completed successfully!', { id: 'registration' });
+              }
+              break;
+            case 'registration-error':
+              toast.error(event.error || 'Registration failed', { id: 'registration' });
+              break;
+            default:
+              if (event.status === 'progress') {
+                toast.loading(event.message || 'Processing...', { id: 'registration' });
+              }
+          }
+        },
+      });
 
-      // The PasskeyContext handles all step-by-step toast notifications
-      // We only need to handle final error states here since success is handled by SSE
-      if (!result.success) {
-        authEventEmitter.error(result.error || 'Registration failed.');
+      if (result.success) {
+        // Registration successful
       }
-
-      setLastTxDetails(null);
     } catch (error: any) {
       console.error('Registration error:', error);
-      authEventEmitter.error(`Registration failed: ${error.message}`);
     }
   };
 
   const onLogin = async () => {
     const userToAttemptLogin = localUsernameInput.trim();
-    const toastId = authEventEmitter.loading(
-      `Attempting login${userToAttemptLogin ? ' for ' + userToAttemptLogin : ' (discoverable passkey)'}...`,
-      { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
-    );
-    const result = await loginPasskey(userToAttemptLogin || undefined);
-    if (result.success) {
-      authEventEmitter.success(
-        `Logged in as ${result.loggedInUsername || userToAttemptLogin}!`,
-        { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
-      );
-      setLastTxDetails(null);
-    } else {
-      authEventEmitter.error(result.error || 'Login failed.', { id: toastId });
-    }
-  };
-
-  const onFetchGreeting = async () => {
-    const toastId = authEventEmitter.loading(
-      'Refreshing greeting...',
-      { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
-    );
-    const result = await fetchCurrentGreeting();
-    if (result.success) {
-      authEventEmitter.success(
-        'Greeting refreshed!',
-        { id: toastId, style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR } }
-      );
-    } else {
-      authEventEmitter.error(result.error || "Failed to refresh greeting", { id: toastId });
-    }
-  };
-
-  const onExecuteDirectAction = async () => {
-    if (!customGreetingInput.trim()) {
-      authEventEmitter.error("Please enter a greeting message.");
-      return;
-    }
-    if (!username) {
-      authEventEmitter.error("Cannot execute action: User not logged in.");
-      return;
-    }
-
-    const newGreetingMessage = `${customGreetingInput.trim()} [updated: ${new Date().toLocaleTimeString()}]`;
-
-    const actionToExecute: SerializableActionArgs = {
-      action_type: ActionType.FunctionCall,
-      receiver_id: WEBAUTHN_CONTRACT_ID,
-      method_name: 'set_greeting',
-      args: JSON.stringify({ greeting: newGreetingMessage }),
-      gas: "30000000000000",
-      deposit: "0",
-    };
-
-    let toastId = '';
-    setLastTxDetails(null);
-
-    await executeDirectActionViaWorker(actionToExecute, {
-      optimisticAuth: optimisticAuth, // Use greeting-specific auth mode
-      beforeDispatch: () => {
-        toastId = authEventEmitter.loading(
-          optimisticAuth ? 'Dispatching Set Greeting (Fast)... ' : 'Dispatching Set Greeting (via Contract)... ',
-          { style: { background: MUTED_BLUE, color: TOAST_TEXT_COLOR } }
-        );
-      },
-      afterDispatch: (success: boolean, data?: any) => {
-        if (success && data?.transaction_outcome?.id) {
-          const txId = data.transaction_outcome.id;
-          const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
-          const shortTxId = shortenString(txId, 10, 6);
-          const greetingSet = newGreetingMessage;
-          const successMessage = `Set Greeting to "${greetingSet}" successful!`;
-
-          setLastTxDetails({
-            id: txId,
-            link: txLink,
-            message: `${greetingSet}`
-          });
-
-          // Note: For rich content with JSX, you'd need to handle this in the toast listener
-          const successText = `${successMessage} Tx: ${shortTxId}`;
-          authEventEmitter.success(successText, {
-            id: toastId,
-            duration: 8000,
-            style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
-          });
-        } else if (success) {
-          authEventEmitter.success(`Direct Action successful! (No TxID found in response)`, {
-            id: toastId,
-            duration: 6000,
-            style: { background: MUTED_GREEN, color: TOAST_TEXT_COLOR }
-          });
-          setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
-        } else {
-          authEventEmitter.error(data?.error || 'Direct Action failed.', { id: toastId });
-          setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${data?.error || 'Unknown error'}` });
+    const result = await loginPasskey(userToAttemptLogin || undefined, {
+      optimisticAuth,
+      onEvent: (event: LoginEvent) => {
+        switch (event.type) {
+          case 'loginStarted':
+            toast.loading(`Logging in${event.data.username ? ' as ' + event.data.username : ''}...`, { id: 'login' });
+            break;
+          case 'loginProgress':
+            toast.loading(event.data.message, { id: 'login' });
+            break;
+          case 'loginCompleted':
+            toast.success(`Logged in as ${event.data.username}!`, { id: 'login' });
+            break;
+          case 'loginFailed':
+            toast.error(event.data.error, { id: 'login' });
+            break;
         }
       }
     });
+
+    if (result.success) {
+      // Login successful
+    }
   };
 
   if (!isSecureContext) {
@@ -337,75 +261,23 @@ export function PasskeyLogin() {
             />
 
             <div className="auth-buttons">
-              <button onClick={onRegister} className={`action-button ${!isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
-                disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput || isProcessing}>
+              <button onClick={onRegister}
+                className={`action-button ${!isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
+                disabled={!localUsernameInput || !isSecureContext || isPasskeyRegisteredForLocalInput}>
                 Register Passkey
               </button>
-              <button onClick={onLogin} className={`action-button ${isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
-                disabled={!localUsernameInput || !isPasskeyRegisteredForLocalInput || isProcessing}>
-                {localUsernameInput ? 'Login with Passkey' : 'Login (enter username or try discoverable)'}
+              <button onClick={onLogin}
+                className={`action-button ${isPasskeyRegisteredForLocalInput ? 'primary' : ''}`}
+                disabled={!localUsernameInput || !isPasskeyRegisteredForLocalInput}
+              >
+                Login with Passkey
               </button>
-              {!localUsernameInput && (
-                <button onClick={() => loginPasskey()} className="action-button"
-                        disabled={isProcessing}>
-                  Login with Passkey
-                </button>
-              )}
             </div>
           </>
         ) : (
           <>
             {nearPublicKey ? (
-              <div className="greeting-controls-box">
-                <div className="webauthn-contract-link">Onchain message on <a href={`${NEAR_EXPLORER_BASE_URL}/address/webauthn-contract.testnet`} target="_blank" rel="noopener noreferrer">{WEBAUTHN_CONTRACT_ID}</a>:</div>
-                <div className="on-chain-greeting-box">
-                  <button onClick={onFetchGreeting} disabled={isProcessing} title="Refresh Greeting" className="refresh-icon-button">
-                    <RefreshIcon size={22} color={MUTED_GREEN}/>
-                  </button>
-                  <p><strong>{currentGreeting || "..."}</strong></p>
-                </div>
-
-                {lastTxDetails && lastTxDetails.id !== 'N/A' && (
-                  <div className="last-tx-display">
-                    <span>Transaction ID: </span>
-                    <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer"
-                      title={lastTxDetails.id}
-                      className="tx-link"
-                    >
-                      {shortenString(lastTxDetails.id, 10, 6)}
-                    </a>
-                  </div>
-                )}
-
-                <Toggle
-                  checked={optimisticAuth}
-                  onChange={setOptimisticAuth}
-                  label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
-                  tooltip={optimisticAuth
-                    ? 'Fast transaction signing with optimistic response'
-                    : 'Contract signed Passkey authentication (slower)'
-                  }
-                  className="greeting-auth-mode-toggle"
-                  size="small"
-                />
-
-                <div className="greeting-input-group">
-                  <input
-                    type="text"
-                    value={customGreetingInput}
-                    onChange={(e) => setCustomGreetingInput(e.target.value)}
-                    placeholder="Enter new greeting"
-                    className="styled-input"
-                  />
-                  <button
-                    onClick={onExecuteDirectAction}
-                    className="action-button"
-                    disabled={isProcessing || !customGreetingInput.trim()}
-                  >
-                    {isProcessing ? 'Processing...' : 'Set New Greeting'}
-                  </button>
-                </div>
-              </div>
+              <GreetingMenu />
             ) : (
               <div className="info-box">
                 <p>✅ Passkey registered successfully!</p>

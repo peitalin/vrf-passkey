@@ -13,6 +13,155 @@ use getrandom::getrandom;
 use bs58;
 // Add CBOR parsing for WebAuthn attestationObject
 use ciborium::Value as CborValue;
+// Transaction signing and serialization
+use ed25519_dalek::Signer;
+use borsh::{BorshSerialize, BorshDeserialize};
+
+// NEAR Transaction Types (WASM-compatible structs that mirror near-primitives)
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct AccountId(String);
+
+impl AccountId {
+    pub fn new(account_id: String) -> Result<Self, String> {
+        // Basic validation - in practice you'd want more robust validation
+        if account_id.is_empty() {
+            return Err("Account ID cannot be empty".to_string());
+        }
+        Ok(AccountId(account_id))
+    }
+}
+
+impl std::str::FromStr for AccountId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        AccountId::new(s.to_string())
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PublicKey {
+    key_type: u8, // 0 for ED25519
+    key_data: [u8; 32],
+}
+
+impl PublicKey {
+    pub fn from_ed25519_bytes(bytes: &[u8; 32]) -> Self {
+        PublicKey {
+            key_type: 0, // ED25519
+            key_data: *bytes,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Signature {
+    key_type: u8, // 0 for ED25519
+    signature_data: [u8; 64],
+}
+
+impl Signature {
+    pub fn from_ed25519_bytes(bytes: &[u8; 64]) -> Self {
+        Signature {
+            key_type: 0, // ED25519
+            signature_data: *bytes,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CryptoHash([u8; 32]);
+
+impl CryptoHash {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        CryptoHash(bytes)
+    }
+}
+
+pub type Nonce = u64;
+pub type Gas = u64;
+pub type Balance = u128;
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FunctionCallAction {
+    pub method_name: String,
+    pub args: Vec<u8>,
+    pub gas: Gas,
+    pub deposit: Balance,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Action {
+    CreateAccount,
+    DeployContract { code: Vec<u8> },
+    FunctionCall(Box<FunctionCallAction>),
+    Transfer { deposit: Balance },
+    Stake { stake: Balance, public_key: PublicKey },
+    AddKey { public_key: PublicKey, access_key: AccessKey },
+    DeleteKey { public_key: PublicKey },
+    DeleteAccount { beneficiary_id: AccountId },
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct AccessKey {
+    pub nonce: Nonce,
+    pub permission: AccessKeyPermission,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum AccessKeyPermission {
+    FunctionCall(FunctionCallPermission),
+    FullAccess,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FunctionCallPermission {
+    pub allowance: Option<Balance>,
+    pub receiver_id: String,
+    pub method_names: Vec<String>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Transaction {
+    pub signer_id: AccountId,
+    pub public_key: PublicKey,
+    pub nonce: Nonce,
+    pub receiver_id: AccountId,
+    pub block_hash: CryptoHash,
+    pub actions: Vec<Action>,
+}
+
+impl Transaction {
+    /// Computes a hash of the transaction for signing
+    /// This mirrors the logic from near-primitives Transaction::get_hash_and_size()
+    pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
+        let bytes = borsh::to_vec(&self).expect("Failed to serialize transaction");
+        let hash_bytes = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&bytes);
+            hasher.finalize()
+        };
+        let mut hash_array = [0u8; 32];
+        hash_array.copy_from_slice(&hash_bytes);
+        (CryptoHash::from_bytes(hash_array), bytes.len() as u64)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SignedTransaction {
+    pub transaction: Transaction,
+    pub signature: Signature,
+}
+
+impl SignedTransaction {
+    pub fn new(signature: Signature, transaction: Transaction) -> Self {
+        SignedTransaction {
+            transaction,
+            signature,
+        }
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -99,21 +248,28 @@ pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes:
 pub fn generate_near_keypair() -> Result<String, JsValue> {
     console_log!("RUST: Generating new NEAR key pair");
 
-    // Generate random bytes for the private key
-    let mut private_key_bytes = [0u8; 32];
-    getrandom(&mut private_key_bytes)
+    // Generate random bytes for the private key seed
+    let mut private_key_seed = [0u8; 32];
+    getrandom(&mut private_key_seed)
         .map_err(|e| JsValue::from_str(&format!("Failed to generate random bytes: {}", e)))?;
 
     // Create signing key from random bytes
-    let signing_key = SigningKey::from_bytes(&private_key_bytes);
+    let signing_key = SigningKey::from_bytes(&private_key_seed);
 
-    // Encode private key in NEAR format: "ed25519:BASE58_PRIVATE_KEY"
-    let private_key_b58 = bs58::encode(&private_key_bytes).into_string();
+    // Get the public key bytes
+    let verifying_key = signing_key.verifying_key();
+    let public_key_bytes = verifying_key.to_bytes();
+
+    // Create the full 64-byte private key (seed + public key) for NEAR format
+    let mut full_private_key = [0u8; 64];
+    full_private_key[0..32].copy_from_slice(&private_key_seed);
+    full_private_key[32..64].copy_from_slice(&public_key_bytes);
+
+    // Encode the full private key in NEAR format: "ed25519:BASE58_PRIVATE_KEY"
+    let private_key_b58 = bs58::encode(&full_private_key).into_string();
     let private_key_near_format = format!("ed25519:{}", private_key_b58);
 
     // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
-    let verifying_key = signing_key.verifying_key();
-    let public_key_bytes = verifying_key.to_bytes();
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
     let public_key_near_format = format!("ed25519:{}", public_key_b58);
 
@@ -231,12 +387,19 @@ pub fn derive_near_keypair_from_cose_p256(
     // Use hash as Ed25519 seed (same as contract)
     let signing_key = SigningKey::from_bytes(&hash_bytes.into());
 
-    // Encode in NEAR format
-    let private_key_b58 = bs58::encode(&hash_bytes).into_string();
-    let private_key_near_format = format!("ed25519:{}", private_key_b58);
-
+    // Get the public key bytes
     let verifying_key = signing_key.verifying_key();
     let public_key_bytes = verifying_key.to_bytes();
+
+    // Create the full 64-byte private key (seed + public key) for NEAR format
+    let mut full_private_key = [0u8; 64];
+    full_private_key[0..32].copy_from_slice(&hash_bytes);
+    full_private_key[32..64].copy_from_slice(&public_key_bytes);
+
+    // Encode in NEAR format
+    let private_key_b58 = bs58::encode(&full_private_key).into_string();
+    let private_key_near_format = format!("ed25519:{}", private_key_b58);
+
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
     let public_key_near_format = format!("ed25519:{}", public_key_b58);
 
@@ -311,6 +474,237 @@ fn parse_authenticator_data(auth_data_bytes: &[u8]) -> Result<Vec<u8>, String> {
     // The rest is the credential public key (COSE format)
     let credential_public_key = auth_data_bytes[offset..].to_vec();
     Ok(credential_public_key)
+}
+
+// NEAR Transaction Signing Functions - Following near-api-rs signing logic
+
+#[wasm_bindgen]
+pub fn sign_near_transaction_with_prf(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    receiver_account_id: &str,
+    method_name: &str,
+    args_json: &str,
+    gas: &str,
+    deposit: &str,
+    nonce: u64,
+    block_hash_base58: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting NEAR transaction signing with PRF");
+
+    // 1. Decrypt private key using PRF
+    let private_key = decrypt_private_key_with_prf_internal(
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+    )?;
+
+    // 2. Parse transaction parameters following near-api-rs structure
+    let signer_id: AccountId = signer_account_id.parse()
+        .map_err(|e| JsValue::from_str(&format!("Invalid signer account: {}", e)))?;
+
+    let receiver_id: AccountId = receiver_account_id.parse()
+        .map_err(|e| JsValue::from_str(&format!("Invalid receiver account: {}", e)))?;
+
+    let gas_amount: Gas = gas.parse()
+        .map_err(|e| JsValue::from_str(&format!("Invalid gas amount: {}", e)))?;
+
+    let deposit_amount: Balance = deposit.parse()
+        .map_err(|e| JsValue::from_str(&format!("Invalid deposit amount: {}", e)))?;
+
+    // 3. Parse block hash
+    let block_hash_bytes = bs58::decode(block_hash_base58)
+        .into_vec()
+        .map_err(|e| JsValue::from_str(&format!("Invalid block hash: {}", e)))?;
+
+    if block_hash_bytes.len() != 32 {
+        return Err(JsValue::from_str("Block hash must be 32 bytes"));
+    }
+
+    let mut block_hash_array = [0u8; 32];
+    block_hash_array.copy_from_slice(&block_hash_bytes);
+    let block_hash = CryptoHash::from_bytes(block_hash_array);
+
+    // 4. Create PublicKey from ed25519 verifying key
+    let public_key_bytes = private_key.verifying_key().to_bytes();
+    let public_key = PublicKey::from_ed25519_bytes(&public_key_bytes);
+
+    // 5. Build transaction following Transaction::new_v0() structure
+    // Fields must be in this exact order: signer_id, public_key, nonce, receiver_id, block_hash, actions
+    let transaction = Transaction {
+        signer_id,
+        public_key,
+        nonce,
+        receiver_id,
+        block_hash,
+        actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args_json.as_bytes().to_vec(),
+            gas: gas_amount,
+            deposit: deposit_amount,
+        }))],
+    };
+
+    // 6. Hash Generation: Use transaction.get_hash_and_size().0 to get the signable hash
+    // This mirrors near-primitives Transaction::get_hash_and_size()
+    let (transaction_hash, _size) = transaction.get_hash_and_size();
+
+    // 7. Sign the hash with the secret key (following near-api-rs signing process)
+    let signature_bytes = private_key.sign(&transaction_hash.0);
+    let signature = Signature::from_ed25519_bytes(&signature_bytes.to_bytes());
+
+    // 8. Create SignedTransaction { signature, transaction }
+    let signed_transaction = SignedTransaction::new(signature, transaction);
+
+    // 9. Serialize to Borsh raw bytes for near-js compatibility
+    let signed_tx_bytes = borsh::to_vec(&signed_transaction)
+        .map_err(|e| JsValue::from_str(&format!("Signed transaction serialization failed: {}", e)))?;
+
+    console_log!("RUST: Successfully signed NEAR transaction, {} bytes", signed_tx_bytes.len());
+    console_log!("RUST: Transaction hash: {}", bs58::encode(&transaction_hash.0).into_string());
+
+    Ok(signed_tx_bytes)
+}
+
+fn decrypt_private_key_with_prf_internal(
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+) -> Result<SigningKey, JsValue> {
+    console_log!("RUST: Decrypting private key with PRF");
+
+    // 1. Derive decryption key from PRF
+    let decryption_key = derive_encryption_key_from_prf_core(
+        prf_output_base64,
+        "near-key-encryption",
+        ""
+    ).map_err(|e| JsValue::from(e))?;
+
+    // 2. Decrypt private key using AES-GCM
+    let decrypted_private_key_str = decrypt_data_aes_gcm(
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+        &decryption_key,
+    )?;
+
+    // 3. Parse private key (remove ed25519: prefix if present)
+    let private_key_b58 = if decrypted_private_key_str.starts_with("ed25519:") {
+        &decrypted_private_key_str[8..]
+    } else {
+        &decrypted_private_key_str
+    };
+
+    // 4. Decode private key from base58
+    let private_key_bytes = bs58::decode(private_key_b58)
+        .into_vec()
+        .map_err(|e| JsValue::from_str(&format!("Failed to decode private key: {}", e)))?;
+
+    // 5. Expect 64-byte format (seed + public key, extract first 32 bytes as seed)
+    if private_key_bytes.len() != 64 {
+        return Err(JsValue::from_str(&format!("Invalid private key length: {} (expected 64)", private_key_bytes.len())));
+    }
+
+    let mut seed_array = [0u8; 32];
+    seed_array.copy_from_slice(&private_key_bytes[0..32]);
+    let signing_key = SigningKey::from_bytes(&seed_array);
+
+    console_log!("RUST: Successfully decrypted 64-byte private key");
+    Ok(signing_key)
+}
+
+#[wasm_bindgen]
+pub fn decrypt_and_sign_transaction_with_prf(
+    // Authentication and storage
+    prf_output_base64: &str,
+    encrypted_private_key_json: &str, // JSON with encrypted_data_b64u and iv_b64u
+
+    // Transaction details
+    signer_account_id: &str,
+    receiver_account_id: &str,
+    method_name: &str,
+    args_json: &str,
+    gas: &str,
+    deposit: &str,
+    nonce: u64,
+    block_hash_base58: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Decrypt and sign transaction with PRF");
+
+    // Parse encrypted private key JSON
+    let encrypted_key_data: serde_json::Value = serde_json::from_str(encrypted_private_key_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse encrypted key data: {}", e)))?;
+
+    let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str()
+        .ok_or_else(|| JsValue::from_str("Missing encrypted_data_b64u in encrypted key data"))?;
+
+    let iv = encrypted_key_data["iv_b64u"].as_str()
+        .ok_or_else(|| JsValue::from_str("Missing iv_b64u in encrypted key data"))?;
+
+    // Call the main signing function - returns Borsh-serialized SignedTransaction
+    sign_near_transaction_with_prf(
+        prf_output_base64,
+        encrypted_data,
+        iv,
+        signer_account_id,
+        receiver_account_id,
+        method_name,
+        args_json,
+        gas,
+        deposit,
+        nonce,
+        block_hash_base58,
+    )
+}
+
+// Note: This function is a placeholder for the worker interface pattern
+// In practice, the main signing function is sign_transaction_with_encrypted_key
+
+// Enhanced worker interface that includes encrypted key data
+// Returns Borsh-serialized SignedTransaction that can be decoded by near-js
+#[wasm_bindgen]
+pub fn sign_transaction_with_encrypted_key(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_json: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    receiver_id: &str,
+    contract_method_name: &str,
+    contract_args: &str,
+    gas_amount: &str,
+    deposit_amount: &str,
+    nonce: u64,
+    block_hash_bytes: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Signing transaction with encrypted key");
+
+    // Convert block hash bytes to base58
+    let block_hash_base58 = bs58::encode(block_hash_bytes).into_string();
+
+    // Call the signing function - returns Borsh-serialized SignedTransaction
+    let signed_tx_bytes = decrypt_and_sign_transaction_with_prf(
+        prf_output_base64,
+        encrypted_private_key_json,
+        signer_account_id,
+        receiver_id,
+        contract_method_name,
+        contract_args,
+        gas_amount,
+        deposit_amount,
+        nonce,
+        &block_hash_base58,
+    )?;
+
+    console_log!("RUST: Returning Borsh-serialized SignedTransaction: {} bytes", signed_tx_bytes.len());
+
+    // Return the Borsh bytes directly - near-js can decode this with SignedTransaction.decode()
+    Ok(signed_tx_bytes)
 }
 
 fn extract_p256_coordinates_from_cose(cose_key_bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -471,5 +865,165 @@ mod tests {
 
         // Should be identical (deterministic)
         assert_eq!(keypair1, keypair2);
+    }
+
+    #[test]
+    fn test_private_key_decryption_with_prf() {
+        // Test PRF-based private key decryption
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
+
+        // Generate a test key pair and encrypt it
+        let keypair_result = generate_and_encrypt_near_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
+        let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+
+        // Test decryption
+        let decrypted_key = decrypt_private_key_with_prf_internal(
+            prf_output_b64,
+            encrypted_data,
+            iv,
+        ).unwrap();
+
+        // Verify the decrypted key works (can generate public key)
+        let public_key_bytes = decrypted_key.verifying_key().to_bytes();
+        assert_eq!(public_key_bytes.len(), 32);
+    }
+
+    #[test]
+    fn test_transaction_signing_with_known_key() {
+        // Test transaction signing with a known private key
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
+
+        // Generate and encrypt a key pair
+        let keypair_result = generate_and_encrypt_near_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
+        let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+
+        // Create a valid block hash (32 bytes of 1s)
+        let block_hash_bytes = [1u8; 32];
+        let block_hash_base58 = bs58::encode(&block_hash_bytes).into_string();
+
+        // Test transaction signing
+        let signed_tx_bytes = sign_near_transaction_with_prf(
+            prf_output_b64,
+            encrypted_data,
+            iv,
+            "test.testnet",
+            "contract.testnet",
+            "test_method",
+            r#"{"param": "value"}"#,
+            "30000000000000", // 30 TGas
+            "0",
+            1,
+            &block_hash_base58,
+        ).unwrap();
+
+        // Verify the signed transaction is not empty and is a valid Borsh-serialized SignedTransaction
+        assert!(!signed_tx_bytes.is_empty());
+        assert!(signed_tx_bytes.len() > 100); // Should be a substantial serialized transaction
+
+        // Try to deserialize it back to verify structure
+        let deserialized: Result<SignedTransaction, _> = borsh::from_slice(&signed_tx_bytes);
+        assert!(deserialized.is_ok(), "Should be able to deserialize SignedTransaction");
+
+        let signed_transaction = deserialized.unwrap();
+        assert_eq!(signed_transaction.transaction.nonce, 1);
+        assert_eq!(signed_transaction.transaction.signer_id.0, "test.testnet");
+        assert_eq!(signed_transaction.transaction.receiver_id.0, "contract.testnet");
+    }
+
+    #[test]
+    fn test_transaction_signing_with_json_encrypted_key() {
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // Generate and encrypt a key pair
+        let keypair_result = generate_and_encrypt_near_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+        let encrypted_key_json = keypair_data["encryptedPrivateKey"].to_string();
+
+        // Create a valid block hash
+        let block_hash_bytes = [1u8; 32];
+        let block_hash_base58 = bs58::encode(&block_hash_bytes).into_string();
+
+        // Test transaction signing with JSON input
+        let signed_tx_bytes = decrypt_and_sign_transaction_with_prf(
+            prf_output_b64,
+            &encrypted_key_json,
+            "test.testnet",
+            "contract.testnet",
+            "test_method",
+            r#"{"greeting": "Hello World"}"#,
+            "30000000000000",
+            "0",
+            42,
+            &block_hash_base58,
+        ).unwrap();
+
+        // Verify the signed transaction is valid Borsh
+        assert!(!signed_tx_bytes.is_empty());
+        assert!(signed_tx_bytes.len() > 100);
+
+        // Verify it can be deserialized
+        let deserialized: Result<SignedTransaction, _> = borsh::from_slice(&signed_tx_bytes);
+        assert!(deserialized.is_ok(), "Should be able to deserialize SignedTransaction");
+
+        let signed_transaction = deserialized.unwrap();
+        assert_eq!(signed_transaction.transaction.nonce, 42);
+    }
+
+    #[test]
+    fn test_deterministic_transaction_signing() {
+        // Test that transaction signing is deterministic for the same inputs
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // Generate and encrypt a key pair
+        let keypair_result = generate_and_encrypt_near_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+        let encrypted_key_json = keypair_data["encryptedPrivateKey"].to_string();
+
+        // Create a valid block hash
+        let block_hash_bytes = [1u8; 32];
+        let block_hash_base58 = bs58::encode(&block_hash_bytes).into_string();
+
+        // Sign the same transaction twice
+        let signed_tx_bytes1 = decrypt_and_sign_transaction_with_prf(
+            prf_output_b64,
+            &encrypted_key_json,
+            "test.testnet",
+            "contract.testnet",
+            "test_method",
+            r#"{"greeting": "Hello World"}"#,
+            "30000000000000",
+            "0",
+            42,
+            &block_hash_base58,
+        ).unwrap();
+
+        let signed_tx_bytes2 = decrypt_and_sign_transaction_with_prf(
+            prf_output_b64,
+            &encrypted_key_json,
+            "test.testnet",
+            "contract.testnet",
+            "test_method",
+            r#"{"greeting": "Hello World"}"#,
+            "30000000000000",
+            "0",
+            42,
+            &block_hash_base58,
+        ).unwrap();
+
+        // Should be identical (deterministic signing)
+        assert_eq!(signed_tx_bytes1, signed_tx_bytes2);
+
+        // Verify both are valid SignedTransactions
+        let deserialized1: SignedTransaction = borsh::from_slice(&signed_tx_bytes1).unwrap();
+        let deserialized2: SignedTransaction = borsh::from_slice(&signed_tx_bytes2).unwrap();
+        assert_eq!(deserialized1, deserialized2);
     }
 }
