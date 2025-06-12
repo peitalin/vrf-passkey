@@ -16,16 +16,43 @@ function App() {
       <BrowserRouter>
         <PasskeyProvider>
           <Toaster
-            position="bottom-center"
-            reverseOrder={false}
+            position="bottom-right"
             toastOptions={{
-              duration: 5000, // Default longer duration
+              style: {
+                background: '#222222',
+                color: '#ffffff', // Default white text
+              },
+              success: {
+                style: {
+                  background: '#222222',
+                  color: '#eaeaea',
+                },
+                iconTheme: {
+                  primary: '#4ade80', // Bright green
+                  secondary: '#222222',
+                },
+              },
+              error: {
+                style: {
+                  background: '#222222',
+                  color: '#eaeaea',
+                },
+                iconTheme: {
+                  primary: '#f87171', // Bright red
+                  secondary: '#222222',
+                },
+              },
+              loading: {
+                style: {
+                  background: '#222222',
+                  color: '#eaeaea',
+                },
+                iconTheme: {
+                  primary: '#60a5fa', // Bright blue
+                  secondary: '#222222',
+                },
+              },
             }}
-            containerStyle={{
-              bottom: 40,
-            }}
-            gutter={8}
-            containerClassName=""
           />
           <Navbar />
           <Routes>

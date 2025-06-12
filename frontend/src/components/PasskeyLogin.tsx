@@ -30,50 +30,27 @@ export function PasskeyLogin() {
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
   const [isSecureContext] = useState(() => window.isSecureContext);
-  const [hasManuallyClearedInput, setHasManuallyClearedInput] = useState(false);
-  const [isLoggedInOptimistic, setIsLoggedInOptimistic] = useState(false);
 
   const usernameInputRef = useRef<HTMLInputElement>(null);
   const postfixRef = useRef<HTMLSpanElement>(null);
 
-  // Handle auth mode toggle without affecting username input
   const handleAuthModeToggle = useCallback((checked: boolean) => {
-    // Preserve the current username input value
-    const preservedUsername = localUsernameInput;
-
-    // Update the auth mode
     setOptimisticAuth(checked);
+  }, [setOptimisticAuth]);
 
-    // Ensure username is preserved after state update
-    if (preservedUsername && preservedUsername !== localUsernameInput) {
-      // Use requestAnimationFrame to ensure state update happens after re-render
-      requestAnimationFrame(() => {
-        setLocalUsernameInput(preservedUsername);
-      });
-    }
-  }, [localUsernameInput, setOptimisticAuth]);
-
-  // Prevent username from being overwritten by useEffect when auth mode changes
-  const authModeToggleRef = useRef(false);
-  const handleAuthModeToggleWithRef = useCallback((checked: boolean) => {
-    authModeToggleRef.current = true;
-    handleAuthModeToggle(checked);
-    // Reset the flag after a short delay
-    setTimeout(() => {
-      authModeToggleRef.current = false;
-    }, 100);
-  }, [handleAuthModeToggle]);
-
+  // Only auto-populate username when input is empty
   useEffect(() => {
     const loadUserData = async () => {
-      // Don't overwrite username if user is actively toggling auth mode
-      if (hasManuallyClearedInput || authModeToggleRef.current) return;
+      // Don't auto-populate if user has typed something
+      if (localUsernameInput.trim()) return;
 
       if (username) {
+        // User is logged in, show their username
         setLocalUsernameInput(username);
         const hasCredential = await webAuthnManager.hasPasskeyCredential(username);
         setIsPasskeyRegisteredForLocalInput(hasCredential);
       } else {
+        // No logged-in user, try to show last used username
         const prevUsername = await webAuthnManager.getLastUsedUsername();
         if (prevUsername) {
           setLocalUsernameInput(prevUsername);
@@ -84,7 +61,7 @@ export function PasskeyLogin() {
     };
 
     loadUserData();
-  }, [username, hasManuallyClearedInput]);
+  }, [username, localUsernameInput, webAuthnManager]);
 
   // Update postfix position when username changes
   useEffect(() => {
@@ -121,11 +98,9 @@ export function PasskeyLogin() {
     setLocalUsernameInput(newUsername);
 
     if (newUsername) {
-      setHasManuallyClearedInput(false); // User is typing, not clearing
       const hasCredential = await webAuthnManager.hasPasskeyCredential(newUsername);
       setIsPasskeyRegisteredForLocalInput(hasCredential);
     } else {
-      setHasManuallyClearedInput(true); // User has cleared the input
       setIsPasskeyRegisteredForLocalInput(false);
     }
   };
@@ -249,7 +224,7 @@ export function PasskeyLogin() {
 
             <Toggle
               checked={optimisticAuth}
-              onChange={handleAuthModeToggleWithRef}
+              onChange={handleAuthModeToggle}
               label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
               tooltip={optimisticAuth
                 ? 'Fast transaction signing with optimistic response'
