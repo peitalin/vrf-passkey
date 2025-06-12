@@ -2,8 +2,6 @@
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { indexDBManager } from './core/IndexDBManager';
-export { AuthEventEmitter } from './core/AuthEventEmitter';
-export type { AuthEvent } from './core/AuthEventEmitter';
 
 // === TYPES ===
 export type {
@@ -27,6 +25,34 @@ export type {
   PrfSaltConfig,
   ServerAuthenticationOptions
 } from './core/types';
+
+// === WORKER TYPES ===
+export {
+  WorkerRequestType,
+  WorkerResponseType
+} from './core/types/worker';
+
+export type {
+  WorkerRequest,
+  WorkerResponse as TypedWorkerResponse,
+  EncryptPrivateKeyWithPrfRequest,
+  DecryptAndSignTransactionWithPrfRequest,
+  DecryptPrivateKeyWithPrfRequest,
+  EncryptionSuccessResponse,
+  EncryptionFailureResponse,
+  SignatureSuccessResponse,
+  SignatureFailureResponse,
+  DecryptionSuccessResponse,
+  DecryptionFailureResponse,
+  ErrorResponse
+} from './core/types/worker';
+
+export {
+  isEncryptionSuccess,
+  isSignatureSuccess,
+  isDecryptionSuccess,
+  isWorkerError
+} from './core/types/worker';
 
 // === ERROR CLASSES ===
 export {

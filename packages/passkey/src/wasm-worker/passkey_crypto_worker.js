@@ -278,6 +278,132 @@ export function derive_near_keypair_from_cose_p256(x_coordinate_bytes, y_coordin
     }
 }
 
+/**
+ * @param {string} prf_output_base64
+ * @param {string} encrypted_private_key_data
+ * @param {string} encrypted_private_key_iv
+ * @param {string} signer_account_id
+ * @param {string} receiver_account_id
+ * @param {string} method_name
+ * @param {string} args_json
+ * @param {string} gas
+ * @param {string} deposit
+ * @param {bigint} nonce
+ * @param {string} block_hash_base58
+ * @returns {Uint8Array}
+ */
+export function sign_near_transaction_with_prf(prf_output_base64, encrypted_private_key_data, encrypted_private_key_iv, signer_account_id, receiver_account_id, method_name, args_json, gas, deposit, nonce, block_hash_base58) {
+    const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(encrypted_private_key_data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(encrypted_private_key_iv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(signer_account_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(receiver_account_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ptr5 = passStringToWasm0(method_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len5 = WASM_VECTOR_LEN;
+    const ptr6 = passStringToWasm0(args_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len6 = WASM_VECTOR_LEN;
+    const ptr7 = passStringToWasm0(gas, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len7 = WASM_VECTOR_LEN;
+    const ptr8 = passStringToWasm0(deposit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len8 = WASM_VECTOR_LEN;
+    const ptr9 = passStringToWasm0(block_hash_base58, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len9 = WASM_VECTOR_LEN;
+    const ret = wasm.sign_near_transaction_with_prf(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, ptr8, len8, nonce, ptr9, len9);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v11 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v11;
+}
+
+/**
+ * @param {string} prf_output_base64
+ * @param {string} encrypted_private_key_json
+ * @param {string} signer_account_id
+ * @param {string} receiver_account_id
+ * @param {string} method_name
+ * @param {string} args_json
+ * @param {string} gas
+ * @param {string} deposit
+ * @param {bigint} nonce
+ * @param {string} block_hash_base58
+ * @returns {Uint8Array}
+ */
+export function decrypt_and_sign_transaction_with_prf(prf_output_base64, encrypted_private_key_json, signer_account_id, receiver_account_id, method_name, args_json, gas, deposit, nonce, block_hash_base58) {
+    const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(encrypted_private_key_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(signer_account_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(receiver_account_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(method_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ptr5 = passStringToWasm0(args_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len5 = WASM_VECTOR_LEN;
+    const ptr6 = passStringToWasm0(gas, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len6 = WASM_VECTOR_LEN;
+    const ptr7 = passStringToWasm0(deposit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len7 = WASM_VECTOR_LEN;
+    const ptr8 = passStringToWasm0(block_hash_base58, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len8 = WASM_VECTOR_LEN;
+    const ret = wasm.decrypt_and_sign_transaction_with_prf(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, nonce, ptr8, len8);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v10 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v10;
+}
+
+/**
+ * @param {string} prf_output_base64
+ * @param {string} encrypted_private_key_json
+ * @param {string} signer_account_id
+ * @param {string} receiver_id
+ * @param {string} contract_method_name
+ * @param {string} contract_args
+ * @param {string} gas_amount
+ * @param {string} deposit_amount
+ * @param {bigint} nonce
+ * @param {Uint8Array} block_hash_bytes
+ * @returns {Uint8Array}
+ */
+export function sign_transaction_with_encrypted_key(prf_output_base64, encrypted_private_key_json, signer_account_id, receiver_id, contract_method_name, contract_args, gas_amount, deposit_amount, nonce, block_hash_bytes) {
+    const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(encrypted_private_key_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(signer_account_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(receiver_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(contract_method_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ptr5 = passStringToWasm0(contract_args, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len5 = WASM_VECTOR_LEN;
+    const ptr6 = passStringToWasm0(gas_amount, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len6 = WASM_VECTOR_LEN;
+    const ptr7 = passStringToWasm0(deposit_amount, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len7 = WASM_VECTOR_LEN;
+    const ptr8 = passArray8ToWasm0(block_hash_bytes, wasm.__wbindgen_malloc);
+    const len8 = WASM_VECTOR_LEN;
+    const ret = wasm.sign_transaction_with_encrypted_key(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, nonce, ptr8, len8);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v10 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v10;
+}
+
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
         if (typeof WebAssembly.instantiateStreaming === 'function') {

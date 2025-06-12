@@ -7,6 +7,9 @@ export function generate_near_keypair(): string;
 export function derive_encryption_key_from_prf(prf_output_base64: string, info: string, hkdf_salt: string): Uint8Array;
 export function generate_and_encrypt_near_keypair_with_prf(prf_output_base64: string): string;
 export function derive_near_keypair_from_cose_p256(x_coordinate_bytes: Uint8Array, y_coordinate_bytes: Uint8Array): string;
+export function sign_near_transaction_with_prf(prf_output_base64: string, encrypted_private_key_data: string, encrypted_private_key_iv: string, signer_account_id: string, receiver_account_id: string, method_name: string, args_json: string, gas: string, deposit: string, nonce: bigint, block_hash_base58: string): Uint8Array;
+export function decrypt_and_sign_transaction_with_prf(prf_output_base64: string, encrypted_private_key_json: string, signer_account_id: string, receiver_account_id: string, method_name: string, args_json: string, gas: string, deposit: string, nonce: bigint, block_hash_base58: string): Uint8Array;
+export function sign_transaction_with_encrypted_key(prf_output_base64: string, encrypted_private_key_json: string, signer_account_id: string, receiver_id: string, contract_method_name: string, contract_args: string, gas_amount: string, deposit_amount: string, nonce: bigint, block_hash_bytes: Uint8Array): Uint8Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -18,6 +21,9 @@ export interface InitOutput {
   readonly derive_encryption_key_from_prf: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly generate_and_encrypt_near_keypair_with_prf: (a: number, b: number) => [number, number, number, number];
   readonly derive_near_keypair_from_cose_p256: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly sign_near_transaction_with_prf: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: bigint, t: number, u: number) => [number, number, number, number];
+  readonly decrypt_and_sign_transaction_with_prf: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: bigint, r: number, s: number) => [number, number, number, number];
+  readonly sign_transaction_with_encrypted_key: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: bigint, r: number, s: number) => [number, number, number, number];
   readonly init_panic_hook: () => void;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
