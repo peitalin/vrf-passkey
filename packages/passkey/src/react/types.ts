@@ -1,16 +1,13 @@
 import type { ReactNode } from 'react';
-import type { SerializableActionArgs } from '../types';
-import type { AuthEventEmitter } from '../core/AuthEventEmitter';
 import type { WebAuthnManager } from '../core/WebAuthnManager';
+import type { LoginOptions, RegistrationOptions, PasskeyManager} from '../core/PasskeyManager';
 
 // === CORE STATE TYPES ===
-export interface PasskeyState {
+export interface LoginState {
   isLoggedIn: boolean;
   username: string | null;
   nearPublicKey: string | null;
   nearAccountId: string | null;
-  isProcessing: boolean;
-  currentGreeting: string | null;
 }
 
 // === RESULT TYPES ===
@@ -29,10 +26,6 @@ export interface LoginResult extends BaseResult {
   loggedInUsername?: string;
   clientNearPublicKey?: string | null;
   nearAccountId?: string;
-}
-
-export interface GreetingResult extends BaseResult {
-  greeting?: string;
 }
 
 // === ACTION EXECUTION TYPES ===
@@ -82,27 +75,42 @@ export interface OptimisticAuthHook {
   setOptimisticAuth: (value: boolean) => void;
 }
 
-// === CONTEXT TYPES ===
-export interface PasskeyContextType extends PasskeyState {
-  setUsernameState: (username: string) => void;
-  registerPasskey: (username: string) => Promise<RegistrationResult>;
-  loginPasskey: (username?: string) => Promise<LoginResult>;
-  logoutPasskey: () => void;
-  executeDirectActionViaWorker: (
-    serializableActionForContract: SerializableActionArgs,
-    callbacks?: ExecuteActionCallbacks
-  ) => Promise<void>;
-  fetchCurrentGreeting: () => Promise<GreetingResult>;
+// === SIMPLIFIED CONTEXT TYPES ===
+export interface PasskeyContextType {
+  // User login state
+  loginState: LoginState;
+  // Core PasskeyManager instance - provides all functionality
+  passkeyManager: PasskeyManager;
+  // Simple utility functions
+  logout: () => void;
+  loginPasskey: (username: string, options: LoginOptions) => Promise<LoginResult>;
+  registerPasskey: (username: string, options: RegistrationOptions) => Promise<RegistrationResult>;
+  // Settings
   optimisticAuth: boolean;
   setOptimisticAuth: (value: boolean) => void;
-  // Key management methods
-  exportPrivateKey: () => Promise<void>;
-  exportKeyPair: () => Promise<void>;
-  getPublicKey: () => string | null;
-  authEventEmitter: AuthEventEmitter;
+  // Legacy compatibility - direct access to WebAuthnManager
   webAuthnManager: WebAuthnManager;
 }
 
 export interface PasskeyContextProviderProps {
   children: ReactNode;
+
+  // Optional configuration
+  config?: {
+    serverUrl?: string;
+    nearNetwork?: 'testnet' | 'mainnet';
+    relayerAccount?: string;
+    optimisticAuth?: boolean;
+  };
 }
+
+// === CONVENIENCE RE-EXPORTS ===
+export type {
+  // Core manager types
+  RegistrationOptions,
+  LoginOptions,
+  ActionOptions,
+  RegistrationSSEEvent,
+  LoginEvent,
+  ActionEvent
+} from '../core/PasskeyManager/types';

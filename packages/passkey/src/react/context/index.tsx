@@ -1,183 +1,169 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { WebAuthnManager } from '../../core/WebAuthnManager';
-import { AuthEventEmitter } from '../../core/AuthEventEmitter';
 import { indexDBManager } from '../../core/IndexDBManager';
 import { PasskeyManager } from '../../core/PasskeyManager';
 import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
-import { useGreetingService } from '../hooks/useNearGreetingService';
-import { usePasskeyRegistration } from '../hooks/usePasskeyRegistration';
-import { usePasskeyLogin } from '../hooks/usePasskeyLogin';
-import { usePasskeyActions } from '../hooks/usePasskeyActions';
+import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
 import type {
   PasskeyContextType,
-  PasskeyContextProviderProps
+  PasskeyContextProviderProps,
+  LoginState,
+  RegistrationResult,
+  LoginOptions,
+  LoginResult,
+  RegistrationOptions,
+  ExecuteActionCallbacks
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
-export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({ children }) => {
-  // Instantiate managers once and provide them throughout the app
-  const [authEventEmitter] = useState(() => new AuthEventEmitter());
-  const [webAuthnManager] = useState(() => new WebAuthnManager());
+export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
+  children,
+  config: userConfig
+}) => {
 
-  // State management
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState<string | null>(null);
-  const [nearPublicKey, setNearPublicKey] = useState<string | null>(null);
-  const [nearAccountId, setNearAccountId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentGreeting, setCurrentGreeting] = useState<string | null>(null);
-
-  // Initialize PasskeyManager - we'll create it with minimal config
-  const passkeyManager = new PasskeyManager({
-    serverUrl: 'https://webauthn-server.example.com', // Default - should be configurable
-    nearNetwork: 'testnet',
-    relayerAccount: 'webauthn-contract.testnet', // Default for example
-    optimisticAuth: true, // Default value
-  }, authEventEmitter);
-
-  // Use the extracted optimistic auth hook, passing current user for proper persistence
-  const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
-    currentUser: nearAccountId
+  const [loginState, setLoginState] = useState<LoginState>({
+    isLoggedIn: false,
+    username: null,
+    nearAccountId: null,
+    nearPublicKey: null,
   });
 
-  // Utility function
-  const setUsernameState = (name: string) => {
-    setUsername(name);
-  };
+  // Get NEAR RPC provider
+  const { getNearRpcProvider } = useNearRpcProvider();
 
-  // Custom hooks
-  const { fetchCurrentGreeting } = useGreetingService(setCurrentGreeting, setIsProcessing);
+  // Initialize PasskeyManager with configuration
+  const [passkeyManager] = useState(() => {
+    const defaultConfig = {
+      serverUrl: 'http://localhost:3001', // Default for development
+      nearNetwork: 'testnet' as const,
+      relayerAccount: 'webauthn-contract.testnet',
+      optimisticAuth: true,
+    };
 
-  const { registerPasskey } = usePasskeyRegistration(
-    isProcessing,
-    setIsProcessing,
-    setIsLoggedIn,
-    setUsername,
-    setNearAccountId,
-    setNearPublicKey,
-    optimisticAuth,
-    authEventEmitter,
-    webAuthnManager
-  );
+    const finalConfig = { ...defaultConfig, ...userConfig };
+    return new PasskeyManager(finalConfig, getNearRpcProvider());
+  });
 
-  const { loginPasskey } = usePasskeyLogin(
-    username,
-    optimisticAuth,
-    setIsProcessing,
-    setIsLoggedIn,
-    setUsername,
-    setNearAccountId,
-    setNearPublicKey,
-    authEventEmitter,
-    webAuthnManager,
-  );
+  // Use optimistic auth hook
+  const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
+    currentUser: loginState.nearAccountId
+  });
 
-  const { executeDirectActionViaWorker } = usePasskeyActions(
-    isLoggedIn,
-    username,
-    nearAccountId,
-    optimisticAuth,
-    setIsProcessing,
-    fetchCurrentGreeting,
-    authEventEmitter,
-    webAuthnManager
-  );
+  // Simple logout that only manages React state
+  const logout = useCallback(() => {
+    setLoginState({
+      isLoggedIn: false,
+      username: null,
+      nearAccountId: null,
+      nearPublicKey: null,
+    });
+  }, [loginState]);
 
-  // Key management functions
-  const exportPrivateKey = useCallback(async (): Promise<void> => {
-    return passkeyManager.exportPrivateKey();
-  }, [passkeyManager]);
+  const loginPasskey = async (username: string, options: LoginOptions) => {
+    const result: LoginResult = await passkeyManager.loginPasskey(username, {
+      optimisticAuth: optimisticAuth,
+      onEvent: (event) => {
+        if (event.type === 'loginCompleted') {
+          setLoginState({
+            isLoggedIn: true,
+            username: event.data.username,
+            nearAccountId: event.data.nearAccountId || null,
+            nearPublicKey: event.data.publicKey || null,
+          });
+        }
+        options.onEvent?.(event);
+      },
+      onError: (error) => {
+        logout();
+        options.onError?.(error);
+      }
+    });
 
-  const exportKeyPair = useCallback(async (): Promise<void> => {
-    return passkeyManager.exportKeyPair();
-  }, [passkeyManager]);
+    return result
+  }
 
-  const getPublicKey = useCallback((): string | null => {
-    return passkeyManager.getPublicKey();
-  }, [passkeyManager]);
+  const registerPasskey = async (username: string, options: RegistrationOptions) => {
+    const result: RegistrationResult = await passkeyManager.registerPasskey(username, {
+      optimisticAuth: optimisticAuth,
+      onEvent: (event) => {
+        if (event.phase === 'user-ready') {
+          setLoginState({
+            isLoggedIn: true,
+            username: event.username,
+            nearAccountId: event.nearAccountId || null,
+            nearPublicKey: event.clientNearPublicKey || null,
+          });
+        }
+        options.onEvent?.(event);
+      },
+      onError: (error) => {
+        logout();
+        options.onError?.(error);
+      }
+    });
 
-  // Logout function
-  const logoutPasskey = () => {
-    setIsLoggedIn(false);
-    setUsername(null);
-    setNearPublicKey(null);
-    setCurrentGreeting(null);
-    setNearAccountId(null);
-  };
+    return result;
+  }
 
   // Load user data on mount
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        // Get the last user from IndexDBManager
         const lastUser = await indexDBManager.getLastUser();
         if (lastUser) {
-          setUsername(lastUser.username);
-          setNearAccountId(lastUser.nearAccountId);
-
-          // Update last login time
-          await indexDBManager.updateLastLogin(lastUser.nearAccountId);
-
-          // Load the client-managed NEAR public key from WebAuthnManager
-          try {
-            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.username);
-            if (webAuthnUserData?.clientNearPublicKey) {
-              setNearPublicKey(webAuthnUserData.clientNearPublicKey);
-              console.log('Loaded client-managed NEAR public key from WebAuthnManager:', webAuthnUserData.clientNearPublicKey);
-            } else {
-              console.log('No client-managed NEAR public key found in WebAuthnManager for:', lastUser.username);
-              setNearPublicKey(null);
-            }
-          } catch (webAuthnDataError) {
-            console.warn('Failed to load WebAuthn user data, setting nearPublicKey to null:', webAuthnDataError);
-            setNearPublicKey(null);
-          }
-
-          console.log('Loaded user data from IndexDBManager:', {
+          setLoginState({
+            ...loginState,
             username: lastUser.username,
             nearAccountId: lastUser.nearAccountId,
-            registeredAt: new Date(lastUser.registeredAt).toISOString(),
           });
-        } else {
-          console.log('No previous user found in IndexDBManager');
+          await indexDBManager.updateLastLogin(lastUser.nearAccountId);
+
+          // Load client-managed NEAR public key
+          try {
+            const webAuthnManager = passkeyManager.getWebAuthnManager();
+            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.username);
+            if (webAuthnUserData?.clientNearPublicKey) {
+              setLoginState({
+                ...loginState,
+                nearPublicKey: webAuthnUserData.clientNearPublicKey,
+              });
+              console.log('Loaded client-managed NEAR public key:', webAuthnUserData.clientNearPublicKey);
+            } else {
+              console.log('No client-managed NEAR public key found for:', lastUser.username);
+              setLoginState({ ...loginState, nearPublicKey: null });
+            }
+          } catch (webAuthnDataError) {
+            console.warn('Failed to load WebAuthn user data:', webAuthnDataError);
+            setLoginState({ ...loginState, nearPublicKey: null });
+          }
+          // console.log('Loaded user data:', {
+          //   username: lastUser.username,
+          //   nearAccountId: lastUser.nearAccountId,
+          //   registeredAt: new Date(lastUser.registeredAt).toISOString(),
+          // });
         }
       } catch (error) {
-        console.error('Error loading user data from IndexDBManager:', error);
+        console.error('Error loading user data:', error);
       }
     };
 
     loadUserData();
-  }, [webAuthnManager]); // Added webAuthnManager to dependency array
-
-  // Fetch greeting when logged in
-  useEffect(() => {
-    if (isLoggedIn && !isProcessing) {
-      // Only fetch if not already processing to prevent race conditions
-      fetchCurrentGreeting();
-    }
-  }, [isLoggedIn]); // Removed fetchCurrentGreeting from deps - only trigger when login status changes
+  }, [passkeyManager]);
 
   const value: PasskeyContextType = {
-    isLoggedIn,
-    username,
-    nearPublicKey,
-    nearAccountId,
-    isProcessing,
-    currentGreeting,
-    setUsernameState,
-    registerPasskey,
+    // State
+    loginState,
+    // Simple utility functions
+    logout,
     loginPasskey,
-    logoutPasskey,
-    executeDirectActionViaWorker,
-    fetchCurrentGreeting,
+    registerPasskey,
+    // Settings
     optimisticAuth,
     setOptimisticAuth,
-    exportPrivateKey,
-    exportKeyPair,
-    getPublicKey,
-    authEventEmitter,
-    webAuthnManager,
+    // Core PasskeyManager instance - provides ALL functionality
+    passkeyManager,
+    // Legacy compatibility
+    webAuthnManager: passkeyManager.getWebAuthnManager(),
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;
@@ -197,5 +183,4 @@ export type {
   ExecuteActionCallbacks,
   RegistrationResult,
   LoginResult,
-  GreetingResult
 } from '../types';

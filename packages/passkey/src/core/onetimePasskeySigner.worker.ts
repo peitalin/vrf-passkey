@@ -14,6 +14,17 @@ import { KeyPairEd25519 } from '@near-js/crypto';
 // @ts-ignore - WASM module types
 import init, * as wasmModule from '../wasm-worker/passkey_crypto_worker.js';
 
+// Import worker types
+import {
+  WorkerRequestType,
+  WorkerResponseType,
+  type WorkerRequest,
+  type WorkerResponse,
+  type EncryptPrivateKeyWithPrfRequest,
+  type DecryptAndSignTransactionWithPrfRequest,
+  type DecryptPrivateKeyWithPrfRequest
+} from './types/worker';
+
 /**
  * Strips the ed25519: prefix from a NEAR key string
  */
@@ -121,7 +132,7 @@ function sendResponseAndTerminate(response: WorkerResponse): void {
  */
 function createErrorResponse(error: string): WorkerResponse {
   return {
-    type: 'ERROR',
+    type: WorkerResponseType.ERROR,
     payload: { error }
   };
 }
@@ -149,11 +160,6 @@ interface EncryptedKeyData {
   encryptedData: string;
   iv: string;
   timestamp: number;
-}
-
-interface WorkerResponse {
-  type: string;
-  payload: any;
 }
 
 interface WasmResult {
@@ -240,44 +246,13 @@ async function verifyKeyStorage(nearAccountId: string): Promise<boolean> {
   }
 }
 
-interface EncryptPrivateKeyWithPrfMessage {
-  type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF';
-  payload: {
-    prfOutput: string; // Base64-encoded PRF output
-    nearAccountId: string;
-  };
-}
 
-interface DecryptAndSignTransactionWithPrfMessage {
-  type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF';
-  payload: {
-    nearAccountId: string;
-    prfOutput: string; // Base64-encoded PRF output
-    receiverId: string;
-    contractMethodName: string;
-    contractArgs: any;
-    gasAmount: string;
-    depositAmount: string;
-    nonce: string;
-    blockHashBytes: number[];
-  };
-}
-
-interface DecryptPrivateKeyMessage {
-  type: 'DECRYPT_PRIVATE_KEY_WITH_PRF';
-  payload: {
-    nearAccountId: string;
-    prfOutput: string; // Base64-encoded PRF output
-  };
-}
-
-type WorkerMessage = EncryptPrivateKeyWithPrfMessage | DecryptAndSignTransactionWithPrfMessage | DecryptPrivateKeyMessage;
 
 // === MAIN MESSAGE HANDLER ===
 
 let messageProcessed = false;
 
-self.onmessage = async (event: MessageEvent<WorkerMessage>): Promise<void> => {
+self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
   if (messageProcessed) {
     sendResponseAndTerminate(createErrorResponse('Worker has already processed a message'));
     return;
@@ -294,15 +269,15 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>): Promise<void> => {
     console.log('WORKER: WASM initialization completed, processing message...');
 
     switch (type) {
-      case 'ENCRYPT_PRIVATE_KEY_WITH_PRF':
+      case WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF:
         await handleEncryptPrivateKeyWithPrf(payload);
         break;
 
-      case 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF':
+      case WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF:
         await handleDecryptAndSignTransactionWithPrf(payload);
         break;
 
-      case 'DECRYPT_PRIVATE_KEY_WITH_PRF':
+      case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
         await handleDecryptPrivateKeyWithPrf(payload);
         break;
 
@@ -347,7 +322,7 @@ async function generateAndEncryptKeypair(
  * Handle private key encryption with PRF
  */
 async function handleEncryptPrivateKeyWithPrf(
-  payload: EncryptPrivateKeyWithPrfMessage['payload']
+  payload: EncryptPrivateKeyWithPrfRequest['payload']
 ): Promise<void> {
   try {
     const { prfOutput, nearAccountId } = payload;
@@ -361,7 +336,7 @@ async function handleEncryptPrivateKeyWithPrf(
     }
 
     sendResponseAndTerminate({
-      type: 'ENCRYPTION_SUCCESS',
+      type: WorkerResponseType.ENCRYPTION_SUCCESS,
       payload: {
         nearAccountId,
         publicKey,
@@ -371,7 +346,7 @@ async function handleEncryptPrivateKeyWithPrf(
   } catch (error: any) {
     console.error('WORKER: Encryption failed:', error.message);
     sendResponseAndTerminate({
-      type: 'ENCRYPTION_FAILURE',
+      type: WorkerResponseType.ENCRYPTION_FAILURE,
       payload: { error: error.message || 'PRF encryption failed' }
     });
   }
@@ -387,14 +362,18 @@ function decryptPrivateKeyString(
   prfOutput: string
 ): string {
   const decryptionKey = derive_encryption_key_from_prf(prfOutput, HKDF_INFO, HKDF_SALT);
-  const decryptedBase58Key = decrypt_data_aes_gcm(
+  const decryptedKey = decrypt_data_aes_gcm(
     encryptedKeyData.encryptedData,
     encryptedKeyData.iv,
     decryptionKey
   );
 
-  // The decrypted data is the base58 part of the key, just add the prefix
-  return `ed25519:${decryptedBase58Key}`;
+  // Handle both cases: full "ed25519:..." format or just base58
+  if (decryptedKey.startsWith('ed25519:')) {
+    return decryptedKey; // Already has the prefix
+  } else {
+    return `ed25519:${decryptedKey}`; // Add the prefix
+  }
 }
 
 /**
@@ -414,7 +393,7 @@ function decryptPrivateKey(
 function createNearTransaction(
   nearAccountId: string,
   keyPair: KeyPair,
-  payload: DecryptAndSignTransactionWithPrfMessage['payload']
+  payload: DecryptAndSignTransactionWithPrfRequest['payload']
 ): any {
   const { receiverId, contractMethodName, contractArgs, gasAmount, depositAmount, nonce, blockHashBytes } = payload;
 
@@ -464,7 +443,7 @@ function signTransaction(transaction: any, keyPair: KeyPair): Uint8Array {
  * Handle transaction decryption and signing with PRF
  */
 async function handleDecryptAndSignTransactionWithPrf(
-  payload: DecryptAndSignTransactionWithPrfMessage['payload']
+  payload: DecryptAndSignTransactionWithPrfRequest['payload']
 ): Promise<void> {
   try {
     const { nearAccountId, prfOutput } = payload;
@@ -479,7 +458,7 @@ async function handleDecryptAndSignTransactionWithPrf(
     const serializedSignedTx = signTransaction(transaction, keyPair);
 
     sendResponseAndTerminate({
-      type: 'SIGNATURE_SUCCESS',
+      type: WorkerResponseType.SIGNATURE_SUCCESS,
       payload: {
         signedTransactionBorsh: Array.from(serializedSignedTx),
         nearAccountId
@@ -488,7 +467,7 @@ async function handleDecryptAndSignTransactionWithPrf(
   } catch (error: any) {
     console.error('WORKER: Signing failed:', error.message);
     sendResponseAndTerminate({
-      type: 'SIGNATURE_FAILURE',
+      type: WorkerResponseType.SIGNATURE_FAILURE,
       payload: { error: error.message || 'PRF decryption/signing failed' }
     });
   }
@@ -498,7 +477,7 @@ async function handleDecryptAndSignTransactionWithPrf(
  * Handle private key decryption with PRF
  */
 async function handleDecryptPrivateKeyWithPrf(
-  payload: DecryptPrivateKeyMessage['payload']
+  payload: DecryptPrivateKeyWithPrfRequest['payload']
 ): Promise<void> {
   try {
     const { nearAccountId, prfOutput } = payload;
@@ -512,7 +491,7 @@ async function handleDecryptPrivateKeyWithPrf(
     const decryptedPrivateKey = decryptPrivateKeyString(encryptedKeyData, prfOutput);
 
     sendResponseAndTerminate({
-      type: 'DECRYPTION_SUCCESS',
+      type: WorkerResponseType.DECRYPTION_SUCCESS,
       payload: {
         decryptedPrivateKey,
         nearAccountId
@@ -521,7 +500,7 @@ async function handleDecryptPrivateKeyWithPrf(
   } catch (error: any) {
     console.error('WORKER: Decryption failed:', error.message);
     sendResponseAndTerminate({
-      type: 'DECRYPTION_FAILURE',
+      type: WorkerResponseType.DECRYPTION_FAILURE,
       payload: { error: error.message || 'PRF decryption failed' }
     });
   }
@@ -529,8 +508,9 @@ async function handleDecryptPrivateKeyWithPrf(
 
 // === EXPORTS ===
 export type {
-  WorkerMessage,
-  EncryptPrivateKeyWithPrfMessage,
-  DecryptAndSignTransactionWithPrfMessage,
-  DecryptPrivateKeyMessage
+  WorkerRequest,
+  WorkerResponse,
+  EncryptPrivateKeyWithPrfRequest,
+  DecryptAndSignTransactionWithPrfRequest,
+  DecryptPrivateKeyWithPrfRequest
 };

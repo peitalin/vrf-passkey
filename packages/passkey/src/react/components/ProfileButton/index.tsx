@@ -37,19 +37,18 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
 }) => {
   // Get values from context if not provided as props
   const {
-    username: contextUsername,
-    nearAccountId: contextNearAccountId,
+    loginState,
+    passkeyManager,
+    logout,
     optimisticAuth: contextOptimisticAuth,
-    logoutPasskey,
     setOptimisticAuth,
-    exportKeyPair
   } = usePasskeyContext();
 
   // Use props if provided, otherwise fall back to context
-  const username = usernameProp || contextUsername;
-  const nearAccountId = nearAccountIdProp || contextNearAccountId;
+  const username = usernameProp || loginState.username;
+  const nearAccountId = nearAccountIdProp || loginState.nearAccountId;
   const optimisticAuth = optimisticAuthProp !== undefined ? optimisticAuthProp : contextOptimisticAuth;
-  const onLogout = onLogoutProp || logoutPasskey;
+  const onLogout = onLogoutProp || logout;
   const onOptimisticAuthChange = onOptimisticAuthChangeProp || setOptimisticAuth;
 
   // Menu items configuration with context-aware handlers
@@ -59,7 +58,28 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
       label: 'Export Keys',
       description: 'Export your NEAR private keys',
       disabled: false,
-      onClick: exportKeyPair
+      onClick: async () => {
+        try {
+          const { userAccountId, privateKey, publicKey } = await passkeyManager.exportKeyPair();
+
+          // Small delay to allow document to regain focus after WebAuthn
+          await new Promise(resolve => setTimeout(resolve, 150));
+
+          const keypair_msg = `Account ID:\n${userAccountId}\n\nPublic key:\n${publicKey}\n\nPrivate key:\n${privateKey}`;
+
+          // Simple clipboard approach with single fallback
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(keypair_msg);
+            alert(`NEAR keys copied to clipboard!\n${keypair_msg}`);
+          } else {
+            // Simple fallback: show keys for manual copy
+            alert(`Your NEAR Keys (copy manually):\n${keypair_msg}`);
+          }
+        } catch (error: any) {
+          console.error('Key export failed:', error);
+          alert(`Key export failed: ${error.message}`);
+        }
+      }
     },
     {
       icon: <PaymentMethodsIcon />,

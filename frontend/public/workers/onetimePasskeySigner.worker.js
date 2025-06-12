@@ -22546,6 +22546,24 @@ var wasmModule = /*#__PURE__*/Object.freeze({
 	sign_transaction_with_encrypted_key: sign_transaction_with_encrypted_key
 });
 
+// === WORKER MESSAGE TYPE ENUMS ===
+var WorkerRequestType;
+(function (WorkerRequestType) {
+    WorkerRequestType["ENCRYPT_PRIVATE_KEY_WITH_PRF"] = "ENCRYPT_PRIVATE_KEY_WITH_PRF";
+    WorkerRequestType["DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF"] = "DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF";
+    WorkerRequestType["DECRYPT_PRIVATE_KEY_WITH_PRF"] = "DECRYPT_PRIVATE_KEY_WITH_PRF";
+})(WorkerRequestType || (WorkerRequestType = {}));
+var WorkerResponseType;
+(function (WorkerResponseType) {
+    WorkerResponseType["ENCRYPTION_SUCCESS"] = "ENCRYPTION_SUCCESS";
+    WorkerResponseType["ENCRYPTION_FAILURE"] = "ENCRYPTION_FAILURE";
+    WorkerResponseType["SIGNATURE_SUCCESS"] = "SIGNATURE_SUCCESS";
+    WorkerResponseType["SIGNATURE_FAILURE"] = "SIGNATURE_FAILURE";
+    WorkerResponseType["DECRYPTION_SUCCESS"] = "DECRYPTION_SUCCESS";
+    WorkerResponseType["DECRYPTION_FAILURE"] = "DECRYPTION_FAILURE";
+    WorkerResponseType["ERROR"] = "ERROR";
+})(WorkerResponseType || (WorkerResponseType = {}));
+
 // @ts-ignore
 globalThis.Buffer = buffer$1.Buffer;
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
@@ -22621,7 +22639,7 @@ function sendResponseAndTerminate(response) {
  */
 function createErrorResponse(error) {
     return {
-        type: 'ERROR',
+        type: WorkerResponseType.ERROR,
         payload: { error }
     };
 }
@@ -22720,13 +22738,13 @@ self.onmessage = async (event) => {
         await initializeWasmWithCache();
         console.log('WORKER: WASM initialization completed, processing message...');
         switch (type) {
-            case 'ENCRYPT_PRIVATE_KEY_WITH_PRF':
+            case WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF:
                 await handleEncryptPrivateKeyWithPrf(payload);
                 break;
-            case 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF':
+            case WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF:
                 await handleDecryptAndSignTransactionWithPrf(payload);
                 break;
-            case 'DECRYPT_PRIVATE_KEY_WITH_PRF':
+            case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
                 await handleDecryptPrivateKeyWithPrf(payload);
                 break;
             default:
@@ -22772,7 +22790,7 @@ async function handleEncryptPrivateKeyWithPrf(payload) {
             throw new Error('Key storage verification failed');
         }
         sendResponseAndTerminate({
-            type: 'ENCRYPTION_SUCCESS',
+            type: WorkerResponseType.ENCRYPTION_SUCCESS,
             payload: {
                 nearAccountId,
                 publicKey,
@@ -22783,7 +22801,7 @@ async function handleEncryptPrivateKeyWithPrf(payload) {
     catch (error) {
         console.error('WORKER: Encryption failed:', error.message);
         sendResponseAndTerminate({
-            type: 'ENCRYPTION_FAILURE',
+            type: WorkerResponseType.ENCRYPTION_FAILURE,
             payload: { error: error.message || 'PRF encryption failed' }
         });
     }
@@ -22858,7 +22876,7 @@ async function handleDecryptAndSignTransactionWithPrf(payload) {
         const transaction = createNearTransaction(nearAccountId, keyPair, payload);
         const serializedSignedTx = signTransaction(transaction, keyPair);
         sendResponseAndTerminate({
-            type: 'SIGNATURE_SUCCESS',
+            type: WorkerResponseType.SIGNATURE_SUCCESS,
             payload: {
                 signedTransactionBorsh: Array.from(serializedSignedTx),
                 nearAccountId
@@ -22868,7 +22886,7 @@ async function handleDecryptAndSignTransactionWithPrf(payload) {
     catch (error) {
         console.error('WORKER: Signing failed:', error.message);
         sendResponseAndTerminate({
-            type: 'SIGNATURE_FAILURE',
+            type: WorkerResponseType.SIGNATURE_FAILURE,
             payload: { error: error.message || 'PRF decryption/signing failed' }
         });
     }
@@ -22886,7 +22904,7 @@ async function handleDecryptPrivateKeyWithPrf(payload) {
         // Encrypted data is already raw base64, no prefix stripping needed
         const decryptedPrivateKey = decryptPrivateKeyString(encryptedKeyData, prfOutput);
         sendResponseAndTerminate({
-            type: 'DECRYPTION_SUCCESS',
+            type: WorkerResponseType.DECRYPTION_SUCCESS,
             payload: {
                 decryptedPrivateKey,
                 nearAccountId
@@ -22896,7 +22914,7 @@ async function handleDecryptPrivateKeyWithPrf(payload) {
     catch (error) {
         console.error('WORKER: Decryption failed:', error.message);
         sendResponseAndTerminate({
-            type: 'DECRYPTION_FAILURE',
+            type: WorkerResponseType.DECRYPTION_FAILURE,
             payload: { error: error.message || 'PRF decryption failed' }
         });
     }

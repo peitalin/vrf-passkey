@@ -3,23 +3,18 @@ export { PasskeyProvider, usePasskeyContext } from './context/index';
 
 // === REACT HOOKS ===
 export { useOptimisticAuth } from './hooks/useOptimisticAuth';
-export { useGreetingService } from './hooks/useNearGreetingService';
 export { useNearRpcProvider } from './hooks/useNearRpcProvider';
-export { usePasskeyRegistration } from './hooks/usePasskeyRegistration';
-export { usePasskeyLogin } from './hooks/usePasskeyLogin';
-export { usePasskeyActions } from './hooks/usePasskeyActions';
 
 // === REACT COMPONENTS ===
 export { ProfileButton } from './components/ProfileButton';
 
 // === TYPES ===
 export type {
-  PasskeyState,
+  LoginState,
   PasskeyContextType,
   PasskeyContextProviderProps,
   RegistrationResult,
   LoginResult,
-  GreetingResult,
   ExecuteActionCallbacks,
   ActionExecutionResult,
   ToastOptions,
@@ -27,7 +22,14 @@ export type {
   ManagedToast,
   NearRpcProviderHook,
   OptimisticAuthOptions,
-  OptimisticAuthHook
+  OptimisticAuthHook,
+  // Re-exported from PasskeyManager types
+  RegistrationOptions,
+  LoginOptions,
+  ActionOptions,
+  RegistrationSSEEvent,
+  LoginEvent,
+  ActionEvent
 } from './types';
 
 // === PROFILE BUTTON TYPES ===

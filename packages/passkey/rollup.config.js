@@ -11,7 +11,6 @@ const external = [
   // React dependencies
   'react',
   'react-dom',
-  'react-hot-toast',
 
   // All @near-js packages
   /@near-js\/.*/,

@@ -1,5 +1,15 @@
-import { SERVER_URL, WASM_WORKER_FILENAME } from '../config';
-import { bufferEncode, bufferDecode } from '../utils/encoders';
+import { SERVER_URL, WASM_WORKER_FILENAME } from '../../config';
+import { bufferEncode, bufferDecode } from '../../utils/encoders';
+import {
+  WorkerRequestType,
+  WorkerResponseType,
+  type WorkerRequest,
+  type WorkerResponse,
+  isEncryptionSuccess,
+  isSignatureSuccess,
+  isDecryptionSuccess,
+  isWorkerError
+} from '../types/worker';
 
 // === CONSTANTS ===
 const USER_DATA_DB_NAME = 'PasskeyUserData';
@@ -45,17 +55,7 @@ interface SigningPayload {
   blockHashBytes: number[];
 }
 
-interface WorkerResponse {
-  type: string;
-  payload: {
-    error?: string;
-    publicKey?: string;
-    nearAccountId?: string;
-    signedTransactionBorsh?: number[];
-    stored?: boolean;
-    decryptedPrivateKey?: string;
-  };
-}
+
 
 interface PrfSaltConfig {
   nearKeyEncryption: Uint8Array;
@@ -636,31 +636,33 @@ export class WebAuthnManager {
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
-        type: 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
+        type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF,
         payload: {
           prfOutput: bufferEncode(prfOutput),
           nearAccountId: payload.nearAccountId
         }
       });
 
-      if (response.type === 'ENCRYPTION_SUCCESS') {
+      if (isEncryptionSuccess(response)) {
         console.log('WebAuthnManager: PRF registration successful');
 
         await this.storeUserData({
           username,
           nearAccountId: payload.nearAccountId,
-          clientNearPublicKey: response.payload.publicKey!,
+          clientNearPublicKey: response.payload.publicKey,
           prfSupported: true,
           lastUpdated: Date.now()
         });
 
         return {
           success: true,
-          nearAccountId: response.payload.nearAccountId!,
-          publicKey: response.payload.publicKey!
+          nearAccountId: response.payload.nearAccountId,
+          publicKey: response.payload.publicKey
         };
+      } else if (isWorkerError(response)) {
+        throw new Error(response.payload.error || 'PRF encryption failed');
       } else {
-        throw new Error(response.payload?.error || 'PRF encryption failed');
+        throw new Error('Unexpected response type from worker');
       }
     } catch (error: any) {
       console.error('WebAuthnManager: PRF registration failed:', error);
@@ -681,9 +683,15 @@ export class WebAuthnManager {
       this.validateAndConsumeChallenge(challengeId, 'authentication');
       console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
+      // Get user data to verify user exists
+      const userData = await this.getUserData(username);
+      if (!userData) {
+        throw new Error(`No user data found for ${username}`);
+      }
+
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
-        type: 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
+        type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF,
         payload: {
           nearAccountId: payload.nearAccountId,
           prfOutput: bufferEncode(prfOutput),
@@ -697,18 +705,89 @@ export class WebAuthnManager {
         }
       });
 
-      if (response.type === 'SIGNATURE_SUCCESS') {
+      if (isSignatureSuccess(response)) {
         console.log('WebAuthnManager: PRF transaction signing successful');
+        // The worker returns Borsh bytes directly in the payload
         return {
-          signedTransactionBorsh: response.payload.signedTransactionBorsh!,
-          nearAccountId: response.payload.nearAccountId!
+          signedTransactionBorsh: response.payload.signedTransactionBorsh,
+          nearAccountId: payload.nearAccountId
         };
+      } else if (isWorkerError(response)) {
+        throw new Error(response.payload.error || 'PRF signing failed');
       } else {
-        throw new Error(response.payload?.error || 'PRF signing failed');
+        throw new Error('Unexpected response type from worker');
       }
     } catch (error: any) {
       console.error('WebAuthnManager: PRF transaction signing failed:', error);
       throw error;
+    }
+  }
+
+      /**
+   * Get encrypted private key for transaction signing
+   * For now, we'll generate a simple encrypted key structure that the WASM worker can use
+   */
+  private async getEncryptedPrivateKey(username: string, prfOutput: ArrayBuffer): Promise<any> {
+    try {
+      // Import crypto functions to generate a key locally
+      const crypto = window.crypto;
+      const encoder = new TextEncoder();
+
+      // Generate a deterministic private key from the PRF output and username
+      const combinedData = new Uint8Array(prfOutput.byteLength + encoder.encode(username).byteLength);
+      combinedData.set(new Uint8Array(prfOutput), 0);
+      combinedData.set(encoder.encode(username), prfOutput.byteLength);
+
+      // Hash the combined data to get a deterministic private key
+      const hashBuffer = await crypto.subtle.digest('SHA-256', combinedData);
+      const privateKeyBytes = new Uint8Array(hashBuffer);
+
+      // Encode the private key in NEAR format
+      const bs58 = await import('bs58');
+      const privateKeyB58 = bs58.default.encode(privateKeyBytes);
+      const privateKeyNearFormat = `ed25519:${privateKeyB58}`;
+
+      // Generate a simple encryption key from PRF output
+      const encryptionKeyBuffer = await crypto.subtle.digest('SHA-256', prfOutput);
+      const encryptionKey = new Uint8Array(encryptionKeyBuffer);
+
+      // Generate a random IV
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+
+      // Import the encryption key for AES-GCM
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        encryptionKey,
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt']
+      );
+
+      // Encrypt the private key
+      const encryptedData = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        cryptoKey,
+        encoder.encode(privateKeyNearFormat)
+      );
+
+      // Convert to base64url for storage
+      const base64url = (buffer: ArrayBuffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      };
+
+      return {
+        encrypted_data_b64u: base64url(encryptedData),
+        iv_b64u: base64url(iv.buffer)
+      };
+
+    } catch (error: any) {
+      console.error('Error generating encrypted private key:', error);
+      throw new Error(`Failed to generate encrypted private key: ${error.message}`);
     }
   }
 
@@ -733,21 +812,23 @@ export class WebAuthnManager {
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
-        type: 'DECRYPT_PRIVATE_KEY_WITH_PRF',
+        type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
         payload: {
           nearAccountId: userData.nearAccountId,
           prfOutput: bufferEncode(prfOutput),
         }
       });
 
-      if (response.type === 'DECRYPTION_SUCCESS') {
+      if (isDecryptionSuccess(response)) {
         console.log('WebAuthnManager: PRF private key decryption successful');
         return {
-          decryptedPrivateKey: response.payload.decryptedPrivateKey!,
-          nearAccountId: response.payload.nearAccountId!
+          decryptedPrivateKey: response.payload.decryptedPrivateKey,
+          nearAccountId: response.payload.nearAccountId
         };
+      } else if (isWorkerError(response)) {
+        throw new Error(response.payload.error || 'PRF decryption failed');
       } else {
-        throw new Error(response.payload?.error || 'PRF decryption failed');
+        throw new Error('Unexpected response type from worker');
       }
     } catch (error: any) {
       console.error('WebAuthnManager: PRF private key decryption failed:', error);
