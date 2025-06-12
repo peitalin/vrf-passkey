@@ -24,6 +24,10 @@ class NearClient {
   private relayerAccount: Account = null!;
   private isInitialized = false;
 
+  // Add transaction queue to prevent nonce conflicts
+  private transactionQueue: Promise<any> = Promise.resolve();
+  private queueStats = { pending: 0, completed: 0, failed: 0 };
+
   constructor() {
     if (!RELAYER_ACCOUNT_ID || !RELAYER_PRIVATE_KEY) {
       throw new Error('Missing NEAR environment variables for relayer account.');
@@ -67,44 +71,56 @@ class NearClient {
 
   public async callFunction(receiverId: string, methodName: string, args: Record<string, any>, gas: string, deposit: string): Promise<any> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
-    try {
-      const result = await this.relayerAccount.signAndSendTransaction({
-        receiverId,
-        actions: [
-          // @ts-ignore
-          {
-            functionCall: {
-              methodName,
-              args: Buffer.from(JSON.stringify(args)),
-              gas: BigInt(gas),
-              deposit: BigInt(deposit)
+
+    const description = `${methodName} on ${receiverId}`;
+
+    return this.queueTransaction(async () => {
+      console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
+
+      try {
+        const result = await this.relayerAccount.signAndSendTransaction({
+          receiverId,
+          actions: [
+            // @ts-ignore
+            {
+              functionCall: {
+                methodName,
+                args: Buffer.from(JSON.stringify(args)),
+                gas: BigInt(gas),
+                deposit: BigInt(deposit)
+              }
             }
-          }
-        ]
-      });
-      return result;
-    } catch (error) {
-      console.error(`NearClient: Error during functionCall for ${methodName} on ${this.relayerAccount.accountId}:`, error);
-      throw error;
-    }
+          ]
+        });
+        return result;
+      } catch (error) {
+        console.error(`NearClient: Error during functionCall for ${methodName} on ${receiverId}:`, error);
+        throw error;
+      }
+    }, description);
   }
 
   private async _executeFunctionCallAction(receiverId: string, methodName: string, args: Record<string, any>, gas: bigint, deposit: bigint): Promise<any> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
-    try {
-      return await this.relayerAccount.callFunction({
-        contractId: receiverId,
-        methodName: methodName,
-        args: args,
-        gas: gas,
-        deposit: deposit
-      });
-    } catch (error) {
-      console.error(`NearClient: Error during functionCall for ${methodName} on ${this.relayerAccount.accountId}:`, error);
-      throw error;
-    }
+
+    const description = `${methodName} on ${receiverId} (via _executeFunctionCallAction)`;
+
+    return this.queueTransaction(async () => {
+      console.log(`NearClient: Relayer ${this.relayerAccount.accountId} calling contract: ${receiverId}, method: ${methodName} with args:`, args);
+
+      try {
+        return await this.relayerAccount.callFunction({
+          contractId: receiverId,
+          methodName: methodName,
+          args: args,
+          gas: gas,
+          deposit: deposit
+        });
+      } catch (error) {
+        console.error(`NearClient: Error during functionCall for ${methodName} on ${this.relayerAccount.accountId}:`, error);
+        throw error;
+      }
+    }, description);
   }
 
   async getTrustedRelayer(): Promise<string> {
@@ -204,7 +220,6 @@ class NearClient {
     initialBalance: bigint = BigInt('20000000000000000000000') // Changed to 0.02 NEAR
   ): Promise<CreateAccountResult> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Creating account ${accountId} with public key ${publicKeyString} and balance ${initialBalance.toString()} yoctoNEAR`);
 
     if (!this.relayerAccount || !this.relayerAccount.accountId) {
         throw new Error("Relayer account details not initialized in NearClient.");
@@ -224,32 +239,38 @@ class NearClient {
       return { success: false, message: errMsg, error: e };
     }
 
-    try {
-      const accountCreator = new LocalAccountCreator(
-        this.relayerAccount,
-        initialBalance
-      );
-      // accountCreator.createAccount is void according to user's recent diff note
-      await accountCreator.createAccount(accountId, PublicKey.fromString(publicKeyString));
-      console.log(`NearClient: Account creation call for ${accountId} completed.`);
-      return {
-        success: true,
-        message: 'Account created successfully via NearClient.',
-        result: {
-          accountId: accountId,
-          publicKey: publicKeyString,
+    const description = `createAccount ${accountId}`;
+
+    return this.queueTransaction(async () => {
+      console.log(`NearClient: Creating account ${accountId} with public key ${publicKeyString} and balance ${initialBalance.toString()} yoctoNEAR`);
+
+      try {
+        const accountCreator = new LocalAccountCreator(
+          this.relayerAccount,
+          initialBalance
+        );
+        // accountCreator.createAccount is void according to user's recent diff note
+        await accountCreator.createAccount(accountId, PublicKey.fromString(publicKeyString));
+        console.log(`NearClient: Account creation call for ${accountId} completed.`);
+        return {
+          success: true,
+          message: 'Account created successfully via NearClient.',
+          result: {
+            accountId: accountId,
+            publicKey: publicKeyString,
+          }
+        };
+      } catch (error: any) {
+        console.error(`NearClient: Error creating account ${accountId}:`, error);
+        let msg = error.message || 'Failed to create account in NearClient.';
+        if (error.message && error.message.includes("CreateAccountNotAllowed")) {
+           msg = `Error creating account ${accountId}: ${error.message}`;
+        } else if (error.message && error.message.includes("does not have enough balance")) {
+            msg = `Error creating account ${accountId}: Relayer account ${this.relayerAccount.accountId} does not have enough balance. Full error: ${error.message}`;
         }
-      };
-    } catch (error: any) {
-      console.error(`NearClient: Error creating account ${accountId}:`, error);
-      let msg = error.message || 'Failed to create account in NearClient.';
-      if (error.message && error.message.includes("CreateAccountNotAllowed")) {
-         msg = `Error creating account ${accountId}: ${error.message}`;
-      } else if (error.message && error.message.includes("does not have enough balance")) {
-          msg = `Error creating account ${accountId}: Relayer account ${this.relayerAccount.accountId} does not have enough balance. Full error: ${error.message}`;
+        return { success: false, message: msg, error: error };
       }
-      return { success: false, message: msg, error: error };
-    }
+    }, description);
   }
 
   async checkAccountExists(accountId: string): Promise<boolean> {
@@ -271,49 +292,119 @@ class NearClient {
     }
   }
 
-    async addAccessKey(
+  async addAccessKey(
     accountId: string,
     publicKeyString: string,
     allowance?: bigint
   ): Promise<CreateAccountResult> {
     await this._ensureSignerAndRelayerAccount();
-    console.log(`NearClient: Adding access key ${publicKeyString} to account ${accountId}`);
 
-        try {
-      const publicKey = PublicKey.fromString(publicKeyString);
+    try {
+      PublicKey.fromString(publicKeyString);
+    } catch (e: any) {
+      const errMsg = `Invalid public key format: ${publicKeyString}. Error: ${e.message}`;
+      console.error("NearClient: Invalid public key format for addAccessKey", publicKeyString, e.message);
+      return { success: false, message: errMsg, error: e };
+    }
 
-      // Use the relayer account to add the access key to the target account
-      // The relayer has permission to manage subaccount keys
-      const result = await this.relayerAccount.signAndSendTransaction({
-        receiverId: accountId,
-        actions: [
-          // @ts-ignore: enum action-type typings mismatch
-          {
-            addKey: {
-              publicKey: publicKey,
-              accessKey: {
-                nonce: BigInt(0),
-                // @ts-ignore: enum permission typings mismatch
-                permission: { fullAccess: {} }
+    const description = `addAccessKey ${publicKeyString} to ${accountId}`;
+
+    return this.queueTransaction(async () => {
+      console.log(`NearClient: Adding access key ${publicKeyString} to account ${accountId}`);
+
+      try {
+        const publicKey = PublicKey.fromString(publicKeyString);
+
+        // Use the relayer account to add the access key to the target account
+        // The relayer has permission to manage subaccount keys
+        const result = await this.relayerAccount.signAndSendTransaction({
+          receiverId: accountId,
+          actions: [
+            // @ts-ignore: enum action-type typings mismatch
+            {
+              addKey: {
+                publicKey: publicKey,
+                accessKey: {
+                  nonce: BigInt(0),
+                  // @ts-ignore: enum permission typings mismatch
+                  permission: { fullAccess: {} }
+                }
               }
             }
+          ]
+        });
+
+        console.log(`NearClient: Successfully added access key to ${accountId}`);
+        return {
+          success: true,
+          message: 'Access key added successfully',
+          result: {
+            accountId: accountId,
+            publicKey: publicKeyString,
           }
-        ]
+        };
+      } catch (error: any) {
+        console.error(`NearClient: Error adding access key to ${accountId}:`, error);
+        const msg = error.message || 'Failed to add access key';
+        return { success: false, message: msg, error: error };
+      }
+    }, description);
+  }
+
+  /**
+   * Queue a transaction to prevent nonce conflicts
+   * All transactions from the relayer account must go through this queue
+   */
+  private async queueTransaction<T>(operation: () => Promise<T>, description: string): Promise<T> {
+    this.queueStats.pending++;
+    console.log(`🔄 [NearClient] Queueing transaction: ${description} (pending: ${this.queueStats.pending})`);
+
+    // Chain this operation to the existing queue
+    this.transactionQueue = this.transactionQueue
+      .then(async () => {
+        try {
+          console.log(`▶️ [NearClient] Executing transaction: ${description}`);
+          const result = await operation();
+          this.queueStats.completed++;
+          this.queueStats.pending--;
+          console.log(`✅ [NearClient] Completed transaction: ${description} (pending: ${this.queueStats.pending}, completed: ${this.queueStats.completed})`);
+          return result;
+        } catch (error: any) {
+          this.queueStats.failed++;
+          this.queueStats.pending--;
+          console.error(`❌ [NearClient] Failed transaction: ${description} (pending: ${this.queueStats.pending}, failed: ${this.queueStats.failed}):`, error?.message || error);
+          throw error;
+        }
+      })
+      .catch((error) => {
+        // Ensure the queue continues even if this transaction fails
+        throw error;
       });
 
-      console.log(`NearClient: Successfully added access key to ${accountId}`);
-      return {
-        success: true,
-        message: 'Access key added successfully',
-        result: {
-          accountId: accountId,
-          publicKey: publicKeyString,
-        }
-      };
-    } catch (error: any) {
-      console.error(`NearClient: Error adding access key to ${accountId}:`, error);
-      const msg = error.message || 'Failed to add access key';
-      return { success: false, message: msg, error: error };
+    return this.transactionQueue;
+  }
+
+  /**
+   * Get transaction queue diagnostics
+   */
+  getQueueDiagnostics() {
+    return {
+      ...this.queueStats,
+      queueEmpty: this.queueStats.pending === 0,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Wait for all pending transactions to complete
+   */
+  async waitForQueueEmpty(): Promise<void> {
+    console.log(`🔄 [NearClient] Waiting for transaction queue to empty (pending: ${this.queueStats.pending})`);
+    try {
+      await this.transactionQueue;
+      console.log(`✅ [NearClient] Transaction queue is now empty`);
+    } catch (error) {
+      console.log(`✅ [NearClient] Transaction queue processed (some transactions may have failed)`);
     }
   }
 }

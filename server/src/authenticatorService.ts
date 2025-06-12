@@ -105,21 +105,23 @@ export class AuthenticatorService {
     clientManagedNearPublicKey?: string | null;
   }): Promise<boolean> {
     try {
-      console.log(`🔍 Creating authenticator for ${authenticator.nearAccountId}:`, {
+      console.log(`🔍 [AuthenticatorService] Creating authenticator for ${authenticator.nearAccountId}:`, {
         credentialID: authenticator.credentialID,
         counter: authenticator.counter,
-        transports: authenticator.transports
+        transports: authenticator.transports,
+        clientManagedKey: authenticator.clientManagedNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'
       });
 
       // Write to contract first (source of truth)
+      console.log(`🔍 [AuthenticatorService] Writing to contract for ${authenticator.credentialID}`);
       const contractSuccess = await contractOperations.create(authenticator);
-      console.log(`🔍 Contract create result:`, contractSuccess);
+      console.log(`🔍 [AuthenticatorService] Contract create result for ${authenticator.credentialID}:`, contractSuccess);
 
       if (contractSuccess) {
         // Update cache
-        console.log(`🔍 Updating cache for ${authenticator.credentialID}`);
+        console.log(`🔍 [AuthenticatorService] Updating cache for ${authenticator.credentialID}`);
         try {
-          authenticatorCacheOperations.upsert({
+          const cacheData = {
             nearAccountId: authenticator.nearAccountId,
             credentialID: authenticator.credentialID,
             credentialPublicKey: Buffer.from(authenticator.credentialPublicKey),
@@ -130,21 +132,69 @@ export class AuthenticatorService {
             registered: authenticator.registered.toISOString(),
             lastUsed: null,
             backedUp: authenticator.backedUp ? 1 : 0,
+          };
+
+          console.log(`🔍 [AuthenticatorService] Cache data for ${authenticator.credentialID}:`, {
+            ...cacheData,
+            credentialPublicKey: `Buffer(${cacheData.credentialPublicKey.length} bytes)`
           });
-          console.log(`🔍 Cache update successful for ${authenticator.credentialID}`);
-        } catch (cacheError) {
-          console.error(`🔍 Cache update failed for ${authenticator.credentialID}:`, cacheError);
+
+          authenticatorCacheOperations.upsert(cacheData);
+          console.log(`✅ [AuthenticatorService] Cache update successful for ${authenticator.credentialID}`);
+
+          // Verify cache storage immediately
+          const verification = authenticatorCacheOperations.findByCredentialId(
+            authenticator.nearAccountId,
+            authenticator.credentialID
+          );
+          if (verification) {
+            console.log(`✅ [AuthenticatorService] Cache verification successful for ${authenticator.credentialID}`);
+          } else {
+            console.error(`❌ [AuthenticatorService] Cache verification failed for ${authenticator.credentialID} - not found after upsert`);
+
+            // Try one more time with explicit debug
+            console.log(`🔍 [AuthenticatorService] Attempting cache upsert retry for ${authenticator.credentialID}`);
+            authenticatorCacheOperations.upsert(cacheData);
+
+            const retryVerification = authenticatorCacheOperations.findByCredentialId(
+              authenticator.nearAccountId,
+              authenticator.credentialID
+            );
+            if (retryVerification) {
+              console.log(`✅ [AuthenticatorService] Cache verification successful on retry for ${authenticator.credentialID}`);
+            } else {
+              console.error(`❌ [AuthenticatorService] Cache verification failed on retry for ${authenticator.credentialID}`);
+              // Log cache stats for debugging
+              const { db } = await import('./database');
+              const totalEntries = db.prepare('SELECT COUNT(*) as count FROM authenticators_cache').get() as { count: number };
+              const userEntries = db.prepare('SELECT COUNT(*) as count FROM authenticators_cache WHERE nearAccountId = ?').get(authenticator.nearAccountId) as { count: number };
+              console.log(`🔍 [AuthenticatorService] Cache debug - Total entries: ${totalEntries.count}, User entries: ${userEntries.count}`);
+            }
+          }
+
+        } catch (cacheError: any) {
+          console.error(`❌ [AuthenticatorService] Cache update failed for ${authenticator.credentialID}:`, {
+            error: cacheError.message,
+            stack: cacheError.stack,
+            name: cacheError.name
+          });
+          // Don't fail the overall operation for cache issues, but log prominently
+          console.warn(`⚠️ [AuthenticatorService] Continuing despite cache failure for ${authenticator.credentialID}`);
         }
 
-        console.log(`Created authenticator ${authenticator.credentialID} in contract and cache`);
+        console.log(`✅ [AuthenticatorService] Created authenticator ${authenticator.credentialID} in contract and cache`);
         return true;
       } else {
-        console.warn(`🔍 Contract create failed for ${authenticator.credentialID}`);
+        console.warn(`❌ [AuthenticatorService] Contract create failed for ${authenticator.credentialID}`);
+        return false;
       }
 
-      return false;
-    } catch (error) {
-      console.error('🔍 Error creating authenticator:', error);
+    } catch (error: any) {
+      console.error(`❌ [AuthenticatorService] Error creating authenticator ${authenticator.credentialID}:`, {
+        error: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       return false;
     }
   }

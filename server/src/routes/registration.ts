@@ -17,6 +17,74 @@ import type { User } from '../types';
 
 const router = Router();
 
+// SSE Event Types
+interface BaseSSEEvent {
+  step: number;
+  sessionId: string;
+  phase: string;
+  status: 'progress' | 'success' | 'error';
+  timestamp: number;
+  message: string;
+}
+
+interface WebAuthnVerificationSSEEvent extends BaseSSEEvent {
+  step: 1;
+  phase: 'webauthn-verification';
+  mode?: 'optimistic' | 'secure';
+}
+
+interface UserReadySSEEvent extends BaseSSEEvent {
+  step: 2;
+  phase: 'user-ready';
+  status: 'success';
+  verified: boolean;
+  username: string;
+  nearAccountId: string | undefined;
+  clientNearPublicKey: string | null | undefined;
+  mode: string;
+}
+
+interface AccessKeyAdditionSSEEvent extends BaseSSEEvent {
+  step: 3;
+  phase: 'access-key-addition';
+  error?: string;
+}
+
+interface DatabaseStorageSSEEvent extends BaseSSEEvent {
+  step: 4;
+  phase: 'database-storage';
+  error?: string;
+}
+
+interface ContractRegistrationSSEEvent extends BaseSSEEvent {
+  step: 5;
+  phase: 'contract-registration';
+  error?: string;
+}
+
+interface RegistrationCompleteSSEEvent extends BaseSSEEvent {
+  step: 6;
+  phase: 'registration-complete';
+  status: 'success';
+  sessionId: string;
+}
+
+interface RegistrationErrorSSEEvent extends BaseSSEEvent {
+  step: 0;
+  phase: 'registration-error';
+  status: 'error';
+  error: string;
+}
+
+type RegistrationSSEEvent =
+  | WebAuthnVerificationSSEEvent
+  | UserReadySSEEvent
+  | AccessKeyAdditionSSEEvent
+  | DatabaseStorageSSEEvent
+  | ContractRegistrationSSEEvent
+  | RegistrationCompleteSSEEvent
+  | RegistrationErrorSSEEvent;
+
 // Interface for contract arguments (generate_registration_options)
 interface ContractGenerateOptionsArgs {
   rp_name: string;
@@ -99,16 +167,17 @@ async function registerUserInContractWithProgress(
       });
     }
 
-    const account = nearClient.getRelayerAccount();
-    const result = await account.functionCall({
-      contractId: config.contractId,
-      methodName: 'register_user',
-      args: {
+    // Use nearClient.callFunction() to go through the transaction queue
+    const result = await nearClient.callFunction(
+      config.contractId,
+      'register_user',
+      {
         user_id: nearAccountId,
         username: username
       },
-      gas: BigInt(DEFAULT_GAS_STRING),
-    });
+      DEFAULT_GAS_STRING,
+      '0'
+    );
 
     console.log(`✅ Background registration successful for ${nearAccountId}:`, result);
 
@@ -369,10 +438,6 @@ async function getRegistrationOptionsSimpleWebAuthn(
   return response;
 }
 
-// NOTE: Removed syncChallengeWithContractInBackground function
-// In FastAuth mode, we don't sync with contract during options generation
-// This was causing double passkey prompts. Contract sync happens during verification instead.
-
 // get registration options from NEAR Contract (Secure mode)
 async function getRegistrationOptionsContract(
   user: User,
@@ -404,13 +469,14 @@ async function getRegistrationOptionsContract(
 
   console.log('Calling contract.generate_registration_options with args:', JSON.stringify(contractArgs));
 
-  const account = nearClient.getRelayerAccount();
-  const rawResult: any = await account.callFunction({
-    contractId: config.contractId,
-    methodName: 'generate_registration_options',
-    args: contractArgs,
-    gas: BigInt(DEFAULT_GAS_STRING),
-  });
+  // Use nearClient.callFunction() to go through the transaction queue
+  const rawResult: any = await nearClient.callFunction(
+    config.contractId,
+    'generate_registration_options',
+    contractArgs,
+    DEFAULT_GAS_STRING,
+    '0'
+  );
 
   // Robust error checking for rawResult
   if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
@@ -455,29 +521,6 @@ async function getRegistrationOptionsContract(
   return contractResponse;
 }
 
-// Background function to verify with contract and send SSE updates
-async function verifyWithContractInBackground(
-  username: string,
-  attestationResponse: RegistrationResponseJSON,
-  commitmentId: string
-): Promise<void> {
-  console.log(`🔄 Starting background contract verification for user: ${username}`);
-
-  try {
-    const contractResult = await verifyRegistrationResponseContract(attestationResponse, commitmentId);
-
-    if (contractResult.verified) {
-      console.log(`✅ Background contract verification succeeded for user: ${username}`);
-      // Could send SSE notification here if needed
-  } else {
-      console.log(`❌ Background contract verification failed for user: ${username}`);
-    }
-  } catch (error: any) {
-    console.error(`❌ Background contract verification error for user ${username}:`, error);
-    throw error;
-  }
-}
-
 // verifyRegistrationResponseSimpleWebAuthn (Fast mode)
 async function verifyRegistrationResponseSimpleWebAuthn(
   attestationResponse: RegistrationResponseJSON,
@@ -505,7 +548,6 @@ async function verifyRegistrationResponseContract(
   console.log('Using NEAR contract to complete registration with commitmentId:', commitmentId, '(Secure mode)');
 
   try {
-    const account = nearClient.getRelayerAccount();
     const contractArgs: ContractCompleteRegistrationArgs = {
       registration_response: attestationResponse,
       commitment_id: commitmentId,
@@ -513,12 +555,14 @@ async function verifyRegistrationResponseContract(
 
     console.log("Calling contract.verify_registration_response with args:", JSON.stringify(contractArgs));
 
-    const transactionOutcome = await account.functionCall({
-      contractId: config.contractId,
-      methodName: 'verify_registration_response',
-      args: contractArgs,
-      gas: BigInt(VERIFY_REGISTRATION_RESPONSE_GAS_STRING), // Use specific gas for this potentially complex call
-    });
+    // Use nearClient.callFunction() to go through the transaction queue
+    const transactionOutcome = await nearClient.callFunction(
+      config.contractId,
+      'verify_registration_response',
+      contractArgs,
+      VERIFY_REGISTRATION_RESPONSE_GAS_STRING,
+      '0'
+    );
 
     console.log('Transaction outcome from verify_registration_response:', JSON.stringify(transactionOutcome, null, 2));
 
@@ -578,15 +622,16 @@ async function handleRegistrationWithSSE(
     'Access-Control-Allow-Headers': 'Cache-Control',
   });
 
-  const sendSSEUpdate = (step: string, status: 'progress' | 'success' | 'error', data: any = {}) => {
-    const message = {
-      type: 'registration-update',
+  const sendSSEUpdate = (stepNum: number, phase: string, status: 'progress' | 'success' | 'error', data: Partial<RegistrationSSEEvent> = {}) => {
+    const message: RegistrationSSEEvent = {
+      step: stepNum,
       sessionId,
-      step,
+      phase,
       status,
       timestamp: Date.now(),
+      message: data.message || '',
       ...data
-    };
+    } as RegistrationSSEEvent;
     res.write(`data: ${JSON.stringify(message)}\n\n`);
   };
 
@@ -600,7 +645,7 @@ async function handleRegistrationWithSSE(
     }
 
     // Step 1: WebAuthn Verification
-    sendSSEUpdate('webauthn-verification', 'progress', { message: 'Verifying WebAuthn credentials...' });
+    sendSSEUpdate(1, 'webauthn-verification', 'progress', { message: 'Verifying WebAuthn credentials...' });
 
     let verificationResult: { verified: boolean; registrationInfo?: any };
 
@@ -609,7 +654,7 @@ async function handleRegistrationWithSSE(
       verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
 
       if (verificationResult.verified) {
-        sendSSEUpdate('webauthn-verification', 'success', {
+        sendSSEUpdate(1, 'webauthn-verification', 'success', {
           message: 'WebAuthn verification successful (FastAuth)',
           mode: 'optimistic'
         });
@@ -624,7 +669,7 @@ async function handleRegistrationWithSSE(
       verificationResult = await verifyRegistrationResponseContract(attestationResponse, storedCommitmentId);
 
       if (verificationResult.verified) {
-        sendSSEUpdate('webauthn-verification', 'success', {
+        sendSSEUpdate(1, 'webauthn-verification', 'success', {
           message: 'WebAuthn verification successful (SecureAuth)',
           mode: 'secure'
         });
@@ -634,11 +679,11 @@ async function handleRegistrationWithSSE(
     }
 
     // Step 2: Send immediate success response for user login
-    sendSSEUpdate('user-ready', 'success', {
+    sendSSEUpdate(2, 'user-ready', 'success', {
       message: 'Registration verified - you can now log in!',
       verified: true,
       username: user.username,
-      nearAccountId: user.nearAccountId,
+      nearAccountId: user.nearAccountId || undefined,
       clientNearPublicKey: clientManagedNearPublicKey,
       mode: useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)'
     });
@@ -648,7 +693,7 @@ async function handleRegistrationWithSSE(
 
     // Task 1: Create NEAR account with access key (must complete first)
     if (clientManagedNearPublicKey && user.nearAccountId) {
-      sendSSEUpdate('access-key-addition', 'progress', { message: 'Creating NEAR account...' });
+      sendSSEUpdate(3, 'access-key-addition', 'progress', { message: 'Creating NEAR account...' });
       try {
         const nearAccountId = user.nearAccountId!;
         console.log(`Creating account ${nearAccountId} with access key...`);
@@ -656,10 +701,10 @@ async function handleRegistrationWithSSE(
         if (!creationResult.success) {
           throw new Error(`Failed to create account: ${creationResult.message}`);
         }
-        sendSSEUpdate('access-key-addition', 'success', { message: 'NEAR account created successfully' });
+        sendSSEUpdate(3, 'access-key-addition', 'success', { message: 'NEAR account created successfully' });
       } catch (error: any) {
         console.error('Failed to create NEAR account:', error);
-        sendSSEUpdate('access-key-addition', 'error', {
+        sendSSEUpdate(3, 'access-key-addition', 'error', {
           message: 'Failed to create NEAR account. Aborting remaining steps.',
           error: error.message
         });
@@ -673,7 +718,7 @@ async function handleRegistrationWithSSE(
     const remainingTasks = [];
 
     const databaseTask = (async () => {
-      sendSSEUpdate('database-storage', 'progress', { message: 'Storing authenticator in database...' });
+      sendSSEUpdate(4, 'database-storage', 'progress', { message: 'Storing authenticator in database...' });
 
       try {
         const { verified, registrationInfo } = verificationResult;
@@ -710,7 +755,10 @@ async function handleRegistrationWithSSE(
         }
 
         if (user.nearAccountId) {
-          await authenticatorService.create({
+          console.log(`🔍 [Registration] Attempting to create authenticator for ${user.nearAccountId}`);
+
+          // Attempt to create the authenticator (writes to both contract and cache)
+          const createSuccess = await authenticatorService.create({
             credentialID: credentialIDForDB,
             credentialPublicKey: publicKeyForDB,
             counter: counterForDB,
@@ -721,12 +769,46 @@ async function handleRegistrationWithSSE(
             backedUp: credentialBackedUpForDB,
             clientManagedNearPublicKey: clientManagedNearPublicKey || null,
           });
+
+          if (!createSuccess) {
+            console.error(`🔍 [Registration] Failed to create authenticator for ${user.nearAccountId}`);
+            throw new Error('Failed to create authenticator in database/contract');
+          }
+
+          console.log(`🔍 [Registration] Successfully created authenticator for ${user.nearAccountId}`);
+
+          // Verify cache storage by attempting to retrieve the authenticator
+          console.log(`🔍 [Registration] Verifying cache storage for ${credentialIDForDB}`);
+          try {
+            const cachedAuth = await authenticatorService.findByCredentialId(credentialIDForDB, user.nearAccountId);
+            if (cachedAuth) {
+              console.log(`✅ [Registration] Authenticator successfully stored and retrieved from cache: ${credentialIDForDB}`);
+            } else {
+              console.warn(`⚠️ [Registration] Authenticator not found in cache after creation: ${credentialIDForDB}`);
+              // Force refresh cache from contract
+              console.log(`🔍 [Registration] Attempting to refresh cache for ${user.nearAccountId}`);
+              await authenticatorService.refreshCache(user.nearAccountId);
+
+              // Verify again
+              const refreshedAuth = await authenticatorService.findByCredentialId(credentialIDForDB, user.nearAccountId);
+              if (refreshedAuth) {
+                console.log(`✅ [Registration] Authenticator found in cache after refresh: ${credentialIDForDB}`);
+              } else {
+                console.error(`❌ [Registration] Authenticator still not found in cache after refresh: ${credentialIDForDB}`);
+                throw new Error('Cache storage verification failed');
+              }
+            }
+          } catch (cacheVerifyError: any) {
+            console.error(`🔍 [Registration] Cache verification failed for ${credentialIDForDB}:`, cacheVerifyError);
+            // Don't fail the registration for cache issues, but log it prominently
+            console.warn(`⚠️ [Registration] Continuing despite cache verification failure`);
+          }
         }
 
-        sendSSEUpdate('database-storage', 'success', { message: 'Authenticator stored successfully' });
+        sendSSEUpdate(4, 'database-storage', 'success', { message: 'Authenticator stored successfully' });
       } catch (error: any) {
-        console.error('Failed to store authenticator in database:', error);
-        sendSSEUpdate('database-storage', 'error', {
+        console.error('🔍 [Registration] Failed to store authenticator in database:', error);
+        sendSSEUpdate(4, 'database-storage', 'error', {
           message: 'Failed to store authenticator (account still secured)',
           error: error.message
         });
@@ -736,14 +818,14 @@ async function handleRegistrationWithSSE(
 
     if (useOptimistic && user.nearAccountId) {
       const contractTask = (async () => {
-        sendSSEUpdate('contract-registration', 'progress', { message: 'Registering user in contract...' });
+        sendSSEUpdate(5, 'contract-registration', 'progress', { message: 'Registering user in contract...' });
         try {
           const nearAccountId = user.nearAccountId!;
           await registerUserInContractWithProgress(sessionId, nearAccountId, user.username);
-          sendSSEUpdate('contract-registration', 'success', { message: 'User registered in contract successfully' });
+          sendSSEUpdate(5, 'contract-registration', 'success', { message: 'User registered in contract successfully' });
         } catch (error: any) {
           console.warn('Contract registration failed:', error);
-          sendSSEUpdate('contract-registration', 'error', {
+          sendSSEUpdate(5, 'contract-registration', 'error', {
             message: 'Contract registration failed (non-fatal)',
             error: error.message
           });
@@ -755,7 +837,7 @@ async function handleRegistrationWithSSE(
     await Promise.allSettled(remainingTasks);
 
     // Step 7: Final completion
-    sendSSEUpdate('registration-complete', 'success', {
+    sendSSEUpdate(6, 'registration-complete', 'success', {
       message: 'Registration completed successfully!',
       sessionId
     });
@@ -767,7 +849,7 @@ async function handleRegistrationWithSSE(
 
   } catch (error: any) {
     console.error('SSE Registration error:', error);
-    sendSSEUpdate('registration-error', 'error', {
+    sendSSEUpdate(0, 'registration-error', 'error', {
       message: error.message,
       error: error.message
     });
@@ -838,6 +920,29 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     return res.status(500).json({
       verified: false,
       error: e.message || 'Verification failed due to an unexpected server error.'
+    });
+  }
+});
+
+// Debug endpoint to check NEAR transaction queue status
+router.get('/debug/near-queue', async (req: Request, res: Response) => {
+  try {
+    const queueDiagnostics = nearClient.getQueueDiagnostics();
+
+    console.log(`🔍 [Debug] NEAR transaction queue diagnostics:`, queueDiagnostics);
+
+    return res.json({
+      queue: queueDiagnostics,
+      message: queueDiagnostics.queueEmpty
+        ? 'Transaction queue is empty'
+        : `${queueDiagnostics.pending} transactions pending`,
+      relayerAccount: process.env.RELAYER_ACCOUNT_ID
+    });
+
+  } catch (error: any) {
+    console.error('🔍 [Debug] NEAR queue diagnostic error:', error);
+    return res.status(500).json({
+      error: error.message
     });
   }
 });
