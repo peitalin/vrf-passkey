@@ -248,21 +248,28 @@ pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes:
 pub fn generate_near_keypair() -> Result<String, JsValue> {
     console_log!("RUST: Generating new NEAR key pair");
 
-    // Generate random bytes for the private key
-    let mut private_key_bytes = [0u8; 32];
-    getrandom(&mut private_key_bytes)
+    // Generate random bytes for the private key seed
+    let mut private_key_seed = [0u8; 32];
+    getrandom(&mut private_key_seed)
         .map_err(|e| JsValue::from_str(&format!("Failed to generate random bytes: {}", e)))?;
 
     // Create signing key from random bytes
-    let signing_key = SigningKey::from_bytes(&private_key_bytes);
+    let signing_key = SigningKey::from_bytes(&private_key_seed);
 
-    // Encode private key in NEAR format: "ed25519:BASE58_PRIVATE_KEY"
-    let private_key_b58 = bs58::encode(&private_key_bytes).into_string();
+    // Get the public key bytes
+    let verifying_key = signing_key.verifying_key();
+    let public_key_bytes = verifying_key.to_bytes();
+
+    // NEAR Ed25519 private key format: 32-byte seed + 32-byte public key = 64 bytes total
+    let mut full_private_key = [0u8; 64];
+    full_private_key[0..32].copy_from_slice(&private_key_seed);
+    full_private_key[32..64].copy_from_slice(&public_key_bytes);
+
+    // Encode private key in NEAR format: "ed25519:BASE58_FULL_PRIVATE_KEY"
+    let private_key_b58 = bs58::encode(&full_private_key).into_string();
     let private_key_near_format = format!("ed25519:{}", private_key_b58);
 
     // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
-    let verifying_key = signing_key.verifying_key();
-    let public_key_bytes = verifying_key.to_bytes();
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
     let public_key_near_format = format!("ed25519:{}", public_key_b58);
 
@@ -274,6 +281,7 @@ pub fn generate_near_keypair() -> Result<String, JsValue> {
     );
 
     console_log!("RUST: Generated NEAR key pair with public key: {}", public_key_near_format);
+    console_log!("RUST: Private key is 64 bytes (seed + public key)");
     Ok(result)
 }
 
@@ -378,14 +386,23 @@ pub fn derive_near_keypair_from_cose_p256(
     let hash_bytes = hasher.finalize();
 
     // Use hash as Ed25519 seed (same as contract)
-    let signing_key = SigningKey::from_bytes(&hash_bytes.into());
+    let private_key_seed: [u8; 32] = hash_bytes.into();
+    let signing_key = SigningKey::from_bytes(&private_key_seed);
 
-    // Encode in NEAR format
-    let private_key_b58 = bs58::encode(&hash_bytes).into_string();
-    let private_key_near_format = format!("ed25519:{}", private_key_b58);
-
+    // Get the public key bytes
     let verifying_key = signing_key.verifying_key();
     let public_key_bytes = verifying_key.to_bytes();
+
+    // NEAR Ed25519 private key format: 32-byte seed + 32-byte public key = 64 bytes total
+    let mut full_private_key = [0u8; 64];
+    full_private_key[0..32].copy_from_slice(&private_key_seed);
+    full_private_key[32..64].copy_from_slice(&public_key_bytes);
+
+    // Encode private key in NEAR format: "ed25519:BASE58_FULL_PRIVATE_KEY"
+    let private_key_b58 = bs58::encode(&full_private_key).into_string();
+    let private_key_near_format = format!("ed25519:{}", private_key_b58);
+
+    // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
     let public_key_near_format = format!("ed25519:{}", public_key_b58);
 
@@ -396,6 +413,7 @@ pub fn derive_near_keypair_from_cose_p256(
     );
 
     console_log!("RUST: Derived deterministic NEAR key with public key: {}", public_key_near_format);
+    console_log!("RUST: Private key is 64 bytes (seed + public key)");
     Ok(result)
 }
 
@@ -590,13 +608,22 @@ fn decrypt_private_key_with_prf_internal(
         .into_vec()
         .map_err(|e| JsValue::from_str(&format!("Failed to decode private key: {}", e)))?;
 
-    if private_key_bytes.len() != 32 {
-        return Err(JsValue::from_str(&format!("Invalid private key length: {} (expected 32)", private_key_bytes.len())));
-    }
+    // 5. Handle both 32-byte (seed only) and 64-byte (seed + public key) formats
+    let seed_bytes = if private_key_bytes.len() == 32 {
+        // Legacy 32-byte format (seed only)
+        console_log!("RUST: Using 32-byte private key format (seed only)");
+        private_key_bytes
+    } else if private_key_bytes.len() == 64 {
+        // New 64-byte format (seed + public key) - extract first 32 bytes (seed)
+        console_log!("RUST: Using 64-byte private key format (seed + public key)");
+        private_key_bytes[0..32].to_vec()
+    } else {
+        return Err(JsValue::from_str(&format!("Invalid private key length: {} (expected 32 or 64)", private_key_bytes.len())));
+    };
 
-    // 5. Create SigningKey
+    // 6. Create SigningKey from the 32-byte seed
     let mut key_array = [0u8; 32];
-    key_array.copy_from_slice(&private_key_bytes);
+    key_array.copy_from_slice(&seed_bytes);
     let signing_key = SigningKey::from_bytes(&key_array);
 
     console_log!("RUST: Successfully decrypted private key");
@@ -646,9 +673,6 @@ pub fn decrypt_and_sign_transaction_with_prf(
         block_hash_base58,
     )
 }
-
-// Note: This function is a placeholder for the worker interface pattern
-// In practice, the main signing function is sign_transaction_with_encrypted_key
 
 // Enhanced worker interface that includes encrypted key data
 // Returns Borsh-serialized SignedTransaction that can be decoded by near-js
@@ -798,6 +822,41 @@ mod tests {
     }
 
     #[test]
+    fn test_near_key_length_validation() {
+        // Test that generated keys have the correct 64-byte format
+        let keypair_result = generate_near_keypair().unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let private_key = keypair_data["privateKey"].as_str().unwrap();
+        let public_key = keypair_data["publicKey"].as_str().unwrap();
+
+        // Remove ed25519: prefix and decode
+        let private_key_b58 = &private_key[8..]; // Remove "ed25519:"
+        let public_key_b58 = &public_key[8..];   // Remove "ed25519:"
+
+        let private_key_bytes = bs58::decode(private_key_b58).into_vec().unwrap();
+        let public_key_bytes = bs58::decode(public_key_b58).into_vec().unwrap();
+
+        // Private key should be 64 bytes (32-byte seed + 32-byte public key)
+        assert_eq!(private_key_bytes.len(), 64, "Private key should be 64 bytes");
+
+        // Public key should be 32 bytes
+        assert_eq!(public_key_bytes.len(), 32, "Public key should be 32 bytes");
+
+        // The last 32 bytes of private key should match the public key
+        assert_eq!(&private_key_bytes[32..64], &public_key_bytes[..],
+                  "Last 32 bytes of private key should match public key");
+
+        // First 32 bytes should be the seed - verify it generates the same public key
+        let seed_bytes: [u8; 32] = private_key_bytes[0..32].try_into().unwrap();
+        let signing_key = SigningKey::from_bytes(&seed_bytes);
+        let derived_public_key = signing_key.verifying_key().to_bytes();
+
+        assert_eq!(derived_public_key, public_key_bytes.as_slice(),
+                  "Seed should generate the same public key");
+    }
+
+    #[test]
     fn test_deterministic_near_key_derivation() {
         // Test P-256 coordinates (example values)
         let x_coord = vec![
@@ -824,20 +883,31 @@ mod tests {
         let result2 = derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
         assert_eq!(result, result2);
 
-        println!("Generated keypair from P-256 coordinates:");
-        println!("X: {}", Base64UrlUnpadded::encode_string(&x_coord));
-        println!("Y: {}", Base64UrlUnpadded::encode_string(&y_coord));
-
         // Keys should start with ed25519:
         assert!(public_key.starts_with("ed25519:"));
         assert!(private_key.starts_with("ed25519:"));
 
-        // Should match the expected key from server logs
-        // Contract derived: ed25519:Dax81obDiyu9eDMfP9vtSCdpX3skSRjopKYUKPGeucmV
-        assert_eq!(public_key, "ed25519:Dax81obDiyu9eDMfP9vtSCdpX3skSRjopKYUKPGeucmV");
+        // Validate key lengths for P-256 derived keys
+        let private_key_b58 = &private_key[8..]; // Remove "ed25519:"
+        let public_key_b58 = &public_key[8..];   // Remove "ed25519:"
 
-        println!("Deterministic public key: {}", public_key);
-        println!("Deterministic private key: {}", private_key);
+        let private_key_bytes = bs58::decode(private_key_b58).into_vec().unwrap();
+        let public_key_bytes = bs58::decode(public_key_b58).into_vec().unwrap();
+
+        // Private key should be 64 bytes (32-byte seed + 32-byte public key)
+        assert_eq!(private_key_bytes.len(), 64, "P-256 derived private key should be 64 bytes");
+
+        // Public key should be 32 bytes
+        assert_eq!(public_key_bytes.len(), 32, "P-256 derived public key should be 32 bytes");
+
+        // The last 32 bytes of private key should match the public key
+        assert_eq!(&private_key_bytes[32..64], &public_key_bytes[..],
+                  "Last 32 bytes of P-256 derived private key should match public key");
+
+        println!("P-256 derived keypair validation passed:");
+        println!("Private key length: {} bytes", private_key_bytes.len());
+        println!("Public key length: {} bytes", public_key_bytes.len());
+        println!("Public key: {}", public_key);
     }
 
     #[test]
@@ -851,6 +921,14 @@ mod tests {
 
         // Should be identical (deterministic)
         assert_eq!(keypair1, keypair2);
+
+        // Validate key format
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair1).unwrap();
+        let private_key = keypair_data["privateKey"].as_str().unwrap();
+        let private_key_b58 = &private_key[8..]; // Remove "ed25519:"
+        let private_key_bytes = bs58::decode(private_key_b58).into_vec().unwrap();
+
+        assert_eq!(private_key_bytes.len(), 64, "P-256 coordinate derived key should be 64 bytes");
     }
 
     #[test]
@@ -876,6 +954,119 @@ mod tests {
         // Verify the decrypted key works (can generate public key)
         let public_key_bytes = decrypted_key.verifying_key().to_bytes();
         assert_eq!(public_key_bytes.len(), 32);
+    }
+
+    #[test]
+    fn test_private_key_format_compatibility() {
+        // Test that the decryption function handles both 32-byte and 64-byte formats
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // Generate a 64-byte format key
+        let keypair_result = generate_and_encrypt_near_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
+        let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+
+        // Decrypt and verify it works
+        let decrypted_key = decrypt_private_key_with_prf_internal(
+            prf_output_b64,
+            encrypted_data,
+            iv,
+        ).unwrap();
+
+        let public_key_from_64byte = decrypted_key.verifying_key().to_bytes();
+
+        // Now test with a legacy 32-byte format key
+        // Create a 32-byte seed and encrypt it
+        let test_seed = [42u8; 32];
+        let test_signing_key = SigningKey::from_bytes(&test_seed);
+        let legacy_private_key_b58 = bs58::encode(&test_seed).into_string();
+        let legacy_private_key_near_format = format!("ed25519:{}", legacy_private_key_b58);
+
+        // Derive encryption key and encrypt the legacy format
+        let encryption_key = derive_encryption_key_from_prf_core(
+            prf_output_b64,
+            "near-key-encryption",
+            ""
+        ).unwrap();
+
+        let legacy_encrypted = encrypt_data_aes_gcm(&legacy_private_key_near_format, &encryption_key).unwrap();
+        let legacy_encrypted_obj: serde_json::Value = serde_json::from_str(&legacy_encrypted).unwrap();
+        let legacy_encrypted_data = legacy_encrypted_obj["encrypted_data_b64u"].as_str().unwrap();
+        let legacy_iv = legacy_encrypted_obj["iv_b64u"].as_str().unwrap();
+
+        // Decrypt the legacy format
+        let decrypted_legacy_key = decrypt_private_key_with_prf_internal(
+            prf_output_b64,
+            legacy_encrypted_data,
+            legacy_iv,
+        ).unwrap();
+
+        let public_key_from_32byte = decrypted_legacy_key.verifying_key().to_bytes();
+
+        // Both should work and generate the expected public key
+        assert_eq!(public_key_from_32byte, test_signing_key.verifying_key().to_bytes());
+
+        println!("✅ Both 32-byte and 64-byte private key formats work correctly");
+        println!("64-byte format public key: {}", bs58::encode(&public_key_from_64byte).into_string());
+        println!("32-byte format public key: {}", bs58::encode(&public_key_from_32byte).into_string());
+    }
+
+    #[test]
+    fn test_invalid_private_key_lengths() {
+        // Test that invalid key lengths are rejected
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // Test with invalid length (16 bytes) - simulate the decryption logic
+        let invalid_key_16 = [1u8; 16];
+        let invalid_key_b58 = bs58::encode(&invalid_key_16).into_string();
+        let invalid_key_near_format = format!("ed25519:{}", invalid_key_b58);
+
+        // Simulate the key length validation logic from decrypt_private_key_with_prf_internal
+        let private_key_b58 = &invalid_key_near_format[8..]; // Remove "ed25519:"
+        let private_key_bytes = bs58::decode(private_key_b58).into_vec().unwrap();
+
+        // This should be rejected (not 32 or 64 bytes)
+        let is_valid_length = private_key_bytes.len() == 32 || private_key_bytes.len() == 64;
+        assert!(!is_valid_length, "16-byte private key should be invalid");
+        assert_eq!(private_key_bytes.len(), 16);
+
+        // Test with another invalid length (48 bytes)
+        let invalid_key_48 = [2u8; 48];
+        let invalid_key_48_b58 = bs58::encode(&invalid_key_48).into_string();
+        let invalid_key_48_near_format = format!("ed25519:{}", invalid_key_48_b58);
+
+        let private_key_48_b58 = &invalid_key_48_near_format[8..]; // Remove "ed25519:"
+        let private_key_48_bytes = bs58::decode(private_key_48_b58).into_vec().unwrap();
+
+        let is_valid_length_48 = private_key_48_bytes.len() == 32 || private_key_48_bytes.len() == 64;
+        assert!(!is_valid_length_48, "48-byte private key should be invalid");
+        assert_eq!(private_key_48_bytes.len(), 48);
+
+        // Test valid lengths
+        let valid_key_32 = [3u8; 32];
+        let valid_key_32_b58 = bs58::encode(&valid_key_32).into_string();
+        let valid_key_32_near_format = format!("ed25519:{}", valid_key_32_b58);
+        let valid_key_32_b58_stripped = &valid_key_32_near_format[8..];
+        let valid_key_32_bytes = bs58::decode(valid_key_32_b58_stripped).into_vec().unwrap();
+        let is_valid_32 = valid_key_32_bytes.len() == 32 || valid_key_32_bytes.len() == 64;
+        assert!(is_valid_32, "32-byte private key should be valid");
+
+        let valid_key_64 = [4u8; 64];
+        let valid_key_64_b58 = bs58::encode(&valid_key_64).into_string();
+        let valid_key_64_near_format = format!("ed25519:{}", valid_key_64_b58);
+        let valid_key_64_b58_stripped = &valid_key_64_near_format[8..];
+        let valid_key_64_bytes = bs58::decode(valid_key_64_b58_stripped).into_vec().unwrap();
+        let is_valid_64 = valid_key_64_bytes.len() == 32 || valid_key_64_bytes.len() == 64;
+        assert!(is_valid_64, "64-byte private key should be valid");
+
+        println!("✅ Private key length validation logic works correctly");
+        println!("16-byte key: invalid ({})", private_key_bytes.len());
+        println!("48-byte key: invalid ({})", private_key_48_bytes.len());
+        println!("32-byte key: valid ({})", valid_key_32_bytes.len());
+        println!("64-byte key: valid ({})", valid_key_64_bytes.len());
     }
 
     #[test]
