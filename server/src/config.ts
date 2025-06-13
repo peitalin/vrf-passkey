@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 // Gas constants as strings
 export const DEFAULT_GAS_STRING = "50000000000000"; // 50 TGas approx. (increased for complex yield operations)
 export const VIEW_GAS_STRING    = "30000000000000"; // 30 TGas for view calls
@@ -8,15 +11,26 @@ export const AUTHENTICATION_VERIFICATION_GAS_STRING  = "45000000000000"; // 45 T
 // URL constants
 export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
 
+export interface AppConfig {
+  port: number | string;
+  rpID: string;
+  rpName: string;
+  expectedOrigin: string;
+  databasePath: string;
+  relayerAccountId: string;
+  relayerPrivateKey: string;
+  contractId: string;
+  nodeUrl: string;
+  networkId: string;
+}
+
 // Main configuration object
-const config = {
+const config: AppConfig = {
   port: process.env.PORT || 3001,
   rpID: process.env.RP_ID || 'example.localhost',
   rpName: process.env.RP_NAME || 'NEAR Passkey Relayer Demo',
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
   databasePath: '../../passkey_users.db', // relative to the src/database directory
-  useContractMethod: true,
-  useOptimisticAuth: process.env.USE_OPTIMISTIC_AUTH === 'true' || false, // Flag for optimistic authentication
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
   contractId: process.env.CONTRACT_ID || 'webauthn-contract.testnet',

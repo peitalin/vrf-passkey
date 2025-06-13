@@ -14,121 +14,21 @@ import { userOperations } from '../database';
 import { authenticatorService } from '../authenticatorService';
 import { nearClient } from '../nearService';
 import type { User } from '../types';
+import type {
+  GenerateRegistrationOptionsRequest,
+  GenerateRegistrationOptionsResponse,
+  VerifyRegistrationRequest,
+  ContractGenerateRegistrationOptionsArgs,
+  ContractRegistrationOptionsResponse,
+  ContractVerifyRegistrationArgs
+} from '../types/endpoints';
+import type {
+  RegistrationSSEEvent,
+  RegistrationSession,
+  BaseSSEEvent
+} from '../types/sse';
 
 const router = Router();
-
-// SSE Event Types
-interface BaseSSEEvent {
-  step: number;
-  sessionId: string;
-  phase: string;
-  status: 'progress' | 'success' | 'error';
-  timestamp: number;
-  message: string;
-}
-
-interface WebAuthnVerificationSSEEvent extends BaseSSEEvent {
-  step: 1;
-  phase: 'webauthn-verification';
-  mode?: 'optimistic' | 'secure';
-}
-
-interface UserReadySSEEvent extends BaseSSEEvent {
-  step: 2;
-  phase: 'user-ready';
-  status: 'success';
-  verified: boolean;
-  username: string;
-  nearAccountId: string | undefined;
-  clientNearPublicKey: string | null | undefined;
-  mode: string;
-}
-
-interface AccessKeyAdditionSSEEvent extends BaseSSEEvent {
-  step: 3;
-  phase: 'access-key-addition';
-  error?: string;
-}
-
-interface DatabaseStorageSSEEvent extends BaseSSEEvent {
-  step: 4;
-  phase: 'database-storage';
-  error?: string;
-}
-
-interface ContractRegistrationSSEEvent extends BaseSSEEvent {
-  step: 5;
-  phase: 'contract-registration';
-  error?: string;
-}
-
-interface RegistrationCompleteSSEEvent extends BaseSSEEvent {
-  step: 6;
-  phase: 'registration-complete';
-  status: 'success';
-  sessionId: string;
-}
-
-interface RegistrationErrorSSEEvent extends BaseSSEEvent {
-  step: 0;
-  phase: 'registration-error';
-  status: 'error';
-  error: string;
-}
-
-type RegistrationSSEEvent =
-  | WebAuthnVerificationSSEEvent
-  | UserReadySSEEvent
-  | AccessKeyAdditionSSEEvent
-  | DatabaseStorageSSEEvent
-  | ContractRegistrationSSEEvent
-  | RegistrationCompleteSSEEvent
-  | RegistrationErrorSSEEvent;
-
-// Interface for contract arguments (generate_registration_options)
-interface ContractGenerateOptionsArgs {
-  rp_name: string;
-  rp_id: string;
-  user_name: string;
-  user_id: string; // Contract expects base64url encoded user_id from client (can be unique like passkey rawId)
-  challenge: string | null; // Can be null to let contract generate
-  user_display_name: string | null;
-  timeout: number | null;
-  attestation_type: string | null;
-  exclude_credentials: { id: string; type: string; transports?: string[] }[] | null;
-  authenticator_selection: ({ // Matches contract's AuthenticatorSelectionCriteria
-    authenticatorAttachment?: string;
-    residentKey?: string;
-    requireResidentKey?: boolean;
-    userVerification?: string;
-  }) | null;
-  extensions: ({ cred_props?: boolean; }) | null; // Matches contract's AuthenticationExtensionsClientInputsJSON
-  supported_algorithm_ids: number[] | null;
-  preferred_authenticator_type: string | null;
-}
-
-// Interface for the response from contract's generate_registration_options
-interface ContractRegistrationOptionsResponse {
-  options: PublicKeyCredentialCreationOptionsJSON; // This is the standard WebAuthn options object
-  nearAccountId: string | undefined;
-  commitmentId: string | null;
-}
-
-// Interface for contract arguments (verify_registration_response)
-interface ContractCompleteRegistrationArgs {
-  registration_response: RegistrationResponseJSON; // The client's WebAuthn response
-  commitment_id: string; // The commitment_id received from generate_registration_options
-}
-
-interface RegistrationSession {
-  id: string;
-  username: string;
-  nearAccountId: string;
-  status: 'pending' | 'contract_dispatched' | 'contract_confirmed' | 'error';
-  result?: any;
-  error?: string;
-  timestamp: number;
-}
 
 // Store active registration sessions
 const registrationSessions = new Map<string, RegistrationSession>();
@@ -313,17 +213,15 @@ router.get('/registration-progress/:sessionId', (req: Request, res: Response) =>
   });
 });
 
-
-
 // Generate registration options Endpoint
 router.post('/generate-registration-options', async (req: Request, res: Response) => {
-  const { username } = req.body;
-  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
+  const requestData = req.body as GenerateRegistrationOptionsRequest;
+  const { username } = requestData;
 
   if (!username) return res.status(400).json({ error: 'Username is required' });
 
   try {
-    const resultFromService = await getRegistrationOptions(username, !useOptimistic && config.useContractMethod);
+    const resultFromService = await getRegistrationOptions(username);
 
     const userForChallenge = userOperations.findByUsername(username);
     if (!userForChallenge) {
@@ -336,14 +234,24 @@ router.post('/generate-registration-options', async (req: Request, res: Response
         throw new Error("Server failed to prepare valid registration options challenge.");
     }
 
-    userOperations.updateChallengeAndCommitmentId(userForChallenge.id, resultFromService.options.challenge, resultFromService.commitmentId);
+    userOperations.updateChallengeAndCommitmentId(
+      userForChallenge.id,
+      resultFromService.options.challenge,
+      resultFromService.commitmentId || null
+    );
 
-    const mode = useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)';
-    console.log(`Generated registration options for: ${username} using ${mode}. Sending to client:`, JSON.stringify(resultFromService, null, 2));
+    console.log(
+      `Generated registration options for: ${username} using Web2 mode. Sending to client:`,
+      JSON.stringify(resultFromService, null, 2)
+    );
 
-    // `resultFromService` already has the structure { options: {...}, nearAccountId, commitmentId }
-    // which is what the frontend WebAuthnManager.getRegistrationOptions expects in serverResponseObject.
-    return res.json(resultFromService);
+    const response: GenerateRegistrationOptionsResponse = {
+      options: resultFromService.options,
+      nearAccountId: resultFromService.nearAccountId,
+      commitmentId: resultFromService.commitmentId
+    };
+
+    return res.json(response);
 
   } catch (e: any) {
     console.error('Error in /generate-registration-options route:', e.message, e.stack, e.type, e.context, e.transaction_outcome);
@@ -361,8 +269,7 @@ router.post('/generate-registration-options', async (req: Request, res: Response
 });
 
 async function getRegistrationOptions(
-  usernameInput: string,
-  useContractMethod: boolean
+  usernameInput: string
 ): Promise<ContractRegistrationOptionsResponse> {
   let user: User | undefined = userOperations.findByUsername(usernameInput);
   const sanitizedUsername = usernameInput.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
@@ -376,8 +283,6 @@ async function getRegistrationOptions(
       id: newUserId,
       username: usernameInput,
       nearAccountId: potentialNearAccountId,
-      currentChallenge: null,
-      currentCommitmentId: null,
     };
     userOperations.create(newUser);
     user = newUser;
@@ -390,22 +295,19 @@ async function getRegistrationOptions(
     console.log(`Existing user found for registration: ${usernameInput}, ID: ${user.id}`);
   }
 
-      const rawAuthenticators = user.nearAccountId ?
-      await authenticatorService.findByUserId(user.nearAccountId) : [];
+  const rawAuthenticators = user.nearAccountId ?
+    await authenticatorService.findByUserId(user.nearAccountId) : [];
 
-  if (useContractMethod) {
-    return getRegistrationOptionsContract(user, rawAuthenticators);
-  } else {
-    return getRegistrationOptionsSimpleWebAuthn(user, rawAuthenticators);
-  }
+  // Always use Web2 mode (SimpleWebAuthn)
+  return getRegistrationOptionsSimpleWebAuthn(user, rawAuthenticators);
 }
 
-// get registration options from SimpleWebAuthn (Fast mode)
+// get registration options from SimpleWebAuthn (Web2 mode)
 async function getRegistrationOptionsSimpleWebAuthn(
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> {
-  console.log(`Using SimpleWebAuthn for registration options for user: ${user.username} (Fast mode)`);
+  console.log(`Using SimpleWebAuthn for registration options for user: ${user.username} (Web2 mode)`);
 
   // generate options with SimpleWebAuthn to get a challenge
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
@@ -426,102 +328,19 @@ async function getRegistrationOptionsSimpleWebAuthn(
   });
 
   // Return SimpleWebAuthn options immediately for fast user experience
-  // No background contract sync needed - we'll handle contract integration during verification
-  const response = {
-    nearAccountId: user.nearAccountId || undefined,
-    commitmentId: null, // FastAuth doesn't need commitmentId for options generation
+  // Contract integration happens during verification in the background
+  const response: ContractRegistrationOptionsResponse = {
+    nearAccountId: user.nearAccountId,
+    commitmentId: undefined, // Web2 mode doesn't need commitmentId for options generation
     options: optionsFromSimpleWebAuthn,
   };
 
-  console.log(`✅ FastAuth registration options generated for ${user.username} - no contract sync needed`);
+  console.log(`✅ FastAuth registration options generated for ${user.username}`);
 
   return response;
 }
 
-// get registration options from NEAR Contract (Secure mode)
-async function getRegistrationOptionsContract(
-  user: User,
-  rawAuthenticators: any[]
-): Promise<ContractRegistrationOptionsResponse> {
-  console.log(`Using NEAR contract for registration options for user: ${user.username}, userID for contract: ${user.id} (Secure mode)`);
-
-  const authenticatorsForContractExclusion = rawAuthenticators.map(auth => ({
-    id: auth.credentialID, // Contract expects base64url string id
-    type: 'public-key' as const,
-    transports: auth.transports ? (typeof auth.transports === 'string' ? auth.transports.split(',') : auth.transports).map((t: string) => String(t)) : undefined,
-  }));
-
-  const contractArgs: ContractGenerateOptionsArgs = {
-    rp_name: config.rpName,
-    rp_id: config.rpID,
-    user_name: user.username, // For display and nearAccountId suggestion
-    user_id: user.id, // This should be a unique, persistent base64url ID for the user (e.g., derived from initial passkey rawId or a server-generated UUID)
-    challenge: null, // Let contract generate challenge
-    user_display_name: user.username,
-    timeout: 60000,
-    attestation_type: "none", // Consistent with SimpleWebAuthn example
-    exclude_credentials: authenticatorsForContractExclusion.length > 0 ? authenticatorsForContractExclusion : null,
-    authenticator_selection: { residentKey: 'required', userVerification: 'preferred' },
-    extensions: { cred_props: true }, // credProps is generally useful
-    supported_algorithm_ids: [-7, -257], // ES256 and RS256
-    preferred_authenticator_type: null, // Let user/browser decide or set based on UX preference
-  };
-
-  console.log('Calling contract.generate_registration_options with args:', JSON.stringify(contractArgs));
-
-  // Use nearClient.callFunction() to go through the transaction queue
-  const rawResult: any = await nearClient.callFunction(
-    config.contractId,
-    'generate_registration_options',
-    contractArgs,
-    DEFAULT_GAS_STRING,
-    '0'
-  );
-
-  // Robust error checking for rawResult
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
-    const failure = rawResult.status.Failure;
-    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
-    const errorMessage = executionError || JSON.stringify(failure);
-    console.error('Contract execution failed (panic or transaction error):', errorMessage);
-    throw new Error(`Contract Error: ${errorMessage}`);
-  }
-  else if (rawResult && typeof (rawResult as any).error === 'object') { // Check for a direct error object from RPC call if not a standard FinalExecutionOutcome
-    const rpcError = (rawResult as any).error;
-    console.error('RPC/Handler error from contract.generate_registration_options call:', rpcError);
-    const errorMessage = rpcError.message || rpcError.name || 'RPC error during generate_registration_options';
-    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
-    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
-  }
-
-  let contractResponseString: string;
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
-    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
-  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
-    contractResponseString = rawResult;
-  } else {
-    console.warn('Unexpected rawResult structure from generate_registration_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
-    throw new Error('Failed to parse contract response: Unexpected format.');
-  }
-
-  let contractResponse: ContractRegistrationOptionsResponse;
-  try {
-    contractResponse = JSON.parse(contractResponseString);
-  } catch (parseError: any) {
-    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
-    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
-  }
-
-  // Validate based on the nested options structure
-  if (!contractResponse.options || !contractResponse.options.challenge || !contractResponse.options.rp || typeof contractResponse.commitmentId === 'undefined') {
-    console.error('Invalid parsed response from contract.generate_registration_options (missing core fields or nested options):', contractResponse);
-    throw new Error('Contract did not return valid core registration options (options.challenge, options.rp) or commitmentId field after parsing.');
-  }
-
-  return contractResponse;
-}
-
-// verifyRegistrationResponseSimpleWebAuthn (Fast mode)
+// verifyRegistrationResponseSimpleWebAuthn (Web2 Fast mode)
 async function verifyRegistrationResponseSimpleWebAuthn(
   attestationResponse: RegistrationResponseJSON,
   expectedChallenge: string
@@ -540,75 +359,13 @@ async function verifyRegistrationResponseSimpleWebAuthn(
   };
 }
 
-// Verify and complete registration via NEAR Contract (Secure mode)
-async function verifyRegistrationResponseContract(
-  attestationResponse: RegistrationResponseJSON,
-  commitmentId: string // The commitment_id received from generate_registration_options
-): Promise<{ verified: boolean; registrationInfo?: any }> {
-  console.log('Using NEAR contract to complete registration with commitmentId:', commitmentId, '(Secure mode)');
-
-  try {
-    const contractArgs: ContractCompleteRegistrationArgs = {
-      registration_response: attestationResponse,
-      commitment_id: commitmentId,
-    };
-
-    console.log("Calling contract.verify_registration_response with args:", JSON.stringify(contractArgs));
-
-    // Use nearClient.callFunction() to go through the transaction queue
-    const transactionOutcome = await nearClient.callFunction(
-      config.contractId,
-      'verify_registration_response',
-      contractArgs,
-      VERIFY_REGISTRATION_RESPONSE_GAS_STRING,
-      '0'
-    );
-
-    console.log('Transaction outcome from verify_registration_response:', JSON.stringify(transactionOutcome, null, 2));
-
-    // Check if the transaction itself was successful
-    if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'Failure' in transactionOutcome.status) {
-      // @ts-ignore
-      const errorInfo = transactionOutcome.status.Failure.ActionError?.kind?.FunctionCallError?.ExecutionError || 'Unknown contract execution error';
-      console.error("Contract verify_registration_response call failed:", errorInfo);
-      throw new Error(`Contract verify_registration_response failed: ${errorInfo}`);
-    }
-
-    // Since we are no longer using yield-resume, the result is returned directly.
-    // Ensure we are accessing the SuccessValue correctly from the status object.
-    if (transactionOutcome.status && typeof transactionOutcome.status === 'object' && 'SuccessValue' in transactionOutcome.status && transactionOutcome.status.SuccessValue) {
-      const successValue = transactionOutcome.status.SuccessValue;
-      const verificationResult = JSON.parse(Buffer.from(successValue, 'base64').toString());
-
-      if (verificationResult && verificationResult.verified) {
-          console.log("Contract verification successful. Registration Info:", verificationResult.registration_info);
-      } else {
-          console.warn("Contract verification failed or returned no data.");
-      }
-
-      // The result from the contract is already in the desired format.
-      return {
-        verified: verificationResult.verified,
-        registrationInfo: verificationResult.registration_info,
-      };
-    } else {
-      console.error("Contract call succeeded but did not return a SuccessValue.");
-      throw new Error("Contract did not return a valid verification result.");
-    }
-  } catch (e: any) {
-    console.error('Error calling contract verify_registration_response:', e.message, e.stack, e.type, e.context);
-    throw new Error(`Failed to complete verify_registration via contract: ${e.message}`);
-  }
-}
-
 // Enhanced SSE registration flow with step-by-step updates
 async function handleRegistrationWithSSE(
   user: User,
   attestationResponse: RegistrationResponseJSON,
   expectedChallenge: string,
   storedCommitmentId: string | null,
-  clientManagedNearPublicKey: string | null,
-  useOptimistic: boolean,
+  clientNearPublicKey: string | null,
   res: Response
 ): Promise<void> {
   const sessionId = `reg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
@@ -637,45 +394,26 @@ async function handleRegistrationWithSSE(
 
   try {
     // Early validation: Check if account already exists
-    if (clientManagedNearPublicKey && user.nearAccountId) {
+    if (clientNearPublicKey && user.nearAccountId) {
       const accountExists = await nearClient.checkAccountExists(user.nearAccountId);
       if (accountExists) {
         throw new Error(`Account ${user.nearAccountId} already exists. Please use a different username or login instead.`);
       }
     }
 
-    // Step 1: WebAuthn Verification
+    // Step 1: WebAuthn Verification (always Web2 mode)
     sendSSEUpdate(1, 'webauthn-verification', 'progress', { message: 'Verifying WebAuthn credentials...' });
 
-    let verificationResult: { verified: boolean; registrationInfo?: any };
+    // Web2 mode: Use SimpleWebAuthn immediately
+    const verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
 
-    if (useOptimistic) {
-      // Fast mode: Use SimpleWebAuthn immediately
-      verificationResult = await verifyRegistrationResponseSimpleWebAuthn(attestationResponse, expectedChallenge);
-
-      if (verificationResult.verified) {
-        sendSSEUpdate(1, 'webauthn-verification', 'success', {
-          message: 'WebAuthn verification successful (FastAuth)',
-          mode: 'optimistic'
-        });
-      } else {
-        throw new Error('WebAuthn verification failed');
-      }
+    if (verificationResult.verified) {
+      sendSSEUpdate(1, 'webauthn-verification', 'success', {
+        message: 'WebAuthn verification successful (Web2)',
+        mode: 'web2'
+      });
     } else {
-      // Secure mode: Use contract verification
-      if (!storedCommitmentId) {
-        throw new Error('Missing commitment ID for secure verification');
-      }
-      verificationResult = await verifyRegistrationResponseContract(attestationResponse, storedCommitmentId);
-
-      if (verificationResult.verified) {
-        sendSSEUpdate(1, 'webauthn-verification', 'success', {
-          message: 'WebAuthn verification successful (SecureAuth)',
-          mode: 'secure'
-        });
-      } else {
-        throw new Error('Contract verification failed');
-      }
+      throw new Error('WebAuthn verification failed');
     }
 
     // Step 2: Send immediate success response for user login
@@ -684,20 +422,20 @@ async function handleRegistrationWithSSE(
       verified: true,
       username: user.username,
       nearAccountId: user.nearAccountId || undefined,
-      clientNearPublicKey: clientManagedNearPublicKey,
-      mode: useOptimistic ? 'FastAuth (Optimistic)' : 'SecureAuth (Contract Sync)'
+      clientNearPublicKey: clientNearPublicKey,
+      mode: 'Web2 (Background Contract Sync)'
     });
 
     // Steps 3, 4 & 5: Run database storage, account creation, and contract registration concurrently
     const concurrentTasks = [];
 
     // Task 1: Create NEAR account with access key (must complete first)
-    if (clientManagedNearPublicKey && user.nearAccountId) {
+    if (clientNearPublicKey && user.nearAccountId) {
       sendSSEUpdate(3, 'access-key-addition', 'progress', { message: 'Creating NEAR account...' });
       try {
         const nearAccountId = user.nearAccountId!;
         console.log(`Creating account ${nearAccountId} with access key...`);
-        const creationResult = await nearClient.createAccount(nearAccountId, clientManagedNearPublicKey);
+        const creationResult = await nearClient.createAccount(nearAccountId, clientNearPublicKey);
         if (!creationResult.success) {
           throw new Error(`Failed to create account: ${creationResult.message}`);
         }
@@ -714,9 +452,7 @@ async function handleRegistrationWithSSE(
       }
     }
 
-    // Task 2 & 3: Run database storage and contract registration concurrently
-    const remainingTasks = [];
-
+    // Task 2: Database storage (includes contract registration)
     const databaseTask = (async () => {
       sendSSEUpdate(4, 'database-storage', 'progress', { message: 'Storing authenticator in database...' });
 
@@ -727,28 +463,18 @@ async function handleRegistrationWithSSE(
         let counterForDB: number;
         let credentialBackedUpForDB: boolean;
 
-        if (useOptimistic) {
-          const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
-          if (!credentialID || !credentialPublicKey) {
-            throw new Error('Incomplete registration info from SimpleWebAuthn');
-          }
-          credentialIDForDB = Buffer.from(credentialID).toString('base64url');
-          publicKeyForDB = new Uint8Array(credentialPublicKey);
-          counterForDB = counter || 0;
-          credentialBackedUpForDB = credentialBackedUp || false;
-        } else {
-          const { credential_id: rawCredentialIDBuffer, credential_public_key: rawPublicKeyBuffer, counter, credentialBackedUp } = registrationInfo || {};
-          if (!rawCredentialIDBuffer || !rawPublicKeyBuffer) {
-            throw new Error('Incomplete registration info from contract');
-          }
-          credentialIDForDB = Buffer.from(rawCredentialIDBuffer).toString('base64url');
-          publicKeyForDB = new Uint8Array(Buffer.from(rawPublicKeyBuffer));
-          counterForDB = counter || 0;
-          credentialBackedUpForDB = credentialBackedUp || false;
+        // Web2 mode: Extract from SimpleWebAuthn
+        const { credentialID, credentialPublicKey, counter, credentialBackedUp } = registrationInfo || {};
+        if (!credentialID || !credentialPublicKey) {
+          throw new Error('Incomplete registration info from SimpleWebAuthn');
         }
+        credentialIDForDB = Buffer.from(credentialID).toString('base64url');
+        publicKeyForDB = new Uint8Array(credentialPublicKey);
+        counterForDB = counter || 0;
+        credentialBackedUpForDB = credentialBackedUp || false;
 
-        // Add the public key to the registration info if it's missing (for optimistic mode)
-        if (useOptimistic && !registrationInfo.credentialPublicKey) {
+        // Add the public key to the registration info if it's missing
+        if (!registrationInfo.credentialPublicKey) {
           const attestationObject = decodeAttestationObject(isoBase64URL.toBuffer(attestationResponse.response.attestationObject));
           const authenticatorData = parseAuthenticatorData((attestationObject as any).authData);
           registrationInfo.credentialPublicKey = authenticatorData.credentialPublicKey;
@@ -756,6 +482,9 @@ async function handleRegistrationWithSSE(
 
         if (user.nearAccountId) {
           console.log(`🔍 [Registration] Attempting to create authenticator for ${user.nearAccountId}`);
+
+          // Send contract registration progress update
+          sendSSEUpdate(5, 'contract-registration', 'progress', { message: 'Running contract registration...' });
 
           // Attempt to create the authenticator (writes to both contract and cache)
           const createSuccess = await authenticatorService.create({
@@ -767,121 +496,72 @@ async function handleRegistrationWithSSE(
             name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
             registered: new Date(),
             backedUp: credentialBackedUpForDB,
-            clientManagedNearPublicKey: clientManagedNearPublicKey || null,
+            clientNearPublicKey: clientNearPublicKey ?? null,
           });
 
           if (!createSuccess) {
             console.error(`🔍 [Registration] Failed to create authenticator for ${user.nearAccountId}`);
+            sendSSEUpdate(5, 'contract-registration', 'error', {
+              message: 'Failed to register with contract',
+              error: 'Failed to create authenticator in database/contract'
+            });
             throw new Error('Failed to create authenticator in database/contract');
           }
 
-          console.log(`🔍 [Registration] Successfully created authenticator for ${user.nearAccountId}`);
-
-          // Verify cache storage by attempting to retrieve the authenticator
-          console.log(`🔍 [Registration] Verifying cache storage for ${credentialIDForDB}`);
-          try {
-            const cachedAuth = await authenticatorService.findByCredentialId(credentialIDForDB, user.nearAccountId);
-            if (cachedAuth) {
-              console.log(`✅ [Registration] Authenticator successfully stored and retrieved from cache: ${credentialIDForDB}`);
-            } else {
-              console.warn(`⚠️ [Registration] Authenticator not found in cache after creation: ${credentialIDForDB}`);
-              // Force refresh cache from contract
-              console.log(`🔍 [Registration] Attempting to refresh cache for ${user.nearAccountId}`);
-              await authenticatorService.refreshCache(user.nearAccountId);
-
-              // Verify again
-              const refreshedAuth = await authenticatorService.findByCredentialId(credentialIDForDB, user.nearAccountId);
-              if (refreshedAuth) {
-                console.log(`✅ [Registration] Authenticator found in cache after refresh: ${credentialIDForDB}`);
-              } else {
-                console.error(`❌ [Registration] Authenticator still not found in cache after refresh: ${credentialIDForDB}`);
-                throw new Error('Cache storage verification failed');
-              }
-            }
-          } catch (cacheVerifyError: any) {
-            console.error(`🔍 [Registration] Cache verification failed for ${credentialIDForDB}:`, cacheVerifyError);
-            // Don't fail the registration for cache issues, but log it prominently
-            console.warn(`⚠️ [Registration] Continuing despite cache verification failure`);
-          }
+          console.log(`🔍 [Registration] Authenticator created successfully for ${user.nearAccountId}`);
+          sendSSEUpdate(4, 'database-storage', 'success', { message: 'Authenticator stored successfully' });
         }
-
-        sendSSEUpdate(4, 'database-storage', 'success', { message: 'Authenticator stored successfully' });
       } catch (error: any) {
-        console.error('🔍 [Registration] Failed to store authenticator in database:', error);
+        console.error('Failed to store authenticator in database:', error);
         sendSSEUpdate(4, 'database-storage', 'error', {
-          message: 'Failed to store authenticator (account still secured)',
+          message: 'Failed to store authenticator in database',
           error: error.message
         });
+        // Stop if database storage fails
+        res.end();
+        return Promise.resolve();
       }
     })();
-    remainingTasks.push(databaseTask);
 
-    if (useOptimistic && user.nearAccountId) {
-      const contractTask = (async () => {
-        sendSSEUpdate(5, 'contract-registration', 'progress', { message: 'Registering user in contract...' });
-        try {
-          const nearAccountId = user.nearAccountId!;
-          await registerUserInContractWithProgress(sessionId, nearAccountId, user.username);
-          sendSSEUpdate(5, 'contract-registration', 'success', { message: 'User registered in contract successfully' });
-        } catch (error: any) {
-          console.warn('Contract registration failed:', error);
-          sendSSEUpdate(5, 'contract-registration', 'error', {
-            message: 'Contract registration failed (non-fatal)',
-            error: error.message
-          });
-        }
-      })();
-      remainingTasks.push(contractTask);
-    }
+    await databaseTask;
 
-    await Promise.allSettled(remainingTasks);
-
-    // Step 7: Final completion
+    // Step 6: Send final success response
     sendSSEUpdate(6, 'registration-complete', 'success', {
-      message: 'Registration completed successfully!',
-      sessionId
+      message: 'Registration completed successfully',
+      sessionId,
     });
 
-    // Clear challenge
-    userOperations.updateChallengeAndCommitmentId(user.id, null, null);
+    // Clean up session
+    setTimeout(() => {
+      registrationSessions.delete(sessionId);
+      sseClients.delete(sessionId);
+    }, 30000); // 30 seconds
 
-    res.end();
-
-  } catch (error: any) {
-    console.error('SSE Registration error:', error);
+  } catch (e: any) {
+    console.error('Error handling registration:', e.message, e.stack);
+    if (user.username) {
+        const userToClear = userOperations.findByUsername(user.username);
+        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.id, null, null);
+    }
     sendSSEUpdate(0, 'registration-error', 'error', {
-      message: error.message,
-      error: error.message
+      message: 'Registration failed due to an unexpected server error.',
+      error: e.message || 'Unknown error'
     });
-
-    // Clear challenge on error
-    userOperations.updateChallengeAndCommitmentId(user.id, null, null);
     res.end();
   }
 }
 
 // Verify registration Endpoint - Modified for SSE
 router.post('/verify-registration', async (req: Request, res: Response) => {
-  const { username, attestationResponse, commitmentId, clientManagedNearPublicKey } = req.body as {
-    username: string,
-    attestationResponse: RegistrationResponseJSON,
-    commitmentId?: string,
-    useOptimistic?: boolean,
-    clientManagedNearPublicKey?: string
-  };
+  const { username, attestationResponse, commitmentId, clientNearPublicKey } = req.body as VerifyRegistrationRequest;
 
-  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
-
-  console.log(`🔑 Registration verification for ${username}: clientManagedNearPublicKey = ${clientManagedNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
-  if (clientManagedNearPublicKey) {
-    console.log(`🔑 Client-managed NEAR public key: ${clientManagedNearPublicKey}`);
+  console.log(`🔑 Registration verification for ${username}: clientNearPublicKey = ${clientNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
+  if (clientNearPublicKey) {
+    console.log(`🔑 Client-managed NEAR public key: ${clientNearPublicKey}`);
   }
 
   if (!username || !attestationResponse) {
     return res.status(400).json({ error: 'Username and attestationResponse are required' });
-  }
-  if (!useOptimistic && config.useContractMethod && !commitmentId) {
-    return res.status(400).json({ error: 'commitmentId is required for contract method verification' });
   }
 
   try {
@@ -891,13 +571,10 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     }
 
     const expectedChallenge = user.currentChallenge;
-    const storedCommitmentId = user.currentCommitmentId;
+    const storedCommitmentId = user.currentCommitmentId ?? null;
 
     if (!expectedChallenge) {
       return res.status(400).json({ error: 'No challenge found. Registration might have timed out or was not initiated correctly.' });
-    }
-    if (!useOptimistic && config.useContractMethod && storedCommitmentId !== commitmentId) {
-        console.warn(`commitmentId mismatch. Stored: ${storedCommitmentId}, Received: ${commitmentId}`);
     }
 
     // Handle registration via SSE
@@ -906,8 +583,7 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
       attestationResponse,
       expectedChallenge,
       storedCommitmentId,
-      clientManagedNearPublicKey || null,
-      useOptimistic,
+      clientNearPublicKey,
       res
     );
 
@@ -920,29 +596,6 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
     return res.status(500).json({
       verified: false,
       error: e.message || 'Verification failed due to an unexpected server error.'
-    });
-  }
-});
-
-// Debug endpoint to check NEAR transaction queue status
-router.get('/debug/near-queue', async (req: Request, res: Response) => {
-  try {
-    const queueDiagnostics = nearClient.getQueueDiagnostics();
-
-    console.log(`🔍 [Debug] NEAR transaction queue diagnostics:`, queueDiagnostics);
-
-    return res.json({
-      queue: queueDiagnostics,
-      message: queueDiagnostics.queueEmpty
-        ? 'Transaction queue is empty'
-        : `${queueDiagnostics.pending} transactions pending`,
-      relayerAccount: process.env.RELAYER_ACCOUNT_ID
-    });
-
-  } catch (error: any) {
-    console.error('🔍 [Debug] NEAR queue diagnostic error:', error);
-    return res.status(500).json({
-      error: error.message
     });
   }
 });

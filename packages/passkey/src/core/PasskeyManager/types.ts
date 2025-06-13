@@ -180,7 +180,7 @@ export interface ActionResult {
 
 // PasskeyManager Configuration
 export interface PasskeyManagerConfig {
-  serverUrl: string;
+  serverUrl?: string; // Optional - enables serverless mode when not provided
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
   optimisticAuth: boolean;

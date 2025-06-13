@@ -66,8 +66,3 @@ const result = await webAuthnManager.secureTransactionSigningWithPrf(
 - **Proper WebAuthn**: Server-generated challenges with correct entropy.
 - **Key Security**: Private keys never exist in JavaScript memory.
 - **Atomic Operations**: Key generation + encryption happens atomically in WASM.
-
-## Testing
-
-- `/test-onetime-worker`: Worker lifecycle validation (ensure it's updated for PRF).
-- `/test-webauthn-manager`: Security feature testing with server integration (ensure it's updated for PRF).

@@ -34,7 +34,6 @@ app.listen(config.port, () => {
   console.log(`Server listening on http://localhost:${config.port}`);
   console.log(`Relying Party ID: ${config.rpID}`);
   console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
-  console.log(`Using Contract Method: ${config.useContractMethod ? 'NEAR Contract' : 'SimpleWebAuthn'}`);
 
   nearClient.getTrustedRelayer().then((relayer: string) => {
     console.log(`NearClient connected, PasskeyController trusted relayer: ${relayer}`)

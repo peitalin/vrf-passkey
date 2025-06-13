@@ -19,19 +19,32 @@ function parseTransports(transports?: string[]): any[] | undefined {
   });
 }
 
+interface ContractAuthenticator {
+  credential_id: string;
+  credential_public_key: number[];
+  counter: number;
+  transports: string[];
+  user_id: string;
+  name?: string;
+  registered: string;
+  last_used?: string;
+  backed_up: boolean;
+  client_managed_near_public_key?: string;
+}
+
 // Convert contract authenticator to StoredAuthenticator type
-function mapContractAuthenticator(contractAuth: any, credentialID: string): StoredAuthenticator {
+function mapContractAuthenticator(contractAuth: ContractAuthenticator): StoredAuthenticator {
   return {
-    credentialID,
+    credentialID: contractAuth.credential_id,
     credentialPublicKey: new Uint8Array(contractAuth.credential_public_key),
     counter: contractAuth.counter,
     transports: parseTransports(contractAuth.transports),
-    userId: '', // Will be set by caller
-    name: contractAuth.name || null,
+    userId: contractAuth.user_id,
+    name: contractAuth.name,
     registered: new Date(contractAuth.registered),
     lastUsed: contractAuth.last_used ? new Date(contractAuth.last_used) : undefined,
     backedUp: contractAuth.backed_up,
-    clientManagedNearPublicKey: contractAuth.client_managed_near_public_key || null,
+    clientNearPublicKey: contractAuth.client_managed_near_public_key,
   };
 }
 
@@ -50,7 +63,7 @@ export const contractOperations = {
       console.log(`🔍 Contract returned:`, result);
 
       return result.map(([credentialId, auth]) => {
-        const mapped = mapContractAuthenticator(auth, credentialId);
+        const mapped = mapContractAuthenticator(auth);
         mapped.userId = nearAccountId;
         console.log(`🔍 Mapped authenticator:`, { credentialId, counter: auth.counter, transports: auth.transports });
         return mapped;
@@ -75,7 +88,7 @@ export const contractOperations = {
 
       if (!result) return undefined;
 
-      const mapped = mapContractAuthenticator(result, credentialId);
+      const mapped = mapContractAuthenticator(result);
       mapped.userId = nearAccountId;
       return mapped;
     } catch (error) {
@@ -93,7 +106,7 @@ export const contractOperations = {
     name?: string | null;
     registered: Date;
     backedUp: boolean;
-    clientManagedNearPublicKey?: string | null;
+    clientNearPublicKey?: string | null;
   }): Promise<boolean> {
     try {
       const transportStrings = authenticator.transports?.map(t => {
@@ -108,7 +121,7 @@ export const contractOperations = {
         credential_public_key: Array.from(authenticator.credentialPublicKey),
         counter: authenticator.counter,
         transports: transportStrings,
-        client_managed_near_public_key: authenticator.clientManagedNearPublicKey || undefined,
+        client_managed_near_public_key: authenticator.clientNearPublicKey || undefined,
         name: authenticator.name || undefined,
         registered: authenticator.registered.toISOString(),
         backed_up: authenticator.backedUp,

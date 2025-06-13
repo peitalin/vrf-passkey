@@ -1,4 +1,4 @@
-import { OUTLINE_COLOR } from '../../../config';
+const OUTLINE_COLOR = '#ababab';
 
 export const AvatarGearIcon = ({ isOpen }: { isOpen: boolean }) => {
   return (

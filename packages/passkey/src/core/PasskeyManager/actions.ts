@@ -1,12 +1,15 @@
 import bs58 from 'bs58';
-import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
+import { RPC_NODE_URL, DEFAULT_GAS_STRING, WEBAUTHN_CONTRACT_ID } from '../../config';
 import type { SerializableActionArgs } from '../../types';
 import type { WebAuthnManager } from '../WebAuthnManager';
 import type {
   ActionOptions,
   ActionResult,
-  ActionEvent
+  ActionEvent,
+  PasskeyManagerConfig
 } from './types';
+import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
+import { ContractService } from '../ContractService';
 
 interface AccessKeyInfo {
   nonce: number;
@@ -33,7 +36,8 @@ interface RpcResponse {
 }
 
 /**
- * Core action execution function that handles transaction signing and broadcasting without React dependencies
+ * Core action execution function without React dependencies
+ * Handles blockchain transactions with PRF-based signing
  */
 export async function executeAction(
   webAuthnManager: WebAuthnManager,
@@ -44,9 +48,36 @@ export async function executeAction(
     nearAccountId: string | null;
   },
   actionArgs: SerializableActionArgs,
-  options?: ActionOptions
+  options?: ActionOptions,
+  config?: PasskeyManagerConfig
 ): Promise<ActionResult> {
   const { optimisticAuth = true, onEvent, onError, hooks } = options || {};
+
+  // Client-side routing logic using routing utilities
+  const routing = determineOperationMode({
+    optimisticAuth,
+    config,
+    operation: 'action'
+  });
+
+  // Validate mode requirements
+  const validation = validateModeRequirements(routing, nearRpcProvider);
+  if (!validation.valid) {
+    const error = new Error(validation.error!);
+    onError?.(error);
+    onEvent?.({
+      type: 'actionFailed',
+      data: {
+        error: validation.error!,
+        actionType: actionArgs.method_name || 'unknown'
+      }
+    });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: validation.error! };
+  }
+
+  // Log the determined mode
+  console.log(`Action: ${getModeDescription(routing)}`);
 
   // Emit started event
   onEvent?.({
@@ -114,7 +145,8 @@ export async function executeAction(
       }
     });
 
-    const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrf(
+    const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrfAndUrl(
+      routing.serverUrl,
       currentUser.username,
       'signing',
       optimisticAuth
@@ -209,7 +241,15 @@ export async function executeAction(
     };
 
     // Get authentication options for challenge validation
-    const { challengeId } = await webAuthnManager.getAuthenticationOptions(currentUser.username, optimisticAuth);
+    let challengeId: string;
+    if (routing.mode === 'serverless') {
+      // In serverless mode, get authentication options directly from the contract
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromContract(nearRpcProvider, currentUser.username, optimisticAuth);
+      challengeId = authOptions.challengeId;
+    } else {
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromServer(routing.serverUrl!, currentUser.username, optimisticAuth);
+      challengeId = authOptions.challengeId;
+    }
 
     const signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
       currentUser.username,

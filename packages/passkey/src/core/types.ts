@@ -1,6 +1,6 @@
 // === CONFIGURATION TYPES ===
 export interface PasskeyConfig {
-  serverUrl: string;
+  serverUrl?: string;
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
   optimisticAuth?: boolean;

@@ -38,7 +38,7 @@ export class PasskeyManager {
     username: string,
     options: RegistrationOptions
   ): Promise<RegistrationResult> {
-    return registerPasskey(this.webAuthnManager, username, options);
+    return registerPasskey(this.webAuthnManager, username, options, this.config, this.nearRpcProvider);
   }
 
   /**
@@ -48,7 +48,7 @@ export class PasskeyManager {
     username?: string,
     options?: LoginOptions
   ): Promise<LoginResult> {
-    return loginPasskey(this.webAuthnManager, username, options);
+    return loginPasskey(this.webAuthnManager, username, options, this.config, this.nearRpcProvider);
   }
 
   /**
@@ -72,7 +72,8 @@ export class PasskeyManager {
       this.nearRpcProvider,
       currentUser,
       actionArgs,
-      options
+      options,
+      this.config
     );
   }
 
@@ -129,8 +130,14 @@ export class PasskeyManager {
 
     console.log(`🔐 Exporting private key for user: ${username}`);
 
+    // Check if serverUrl is configured for authentication
+    if (!this.config.serverUrl) {
+      throw new Error('serverUrl is required in config for private key export operations');
+    }
+
     // Authenticate with PRF to get PRF output
-    const { credential: passkeyAssertion, prfOutput } = await this.webAuthnManager.authenticateWithPrf(
+    const { credential: passkeyAssertion, prfOutput } = await this.webAuthnManager.authenticateWithPrfAndUrl(
+      this.config.serverUrl,
       username,
       'encryption',
       this.config.optimisticAuth
@@ -141,7 +148,11 @@ export class PasskeyManager {
     }
 
     // Get authentication options for challenge validation
-    const { challengeId } = await this.webAuthnManager.getAuthenticationOptions(username, this.config.optimisticAuth);
+    const { challengeId } = await this.webAuthnManager.getAuthenticationOptionsFromServer(
+      this.config.serverUrl,
+      username,
+      this.config.optimisticAuth
+    );
 
     // Use WASM worker to decrypt private key
     const decryptionResult = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(

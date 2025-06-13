@@ -65,3 +65,18 @@ export {
 // === UTILITIES ===
 export * from './utils/encoders';
 export * from './config';
+
+// === CONTRACT SERVICE (SERVERLESS MODE) ===
+export { ContractService } from './core/ContractService';
+export type {
+  ContractGenerateOptionsArgs,
+  ContractCompleteRegistrationArgs,
+  ContractGenerateAuthOptionsArgs,
+  ContractVerifyAuthArgs,
+  ContractRegistrationOptionsResponse,
+  ContractAuthenticationOptionsResponse,
+  ContractVerificationResult,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+} from './core/ContractService';

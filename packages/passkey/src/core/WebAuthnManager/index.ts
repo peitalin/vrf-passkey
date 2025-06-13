@@ -1,4 +1,4 @@
-import { SERVER_URL, WASM_WORKER_FILENAME } from '../../config';
+import { WASM_WORKER_FILENAME } from '../../config';
 import { bufferEncode, bufferDecode } from '../../utils/encoders';
 import {
   WorkerRequestType,
@@ -10,6 +10,16 @@ import {
   isDecryptionSuccess,
   isWorkerError
 } from '../types/worker';
+import { indexDBManager } from '../IndexDBManager';
+import type {
+  GenerateRegistrationOptionsRequest,
+  GenerateRegistrationOptionsResponse,
+  GenerateAuthenticationOptionsRequest,
+  GenerateAuthenticationOptionsResponse,
+  VerifyRegistrationRequest,
+  VerifyAuthenticationRequest,
+  VerifyAuthenticationResponse
+} from '../../types/endpoints';
 
 // === CONSTANTS ===
 const USER_DATA_DB_NAME = 'PasskeyUserData';
@@ -55,8 +65,6 @@ interface SigningPayload {
   blockHashBytes: number[];
 }
 
-
-
 interface PrfSaltConfig {
   nearKeyEncryption: Uint8Array;
 }
@@ -83,8 +91,6 @@ interface AuthenticationOptions {
   challengeId: string;
 }
 
-
-
 /**
  * WebAuthnManager - Secure encapsulation of WebAuthn operations and WASM workers
  *
@@ -108,88 +114,35 @@ export class WebAuthnManager {
     setInterval(() => this.cleanupExpiredChallenges(), this.CLEANUP_INTERVAL);
   }
 
-  // === INDEXEDDB OPERATIONS ===
+  // === INDEXDB OPERATIONS (Now using unified IndexDBManager) ===
 
   /**
-   * Open IndexedDB connection for user data
-   */
-  async openUserDataDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(USER_DATA_STORE_NAME)) {
-          db.createObjectStore(USER_DATA_STORE_NAME, { keyPath: 'username' });
-        }
-      };
-    });
-  }
-
-  /**
-   * Store user data in IndexedDB
+   * Store user data using unified IndexDBManager
    */
   async storeUserData(userData: UserData): Promise<void> {
-    const db = await this.openUserDataDB();
-    const transaction = db.transaction([USER_DATA_STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(USER_DATA_STORE_NAME);
-
-    return new Promise((resolve, reject) => {
-      const request = store.put({ ...userData, lastUpdated: Date.now() });
-      request.onsuccess = () => {
-        db.close();
-        resolve();
-      };
-      request.onerror = () => {
-        db.close();
-        reject(request.error);
-      };
-    });
+    await indexDBManager.storeWebAuthnUserData(userData);
   }
 
   /**
-   * Retrieve user data from IndexedDB
+   * Retrieve user data using unified IndexDBManager
    */
   async getUserData(username: string): Promise<UserData | null> {
-    const db = await this.openUserDataDB();
-    const transaction = db.transaction([USER_DATA_STORE_NAME], 'readonly');
-    const store = transaction.objectStore(USER_DATA_STORE_NAME);
-
-    return new Promise((resolve, reject) => {
-      const request = store.get(username);
-      request.onsuccess = () => {
-        db.close();
-        resolve(request.result || null);
-      };
-      request.onerror = () => {
-        db.close();
-        reject(request.error);
-      };
-    });
+    return await indexDBManager.getWebAuthnUserData(username);
   }
 
   /**
-   * Get all user data from IndexedDB
+   * Get all user data using unified IndexDBManager
    */
   async getAllUserData(): Promise<UserData[]> {
-    const db = await this.openUserDataDB();
-    const transaction = db.transaction([USER_DATA_STORE_NAME], 'readonly');
-    const store = transaction.objectStore(USER_DATA_STORE_NAME);
-
-    return new Promise((resolve, reject) => {
-      const request = store.getAll();
-      request.onsuccess = () => {
-        db.close();
-        resolve(request.result || []);
-      };
-      request.onerror = () => {
-        db.close();
-        reject(request.error);
-      };
-    });
+    const allUsers = await indexDBManager.getAllUsers();
+    return allUsers.map(user => ({
+      username: user.username,
+      nearAccountId: user.nearAccountId,
+      clientNearPublicKey: user.clientNearPublicKey,
+      lastUpdated: user.lastUpdated,
+      prfSupported: user.prfSupported,
+      passkeyCredential: user.passkeyCredential
+    }));
   }
 
   // === CONVENIENCE METHODS ===
@@ -198,30 +151,14 @@ export class WebAuthnManager {
    * Check if a passkey credential exists for a username
    */
   async hasPasskeyCredential(username: string): Promise<boolean> {
-    try {
-      const userData = await this.getUserData(username);
-      return !!userData && !!userData.clientNearPublicKey;
-    } catch (error) {
-      console.warn('Error checking passkey credential:', error);
-      return false;
-    }
+    return await indexDBManager.hasPasskeyCredential(username);
   }
 
   /**
    * Get the last used username from stored user data
    */
   async getLastUsedUsername(): Promise<string | null> {
-    try {
-      const allUsers = await this.getAllUserData();
-      if (allUsers.length === 0) return null;
-
-      // Sort by lastUpdated timestamp and return the most recent
-      const sortedUsers = allUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
-      return sortedUsers[0].username;
-    } catch (error) {
-      console.warn('Error getting last used username:', error);
-      return null;
-    }
+    return await indexDBManager.getLastUsedUsername();
   }
 
   // === CHALLENGE MANAGEMENT ===
@@ -407,17 +344,23 @@ export class WebAuthnManager {
   // === SERVER COMMUNICATION ===
 
   /**
-   * Get registration options from server and register challenge
+   * Get registration options from server with custom URL and register challenge
    */
-  async getRegistrationOptions(
+  async getRegistrationOptionsFromServer(
+    serverUrl: string,
     username: string,
     useOptimistic?: boolean
   ): Promise<RegistrationOptions> {
     try {
-      const response = await fetch(`${SERVER_URL}/generate-registration-options`, {
+      const requestData: GenerateRegistrationOptionsRequest = {
+        username,
+        useOptimistic
+      };
+
+      const response = await fetch(`${serverUrl}/generate-registration-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, useOptimistic }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
@@ -427,7 +370,7 @@ export class WebAuthnManager {
         throw new Error(errorData.error || `Server error ${response.status}`);
       }
 
-      const serverResponseObject = await response.json();
+      const serverResponseObject: GenerateRegistrationOptionsResponse = await response.json();
 
       if (!serverResponseObject?.options?.challenge ||
           typeof serverResponseObject.options.challenge !== 'string') {
@@ -442,11 +385,33 @@ export class WebAuthnManager {
                      serverResponseObject.options.excludeCredentials);
       }
 
-      const options = serverResponseObject.options;
-      const challengeId = this.registerServerChallenge(options.challenge, 'registration');
+      // Convert JSON format to WebAuthn API format
+      const convertedOptions: PublicKeyCredentialCreationOptions = {
+        challenge: bufferDecode(serverResponseObject.options.challenge),
+        rp: serverResponseObject.options.rp,
+        user: {
+          id: typeof serverResponseObject.options.user.id === 'string'
+            ? new TextEncoder().encode(serverResponseObject.options.user.id)
+            : serverResponseObject.options.user.id as BufferSource,
+          name: serverResponseObject.options.user.name,
+          displayName: serverResponseObject.options.user.displayName
+        },
+        pubKeyCredParams: serverResponseObject.options.pubKeyCredParams,
+        excludeCredentials: serverResponseObject.options.excludeCredentials?.map(c => ({
+          id: typeof c.id === 'string' ? bufferDecode(c.id) : c.id as BufferSource,
+          type: 'public-key' as const,
+          transports: c.transports as AuthenticatorTransport[]
+        })),
+        authenticatorSelection: serverResponseObject.options.authenticatorSelection,
+        timeout: serverResponseObject.options.timeout,
+        attestation: serverResponseObject.options.attestation,
+        extensions: serverResponseObject.options.extensions
+      };
+
+      const challengeId = this.registerServerChallenge(serverResponseObject.options.challenge, 'registration');
       const commitmentId = serverResponseObject.commitmentId;
 
-      return { options, challengeId, commitmentId };
+      return { options: convertedOptions, challengeId, commitmentId };
     } catch (error: any) {
       console.error('WebAuthnManager: Failed to get registration options:', error);
       throw error;
@@ -454,21 +419,75 @@ export class WebAuthnManager {
   }
 
   /**
-   * Get authentication options from server and register challenge
+   * Get registration options from contract directly (for serverless mode)
    */
-  async getAuthenticationOptions(
+  async getRegistrationOptionsFromContract(
+    nearRpcProvider: any,
+    username: string,
+    useOptimistic?: boolean
+  ): Promise<RegistrationOptions> {
+    const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
+    const { ContractService } = await import('../ContractService');
+    const { indexDBManager } = await import('../IndexDBManager');
+
+    // Generate NEAR account ID
+    const nearAccountId = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
+
+    // Create contract service instance
+    const contractService = new ContractService(
+      nearRpcProvider,
+      WEBAUTHN_CONTRACT_ID,
+      'WebAuthn Passkey',
+      window.location.hostname,
+      RELAYER_ACCOUNT_ID
+    );
+
+    // Get existing authenticators for exclusion
+    const existingAuthenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+
+    const userId = contractService.generateUserId();
+    const { contractArgs } = contractService.buildRegistrationOptionsArgs(
+      username,
+      userId,
+      existingAuthenticators
+    );
+
+    // Call contract to get registration options
+    const optionsResult = await nearRpcProvider.query({
+      request_type: 'call_function',
+      account_id: WEBAUTHN_CONTRACT_ID,
+      method_name: 'generate_registration_options',
+      args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
+      finality: 'optimistic'
+    });
+
+    const parsedOptions = contractService.parseContractResponse(optionsResult, 'generate_registration_options');
+
+    return {
+      options: parsedOptions.options,
+      challengeId: parsedOptions.options.challenge,
+      commitmentId: parsedOptions.commitmentId
+    };
+  }
+
+  /**
+   * Get authentication options from server with custom URL and register challenge
+   */
+  async getAuthenticationOptionsFromServer(
+    serverUrl: string,
     username?: string,
     useOptimistic?: boolean
-  ): Promise<AuthenticationOptions> {
+  ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     try {
-      const payload: Record<string, any> = {};
-      if (username) payload.username = username;
-      if (useOptimistic !== undefined) payload.useOptimistic = useOptimistic;
+      const requestData: GenerateAuthenticationOptionsRequest = {
+        username,
+        useOptimistic
+      };
 
-      const response = await fetch(`${SERVER_URL}/generate-authentication-options`, {
+      const response = await fetch(`${serverUrl}/generate-authentication-options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
@@ -478,7 +497,7 @@ export class WebAuthnManager {
         throw new Error(errorData.error || `Server error ${response.status}`);
       }
 
-      const options = await response.json();
+      const options: GenerateAuthenticationOptionsResponse = await response.json();
       const challengeId = this.registerServerChallenge(options.challenge, 'authentication');
 
       return { options, challengeId };
@@ -486,6 +505,87 @@ export class WebAuthnManager {
       console.error('WebAuthnManager: Failed to get authentication options:', error);
       throw error;
     }
+  }
+
+  /**
+   * Get authentication options from contract directly (for serverless mode)
+   */
+  async getAuthenticationOptionsFromContract(
+    nearRpcProvider: any,
+    username: string,
+    useOptimistic?: boolean
+  ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
+    const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
+    const { ContractService } = await import('../ContractService');
+    const { indexDBManager } = await import('../IndexDBManager');
+
+    // Generate NEAR account ID
+    const nearAccountId = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
+
+    // Get user's authenticators to find one for authentication
+    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error('No authenticators found for user. Please register first.');
+    }
+
+    // Use the first (latest) authenticator
+    const authenticator = authenticators[0];
+
+    // Create contract service instance
+    const contractService = new ContractService(
+      nearRpcProvider,
+      WEBAUTHN_CONTRACT_ID,
+      'WebAuthn Passkey',
+      window.location.hostname,
+      RELAYER_ACCOUNT_ID
+    );
+
+    const contractArgs = contractService.buildAuthenticationOptionsArgs(
+      authenticator,
+      undefined, // allowCredentials
+      'preferred' // userVerification
+    );
+
+    // Call contract to get authentication options
+    const optionsResult = await nearRpcProvider.query({
+      request_type: 'call_function',
+      account_id: WEBAUTHN_CONTRACT_ID,
+      method_name: 'generate_authentication_options',
+      args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
+      finality: 'optimistic'
+    });
+
+    const parsedOptions = contractService.parseContractResponse(optionsResult, 'generate_authentication_options');
+
+    return {
+      options: parsedOptions.options,
+      challengeId: parsedOptions.commitmentId || crypto.randomUUID()
+    };
+  }
+
+  // === HELPER METHODS ===
+
+  /**
+   * Convert PublicKeyCredentialRequestOptionsJSON to PublicKeyCredentialRequestOptions
+   * Handles type conversions and buffer decoding
+   */
+  private convertAuthenticationOptions(
+    options: PublicKeyCredentialRequestOptionsJSON
+  ): PublicKeyCredentialRequestOptions {
+    return {
+      challenge: typeof options.challenge === 'string'
+        ? bufferDecode(options.challenge)
+        : options.challenge,
+      rpId: options.rpId,
+      allowCredentials: options.allowCredentials?.map(c => ({
+        id: typeof c.id === 'string' ? bufferDecode(c.id) : c.id,
+        type: 'public-key' as const,
+        transports: c.transports as AuthenticatorTransport[]
+      })),
+      userVerification: (options.userVerification || "preferred") as UserVerificationRequirement,
+      timeout: options.timeout || 60000,
+      extensions: options.extensions
+    };
   }
 
   // === WEBAUTHN OPERATIONS ===
@@ -497,48 +597,29 @@ export class WebAuthnManager {
     username: string,
     useOptimistic?: boolean
   ): Promise<WebAuthnRegistrationWithPrf> {
+    return this.registerWithPrfAndUrl(undefined, username, useOptimistic);
+  }
+
+  /**
+   * Register with PRF extension support with custom server URL
+   */
+  async registerWithPrfAndUrl(
+    serverUrl: string | undefined,
+    username: string,
+    useOptimistic?: boolean
+  ): Promise<WebAuthnRegistrationWithPrf> {
     console.log('🔒 WebAuthnManager.registerWithPrf called for:', username, 'useOptimistic:', useOptimistic);
     console.log('🔒 Active challenges before registration:', this.activeChallenges.size);
 
-    const { options, challengeId, commitmentId } = await this.getRegistrationOptions(username, useOptimistic);
-
-    if (typeof options?.challenge !== 'string') {
-      const errorMsg = "[ERROR] In registerWithPrf, options.challenge is NOT in the right format.";
-      console.error(errorMsg, "Value:", options?.challenge, "Full options:", options);
-      throw new TypeError(errorMsg);
+    if (!serverUrl) {
+      throw new Error('serverUrl is required for registration. Use getRegistrationOptionsFromServer() with explicit serverUrl.');
     }
 
-    let processedExcludeCredentials: PublicKeyCredentialDescriptor[] | undefined;
-    if (options.excludeCredentials && Array.isArray(options.excludeCredentials)) {
-      processedExcludeCredentials = options.excludeCredentials.map((c, index) => {
-        // Handle server response where id is a base64url string that needs decoding
-        const credentialId = c.id;
-        if (typeof credentialId === 'string') {
-          return { ...c, id: bufferDecode(credentialId) };
-        } else {
-          // If it's already a BufferSource, use as-is
-          console.warn(`[WARNING] excludeCredentials[${index}].id is not a string:`, credentialId);
-          return { ...c, id: credentialId || new ArrayBuffer(0) };
-        }
-      });
-    }
+    const { options, challengeId, commitmentId } = await this.getRegistrationOptionsFromServer(serverUrl, username, useOptimistic);
 
+    // Options are already converted to the proper format by getRegistrationOptionsFromServer
     const extendedOptions: PublicKeyCredentialCreationOptions = {
       ...options,
-      challenge: typeof options.challenge === 'string'
-        ? bufferDecode(options.challenge)
-        : options.challenge,
-      user: {
-        ...options.user,
-        id: typeof options.user.id === 'string'
-          ? new TextEncoder().encode(options.user.id)
-          : options.user.id
-      },
-      excludeCredentials: processedExcludeCredentials,
-      authenticatorSelection: options.authenticatorSelection || {
-        residentKey: "required",
-        userVerification: "preferred"
-      },
       extensions: {
         ...options.extensions,
         prf: {
@@ -574,20 +655,26 @@ export class WebAuthnManager {
     purpose: 'encryption' | 'signing' = 'signing',
     useOptimistic: boolean = true
   ): Promise<WebAuthnAuthenticationWithPrf> {
-    const { options, challengeId } = await this.getAuthenticationOptions(username, useOptimistic);
+    return this.authenticateWithPrfAndUrl(undefined, username, purpose, useOptimistic);
+  }
+
+  /**
+   * Authenticate with PRF extension support with custom server URL
+   */
+  async authenticateWithPrfAndUrl(
+    serverUrl: string | undefined,
+    username?: string,
+    purpose: 'encryption' | 'signing' = 'signing',
+    useOptimistic: boolean = true
+  ): Promise<WebAuthnAuthenticationWithPrf> {
+    if (!serverUrl) {
+      throw new Error('serverUrl is required for authentication. Use getAuthenticationOptionsFromServer() with explicit serverUrl.');
+    }
+
+    const { options, challengeId } = await this.getAuthenticationOptionsFromServer(serverUrl, username, useOptimistic);
 
     const extendedOptions: PublicKeyCredentialRequestOptions = {
-      ...options,
-      challenge: typeof options.challenge === 'string'
-        ? bufferDecode(options.challenge)
-        : options.challenge,
-      rpId: options.rpId,
-      allowCredentials: options.allowCredentials?.map(c => ({
-        ...c,
-        id: typeof c.id === 'string' ? bufferDecode(c.id) : c.id
-      })),
-      userVerification: options.userVerification || "preferred",
-      timeout: options.timeout || 60000,
+      ...this.convertAuthenticationOptions(options),
       extensions: {
         ...options.extensions,
         prf: {
@@ -645,33 +732,31 @@ export class WebAuthnManager {
 
       if (isEncryptionSuccess(response)) {
         console.log('WebAuthnManager: PRF registration successful');
-
-        await this.storeUserData({
-          username,
-          nearAccountId: payload.nearAccountId,
-          clientNearPublicKey: response.payload.publicKey,
-          prfSupported: true,
-          lastUpdated: Date.now()
-        });
-
         return {
           success: true,
-          nearAccountId: response.payload.nearAccountId,
+          nearAccountId: payload.nearAccountId,
           publicKey: response.payload.publicKey
         };
-      } else if (isWorkerError(response)) {
-        throw new Error(response.payload.error || 'PRF encryption failed');
       } else {
-        throw new Error('Unexpected response type from worker');
+        console.error('WebAuthnManager: PRF registration failed:', response);
+        return {
+          success: false,
+          nearAccountId: payload.nearAccountId,
+          publicKey: ''
+        };
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: PRF registration failed:', error);
-      throw error;
+      console.error('WebAuthnManager: PRF registration error:', error);
+      return {
+        success: false,
+        nearAccountId: payload.nearAccountId,
+        publicKey: ''
+      };
     }
   }
 
   /**
-   * Secure signing flow with PRF: WebAuthn + WASM worker decryption/signing using PRF
+   * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
    */
   async secureTransactionSigningWithPrf(
     username: string,
@@ -681,13 +766,9 @@ export class WebAuthnManager {
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
       this.validateAndConsumeChallenge(challengeId, 'authentication');
-      console.log('WebAuthnManager: Starting secure transaction signing with PRF');
+      console.log('WebAuthnManager: Challenge validated for PRF signing');
 
-      // Get user data to verify user exists
-      const userData = await this.getUserData(username);
-      if (!userData) {
-        throw new Error(`No user data found for ${username}`);
-      }
+      console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
@@ -701,99 +782,28 @@ export class WebAuthnManager {
           gasAmount: payload.gasAmount,
           depositAmount: payload.depositAmount,
           nonce: payload.nonce,
-          blockHashBytes: payload.blockHashBytes,
+          blockHashBytes: payload.blockHashBytes
         }
       });
 
       if (isSignatureSuccess(response)) {
         console.log('WebAuthnManager: PRF transaction signing successful');
-        // The worker returns Borsh bytes directly in the payload
         return {
           signedTransactionBorsh: response.payload.signedTransactionBorsh,
           nearAccountId: payload.nearAccountId
         };
-      } else if (isWorkerError(response)) {
-        throw new Error(response.payload.error || 'PRF signing failed');
       } else {
-        throw new Error('Unexpected response type from worker');
+        console.error('WebAuthnManager: PRF transaction signing failed:', response);
+        throw new Error('Transaction signing failed');
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: PRF transaction signing failed:', error);
+      console.error('WebAuthnManager: PRF transaction signing error:', error);
       throw error;
     }
   }
 
-      /**
-   * Get encrypted private key for transaction signing
-   * For now, we'll generate a simple encrypted key structure that the WASM worker can use
-   */
-  private async getEncryptedPrivateKey(username: string, prfOutput: ArrayBuffer): Promise<any> {
-    try {
-      // Import crypto functions to generate a key locally
-      const crypto = window.crypto;
-      const encoder = new TextEncoder();
-
-      // Generate a deterministic private key from the PRF output and username
-      const combinedData = new Uint8Array(prfOutput.byteLength + encoder.encode(username).byteLength);
-      combinedData.set(new Uint8Array(prfOutput), 0);
-      combinedData.set(encoder.encode(username), prfOutput.byteLength);
-
-      // Hash the combined data to get a deterministic private key
-      const hashBuffer = await crypto.subtle.digest('SHA-256', combinedData);
-      const privateKeyBytes = new Uint8Array(hashBuffer);
-
-      // Encode the private key in NEAR format
-      const bs58 = await import('bs58');
-      const privateKeyB58 = bs58.default.encode(privateKeyBytes);
-      const privateKeyNearFormat = `ed25519:${privateKeyB58}`;
-
-      // Generate a simple encryption key from PRF output
-      const encryptionKeyBuffer = await crypto.subtle.digest('SHA-256', prfOutput);
-      const encryptionKey = new Uint8Array(encryptionKeyBuffer);
-
-      // Generate a random IV
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-
-      // Import the encryption key for AES-GCM
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw',
-        encryptionKey,
-        { name: 'AES-GCM' },
-        false,
-        ['encrypt']
-      );
-
-      // Encrypt the private key
-      const encryptedData = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv },
-        cryptoKey,
-        encoder.encode(privateKeyNearFormat)
-      );
-
-      // Convert to base64url for storage
-      const base64url = (buffer: ArrayBuffer) => {
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-      };
-
-      return {
-        encrypted_data_b64u: base64url(encryptedData),
-        iv_b64u: base64url(iv.buffer)
-      };
-
-    } catch (error: any) {
-      console.error('Error generating encrypted private key:', error);
-      throw new Error(`Failed to generate encrypted private key: ${error.message}`);
-    }
-  }
-
   /**
-   * Secure private key decryption with PRF: WebAuthn + WASM worker decryption using PRF
-   * WARNING: This exposes the private key - use only for secure key export workflows
+   * Secure private key decryption with PRF
    */
   async securePrivateKeyDecryptionWithPrf(
     username: string,
@@ -802,20 +812,21 @@ export class WebAuthnManager {
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
       this.validateAndConsumeChallenge(challengeId, 'authentication');
-      console.log('WebAuthnManager: Starting secure private key decryption with PRF');
+      console.log('WebAuthnManager: Challenge validated for PRF decryption');
 
-      // Get user data first
       const userData = await this.getUserData(username);
       if (!userData?.nearAccountId) {
-        throw new Error(`No account data found for user: ${username}`);
+        throw new Error('User data not found or missing NEAR account ID');
       }
+
+      console.log('WebAuthnManager: Starting secure private key decryption with PRF');
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
         type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
         payload: {
           nearAccountId: userData.nearAccountId,
-          prfOutput: bufferEncode(prfOutput),
+          prfOutput: bufferEncode(prfOutput)
         }
       });
 
@@ -823,15 +834,14 @@ export class WebAuthnManager {
         console.log('WebAuthnManager: PRF private key decryption successful');
         return {
           decryptedPrivateKey: response.payload.decryptedPrivateKey,
-          nearAccountId: response.payload.nearAccountId
+          nearAccountId: userData.nearAccountId
         };
-      } else if (isWorkerError(response)) {
-        throw new Error(response.payload.error || 'PRF decryption failed');
       } else {
-        throw new Error('Unexpected response type from worker');
+        console.error('WebAuthnManager: PRF private key decryption failed:', response);
+        throw new Error('Private key decryption failed');
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: PRF private key decryption failed:', error);
+      console.error('WebAuthnManager: PRF private key decryption error:', error);
       throw error;
     }
   }

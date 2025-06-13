@@ -71,21 +71,21 @@ function storeUserGenerateAuthTxHash(userId: string, txHash: string, yieldResume
   }
 }
 
-// Interface for contract arguments (generate_authentication_options)
-interface ContractGenerateAuthOptionsArgs {
-  rp_id: string | null;
-  allow_credentials: { id: string; type: string; transports?: string[] }[] | null;
-  challenge: string | null; // Let contract generate
-  timeout: number | null;
-  user_verification: 'discouraged' | 'preferred' | 'required' | null;
-  extensions: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean } | null;
-  authenticator: {
-    credential_id: number[];
-    credential_public_key: number[];
-    counter: number;
-    transports?: string[];
-  };
-}
+// // Interface for contract arguments (generate_authentication_options)
+// interface ContractGenerateAuthOptionsArgs {
+//   rp_id: string | null;
+//   allow_credentials: { id: string; type: string; transports?: string[] }[] | null;
+//   challenge: string | null; // Let contract generate
+//   timeout: number | null;
+//   user_verification: 'discouraged' | 'preferred' | 'required' | null;
+//   extensions: { appid?: string; cred_props?: boolean; hmac_create_secret?: boolean; min_pin_length?: boolean } | null;
+//   authenticator: {
+//     credential_id: number[];
+//     credential_public_key: number[];
+//     counter: number;
+//     transports?: string[];
+//   };
+// }
 
 // Interface for the response from contract's generate_authentication_options
 interface ContractAuthenticationOptionsResponse {
@@ -100,170 +100,118 @@ interface ContractAuthenticationOptionsResponse {
   commitmentId?: string;
 }
 
-// Helper function to get authentication options from NEAR Contract
-async function generateAuthenticationOptionsContract(
-  authenticator: StoredAuthenticator,
-  rpID: string = config.rpID,
-  allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
-  userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
-): Promise<ContractAuthenticationOptionsResponse> {
-  console.log('Using NEAR contract for authentication options');
+// // Helper function to get authentication options from NEAR Contract
+// async function generateAuthenticationOptionsContract(
+//   authenticator: StoredAuthenticator,
+//   rpID: string = config.rpID,
+//   allowCredentialsList?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[],
+//   userVerification: 'discouraged' | 'preferred' | 'required' = 'preferred'
+// ): Promise<ContractAuthenticationOptionsResponse> {
+//   console.log('Using NEAR contract for authentication options');
 
-  // Convert allowCredentialsList to contract format
-  const allowCredentialsForContract = allowCredentialsList?.map(cred => ({
-    id: isoBase64URL.fromBuffer(cred.id),
-    type: cred.type,
-    transports: cred.transports?.map(t => String(t)),
-  })) || null;
+//   // Convert allowCredentialsList to contract format
+//   const allowCredentialsForContract = allowCredentialsList?.map(cred => ({
+//     id: isoBase64URL.fromBuffer(cred.id),
+//     type: cred.type,
+//     transports: cred.transports?.map(t => String(t)),
+//   })) || null;
 
-  // Convert authenticator to contract format
-  const authenticatorForContract = {
-    credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')),
-    credential_public_key: Array.from(authenticator.credentialPublicKey as Uint8Array),
-    counter: authenticator.counter as number,
-    transports: authenticator.transports?.map(t => String(t)),
-  };
+//   // Convert authenticator to contract format
+//   const authenticatorForContract = {
+//     credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')),
+//     credential_public_key: Array.from(authenticator.credentialPublicKey as Uint8Array),
+//     counter: authenticator.counter as number,
+//     transports: authenticator.transports?.map(t => String(t)),
+//   };
 
-  const contractArgs = {
-    rp_id: rpID,
-    allow_credentials: allowCredentialsForContract,
-    challenge: null, // Let contract generate challenge
-    timeout: 60000,
-    user_verification: userVerification,
-    extensions: null,
-    authenticator: authenticatorForContract,
-  };
+//   const contractArgs = {
+//     rp_id: rpID,
+//     allow_credentials: allowCredentialsForContract,
+//     challenge: null, // Let contract generate challenge
+//     timeout: 60000,
+//     user_verification: userVerification,
+//     extensions: null,
+//     authenticator: authenticatorForContract,
+//   };
 
-  console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
+//   console.log('Calling contract.generate_authentication_options with args:', JSON.stringify(contractArgs));
 
-  const rawResult: any = await nearClient.callFunction(
-    config.contractId,
-    'generate_authentication_options',
-    contractArgs,
-    DEFAULT_GAS_STRING,
-    '0'
-  );
+//   const rawResult: any = await nearClient.callFunction(
+//     config.contractId,
+//     'generate_authentication_options',
+//     contractArgs,
+//     DEFAULT_GAS_STRING,
+//     '0'
+//   );
 
-  console.log(`NearClient: Result: ${JSON.stringify(rawResult)}`);
+//   console.log(`NearClient: Result: ${JSON.stringify(rawResult)}`);
 
-  // Store the transaction hash from generate_authentication_options call
-  const generateTxHash = rawResult?.transaction?.hash;
-  if (generateTxHash) {
-    console.log('🎯 generate_authentication_options Transaction Hash:', generateTxHash);
-    console.log('🎯 Explorer Link:', `${NEAR_EXPLORER_BASE_URL}/txns/${generateTxHash}?tab=execution`);
-    console.log('👤 Storing txHash for userId:', authenticator.userId);
-    storeTransactionHash(generateTxHash, 'generate_authentication_options', authenticator.userId);
-  } else {
-    console.warn('⚠️  No transaction hash found in generate_authentication_options result');
-  }
+//   // Store the transaction hash from generate_authentication_options call
+//   const generateTxHash = rawResult?.transaction?.hash;
+//   if (generateTxHash) {
+//     console.log('🎯 generate_authentication_options Transaction Hash:', generateTxHash);
+//     console.log('🎯 Explorer Link:', `${NEAR_EXPLORER_BASE_URL}/txns/${generateTxHash}?tab=execution`);
+//     console.log('👤 Storing txHash for userId:', authenticator.userId);
+//     storeTransactionHash(generateTxHash, 'generate_authentication_options', authenticator.userId);
+//   } else {
+//     console.warn('⚠️  No transaction hash found in generate_authentication_options result');
+//   }
 
-  // Robust error checking for rawResult
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
-    const failure = rawResult.status.Failure;
-    const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
-    const errorMessage = executionError || JSON.stringify(failure);
-    console.error('Contract execution failed (panic or transaction error):', errorMessage);
-    throw new Error(`Contract Error: ${errorMessage}`);
-  }
-  else if (rawResult && typeof (rawResult as any).error === 'object') {
-    const rpcError = (rawResult as any).error;
-    console.error('RPC/Handler error from contract.generate_authentication_options call:', rpcError);
-    const errorMessage = rpcError.message || rpcError.name || 'RPC error during generate_authentication_options';
-    const errorData = rpcError.data || JSON.stringify(rpcError.cause);
-    throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
-  }
+//   // Robust error checking for rawResult
+//   if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
+//     const failure = rawResult.status.Failure;
+//     const executionError = (failure as any).ActionError?.kind?.FunctionCallError?.ExecutionError;
+//     const errorMessage = executionError || JSON.stringify(failure);
+//     console.error('Contract execution failed (panic or transaction error):', errorMessage);
+//     throw new Error(`Contract Error: ${errorMessage}`);
+//   }
+//   else if (rawResult && typeof (rawResult as any).error === 'object') {
+//     const rpcError = (rawResult as any).error;
+//     console.error('RPC/Handler error from contract.generate_authentication_options call:', rpcError);
+//     const errorMessage = rpcError.message || rpcError.name || 'RPC error during generate_authentication_options';
+//     const errorData = rpcError.data || JSON.stringify(rpcError.cause);
+//     throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
+//   }
 
-  let contractResponseString: string;
-  if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
-    contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
-  } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
-    contractResponseString = rawResult;
-  } else {
-    console.warn('Unexpected rawResult structure from generate_authentication_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
-    throw new Error('Failed to parse contract response: Unexpected format.');
-  }
+//   let contractResponseString: string;
+//   if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
+//     contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();
+//   } else if (typeof rawResult === 'string' && rawResult.startsWith('{')) {
+//     contractResponseString = rawResult;
+//   } else {
+//     console.warn('Unexpected rawResult structure from generate_authentication_options. Not a FinalExecutionOutcome with SuccessValue or a JSON string:', rawResult);
+//     throw new Error('Failed to parse contract response: Unexpected format.');
+//   }
 
-  let contractResponse: ContractAuthenticationOptionsResponse;
-  try {
-    // The contract now returns a properly encoded JSON object, so we only need to parse once.
-    contractResponse = JSON.parse(contractResponseString);
-  } catch (parseError: any) {
-    console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
-    throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
-  }
+//   let contractResponse: ContractAuthenticationOptionsResponse;
+//   try {
+//     // The contract now returns a properly encoded JSON object, so we only need to parse once.
+//     contractResponse = JSON.parse(contractResponseString);
+//   } catch (parseError: any) {
+//     console.error('Failed to parse contractResponseString as JSON:', contractResponseString, parseError);
+//     throw new Error(`Failed to parse contract response JSON: ${parseError.message}`);
+//   }
 
-  // Validate response structure
-  if (!contractResponse.options?.challenge) {
-    console.error('Invalid parsed response from contract.generate_authentication_options (missing challenge):', contractResponse);
-    throw new Error('Contract did not return valid authentication options (missing challenge).');
-  }
+//   // Validate response structure
+//   if (!contractResponse.options?.challenge) {
+//     console.error('Invalid parsed response from contract.generate_authentication_options (missing challenge):', contractResponse);
+//     throw new Error('Contract did not return valid authentication options (missing challenge).');
+//   }
 
-  // Store mapping of userId to their latest generate_authentication_options transaction hash
-  if (contractResponse.commitmentId && generateTxHash && authenticator.userId) {
-    storeUserGenerateAuthTxHash(authenticator.userId, generateTxHash, contractResponse.commitmentId);
-  } else {
-    console.warn('Cannot store user auth session: missing userId, commitmentId, or generateTxHash');
-  }
+//   // Store mapping of userId to their latest generate_authentication_options transaction hash
+//   if (contractResponse.commitmentId && generateTxHash && authenticator.userId) {
+//     storeUserGenerateAuthTxHash(authenticator.userId, generateTxHash, contractResponse.commitmentId);
+//   } else {
+//     console.warn('Cannot store user auth session: missing userId, commitmentId, or generateTxHash');
+//   }
 
-  return contractResponse;
-}
+//   return contractResponse;
+// }
 
-// Unified generateAuthenticationOptions function
-async function generateAuthenticationOptions(
-  options: {
-    rpID?: string;
-    userVerification?: 'discouraged' | 'preferred' | 'required';
-    allowCredentials?: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[];
-    authenticator?: StoredAuthenticator;
-  }
-): Promise<ContractAuthenticationOptionsResponse> {
-  const {
-    rpID = config.rpID,
-    userVerification = 'preferred',
-    allowCredentials,
-    authenticator,
-  } = options;
-
-  if (config.useContractMethod) {
-    if (!authenticator) {
-      throw new Error('Authenticator is required for contract method');
-    }
-    return generateAuthenticationOptionsContract(
-      authenticator,
-      rpID,
-      allowCredentials,
-      userVerification
-    );
-  } else {
-    const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
-      rpID,
-      allowCredentials,
-      userVerification,
-    });
-
-    // Convert SimpleWebAuthn response to match contract format
-    return {
-      options: {
-        challenge: simpleWebAuthnResult.challenge,
-        timeout: simpleWebAuthnResult.timeout,
-        rpId: simpleWebAuthnResult.rpId,
-        allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
-          id: cred.id, // SimpleWebAuthn returns base64url string, pass through directly
-          type: cred.type,
-          transports: cred.transports,
-        })),
-        userVerification: simpleWebAuthnResult.userVerification,
-        extensions: simpleWebAuthnResult.extensions,
-      },
-      commitmentId: undefined,
-    };
-  }
-}
 
 // Generate authentication options
 router.post('/generate-authentication-options', async (req: Request, res: Response) => {
   const { username } = req.body;
-  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
 
   try {
     let allowCredentialsList: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[] | undefined = undefined;
@@ -297,48 +245,32 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       }
     }
 
-    // Only require authenticator for synchronous contract method
-    if (!useOptimistic && !firstAuthenticator && config.useContractMethod) {
-      return res.status(400).json({ error: 'No authenticator found for user - required for contract method' });
-    }
-
     let response: ContractAuthenticationOptionsResponse;
 
-    if (useOptimistic) {
-      // Fast mode: Use SimpleWebAuthn without contract call
-      console.log('Using fast authentication options generation (SimpleWebAuthn)');
-      const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
-        rpID: config.rpID,
-        allowCredentials: allowCredentialsList,
-        userVerification: 'preferred',
-      });
-
-      // Convert SimpleWebAuthn response to match contract format
-      response = {
-        options: {
-          challenge: simpleWebAuthnResult.challenge,
-          timeout: simpleWebAuthnResult.timeout,
-          rpId: simpleWebAuthnResult.rpId,
-          allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
-            id: cred.id, // Pass through the base64url string directly
-            type: cred.type,
-            transports: cred.transports,
-          })),
-          userVerification: simpleWebAuthnResult.userVerification,
-          extensions: simpleWebAuthnResult.extensions,
-        },
-        commitmentId: undefined, // No commitment for fast mode
-      };
-    } else {
-      // Secure mode: Use contract method with on-chain commitment
-      console.log('Using secure authentication options generation (contract)');
-      response = await generateAuthenticationOptions({
+    // Web2 mode: Use SimpleWebAuthn for fast authentication
+    console.log('Using Web2 authentication options generation (SimpleWebAuthn)');
+    const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
       rpID: config.rpID,
-      userVerification: 'preferred',
       allowCredentials: allowCredentialsList,
-        authenticator: firstAuthenticator!,
+      userVerification: 'preferred',
     });
-    }
+
+    // Convert SimpleWebAuthn response to match expected format
+    response = {
+      options: {
+        challenge: simpleWebAuthnResult.challenge,
+        timeout: simpleWebAuthnResult.timeout,
+        rpId: simpleWebAuthnResult.rpId,
+        allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
+          id: cred.id, // Pass through the base64url string directly
+          type: cred.type,
+          transports: cred.transports,
+        })),
+        userVerification: simpleWebAuthnResult.userVerification,
+        extensions: simpleWebAuthnResult.extensions,
+      },
+      commitmentId: undefined, // No commitment for Web2 mode
+    };
 
     if (userForChallengeStorageInDB) {
       userOperations.updateAuthChallengeAndCommitmentId(userForChallengeStorageInDB.id, response.options.challenge, response.commitmentId || null);
@@ -454,13 +386,6 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Request body error: missing rawId or response' });
   }
 
-  const commitmentId = (req.body as any).commitmentId;
-  const useOptimistic = (req.body as any).useOptimistic ?? config.useOptimisticAuth;
-
-  if (config.useContractMethod && !useOptimistic && !commitmentId) {
-    return res.status(400).json({ error: 'commitmentId is required for contract method' });
-  }
-
   let user: User | undefined;
   let authenticator: StoredAuthenticator | undefined;
 
@@ -484,102 +409,50 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
   try {
     let verification: { verified: boolean; authenticationInfo?: any };
 
-    if (useOptimistic) {
-      // Optimistic mode: Use SimpleWebAuthn for immediate verification
-      console.log('Using optimistic authentication with SimpleWebAuthn');
+    // Web2 mode: Use SimpleWebAuthn for immediate verification with background contract updates
+    console.log('Using Web2 authentication with SimpleWebAuthn');
 
-      let clientChallenge: string;
-      try {
-        const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
-        const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
-        clientChallenge = clientData.challenge;
-        if (!clientChallenge) {
-          return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
-        }
-      } catch (parseError) {
-        return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
+    let clientChallenge: string;
+    try {
+      const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
+      const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
+      clientChallenge = clientData.challenge;
+      if (!clientChallenge) {
+        return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
       }
+    } catch (parseError) {
+      return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
+    }
 
-      const expectedChallenge = user.currentChallenge;
-      if (!expectedChallenge) {
-        return res.status(400).json({ error: 'No challenge found for user.' });
-      }
+    const expectedChallenge = user.currentChallenge;
+    if (!expectedChallenge) {
+      return res.status(400).json({ error: 'No challenge found for user.' });
+    }
 
-      verification = await verifyAuthenticationResponseSimpleWebAuthn({
-        response: body,
-        expectedChallenge,
-        expectedOrigin: config.expectedOrigin,
-        expectedRPID: config.rpID,
-        authenticator: {
-          credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
-          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-          counter: authenticator.counter as number,
-          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-        },
-        requireUserVerification: true,
-      });
+    verification = await verifyAuthenticationResponseSimpleWebAuthn({
+      response: body,
+      expectedChallenge,
+      expectedOrigin: config.expectedOrigin,
+      expectedRPID: config.rpID,
+      authenticator: {
+        credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
+        credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+        counter: authenticator.counter as number,
+        transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+      },
+      requireUserVerification: true,
+    });
 
-      // Background contract update (fire and forget)
-      if (verification.verified && verification.authenticationInfo && user?.nearAccountId) {
-        updateContractInBackground(
-          authenticator.credentialID,
-          verification.authenticationInfo.newCounter,
-          user.nearAccountId
-        );
-      }
-    } else if (config.useContractMethod) {
-      // Synchronous mode: Wait for contract verification
-      console.log('Using synchronous authentication with contract verification');
-      const { commitmentId: _, ...authResponseForContract } = req.body as any;
-      verification = await verifyAuthenticationResponseContract(
-        authResponseForContract,
-        (req.body as any).commitmentId
+    // Background contract update (fire and forget)
+    if (verification.verified && verification.authenticationInfo && user?.nearAccountId) {
+      updateContractInBackground(
+        authenticator.credentialID,
+        verification.authenticationInfo.newCounter,
+        user.nearAccountId
       );
-    } else {
-      // Fallback to SimpleWebAuthn for non-contract flow
-      let clientChallenge: string;
-      try {
-        const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
-        const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
-        clientChallenge = clientData.challenge;
-        if (!clientChallenge) {
-          return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
-        }
-      } catch (parseError) {
-        return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
-      }
-
-      const expectedChallenge = user.currentChallenge;
-      if (!expectedChallenge) {
-        return res.status(400).json({ error: 'No challenge found for user.' });
-      }
-
-      verification = await verifyAuthenticationResponseSimpleWebAuthn({
-        response: body,
-        expectedChallenge,
-        expectedOrigin: config.expectedOrigin,
-        expectedRPID: config.rpID,
-        authenticator: {
-          credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
-          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-          counter: authenticator.counter as number,
-          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-        },
-        requireUserVerification: true,
-      });
     }
 
     if (verification.verified && verification.authenticationInfo) {
-      // Only update counter synchronously if not using optimistic mode
-      if (!useOptimistic && user?.nearAccountId) {
-        await authenticatorService.updateCounter(
-        authenticator.credentialID,
-          verification.authenticationInfo.new_counter,
-          new Date(),
-          user.nearAccountId
-      );
-      }
-
       // Clear the challenge and commitment from user record
       userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
 
@@ -672,70 +545,6 @@ router.post('/api/action-challenge', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error generating action challenge:', error);
     return res.status(500).json({ error: error.message || 'Failed to generate action challenge' });
-  }
-});
-
-// Debug endpoint to query stored transaction hashes
-router.get('/debug/transactions', async (req: Request, res: Response) => {
-  try {
-    const transactions = Array.from(transactionHashStore.values()).map(tx => ({
-      txHash: tx.txHash,
-      purpose: tx.purpose,
-      timestamp: new Date(tx.timestamp).toISOString(),
-      explorerLink: `${NEAR_EXPLORER_BASE_URL}/txns/${tx.txHash}?tab=execution`,
-      userId: tx.userId
-    }));
-
-    return res.json({
-      totalStored: transactions.length,
-      transactions: transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    });
-  } catch (error: any) {
-    console.error('Error fetching stored transactions:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch transactions' });
-  }
-});
-
-// Debug endpoint to query a specific transaction hash
-router.get('/debug/transaction/:txHash', async (req: Request, res: Response) => {
-  const { txHash } = req.params;
-
-  try {
-    console.log(`🔍 Querying transaction: ${txHash}`);
-
-    const txResult = await nearClient.getProvider().txStatus(txHash, nearClient.getRelayerAccount().accountId, 'FINAL' as any);
-
-    // The old log counting logic is no longer relevant for the direct-response architecture.
-    // We can simplify this debug endpoint.
-    const hasStatus = !!txResult.status;
-    const isSuccess = hasStatus && typeof (txResult.status as any).SuccessValue !== 'undefined';
-
-    let resultData = null;
-    if (isSuccess) {
-        try {
-            const successValue = (txResult.status as any).SuccessValue;
-            resultData = JSON.parse(Buffer.from(successValue, 'base64').toString());
-        } catch (e) {
-            resultData = "Failed to parse SuccessValue";
-        }
-    }
-
-    return res.json({
-      txHash,
-      explorerLink: `${NEAR_EXPLORER_BASE_URL}/txns/${txHash}?tab=execution`,
-      summary: {
-        isSuccess,
-        finalStatus: txResult.status
-      },
-      result: resultData,
-      fullResult: txResult
-    });
-  } catch (error: any) {
-    console.error(`Error querying transaction ${txHash}:`, error);
-    return res.status(500).json({
-      error: error.message || 'Failed to query transaction',
-      txHash
-    });
   }
 });
 

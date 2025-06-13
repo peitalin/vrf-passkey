@@ -6,9 +6,9 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 export interface User {
   id: string; // Unique identifier for the user (e.g., a UUID or derived from first passkey rawId)
   username: string;
-  nearAccountId: string | null;
-  currentChallenge: string | null;
-  currentCommitmentId: string | null;
+  nearAccountId?: string;
+  currentChallenge?: string;
+  currentCommitmentId?: string;
 }
 
 /**
@@ -29,7 +29,7 @@ export interface StoredAuthenticator {
   // BackedUp is an important property for passkeys to indicate if they are synced across devices.
   // simplewebauthn's verifyRegistrationResponse can provide this as `credentialBackedUp`.
   backedUp: boolean;
-  clientManagedNearPublicKey?: string; // Client-generated NEAR public key for Option 1, ed25519 string
+  clientNearPublicKey?: string; // Client-generated NEAR public key for Option 1, ed25519 string
 }
 
 // Types for PasskeyController Smart Contract interaction
@@ -86,3 +86,7 @@ export interface CreateAccountResult {
   error?: any; // Present on failure, can be an Error object or other structured error info
   details?: string; // Additional details for errors, similar to how it's used in API responses
 }
+
+// === ENDPOINT TYPES ===
+// Re-export all endpoint types for convenience
+export * from './types/endpoints';

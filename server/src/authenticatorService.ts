@@ -2,6 +2,19 @@ import { authenticatorCacheOperations, mapCachedToStoredAuthenticator } from './
 import { contractOperations } from './contractOperations';
 import type { StoredAuthenticator } from './types';
 
+export interface AuthenticatorData {
+  credentialID: string;
+  credentialPublicKey: Uint8Array;
+  counter: number;
+  transports?: string[];
+  userId: string; // nearAccountId
+  name?: string;
+  registered: Date;
+  lastUsed?: Date;
+  backedUp: boolean;
+  clientNearPublicKey?: string | null;
+}
+
 export class AuthenticatorService {
 
   /**
@@ -102,14 +115,14 @@ export class AuthenticatorService {
     name?: string | null;
     registered: Date;
     backedUp: boolean;
-    clientManagedNearPublicKey?: string | null;
+    clientNearPublicKey?: string | null;
   }): Promise<boolean> {
     try {
       console.log(`🔍 [AuthenticatorService] Creating authenticator for ${authenticator.nearAccountId}:`, {
         credentialID: authenticator.credentialID,
         counter: authenticator.counter,
         transports: authenticator.transports,
-        clientManagedKey: authenticator.clientManagedNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'
+        clientManagedKey: authenticator.clientNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'
       });
 
       // Write to contract first (source of truth)
@@ -127,7 +140,7 @@ export class AuthenticatorService {
             credentialPublicKey: Buffer.from(authenticator.credentialPublicKey),
             counter: authenticator.counter,
             transports: authenticator.transports ? JSON.stringify(authenticator.transports) : null,
-            clientManagedNearPublicKey: authenticator.clientManagedNearPublicKey || null,
+            clientNearPublicKey: authenticator.clientNearPublicKey || null,
             name: authenticator.name || null,
             registered: authenticator.registered.toISOString(),
             lastUsed: null,
@@ -231,8 +244,9 @@ export class AuthenticatorService {
 
       if (contractSuccess) {
         // Update cache
-        authenticatorCacheOperations.updateClientManagedKey(nearAccountId, credentialID, clientNearPublicKey);
+        authenticatorCacheOperations.updateClientNearKey(nearAccountId, credentialID, clientNearPublicKey);
         console.log(`Updated client managed key for ${credentialID} in contract and cache`);
+
         return true;
       }
 
@@ -288,13 +302,21 @@ export class AuthenticatorService {
           credentialPublicKey: Buffer.from(auth.credentialPublicKey),
           counter: auth.counter,
           transports: auth.transports ? JSON.stringify(auth.transports) : null,
-          clientManagedNearPublicKey: auth.clientManagedNearPublicKey || null,
+          clientNearPublicKey: auth.clientNearPublicKey || null,
           name: auth.name || null,
           registered: auth.registered instanceof Date ? auth.registered.toISOString() : auth.registered,
           lastUsed: auth.lastUsed ? (auth.lastUsed instanceof Date ? auth.lastUsed.toISOString() : auth.lastUsed) : null,
           backedUp: auth.backedUp ? 1 : 0,
         });
       }
+
+      console.log(`🔍 [AuthService] Found ${authenticators.length} authenticators for user ${nearAccountId}:`,
+        authenticators.map(auth => ({
+          credentialID: auth.credentialID,
+          counter: auth.counter,
+          clientManagedKey: auth.clientNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'
+        }))
+      );
 
       console.log(`Synced ${authenticators.length} authenticators to cache for user ${nearAccountId}`);
     } catch (error) {
@@ -313,7 +335,7 @@ export class AuthenticatorService {
         credentialPublicKey: Buffer.from(auth.credentialPublicKey),
         counter: auth.counter,
         transports: auth.transports ? JSON.stringify(auth.transports) : null,
-        clientManagedNearPublicKey: auth.clientManagedNearPublicKey || null,
+        clientNearPublicKey: auth.clientNearPublicKey || null,
         name: auth.name || null,
         registered: auth.registered instanceof Date ? auth.registered.toISOString() : auth.registered,
         lastUsed: auth.lastUsed ? (auth.lastUsed instanceof Date ? auth.lastUsed.toISOString() : auth.lastUsed) : null,

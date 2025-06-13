@@ -36,7 +36,7 @@ export const initDB = () => {
       credentialPublicKey BLOB NOT NULL,
       counter INTEGER NOT NULL,
       transports TEXT NULLABLE,          -- JSON string array
-      clientManagedNearPublicKey TEXT NULLABLE,
+      clientNearPublicKey TEXT NULLABLE,
       name TEXT NULLABLE,
       registered TEXT NOT NULL,          -- ISO date string
       lastUsed TEXT NULLABLE,            -- ISO date string
@@ -68,7 +68,7 @@ export const authenticatorCacheOperations = {
     credentialPublicKey: Buffer;
     counter: number;
     transports: string | null;
-    clientManagedNearPublicKey: string | null;
+    clientNearPublicKey: string | null;
     name: string | null;
     registered: string;
     lastUsed: string | null;
@@ -89,7 +89,7 @@ export const authenticatorCacheOperations = {
       const result = db.prepare(`
         INSERT OR REPLACE INTO authenticators_cache (
           nearAccountId, credentialID, credentialPublicKey, counter, transports,
-          clientManagedNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
+          clientNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         authenticator.nearAccountId,
@@ -97,7 +97,7 @@ export const authenticatorCacheOperations = {
       authenticator.credentialPublicKey,
       authenticator.counter,
       authenticator.transports,
-        authenticator.clientManagedNearPublicKey,
+        authenticator.clientNearPublicKey,
         authenticator.name,
       authenticator.registered,
         authenticator.lastUsed,
@@ -121,11 +121,11 @@ export const authenticatorCacheOperations = {
     `).run(counter, lastUsed, syncedAt, nearAccountId, credentialId);
   },
 
-  updateClientManagedKey: (nearAccountId: string, credentialID: string, clientNearPublicKey: string) => {
+  updateClientNearKey: (nearAccountId: string, credentialID: string, clientNearPublicKey: string) => {
     const syncedAt = new Date().toISOString();
     return db.prepare(`
       UPDATE authenticators_cache
-      SET clientManagedNearPublicKey = ?, syncedAt = ?
+      SET clientNearPublicKey = ?, syncedAt = ?
       WHERE nearAccountId = ? AND credentialID = ?
     `).run(clientNearPublicKey, syncedAt, nearAccountId, credentialID);
   },
@@ -169,7 +169,7 @@ export const mapCachedToStoredAuthenticator = (rawAuth: any): StoredAuthenticato
   registered: new Date(rawAuth.registered),
   lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,
   backedUp: rawAuth.backedUp === 1,
-  clientManagedNearPublicKey: rawAuth.clientManagedNearPublicKey,
+  clientNearPublicKey: rawAuth.clientNearPublicKey,
 });
 
 export default db;
