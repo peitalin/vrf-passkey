@@ -392,6 +392,86 @@ export class PasskeyManager {
       throw new Error(`Transaction submission failed: ${error.message}`);
     }
   }
+
+  /**
+   * Call a contract function using WASM worker with pre-obtained PRF output
+   * This avoids additional TouchID prompts when PRF output is already available
+   */
+  async callFunction2WithPrf(
+    contractId: string,
+    methodName: string,
+    args: any,
+    gas: string = '50000000000000',
+    attachedDeposit: string = '0',
+    username: string,
+    prfOutput: ArrayBuffer
+  ): Promise<FinalExecutionOutcome> {
+    const targetNearAccountId = indexDBManager.generateNearAccountId(username, this.config.relayerAccount);
+
+    // Get user data to retrieve public key for nonce lookup
+    const userData = await this.webAuthnManager.getUserData(username);
+    if (!userData?.clientNearPublicKey) {
+      throw new Error('Client NEAR public key not found in user data');
+    }
+
+    // Get current nonce and block info concurrently
+    const [accessKeyInfo, blockInfo] = await Promise.all([
+      this.nearRpcProvider.viewAccessKey(
+        targetNearAccountId,
+        userData.clientNearPublicKey,
+      ) as Promise<AccessKeyView>,
+      this.nearRpcProvider.viewBlock({ finality: 'final' })
+    ]);
+
+    const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
+
+    // For serverless mode with pre-obtained PRF, use a dummy challenge ID
+    const challengeId = 'serverless-reused-prf-' + crypto.randomUUID();
+
+    console.log("callFunction2WithPrf: secureTransactionSigningWithPrf", challengeId);
+    // Use WASM worker to sign and execute the contract call with pre-obtained PRF
+    const signedTxResult = await this.webAuthnManager.secureTransactionSigningWithPrf(
+      username,
+      prfOutput,
+      {
+        nearAccountId: targetNearAccountId,
+        receiverId: contractId,
+        contractMethodName: methodName,
+        contractArgs: args,
+        gasAmount: gas,
+        depositAmount: attachedDeposit,
+        nonce: nonce.toString(),
+        blockHashBytes: Array.from(bs58.decode(blockInfo.header.hash))
+      },
+      challengeId // Use dummy challenge since we're reusing PRF
+    );
+
+    // Submit the signed transaction to the network
+    const signedTransactionBorsh = new Uint8Array(signedTxResult.signedTransactionBorsh);
+    console.log("callFunction2WithPrf: sending transaction", signedTransactionBorsh);
+    console.log("Transaction size:", signedTransactionBorsh.length, "bytes");
+
+    try {
+      console.log("Using NEAR JS provider to submit transaction...");
+
+      // Create a SignedTransaction object from the Borsh bytes
+      const signedTransaction = SignedTransaction.decode(Buffer.from(signedTransactionBorsh));
+
+      // Submit the transaction asynchronously to avoid RPC timeouts
+      console.log("Submitting transaction with optimistic execution...");
+      const finalResult = await this.nearRpcProvider.sendTransactionUntil(
+        signedTransaction,
+        DEFAULT_WAIT_STATUS // "INCLUDED_FINAL"
+      );
+
+      console.log("Transaction successful:", finalResult);
+      return finalResult;
+
+    } catch (error: any) {
+      console.error("Transaction failed:", error);
+      throw new Error(`Transaction submission failed: ${error.message}`);
+    }
+  }
 }
 
 

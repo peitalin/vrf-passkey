@@ -305,6 +305,11 @@ async function handleLoginWithServer(
 
 /**
  * Handle onchain (serverless) login using WASM worker to sign contract calls
+ *
+ * OPTIMIZATION: This flow uses only ONE TouchID prompt by:
+ * 1. Performing WebAuthn assertion ceremony once to get PRF output
+ * 2. Reusing that PRF output for both contract calls (generate_authentication_options + verify_authentication_response)
+ * 3. Using callFunction2WithPrf() to avoid additional TouchID prompts
  */
 async function handleLoginOnchain(
   passkeyManager: PasskeyManager,
@@ -347,55 +352,7 @@ async function handleLoginOnchain(
       return { success: false, error: errorMessage };
     }
 
-    // Step 3: Get authentication options from contract using WASM worker
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'getting-options',
-        message: 'Getting authentication options from contract via WASM worker...'
-      }
-    });
-
-    // Initialize ContractService to build arguments
-    const contractService = new ContractService(
-      nearRpcProvider,
-      WEBAUTHN_CONTRACT_ID,
-      'WebAuthn Passkey',
-      window.location.hostname,
-      RELAYER_ACCOUNT_ID
-    );
-
-    // Use the first (most recent) authenticator for authentication
-    const primaryAuthenticator = authenticators[0];
-
-    // Build contract arguments for generate_authentication_options
-    const allowCredentials = authenticators.map(auth => ({
-      id: auth.credentialID,
-      type: 'public-key' as const,
-      transports: auth.transports || undefined,
-    }));
-
-    const contractArgs = contractService.buildAuthenticationOptionsArgs(
-      primaryAuthenticator,
-      allowCredentials,
-      'preferred'
-    );
-
-    // Use PasskeyManager.callFunction to get authentication options
-    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callFunction2(
-      WEBAUTHN_CONTRACT_ID,
-      'generate_authentication_options',
-      contractArgs,
-      GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
-      '0',
-      targetUsername,
-    );
-    console.log("Auth options result:", authOptionsResult);
-
-    // Parse the authentication options from the result
-    const parsedOptions = contractService.parseContractResponse(authOptionsResult, 'generate_authentication_options');
-
-    // Step 4: Perform WebAuthn assertion ceremony with PRF extension
+    // Step 3: Perform WebAuthn assertion ceremony with PRF extension (SINGLE TOUCHID)
     onEvent?.({
       type: 'loginProgress',
       data: {
@@ -404,17 +361,26 @@ async function handleLoginOnchain(
       }
     });
 
+    // Use the first (most recent) authenticator for authentication
+    const primaryAuthenticator = authenticators[0];
+
+    // Build authentication options using stored credential data (no contract call needed)
+    const allowCredentials = authenticators.map(auth => ({
+      id: bufferDecode(auth.credentialID),
+      type: 'public-key' as const,
+      transports: auth.transports as AuthenticatorTransport[] || []
+    }));
+
+    // Create a simple challenge for the WebAuthn ceremony
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+
     // Add PRF extension to the request options
     const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-      challenge: bufferDecode(parsedOptions.options.challenge),
-      rpId: parsedOptions.options.rpId,
-      allowCredentials: parsedOptions.options.allowCredentials?.map((c: any) => ({
-        id: bufferDecode(c.id),
-        type: 'public-key' as const,
-        transports: c.transports as AuthenticatorTransport[]
-      })),
-      userVerification: (parsedOptions.options.userVerification || "preferred") as UserVerificationRequirement,
-      timeout: parsedOptions.options.timeout || 60000,
+      challenge,
+      rpId: window.location.hostname,
+      allowCredentials,
+      userVerification: 'preferred' as UserVerificationRequirement,
+      timeout: 60000,
       extensions: {
         prf: {
           eval: {
@@ -450,13 +416,58 @@ async function handleLoginOnchain(
       return { success: false, error: errorMessage };
     }
 
-    // Step 5: Verify authentication with contract using WASM worker
-    // IMPORTANT: Reuse the PRF output from the authentication above
+    console.log('🎉 Single TouchID completed! Reusing PRF output for both contract calls...');
+
+    // Step 4: Get authentication options from contract using reused PRF
+    onEvent?.({
+      type: 'loginProgress',
+      data: {
+        step: 'getting-options',
+        message: 'Getting authentication options from contract (reusing PRF)...'
+      }
+    });
+
+    // Initialize ContractService to build arguments
+    const contractService = new ContractService(
+      nearRpcProvider,
+      WEBAUTHN_CONTRACT_ID,
+      'WebAuthn Passkey',
+      window.location.hostname,
+      RELAYER_ACCOUNT_ID
+    );
+
+    // Build contract arguments for generate_authentication_options
+    const contractArgs = contractService.buildAuthenticationOptionsArgs(
+      primaryAuthenticator,
+      allowCredentials.map(cred => ({
+        id: bufferEncode(cred.id),
+        type: cred.type,
+        transports: cred.transports
+      })),
+      'preferred'
+    );
+
+    // Use PasskeyManager.callFunction2WithPrf to get authentication options (no additional TouchID)
+    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callFunction2WithPrf(
+      WEBAUTHN_CONTRACT_ID,
+      'generate_authentication_options',
+      contractArgs,
+      GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
+      '0',
+      targetUsername,
+      prfOutput
+    );
+    console.log("Auth options result:", authOptionsResult);
+
+    // Parse the authentication options from the result
+    const parsedOptions = contractService.parseContractResponse(authOptionsResult, 'generate_authentication_options');
+
+    // Step 5: Verify authentication with contract using reused PRF
     onEvent?.({
       type: 'loginProgress',
       data: {
         step: 'verifying-server',
-        message: 'Verifying authentication with contract via WASM worker...'
+        message: 'Verifying authentication with contract (reusing PRF)...'
       }
     });
 
@@ -466,14 +477,15 @@ async function handleLoginOnchain(
       parsedOptions.commitmentId || ''
     );
 
-    // Use PasskeyManager.callFunction2 to verify authentication
-    const verificationResult: FinalExecutionOutcome = await passkeyManager.callFunction2(
+    // Use PasskeyManager.callFunction2WithPrf to verify authentication (no additional TouchID)
+    const verificationResult: FinalExecutionOutcome = await passkeyManager.callFunction2WithPrf(
       WEBAUTHN_CONTRACT_ID,
       'verify_authentication_response',
       verificationArgs,
       VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
       '0',
       targetUsername,
+      prfOutput
     );
 
     const parsedVerification = contractService.parseContractResponse(
