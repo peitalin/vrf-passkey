@@ -34,21 +34,16 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Initialize PasskeyManager with configuration
   const [passkeyManager] = useState(() => {
     const defaultConfig = {
-      // serverUrl: 'http://localhost:3001', // Default for development
       nearNetwork: 'testnet' as const,
       relayerAccount: 'webauthn-contract.testnet',
-      optimisticAuth: true,
+      optimisticAuth: userConfig?.optimisticAuth ?? false,
     };
 
     // Only add serverUrl if explicitly provided
     const finalConfig = { ...defaultConfig, ...userConfig };
 
     // If no serverUrl is provided, enable serverless mode by omitting it
-    if (!userConfig?.serverUrl) {
-      console.log('PasskeyProvider: No serverUrl provided, enabling serverless mode');
-    } else {
-      console.log('PasskeyProvider: Using server mode with URL:', userConfig.serverUrl);
-    }
+    console.log('PasskeyProvider config: ', finalConfig);
 
     return new PasskeyManager(finalConfig, getNearRpcProvider());
   });

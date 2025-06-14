@@ -5,6 +5,9 @@ export const bufferEncode = (value: ArrayBuffer): string => {
     .replace(/=/g, "");
 }
 
+// The bufferDecode utility function is specifically designed to handle base64url decoding in browser environments
+// It returns an ArrayBuffer which we convert to Uint8Array for WebAuthn API compatibility
+// This is equivalent to Buffer.from(..., 'base64url') in Node.js
 export const bufferDecode = (value: string): ArrayBuffer => {
   // 1. Sanitize the input string to remove any characters not part of Base64URL alphabet
   // This will keep A-Z, a-z, 0-9, -, _ and discard anything else.

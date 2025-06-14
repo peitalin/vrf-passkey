@@ -14,13 +14,11 @@ export interface BaseResponse {
   error?: string;
 }
 
-export interface BaseRequest {
-  useOptimistic?: boolean;
-}
+export interface BaseRequest {}
 
 // ===== GENERATE REGISTRATION OPTIONS ENDPOINT =====
 
-export interface GenerateRegistrationOptionsRequest extends BaseRequest {
+export interface GenerateRegistrationOptionsRequest {
   username: string;
 }
 
@@ -32,7 +30,7 @@ export interface GenerateRegistrationOptionsResponse extends BaseResponse {
 
 // ===== VERIFY REGISTRATION RESPONSE ENDPOINT =====
 
-export interface VerifyRegistrationRequest extends BaseRequest {
+export interface VerifyRegistrationRequest {
   username: string;
   attestationResponse: RegistrationResponseJSON;
   commitmentId: string | null;
@@ -41,7 +39,7 @@ export interface VerifyRegistrationRequest extends BaseRequest {
 
 // ===== GENERATE AUTHENTICATION OPTIONS ENDPOINT =====
 
-export interface GenerateAuthenticationOptionsRequest extends BaseRequest {
+export interface GenerateAuthenticationOptionsRequest {
   username?: string;
 }
 
@@ -67,7 +65,7 @@ export interface GenerateAuthenticationOptionsResponse extends BaseResponse {
 
 // ===== VERIFY AUTHENTICATION RESPONSE ENDPOINT =====
 
-export interface VerifyAuthenticationRequest extends BaseRequest {
+export interface VerifyAuthenticationRequest {
   id: string;
   rawId: string;
   response: {

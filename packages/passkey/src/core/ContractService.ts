@@ -1,6 +1,7 @@
 import type { Provider } from '@near-js/providers';
-import { view } from '@near-js/client';
+import type { FinalExecutionOutcome } from '@near-js/types';
 import { indexDBManager, type ClientAuthenticatorData } from './IndexDBManager';
+import { bufferDecode } from '../utils/encoders';
 
 // Define WebAuthn types locally since we can't import from @simplewebauthn
 export interface RegistrationResponseJSON {
@@ -242,7 +243,7 @@ export class ContractService {
 
     // Convert authenticator to contract format
     const authenticatorForContract = {
-      credential_id: Array.from(Buffer.from(authenticator.credentialID, 'base64url')),
+      credential_id: Array.from(new Uint8Array(bufferDecode(authenticator.credentialID))),
       credential_public_key: Array.from(authenticator.credentialPublicKey),
       counter: authenticator.counter,
       transports: authenticator.transports?.map(t => String(t)),
@@ -287,9 +288,68 @@ export class ContractService {
 
   /**
    * Parse contract response with robust error handling
-   * Replicates server error handling logic
+   * Handles both legacy query responses and FinalExecutionOutcome from transactions
    */
-  parseContractResponse(rawResult: any, methodName: string): any {
+  parseContractResponse(rawResult: FinalExecutionOutcome | any, methodName: string): any {
+    console.log(`🔗 ContractService: Parsing response for ${methodName}:`, rawResult);
+
+    // Handle FinalExecutionOutcome from sendTransactionUntil
+    if (rawResult && rawResult.status) {
+      console.log(`🔗 ContractService: Processing FinalExecutionOutcome for ${methodName}`);
+
+      // Check main transaction status first (simpler path)
+      if (typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status) {
+        try {
+          const base64Value = rawResult.status.SuccessValue;
+          const decodedString = Buffer.from(base64Value, 'base64').toString();
+          console.log(`🔗 ContractService: Decoded SuccessValue for ${methodName}:`, decodedString);
+          return JSON.parse(decodedString);
+        } catch (parseError: any) {
+          console.error(`🔗 ContractService: Failed to parse SuccessValue for ${methodName}:`, parseError);
+          throw new Error(`Failed to parse contract response JSON from SuccessValue: ${parseError.message}`);
+        }
+      }
+
+      // Check for transaction failures
+      if (typeof rawResult.status === 'object' && 'Failure' in rawResult.status) {
+        const failure = rawResult.status.Failure;
+        const executionError = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
+        const errorMessage = executionError || JSON.stringify(failure);
+        console.error(`🔗 ContractService: Transaction failed for ${methodName}:`, errorMessage);
+        throw new Error(`Transaction Error: ${errorMessage}`);
+      }
+    }
+
+    // Fallback: Handle receipts_outcome if main status doesn't have SuccessValue
+    if (rawResult && rawResult.receipts_outcome && Array.isArray(rawResult.receipts_outcome)) {
+      console.log(`🔗 ContractService: Checking receipts_outcome for ${methodName}`);
+
+      // Find the first receipt with a successful function call result
+      for (const receipt of rawResult.receipts_outcome) {
+        if (receipt?.outcome?.status && typeof receipt.outcome.status === 'object' && 'SuccessValue' in receipt.outcome.status) {
+          try {
+            const base64Value = receipt.outcome.status.SuccessValue;
+            const decodedString = Buffer.from(base64Value, 'base64').toString();
+            console.log(`🔗 ContractService: Decoded SuccessValue from receipt for ${methodName}:`, decodedString);
+            return JSON.parse(decodedString);
+          } catch (parseError: any) {
+            console.error(`🔗 ContractService: Failed to parse SuccessValue from receipt for ${methodName}:`, parseError);
+            throw new Error(`Failed to parse contract response JSON from receipt SuccessValue: ${parseError.message}`);
+          }
+        }
+
+        // Check for execution failures in receipts
+        if (receipt?.outcome?.status && typeof receipt.outcome.status === 'object' && 'Failure' in receipt.outcome.status) {
+          const failure = receipt.outcome.status.Failure;
+          const executionError = failure.ActionError?.kind?.FunctionCallError?.ExecutionError;
+          const errorMessage = executionError || JSON.stringify(failure);
+          console.error(`🔗 ContractService: Contract execution failed for ${methodName}:`, errorMessage);
+          throw new Error(`Contract Error: ${errorMessage}`);
+        }
+      }
+    }
+
+    // Legacy handling for direct query responses
     // Check for transaction failures (replicate server logic)
     if (rawResult?.status && typeof rawResult.status === 'object' && 'Failure' in rawResult.status && rawResult.status.Failure) {
       const failure = rawResult.status.Failure;
@@ -308,7 +368,7 @@ export class ContractService {
       throw new Error(`Contract Call RPC Error: ${errorMessage} (Details: ${errorData})`);
     }
 
-    // Parse response string
+    // Parse response string (legacy format)
     let contractResponseString: string;
     if (rawResult?.status && typeof rawResult.status === 'object' && 'SuccessValue' in rawResult.status && typeof rawResult.status.SuccessValue === 'string') {
       contractResponseString = Buffer.from(rawResult.status.SuccessValue, 'base64').toString();

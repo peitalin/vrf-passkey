@@ -199,7 +199,7 @@ export class AuthenticatorService {
         return true;
       } else {
         console.warn(`❌ [AuthenticatorService] Contract create failed for ${authenticator.credentialID}`);
-        return false;
+      return false;
       }
 
     } catch (error: any) {

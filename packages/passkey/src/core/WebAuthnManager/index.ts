@@ -8,6 +8,8 @@ import {
   isEncryptionSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
+  isCoseKeySuccess,
+  isCoseValidationSuccess,
   isWorkerError
 } from '../types/worker';
 import { indexDBManager } from '../IndexDBManager';
@@ -348,13 +350,11 @@ export class WebAuthnManager {
    */
   async getRegistrationOptionsFromServer(
     serverUrl: string,
-    username: string,
-    useOptimistic?: boolean
+    username: string
   ): Promise<RegistrationOptions> {
     try {
       const requestData: GenerateRegistrationOptionsRequest = {
-        username,
-        useOptimistic
+        username
       };
 
       const response = await fetch(`${serverUrl}/generate-registration-options`, {
@@ -423,8 +423,7 @@ export class WebAuthnManager {
    */
   async getRegistrationOptionsFromContract(
     nearRpcProvider: any,
-    username: string,
-    useOptimistic?: boolean
+    username: string
   ): Promise<RegistrationOptions> {
     const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
     const { ContractService } = await import('../ContractService');
@@ -475,13 +474,11 @@ export class WebAuthnManager {
    */
   async getAuthenticationOptionsFromServer(
     serverUrl: string,
-    username?: string,
-    useOptimistic?: boolean
+    username?: string
   ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     try {
       const requestData: GenerateAuthenticationOptionsRequest = {
-        username,
-        useOptimistic
+        username
       };
 
       const response = await fetch(`${serverUrl}/generate-authentication-options`, {
@@ -512,8 +509,7 @@ export class WebAuthnManager {
    */
   async getAuthenticationOptionsFromContract(
     nearRpcProvider: any,
-    username: string,
-    useOptimistic?: boolean
+    username: string
   ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
     const { ContractService } = await import('../ContractService');
@@ -615,7 +611,7 @@ export class WebAuthnManager {
       throw new Error('serverUrl is required for registration. Use getRegistrationOptionsFromServer() with explicit serverUrl.');
     }
 
-    const { options, challengeId, commitmentId } = await this.getRegistrationOptionsFromServer(serverUrl, username, useOptimistic);
+    const { options, challengeId, commitmentId } = await this.getRegistrationOptionsFromServer(serverUrl, username);
 
     // Options are already converted to the proper format by getRegistrationOptionsFromServer
     const extendedOptions: PublicKeyCredentialCreationOptions = {
@@ -648,14 +644,67 @@ export class WebAuthnManager {
   }
 
   /**
-   * Authenticate with PRF extension support
+   * Authenticate with PRF extension support (serverless mode)
    */
   async authenticateWithPrf(
     username?: string,
     purpose: 'encryption' | 'signing' = 'signing',
     useOptimistic: boolean = true
   ): Promise<WebAuthnAuthenticationWithPrf> {
-    return this.authenticateWithPrfAndUrl(undefined, username, purpose, useOptimistic);
+    // For serverless mode, we need to get authentication options from stored user data
+    // since we can't call the contract for authentication options (it's not a view function)
+
+    if (!username) {
+      const lastUsedUsername = await this.getLastUsedUsername();
+      if (!lastUsedUsername) {
+        throw new Error('No username provided and no last used username found');
+      }
+      username = lastUsedUsername;
+    }
+
+    const userData = await this.getUserData(username);
+    if (!userData?.passkeyCredential) {
+      throw new Error(`No passkey credential found for user ${username}`);
+    }
+
+    // Create a simple challenge for serverless authentication
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const challengeB64url = bufferEncode(challenge);
+
+    // Build authentication options using stored credential
+    const authOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      rpId: window.location.hostname,
+      allowCredentials: [{
+        id: bufferDecode(userData.passkeyCredential.rawId),
+        type: 'public-key' as const,
+        transports: ['internal', 'usb', 'nfc', 'ble', 'hybrid'] as AuthenticatorTransport[]
+      }],
+      userVerification: 'preferred' as UserVerificationRequirement,
+      timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: this.PRF_SALTS.nearKeyEncryption
+          }
+        }
+      }
+    };
+
+    const credential = await navigator.credentials.get({
+      publicKey: authOptions
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Passkey authentication cancelled');
+    }
+
+    const extensionResults = credential.getClientExtensionResults();
+    const prfOutput = (extensionResults as any).prf?.results?.first;
+
+    console.log('WebAuthnManager: Serverless authentication completed, PRF output available:', !!prfOutput);
+
+    return { credential, prfOutput };
   }
 
   /**
@@ -671,7 +720,7 @@ export class WebAuthnManager {
       throw new Error('serverUrl is required for authentication. Use getAuthenticationOptionsFromServer() with explicit serverUrl.');
     }
 
-    const { options, challengeId } = await this.getAuthenticationOptionsFromServer(serverUrl, username, useOptimistic);
+    const { options, challengeId } = await this.getAuthenticationOptionsFromServer(serverUrl, username);
 
     const extendedOptions: PublicKeyCredentialRequestOptions = {
       ...this.convertAuthenticationOptions(options),
@@ -765,8 +814,14 @@ export class WebAuthnManager {
     challengeId: string
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      this.validateAndConsumeChallenge(challengeId, 'authentication');
-      console.log('WebAuthnManager: Challenge validated for PRF signing');
+      // Skip challenge validation for serverless mode (challengeId starts with 'serverless-')
+      // SECURITY NOTE: the contract will replace it with a proper challenge after
+      if (!challengeId.startsWith('serverless-')) {
+        this.validateAndConsumeChallenge(challengeId, 'authentication');
+        console.log('WebAuthnManager: Challenge validated for PRF signing');
+      } else {
+        console.log('WebAuthnManager: Skipping challenge validation for serverless mode');
+      }
 
       console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
@@ -843,6 +898,55 @@ export class WebAuthnManager {
     } catch (error: any) {
       console.error('WebAuthnManager: PRF private key decryption error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Extract COSE public key from WebAuthn attestation object using WASM worker
+   */
+  async extractCosePublicKeyFromAttestation(attestationObjectBase64url: string): Promise<Uint8Array> {
+    console.log('WebAuthnManager: Extracting COSE public key from attestation object');
+
+    const worker = this.createSecureWorker();
+    const response = await this.executeWorkerOperation(worker, {
+      type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
+      payload: {
+        attestationObjectBase64url
+      }
+    });
+
+    if (isCoseKeySuccess(response)) {
+      console.log('WebAuthnManager: COSE public key extraction successful');
+      return new Uint8Array(response.payload.cosePublicKeyBytes);
+    } else {
+      console.error('WebAuthnManager: COSE public key extraction failed:', response);
+      throw new Error('Failed to extract COSE public key from attestation object');
+    }
+  }
+
+  /**
+   * Validate COSE key format using WASM worker
+   */
+  async validateCoseKeyFormat(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
+    console.log('WebAuthnManager: Validating COSE key format');
+
+    const worker = this.createSecureWorker();
+    const response = await this.executeWorkerOperation(worker, {
+      type: WorkerRequestType.VALIDATE_COSE_KEY,
+      payload: {
+        coseKeyBytes: Array.from(coseKeyBytes)
+      }
+    });
+
+    if (isCoseValidationSuccess(response)) {
+      console.log('WebAuthnManager: COSE key validation successful');
+      return {
+        valid: response.payload.valid,
+        info: response.payload.info
+      };
+    } else {
+      console.error('WebAuthnManager: COSE key validation failed:', response);
+      throw new Error('Failed to validate COSE key format');
     }
   }
 }

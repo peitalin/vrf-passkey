@@ -788,6 +788,79 @@ fn extract_p256_coordinates_from_cose(cose_key_bytes: &[u8]) -> Result<(Vec<u8>,
     }
 }
 
+// Function to extract COSE public key from WebAuthn attestation object
+#[wasm_bindgen]
+pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Extracting COSE public key from attestation object");
+
+    // Decode the base64url attestation object
+    let attestation_object_bytes = base64_url_decode(attestation_object_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Failed to decode attestation object: {}", e)))?;
+
+    // Parse the attestation object to get authData
+    let auth_data_bytes = parse_attestation_object(&attestation_object_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse attestation object: {}", e)))?;
+
+    // Extract the COSE public key from authenticator data
+    let cose_public_key_bytes = parse_authenticator_data(&auth_data_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse authenticator data: {}", e)))?;
+
+    console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
+    Ok(cose_public_key_bytes)
+}
+
+// Test function to validate COSE key format
+#[wasm_bindgen]
+pub fn validate_cose_key_format(cose_key_bytes: &[u8]) -> Result<String, JsValue> {
+    console_log!("RUST: Validating COSE key format");
+
+    let cbor_value: CborValue = ciborium::from_reader(cose_key_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse COSE key CBOR: {}", e)))?;
+
+    if let CborValue::Map(map) = cbor_value {
+        let mut kty: Option<i128> = None;
+        let mut alg: Option<i128> = None;
+        let mut crv: Option<i128> = None;
+
+        // Parse COSE key parameters
+        for (key, value) in map.iter() {
+            if let CborValue::Integer(key_int) = key {
+                let key_val: i128 = (*key_int).into();
+                match key_val {
+                    1 => { // kty (Key Type)
+                        if let CborValue::Integer(val) = value {
+                            kty = Some((*val).into());
+                        }
+                    }
+                    3 => { // alg (Algorithm)
+                        if let CborValue::Integer(val) = value {
+                            alg = Some((*val).into());
+                        }
+                    }
+                    -1 => { // crv (Curve) for EC2
+                        if let CborValue::Integer(val) = value {
+                            crv = Some((*val).into());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let info = format!(
+            r#"{{"kty": {:?}, "alg": {:?}, "crv": {:?}, "valid": {}}}"#,
+            kty,
+            alg,
+            crv,
+            kty.is_some() && alg.is_some()
+        );
+
+        console_log!("RUST: COSE key validation result: {}", info);
+        Ok(info)
+    } else {
+        Err(JsValue::from_str("COSE key is not a CBOR map"))
+    }
+}
 
 #[cfg(test)]
 mod tests {

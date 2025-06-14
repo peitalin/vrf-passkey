@@ -22,7 +22,9 @@ import {
   type WorkerResponse,
   type EncryptPrivateKeyWithPrfRequest,
   type DecryptAndSignTransactionWithPrfRequest,
-  type DecryptPrivateKeyWithPrfRequest
+  type DecryptPrivateKeyWithPrfRequest,
+  type ExtractCosePublicKeyRequest,
+  type ValidateCoseKeyRequest
 } from './types/worker';
 
 /**
@@ -59,7 +61,9 @@ const {
   encrypt_data_aes_gcm,
   decrypt_data_aes_gcm,
   derive_encryption_key_from_prf,
-  generate_and_encrypt_near_keypair_with_prf
+  generate_and_encrypt_near_keypair_with_prf,
+  extract_cose_public_key_from_attestation,
+  validate_cose_key_format
 } = wasmModule;
 
 // === UTILITY FUNCTIONS ===
@@ -279,6 +283,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 
       case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
         await handleDecryptPrivateKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
+        await handleExtractCosePublicKey(payload);
+        break;
+
+      case WorkerRequestType.VALIDATE_COSE_KEY:
+        await handleValidateCoseKey(payload);
         break;
 
       default:
@@ -506,11 +518,79 @@ async function handleDecryptPrivateKeyWithPrf(
   }
 }
 
+// === COSE KEY EXTRACTION WORKFLOW ===
+
+/**
+ * Handle COSE public key extraction from attestation object
+ */
+async function handleExtractCosePublicKey(
+  payload: ExtractCosePublicKeyRequest['payload']
+): Promise<void> {
+  try {
+    const { attestationObjectBase64url } = payload;
+
+    console.log('WORKER: Extracting COSE public key from attestation object');
+
+    // Call the WASM function to extract COSE public key
+    const cosePublicKeyBytes = extract_cose_public_key_from_attestation(attestationObjectBase64url);
+
+    console.log('WORKER: Successfully extracted COSE public key:', cosePublicKeyBytes.length, 'bytes');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_KEY_SUCCESS,
+      payload: {
+        cosePublicKeyBytes: Array.from(cosePublicKeyBytes)
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: COSE key extraction failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_KEY_FAILURE,
+      payload: { error: error.message || 'COSE key extraction failed' }
+    });
+  }
+}
+
+/**
+ * Handle COSE key format validation
+ */
+async function handleValidateCoseKey(
+  payload: ValidateCoseKeyRequest['payload']
+): Promise<void> {
+  try {
+    const { coseKeyBytes } = payload;
+
+    console.log('WORKER: Validating COSE key format for key bytes:', coseKeyBytes.length);
+
+    // Call the WASM function to validate COSE key format
+    const validationResult = validate_cose_key_format(new Uint8Array(coseKeyBytes));
+    const validationInfo = JSON.parse(validationResult);
+
+    console.log('WORKER: COSE key validation result:', validationInfo);
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_VALIDATION_SUCCESS,
+      payload: {
+        valid: validationInfo.valid,
+        info: validationInfo
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: COSE key validation failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_VALIDATION_FAILURE,
+      payload: { error: error.message || 'COSE key validation failed' }
+    });
+  }
+}
+
 // === EXPORTS ===
 export type {
   WorkerRequest,
   WorkerResponse,
   EncryptPrivateKeyWithPrfRequest,
   DecryptAndSignTransactionWithPrfRequest,
-  DecryptPrivateKeyWithPrfRequest
+  DecryptPrivateKeyWithPrfRequest,
+  ExtractCosePublicKeyRequest,
+  ValidateCoseKeyRequest
 };

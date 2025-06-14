@@ -4,6 +4,8 @@ export enum WorkerRequestType {
   ENCRYPT_PRIVATE_KEY_WITH_PRF = 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
   DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF = 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
+  EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
+  VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY',
 }
 
 export enum WorkerResponseType {
@@ -13,6 +15,10 @@ export enum WorkerResponseType {
   SIGNATURE_FAILURE = 'SIGNATURE_FAILURE',
   DECRYPTION_SUCCESS = 'DECRYPTION_SUCCESS',
   DECRYPTION_FAILURE = 'DECRYPTION_FAILURE',
+  COSE_KEY_SUCCESS = 'COSE_KEY_SUCCESS',
+  COSE_KEY_FAILURE = 'COSE_KEY_FAILURE',
+  COSE_VALIDATION_SUCCESS = 'COSE_VALIDATION_SUCCESS',
+  COSE_VALIDATION_FAILURE = 'COSE_VALIDATION_FAILURE',
   ERROR = 'ERROR',
 }
 
@@ -53,10 +59,26 @@ export interface DecryptPrivateKeyWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
+export interface ExtractCosePublicKeyRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY;
+  payload: {
+    attestationObjectBase64url: string;
+  };
+}
+
+export interface ValidateCoseKeyRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.VALIDATE_COSE_KEY;
+  payload: {
+    coseKeyBytes: number[];
+  };
+}
+
 export type WorkerRequest =
   | EncryptPrivateKeyWithPrfRequest
   | DecryptAndSignTransactionWithPrfRequest
-  | DecryptPrivateKeyWithPrfRequest;
+  | DecryptPrivateKeyWithPrfRequest
+  | ExtractCosePublicKeyRequest
+  | ValidateCoseKeyRequest;
 
 // === RESPONSE MESSAGE INTERFACES ===
 
@@ -111,6 +133,35 @@ export interface DecryptionFailureResponse extends BaseWorkerResponse {
   };
 }
 
+export interface CoseKeySuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_KEY_SUCCESS;
+  payload: {
+    cosePublicKeyBytes: number[];
+  };
+}
+
+export interface CoseKeyFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_KEY_FAILURE;
+  payload: {
+    error: string;
+  };
+}
+
+export interface CoseValidationSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_VALIDATION_SUCCESS;
+  payload: {
+    valid: boolean;
+    info: any;
+  };
+}
+
+export interface CoseValidationFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_VALIDATION_FAILURE;
+  payload: {
+    error: string;
+  };
+}
+
 export interface ErrorResponse extends BaseWorkerResponse {
   type: WorkerResponseType.ERROR;
   payload: {
@@ -125,6 +176,10 @@ export type WorkerResponse =
   | SignatureFailureResponse
   | DecryptionSuccessResponse
   | DecryptionFailureResponse
+  | CoseKeySuccessResponse
+  | CoseKeyFailureResponse
+  | CoseValidationSuccessResponse
+  | CoseValidationFailureResponse
   | ErrorResponse;
 
 // === TYPE GUARDS ===
@@ -141,11 +196,21 @@ export function isDecryptionSuccess(response: WorkerResponse): response is Decry
   return response.type === WorkerResponseType.DECRYPTION_SUCCESS;
 }
 
-export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse {
+export function isCoseKeySuccess(response: WorkerResponse): response is CoseKeySuccessResponse {
+  return response.type === WorkerResponseType.COSE_KEY_SUCCESS;
+}
+
+export function isCoseValidationSuccess(response: WorkerResponse): response is CoseValidationSuccessResponse {
+  return response.type === WorkerResponseType.COSE_VALIDATION_SUCCESS;
+}
+
+export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse {
   return [
     WorkerResponseType.ERROR,
     WorkerResponseType.ENCRYPTION_FAILURE,
     WorkerResponseType.SIGNATURE_FAILURE,
-    WorkerResponseType.DECRYPTION_FAILURE
+    WorkerResponseType.DECRYPTION_FAILURE,
+    WorkerResponseType.COSE_KEY_FAILURE,
+    WorkerResponseType.COSE_VALIDATION_FAILURE
   ].includes(response.type);
 }

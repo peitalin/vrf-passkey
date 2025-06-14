@@ -8,7 +8,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { createHash, randomBytes } from 'crypto';
 
-import config, { DEFAULT_GAS_STRING, AUTHENTICATION_VERIFICATION_GAS_STRING, NEAR_EXPLORER_BASE_URL } from '../config';
+import config, { DEFAULT_GAS_STRING, VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING, NEAR_EXPLORER_BASE_URL } from '../config';
 import { userOperations } from '../database';
 import { actionChallengeStore } from '../challengeStore';
 import { nearClient } from '../nearService';
@@ -249,28 +249,28 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
 
     // Web2 mode: Use SimpleWebAuthn for fast authentication
     console.log('Using Web2 authentication options generation (SimpleWebAuthn)');
-    const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
-      rpID: config.rpID,
-      allowCredentials: allowCredentialsList,
-      userVerification: 'preferred',
-    });
+      const simpleWebAuthnResult = await generateAuthenticationOptionsSimpleWebAuthn({
+        rpID: config.rpID,
+        allowCredentials: allowCredentialsList,
+        userVerification: 'preferred',
+      });
 
     // Convert SimpleWebAuthn response to match expected format
-    response = {
-      options: {
-        challenge: simpleWebAuthnResult.challenge,
-        timeout: simpleWebAuthnResult.timeout,
-        rpId: simpleWebAuthnResult.rpId,
-        allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
-          id: cred.id, // Pass through the base64url string directly
-          type: cred.type,
-          transports: cred.transports,
-        })),
-        userVerification: simpleWebAuthnResult.userVerification,
-        extensions: simpleWebAuthnResult.extensions,
-      },
+      response = {
+        options: {
+          challenge: simpleWebAuthnResult.challenge,
+          timeout: simpleWebAuthnResult.timeout,
+          rpId: simpleWebAuthnResult.rpId,
+          allowCredentials: simpleWebAuthnResult.allowCredentials?.map(cred => ({
+            id: cred.id, // Pass through the base64url string directly
+            type: cred.type,
+            transports: cred.transports,
+          })),
+          userVerification: simpleWebAuthnResult.userVerification,
+          extensions: simpleWebAuthnResult.extensions,
+        },
       commitmentId: undefined, // No commitment for Web2 mode
-    };
+      };
 
     if (userForChallengeStorageInDB) {
       userOperations.updateAuthChallengeAndCommitmentId(userForChallengeStorageInDB.id, response.options.challenge, response.commitmentId || null);
@@ -324,7 +324,7 @@ async function verifyAuthenticationResponseContract(
     config.contractId,
     'verify_authentication_response',
     contractArgs,
-    AUTHENTICATION_VERIFICATION_GAS_STRING,
+    VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
     '0'
   );
 
@@ -412,44 +412,44 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     // Web2 mode: Use SimpleWebAuthn for immediate verification with background contract updates
     console.log('Using Web2 authentication with SimpleWebAuthn');
 
-    let clientChallenge: string;
-    try {
-      const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
-      const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
-      clientChallenge = clientData.challenge;
-      if (!clientChallenge) {
-        return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
+      let clientChallenge: string;
+      try {
+        const clientDataJSONBuffer = isoBase64URL.toBuffer(body.response.clientDataJSON);
+        const clientData = JSON.parse(Buffer.from(clientDataJSONBuffer).toString('utf8'));
+        clientChallenge = clientData.challenge;
+        if (!clientChallenge) {
+          return res.status(400).json({ verified: false, error: 'Challenge missing in clientDataJSON.' });
+        }
+      } catch (parseError) {
+        return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
       }
-    } catch (parseError) {
-      return res.status(400).json({ verified: false, error: 'Invalid clientDataJSON.' });
-    }
 
-    const expectedChallenge = user.currentChallenge;
-    if (!expectedChallenge) {
-      return res.status(400).json({ error: 'No challenge found for user.' });
-    }
+      const expectedChallenge = user.currentChallenge;
+      if (!expectedChallenge) {
+        return res.status(400).json({ error: 'No challenge found for user.' });
+      }
 
-    verification = await verifyAuthenticationResponseSimpleWebAuthn({
-      response: body,
-      expectedChallenge,
-      expectedOrigin: config.expectedOrigin,
-      expectedRPID: config.rpID,
-      authenticator: {
-        credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
-        credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
-        counter: authenticator.counter as number,
-        transports: authenticator.transports as AuthenticatorTransport[] | undefined,
-      },
-      requireUserVerification: true,
-    });
+      verification = await verifyAuthenticationResponseSimpleWebAuthn({
+        response: body,
+        expectedChallenge,
+        expectedOrigin: config.expectedOrigin,
+        expectedRPID: config.rpID,
+        authenticator: {
+          credentialID: isoBase64URL.toBuffer(authenticator.credentialID),
+          credentialPublicKey: Buffer.from(authenticator.credentialPublicKey as Uint8Array),
+          counter: authenticator.counter as number,
+          transports: authenticator.transports as AuthenticatorTransport[] | undefined,
+        },
+        requireUserVerification: true,
+      });
 
-    // Background contract update (fire and forget)
-    if (verification.verified && verification.authenticationInfo && user?.nearAccountId) {
-      updateContractInBackground(
-        authenticator.credentialID,
-        verification.authenticationInfo.newCounter,
-        user.nearAccountId
-      );
+      // Background contract update (fire and forget)
+      if (verification.verified && verification.authenticationInfo && user?.nearAccountId) {
+        updateContractInBackground(
+          authenticator.credentialID,
+          verification.authenticationInfo.newCounter,
+          user.nearAccountId
+        );
     }
 
     if (verification.verified && verification.authenticationInfo) {

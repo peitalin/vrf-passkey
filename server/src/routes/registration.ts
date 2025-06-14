@@ -9,7 +9,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { decodeAttestationObject, parseAuthenticatorData } from '@simplewebauthn/server/helpers';
 
-import config, { DEFAULT_GAS_STRING, VERIFY_REGISTRATION_RESPONSE_GAS_STRING } from '../config';
+import config, { DEFAULT_GAS_STRING, GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING } from '../config';
 import { userOperations } from '../database';
 import { authenticatorService } from '../authenticatorService';
 import { nearClient } from '../nearService';
@@ -469,15 +469,37 @@ async function handleRegistrationWithSSE(
           throw new Error('Incomplete registration info from SimpleWebAuthn');
         }
         credentialIDForDB = Buffer.from(credentialID).toString('base64url');
-        publicKeyForDB = new Uint8Array(credentialPublicKey);
         counterForDB = counter || 0;
         credentialBackedUpForDB = credentialBackedUp || false;
 
-        // Add the public key to the registration info if it's missing
-        if (!registrationInfo.credentialPublicKey) {
+        // CRITICAL FIX: Extract proper COSE public key from attestation object
+        // The credentialPublicKey from SimpleWebAuthn is not in COSE format
+        // We need to extract the actual COSE key from the attestation object
+        console.log('🔧 [COSE Key] Extracting proper COSE public key from attestation object');
+
+        try {
           const attestationObject = decodeAttestationObject(isoBase64URL.toBuffer(attestationResponse.response.attestationObject));
           const authenticatorData = parseAuthenticatorData((attestationObject as any).authData);
-          registrationInfo.credentialPublicKey = authenticatorData.credentialPublicKey;
+
+          // The authenticatorData.credentialPublicKey should be the proper COSE key
+          if (!authenticatorData.credentialPublicKey) {
+            throw new Error('No credential public key found in authenticator data');
+          }
+
+          // Use the COSE public key from the attestation object
+          publicKeyForDB = new Uint8Array(authenticatorData.credentialPublicKey);
+          console.log('🔧 [COSE Key] Successfully extracted COSE public key:', publicKeyForDB.length, 'bytes');
+
+          // Validate that this looks like a COSE key (should start with CBOR map indicator)
+          if (publicKeyForDB.length > 0) {
+            console.log('🔧 [COSE Key] COSE key first few bytes:', Array.from(publicKeyForDB.slice(0, 10)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
+          }
+
+        } catch (coseError: any) {
+          console.error('🔧 [COSE Key] Failed to extract COSE public key:', coseError.message);
+          // Fallback to the original credentialPublicKey (this will likely fail in contract verification)
+          publicKeyForDB = new Uint8Array(credentialPublicKey);
+          console.warn('🔧 [COSE Key] Using fallback credentialPublicKey - this may cause contract verification failures');
         }
 
         if (user.nearAccountId) {
