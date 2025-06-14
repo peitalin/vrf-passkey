@@ -1,9 +1,10 @@
-import { bufferDecode, publicKeyCredentialToJSON } from '../../utils/encoders';
-import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
+import { bufferDecode, publicKeyCredentialToJSON, bufferEncode } from '../../utils/encoders';
+import { DEFAULT_GAS_STRING, RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
 import { indexDBManager } from '../IndexDBManager';
 import { ContractService } from '../ContractService';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
 import type { WebAuthnManager } from '../WebAuthnManager';
+import type { PasskeyManager } from '../PasskeyManager';
 import type { ServerAuthenticationOptions } from '../../types';
 import type {
   LoginOptions,
@@ -11,6 +12,16 @@ import type {
   LoginEvent,
   PasskeyManagerConfig
 } from './types';
+import {
+  VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
+  GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING
+} from '../../config';
+import bs58 from 'bs58';
+// import { Account } from '@near-js/accounts';
+import { getTestnetRpcProvider } from '@near-js/client';
+import { AccessKeyView, FinalExecutionOutcome } from '@near-js/types';
+import { SignedTransaction } from '@near-js/transactions';
+
 
 interface ServerAuthOptions extends ServerAuthenticationOptions {
   nearAccountId?: string;
@@ -28,13 +39,14 @@ interface ServerVerificationResponse {
  * Core login function that handles passkey authentication without React dependencies
  */
 export async function loginPasskey(
-  webAuthnManager: WebAuthnManager,
+  passkeyManager: PasskeyManager,
   username?: string,
-  options?: LoginOptions,
-  config?: PasskeyManagerConfig,
-  nearRpcProvider?: any
+  options?: LoginOptions
 ): Promise<LoginResult> {
+
   const { optimisticAuth, onEvent, onError, hooks } = options || { optimisticAuth: true };
+  const config = passkeyManager.getConfig();
+  const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
 
   // Emit started event
   onEvent?.({ type: 'loginStarted', data: { username } });
@@ -73,173 +85,27 @@ export async function loginPasskey(
     // Log the determined mode
     console.log(`Login: ${getModeDescription(routing)}`);
 
-    // Handle serverless mode with direct contract calls
+    // Handle serverless mode with direct contract calls via WASM worker
     if (routing.mode === 'serverless') {
-      console.log('⚡ Login: Implementing serverless mode with direct contract calls');
-      return await handleServerlessLogin(
-        webAuthnManager,
+      console.log('⚡ Login: Implementing serverless mode with WASM worker contract calls');
+
+      return await handleLoginOnchain(
+        passkeyManager,
         username,
-        nearRpcProvider,
         onEvent,
         onError,
-        hooks,
-        optimisticAuth
+        hooks
       );
-    }
-
-    // For server modes, use the serverUrl from routing
-    const baseUrl = routing.serverUrl!;
-
-    // Step 1: Get authentication options from server
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'getting-options',
-        message: 'Getting authentication options...'
-      }
-    });
-
-    const requestBody = username
-      ? { username: username, useOptimistic: optimisticAuth }
-      : { useOptimistic: optimisticAuth };
-
-    const authOptionsResponse = await fetch(`${baseUrl}/generate-authentication-options`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!authOptionsResponse.ok) {
-      const errorData = await authOptionsResponse.json().catch(() => ({
-        error: 'Failed to fetch auth options'
-      }));
-      const errorMessage = errorData.error || `Server error ${authOptionsResponse.status}`;
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
-    }
-
-    const options: ServerAuthOptions = await authOptionsResponse.json();
-    const commitmentId = options.commitmentId;
-    console.log('PasskeyLogin: Received authentication options with commitmentId:', commitmentId);
-
-    // Step 2: Perform WebAuthn assertion ceremony
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'webauthn-assertion',
-        message: 'Authenticating with passkey...'
-      }
-    });
-
-    const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-      challenge: bufferDecode(options.challenge),
-      rpId: options.rpId,
-      allowCredentials: options.allowCredentials?.map(c => ({
-        ...c,
-        id: bufferDecode(c.id)
-      })),
-      userVerification: options.userVerification || "preferred",
-      timeout: options.timeout || 60000,
-    };
-
-    const assertion = await navigator.credentials.get({
-      publicKey: pkRequestOpts
-    }) as PublicKeyCredential | null;
-
-    if (!assertion) {
-      const errorMessage = 'Passkey login cancelled or no assertion.';
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
-    }
-
-    // Step 3: Prepare verification payload
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'verifying-server',
-        message: 'Verifying with server...'
-      }
-    });
-
-    const assertionJSON = publicKeyCredentialToJSON(assertion);
-    const verificationPayload = {
-      ...assertionJSON,
-      commitmentId,
-      useOptimistic: optimisticAuth,
-    };
-
-    // Step 4: Send assertion to server for verification
-    const verifyResponse = await fetch(`${baseUrl}/verify-authentication`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(verificationPayload),
-    });
-
-    const serverVerifyData: ServerVerificationResponse = await verifyResponse.json();
-
-    if (verifyResponse.ok && serverVerifyData.verified) {
-      const loggedInUsername = serverVerifyData.username;
-      if (!loggedInUsername) {
-        const errorMessage = "Login successful but server didn't return username.";
-        const error = new Error(errorMessage);
-        onError?.(error);
-        onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
-        hooks?.afterCall?.(false, error);
-        return { success: false, error: errorMessage };
-      }
-
-      // Fetch comprehensive user data from local storage
-      const localUserData = await webAuthnManager.getUserData(loggedInUsername);
-      const finalNearAccountId = serverVerifyData.nearAccountId || localUserData?.nearAccountId;
-
-      // Update IndexDBManager with login
-      if (finalNearAccountId) {
-        let clientUser = await indexDBManager.getUser(finalNearAccountId);
-        if (!clientUser) {
-          console.log(`Creating IndexDBManager entry for existing user: ${loggedInUsername}`);
-          clientUser = await indexDBManager.registerUser(loggedInUsername, RELAYER_ACCOUNT_ID);
-        } else {
-          await indexDBManager.updateLastLogin(finalNearAccountId);
-        }
-      }
-
-      const result: LoginResult = {
-        success: true,
-        loggedInUsername,
-        clientNearPublicKey: localUserData?.clientNearPublicKey || null,
-        nearAccountId: finalNearAccountId
-      };
-
-      if (localUserData?.clientNearPublicKey) {
-        console.log(`Login successful for ${loggedInUsername}. Client-managed PK set from local store: ${localUserData.clientNearPublicKey}`);
-      } else {
-        console.warn(`User ${loggedInUsername} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
-      }
-
-      onEvent?.({
-        type: 'loginCompleted',
-        data: {
-          username: loggedInUsername,
-          nearAccountId: finalNearAccountId,
-          publicKey: localUserData?.clientNearPublicKey
-        }
-      });
-
-      hooks?.afterCall?.(true, result);
-      return result;
     } else {
-      const errorMessage = serverVerifyData.error || 'Passkey authentication failed by server.';
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+
+      return await handleLoginWithServer(
+        routing.serverUrl!,
+        passkeyManager,
+        username,
+        onEvent,
+        onError,
+        hooks
+      );
     }
   } catch (err: any) {
     console.error('Login error:', err.message, err.stack);
@@ -251,26 +117,205 @@ export async function loginPasskey(
 }
 
 /**
- * Handle serverless login using direct contract calls
+ * Handle login via server webauthn authentication to sign contract calls
  */
-async function handleServerlessLogin(
-  webAuthnManager: WebAuthnManager,
+async function handleLoginWithServer(
+  serverUrl: string,
+  passkeyManager: PasskeyManager,
   username?: string,
-  nearRpcProvider?: any,
   onEvent?: (event: LoginEvent) => void,
   onError?: (error: Error) => void,
-  hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> },
-  optimisticAuth?: boolean
+  hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
+): Promise<LoginResult> {
+  // For server modes, use the serverUrl from routing
+  const baseUrl = serverUrl;
+
+  // Step 1: Get authentication options from server
+  onEvent?.({
+    type: 'loginProgress',
+    data: {
+      step: 'getting-options',
+      message: 'Getting authentication options...'
+    }
+  });
+
+  const requestBody = username ? { username: username } : {};
+
+  const authOptionsResponse = await fetch(`${baseUrl}/generate-authentication-options`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!authOptionsResponse.ok) {
+    const errorData = await authOptionsResponse.json().catch(() => ({
+      error: 'Failed to fetch auth options'
+    }));
+    const errorMessage = errorData.error || `Server error ${authOptionsResponse.status}`;
+    const error = new Error(errorMessage);
+    onError?.(error);
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: errorMessage };
+  }
+
+  const options: ServerAuthOptions = await authOptionsResponse.json();
+  const commitmentId = options.commitmentId;
+  console.log('PasskeyLogin: Received authentication options with commitmentId:', commitmentId);
+
+  // Step 2: Perform WebAuthn assertion ceremony with PRF extension
+  onEvent?.({
+    type: 'loginProgress',
+    data: {
+      step: 'webauthn-assertion',
+      message: 'Authenticating with passkey...'
+    }
+  });
+
+  // Add PRF extension to the request options
+  const pkRequestOpts: PublicKeyCredentialRequestOptions = {
+    challenge: bufferDecode(options.challenge),
+    rpId: options.rpId,
+    allowCredentials: options.allowCredentials?.map(c => ({
+      id: bufferDecode(c.id),
+      type: 'public-key' as const,
+      transports: c.transports as AuthenticatorTransport[]
+    })),
+    userVerification: (options.userVerification || "preferred") as UserVerificationRequirement,
+    timeout: options.timeout || 60000,
+    extensions: {
+      prf: {
+        eval: {
+          first: new Uint8Array(new Array(32).fill(42)) // PRF salt for NEAR key encryption
+        }
+      }
+    }
+  };
+
+  const assertion = await navigator.credentials.get({
+    publicKey: pkRequestOpts
+  }) as PublicKeyCredential | null;
+
+  if (!assertion) {
+    const errorMessage = 'Passkey login cancelled or no assertion.';
+    const error = new Error(errorMessage);
+    onError?.(error);
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: errorMessage };
+  }
+
+  // Get PRF output from the assertion
+  const extensionResults = assertion.getClientExtensionResults();
+  const prfOutput = (extensionResults as any).prf?.results?.first;
+
+  if (!prfOutput) {
+    const errorMessage = 'PRF output not available - required for serverless verification.';
+    const error = new Error(errorMessage);
+    onError?.(error);
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: errorMessage };
+  }
+
+  // Step 3: Prepare verification payload
+  onEvent?.({
+    type: 'loginProgress',
+    data: {
+      step: 'verifying-server',
+      message: 'Verifying with server...'
+    }
+  });
+
+  const assertionJSON = publicKeyCredentialToJSON(assertion);
+  const verificationPayload = {
+    ...assertionJSON,
+    commitmentId,
+  };
+
+  // Step 4: Send assertion to server for verification
+  const verifyResponse = await fetch(`${baseUrl}/verify-authentication`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(verificationPayload),
+  });
+
+  const serverVerifyData: ServerVerificationResponse = await verifyResponse.json();
+
+  if (verifyResponse.ok && serverVerifyData.verified) {
+    const loggedInUsername = serverVerifyData.username;
+    if (!loggedInUsername) {
+      const errorMessage = "Login successful but server didn't return username.";
+      const error = new Error(errorMessage);
+      onError?.(error);
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+      hooks?.afterCall?.(false, error);
+      return { success: false, error: errorMessage };
+    }
+
+    // Fetch comprehensive user data from local storage
+    const webAuthnManager = passkeyManager.getWebAuthnManager();
+    const localUserData = await webAuthnManager.getUserData(loggedInUsername);
+    const finalNearAccountId = serverVerifyData.nearAccountId || localUserData?.nearAccountId;
+
+    // Update IndexDBManager with login
+    if (finalNearAccountId) {
+      let clientUser = await indexDBManager.getUser(finalNearAccountId);
+      if (!clientUser) {
+        console.log(`Creating IndexDBManager entry for existing user: ${loggedInUsername}`);
+        clientUser = await indexDBManager.registerUser(loggedInUsername, RELAYER_ACCOUNT_ID);
+      } else {
+        await indexDBManager.updateLastLogin(finalNearAccountId);
+      }
+    }
+
+    const result: LoginResult = {
+      success: true,
+      loggedInUsername,
+      clientNearPublicKey: localUserData?.clientNearPublicKey || null,
+      nearAccountId: finalNearAccountId
+    };
+
+    if (localUserData?.clientNearPublicKey) {
+      console.log(`Login successful for ${loggedInUsername}. Client-managed PK set from local store: ${localUserData.clientNearPublicKey}`);
+    } else {
+      console.warn(`User ${loggedInUsername} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
+    }
+
+    onEvent?.({
+      type: 'loginCompleted',
+      data: {
+        username: loggedInUsername,
+        nearAccountId: finalNearAccountId,
+        publicKey: localUserData?.clientNearPublicKey
+      }
+    });
+
+    hooks?.afterCall?.(true, result);
+    return result;
+  } else {
+    const errorMessage = serverVerifyData.error || 'Passkey authentication failed by server.';
+    const error = new Error(errorMessage);
+    onError?.(error);
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Handle onchain (serverless) login using WASM worker to sign contract calls
+ */
+async function handleLoginOnchain(
+  passkeyManager: PasskeyManager,
+  username?: string,
+  onEvent?: (event: LoginEvent) => void,
+  onError?: (error: Error) => void,
+  hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
 ): Promise<LoginResult> {
   try {
-    // Initialize ContractService
-    const contractService = new ContractService(
-      nearRpcProvider,
-      WEBAUTHN_CONTRACT_ID,
-      'WebAuthn Passkey',
-      window.location.hostname,
-      RELAYER_ACCOUNT_ID
-    );
+    const webAuthnManager = passkeyManager.getWebAuthnManager();
+    const nearRpcProvider = passkeyManager['nearRpcProvider'];
 
     // Step 1: Determine which user to authenticate
     let targetUsername = username;
@@ -291,14 +336,6 @@ async function handleServerlessLogin(
 
     targetNearAccountId = indexDBManager.generateNearAccountId(targetUsername, RELAYER_ACCOUNT_ID);
 
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'getting-options',
-        message: 'Getting authentication options from contract...'
-      }
-    });
-
     // Step 2: Get authenticator data from local cache
     const authenticators = await indexDBManager.getAuthenticatorsByUser(targetNearAccountId);
     if (authenticators.length === 0) {
@@ -310,10 +347,28 @@ async function handleServerlessLogin(
       return { success: false, error: errorMessage };
     }
 
+    // Step 3: Get authentication options from contract using WASM worker
+    onEvent?.({
+      type: 'loginProgress',
+      data: {
+        step: 'getting-options',
+        message: 'Getting authentication options from contract via WASM worker...'
+      }
+    });
+
+    // Initialize ContractService to build arguments
+    const contractService = new ContractService(
+      nearRpcProvider,
+      WEBAUTHN_CONTRACT_ID,
+      'WebAuthn Passkey',
+      window.location.hostname,
+      RELAYER_ACCOUNT_ID
+    );
+
     // Use the first (most recent) authenticator for authentication
     const primaryAuthenticator = authenticators[0];
 
-    // Step 3: Build contract arguments and get authentication options
+    // Build contract arguments for generate_authentication_options
     const allowCredentials = authenticators.map(auth => ({
       id: auth.credentialID,
       type: 'public-key' as const,
@@ -326,18 +381,21 @@ async function handleServerlessLogin(
       'preferred'
     );
 
-    // Call contract to get authentication options
-    const optionsResult = await nearRpcProvider.query({
-      request_type: 'call_function',
-      account_id: WEBAUTHN_CONTRACT_ID,
-      method_name: 'generate_authentication_options',
-      args_base64: Buffer.from(JSON.stringify(contractArgs)).toString('base64'),
-      finality: 'optimistic'
-    });
+    // Use PasskeyManager.callFunction to get authentication options
+    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callFunction2(
+      WEBAUTHN_CONTRACT_ID,
+      'generate_authentication_options',
+      contractArgs,
+      GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
+      '0',
+      targetUsername,
+    );
+    console.log("Auth options result:", authOptionsResult);
 
-    const parsedOptions = contractService.parseContractResponse(optionsResult, 'generate_authentication_options');
+    // Parse the authentication options from the result
+    const parsedOptions = contractService.parseContractResponse(authOptionsResult, 'generate_authentication_options');
 
-    // Step 4: Perform WebAuthn assertion ceremony
+    // Step 4: Perform WebAuthn assertion ceremony with PRF extension
     onEvent?.({
       type: 'loginProgress',
       data: {
@@ -346,16 +404,24 @@ async function handleServerlessLogin(
       }
     });
 
+    // Add PRF extension to the request options
     const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-      challenge: new Uint8Array(Buffer.from(parsedOptions.options.challenge, 'base64url')),
+      challenge: bufferDecode(parsedOptions.options.challenge),
       rpId: parsedOptions.options.rpId,
-      allowCredentials: parsedOptions.options.allowCredentials?.map((cred: any) => ({
-        id: new Uint8Array(Buffer.from(cred.id, 'base64url')),
-        type: cred.type as PublicKeyCredentialType,
-        transports: cred.transports as AuthenticatorTransport[]
+      allowCredentials: parsedOptions.options.allowCredentials?.map((c: any) => ({
+        id: bufferDecode(c.id),
+        type: 'public-key' as const,
+        transports: c.transports as AuthenticatorTransport[]
       })),
-      userVerification: parsedOptions.options.userVerification || "preferred",
+      userVerification: (parsedOptions.options.userVerification || "preferred") as UserVerificationRequirement,
       timeout: parsedOptions.options.timeout || 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: new Uint8Array(new Array(32).fill(42)) // PRF salt for NEAR key encryption
+          }
+        }
+      }
     };
 
     const assertion = await navigator.credentials.get({
@@ -371,12 +437,26 @@ async function handleServerlessLogin(
       return { success: false, error: errorMessage };
     }
 
-    // Step 5: Verify authentication with contract
+    // Get PRF output from the assertion
+    const extensionResults = assertion.getClientExtensionResults();
+    const prfOutput = (extensionResults as any).prf?.results?.first;
+
+    if (!prfOutput) {
+      const errorMessage = 'PRF output not available - required for serverless verification.';
+      const error = new Error(errorMessage);
+      onError?.(error);
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username: targetUsername } });
+      hooks?.afterCall?.(false, error);
+      return { success: false, error: errorMessage };
+    }
+
+    // Step 5: Verify authentication with contract using WASM worker
+    // IMPORTANT: Reuse the PRF output from the authentication above
     onEvent?.({
       type: 'loginProgress',
       data: {
         step: 'verifying-server',
-        message: 'Verifying authentication with contract...'
+        message: 'Verifying authentication with contract via WASM worker...'
       }
     });
 
@@ -386,16 +466,20 @@ async function handleServerlessLogin(
       parsedOptions.commitmentId || ''
     );
 
-    // Call contract to verify authentication
-    const verificationResult = await nearRpcProvider.query({
-      request_type: 'call_function',
-      account_id: WEBAUTHN_CONTRACT_ID,
-      method_name: 'verify_authentication_response',
-      args_base64: Buffer.from(JSON.stringify(verificationArgs)).toString('base64'),
-      finality: 'optimistic'
-    });
+    // Use PasskeyManager.callFunction2 to verify authentication
+    const verificationResult: FinalExecutionOutcome = await passkeyManager.callFunction2(
+      WEBAUTHN_CONTRACT_ID,
+      'verify_authentication_response',
+      verificationArgs,
+      VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
+      '0',
+      targetUsername,
+    );
 
-    const parsedVerification = contractService.parseContractResponse(verificationResult, 'verify_authentication_response');
+    const parsedVerification = contractService.parseContractResponse(
+      verificationResult,
+      'verify_authentication_response'
+    );
 
     if (!parsedVerification.verified) {
       const errorMessage = 'Authentication verification failed by contract.';

@@ -1,7 +1,7 @@
 import bs58 from 'bs58';
 import { RPC_NODE_URL, DEFAULT_GAS_STRING, WEBAUTHN_CONTRACT_ID } from '../../config';
 import type { SerializableActionArgs } from '../../types';
-import type { WebAuthnManager } from '../WebAuthnManager';
+import type { PasskeyManager } from './index';
 import type {
   ActionOptions,
   ActionResult,
@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
 import { ContractService } from '../ContractService';
+import type { AccessKeyView } from '@near-js/types';
 
 interface AccessKeyInfo {
   nonce: number;
@@ -40,18 +41,19 @@ interface RpcResponse {
  * Handles blockchain transactions with PRF-based signing
  */
 export async function executeAction(
-  webAuthnManager: WebAuthnManager,
-  nearRpcProvider: any,
+  passkeyManager: PasskeyManager,
   currentUser: {
     isLoggedIn: boolean;
     username: string | null;
     nearAccountId: string | null;
   },
   actionArgs: SerializableActionArgs,
-  options?: ActionOptions,
-  config?: PasskeyManagerConfig
+  options?: ActionOptions
 ): Promise<ActionResult> {
   const { optimisticAuth = true, onEvent, onError, hooks } = options || {};
+  const webAuthnManager = passkeyManager.getWebAuthnManager();
+  const config = passkeyManager.getConfig();
+  const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
 
   // Client-side routing logic using routing utilities
   const routing = determineOperationMode({
@@ -148,8 +150,7 @@ export async function executeAction(
     const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrfAndUrl(
       routing.serverUrl,
       currentUser.username,
-      'signing',
-      optimisticAuth
+      'signing'
     );
 
     if (!passkeyAssertion || !prfOutput) {
@@ -191,16 +192,14 @@ export async function executeAction(
       accessKeyInfo,
       blockInfo
     ] = await Promise.all([
-      nearRpcProvider.query({
-        request_type: 'view_access_key',
-        finality: 'optimistic',
-        account_id: currentUser.nearAccountId,
-        public_key: publicKeyStr,
-      }) as Promise<AccessKeyInfo>,
+      nearRpcProvider.viewAccessKey(
+        currentUser.nearAccountId,
+        publicKeyStr,
+      ) as Promise<AccessKeyView>,
       nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
     ]);
 
-    const nonce = accessKeyInfo.nonce + 1;
+    const nonce = accessKeyInfo.nonce + BigInt(1);
     const blockHashString = blockInfo.header.hash;
     const blockHashBytes = Array.from(bs58.decode(blockHashString));
 
@@ -244,10 +243,10 @@ export async function executeAction(
     let challengeId: string;
     if (routing.mode === 'serverless') {
       // In serverless mode, get authentication options directly from the contract
-      const authOptions = await webAuthnManager.getAuthenticationOptionsFromContract(nearRpcProvider, currentUser.username, optimisticAuth);
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromContract(nearRpcProvider, currentUser.username);
       challengeId = authOptions.challengeId;
     } else {
-      const authOptions = await webAuthnManager.getAuthenticationOptionsFromServer(routing.serverUrl!, currentUser.username, optimisticAuth);
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromServer(routing.serverUrl!, currentUser.username);
       challengeId = authOptions.challengeId;
     }
 
