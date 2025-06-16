@@ -867,6 +867,18 @@ header { /* Duplicate definition */
   visibility: hidden;
 }
 
+/* Stored account postfix styling */
+.account-postfix.stored-account {
+  color: #2e8b57; /* Dark green for light mode */
+}
+
+.stored-indicator {
+  margin-left: 4px;
+  color: #2e8b57; /* Dark green for light mode */
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
 @media (prefers-color-scheme: dark) {
   .username-input-container {
     background-color: #1a1a1a;
@@ -878,6 +890,14 @@ header { /* Duplicate definition */
 
   .account-postfix {
     color: var(--slate-grey-dark);
+  }
+
+  .account-postfix.stored-account {
+    color: #90ee90; /* Light green for dark mode */
+  }
+
+  .stored-indicator {
+    color: #90ee90;
   }
 }
 
