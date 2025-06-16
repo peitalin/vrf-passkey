@@ -22,7 +22,7 @@ interface LastTxDetails {
 
 export function GreetingMenu() {
   const {
-    loginState: { isLoggedIn, username, nearAccountId },
+    loginState: { isLoggedIn, nearAccountId },
     optimisticAuth,
     setOptimisticAuth,
     passkeyManager,
@@ -50,7 +50,7 @@ export function GreetingMenu() {
   }, [fetchGreeting]);
 
   const handleSetGreeting = useCallback(async () => {
-    if (!greetingInput.trim() || !username || !isLoggedIn) {
+    if (!greetingInput.trim() || !isLoggedIn) {
       return;
     }
 
@@ -67,13 +67,7 @@ export function GreetingMenu() {
 
     setLastTxDetails(null);
 
-    const currentUser = {
-      isLoggedIn: isLoggedIn,
-      username: username,
-      nearAccountId: nearAccountId
-    };
-
-    await passkeyManager.executeAction(currentUser, actionToExecute, {
+    await passkeyManager.executeAction(nearAccountId, actionToExecute, {
       optimisticAuth: optimisticAuth,
       onEvent: (event: ActionEvent) => {
         switch (event.type) {
@@ -117,7 +111,7 @@ export function GreetingMenu() {
         }
       }
     });
-  }, [greetingInput, username, isLoggedIn, nearAccountId, optimisticAuth, passkeyManager, fetchGreeting]);
+  }, [greetingInput, isLoggedIn, nearAccountId, optimisticAuth, passkeyManager, fetchGreeting]);
 
   if (!isLoggedIn) {
     return null;

@@ -1,4 +1,33 @@
+var KeyType = /* @__PURE__ */ ((KeyType2) => {
+  KeyType2[KeyType2["ED25519"] = 0] = "ED25519";
+  KeyType2[KeyType2["SECP256K1"] = 1] = "SECP256K1";
+  return KeyType2;
+})(KeyType || {});
+const KeySize = {
+  SECRET_KEY: 32,
+  ED25519_PUBLIC_KEY: 32,
+  SECP256k1_PUBLIC_KEY: 64
+};
+
+class KeyPairBase {
+}
+
+let Enum$1 = class Enum {
+  constructor(properties) {
+    if (Object.keys(properties).length !== 1) {
+      throw new Error("Enum can only take single value");
+    }
+    Object.keys(properties).map((key) => {
+      this[key] = properties[key];
+    });
+  }
+};
+
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
+
+function getDefaultExportFromCjs (x) {
+	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
+}
 
 function getAugmentedNamespace(n) {
   if (n.__esModule) return n;
@@ -24,605 +53,6 @@ function getAugmentedNamespace(n) {
 	});
 	return a;
 }
-
-var commonjs$3 = {};
-
-var constants$1 = {};
-
-Object.defineProperty(constants$1, "__esModule", { value: true });
-constants$1.KeySize = constants$1.KeyType = void 0;
-/** All supported key types */
-var KeyType;
-(function (KeyType) {
-    KeyType[KeyType["ED25519"] = 0] = "ED25519";
-    KeyType[KeyType["SECP256K1"] = 1] = "SECP256K1";
-})(KeyType || (constants$1.KeyType = KeyType = {}));
-constants$1.KeySize = {
-    SECRET_KEY: 32,
-    ED25519_PUBLIC_KEY: 32,
-    SECP256k1_PUBLIC_KEY: 64,
-};
-
-var key_pair = {};
-
-var key_pair_base = {};
-
-Object.defineProperty(key_pair_base, "__esModule", { value: true });
-key_pair_base.KeyPairBase = void 0;
-class KeyPairBase {
-}
-key_pair_base.KeyPairBase = KeyPairBase;
-
-var key_pair_ed25519 = {};
-
-var commonjs$2 = {exports: {}};
-
-var __defProp$l = Object.defineProperty;
-var __getOwnPropDesc$l = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$l = Object.getOwnPropertyNames;
-var __hasOwnProp$l = Object.prototype.hasOwnProperty;
-var __export$h = (target, all) => {
-  for (var name in all)
-    __defProp$l(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$l = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$l(from))
-      if (!__hasOwnProp$l.call(to, key) && key !== except)
-        __defProp$l(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$l(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$l = (mod) => __copyProps$l(__defProp$l({}, "__esModule", { value: true }), mod);
-var constants_exports = {};
-__export$h(constants_exports, {
-  DEFAULT_FUNCTION_CALL_GAS: () => DEFAULT_FUNCTION_CALL_GAS
-});
-var constants = __toCommonJS$l(constants_exports);
-const DEFAULT_FUNCTION_CALL_GAS = 30000000000000n;
-
-var GasLimitExceeded = "Exceeded the maximum amount of gas allowed to burn per contract";
-var MethodEmptyName = "Method name is empty";
-var WasmerCompileError = "Wasmer compilation error: {{msg}}";
-var GuestPanic = "Smart contract panicked: {{panic_msg}}";
-var Memory = "Error creating Wasm memory";
-var GasExceeded = "Exceeded the prepaid gas";
-var MethodUTF8Error = "Method name is not valid UTF8 string";
-var BadUTF16 = "String encoding is bad UTF-16 sequence";
-var WasmTrap = "WebAssembly trap: {{msg}}";
-var GasInstrumentation = "Gas instrumentation failed or contract has denied instructions.";
-var InvalidPromiseIndex = "{{promise_idx}} does not correspond to existing promises";
-var InvalidPromiseResultIndex = "Accessed invalid promise result index: {{result_idx}}";
-var Deserialization = "Error happened while deserializing the module";
-var MethodNotFound = "Contract method is not found";
-var InvalidRegisterId = "Accessed invalid register id: {{register_id}}";
-var InvalidReceiptIndex = "VM Logic returned an invalid receipt index: {{receipt_index}}";
-var EmptyMethodName = "Method name is empty in contract call";
-var CannotReturnJointPromise = "Returning joint promise is currently prohibited";
-var StackHeightInstrumentation = "Stack instrumentation failed";
-var CodeDoesNotExist = "Cannot find contract code for account {{account_id}}";
-var MethodInvalidSignature = "Invalid method signature";
-var IntegerOverflow = "Integer overflow happened during contract execution";
-var MemoryAccessViolation = "MemoryAccessViolation";
-var InvalidIteratorIndex = "Iterator index {{iterator_index}} does not exist";
-var IteratorWasInvalidated = "Iterator {{iterator_index}} was invalidated after its creation by performing a mutable operation on trie";
-var InvalidAccountId = "VM Logic returned an invalid account id";
-var Serialization = "Error happened while serializing the module";
-var CannotAppendActionToJointPromise = "Actions can only be appended to non-joint promise.";
-var InternalMemoryDeclared = "Internal memory declaration has been found in the module";
-var Instantiate = "Error happened during instantiation";
-var ProhibitedInView = "{{method_name}} is not allowed in view calls";
-var InvalidMethodName = "VM Logic returned an invalid method name";
-var BadUTF8 = "String encoding is bad UTF-8 sequence";
-var BalanceExceeded = "Exceeded the account balance";
-var LinkError = "Wasm contract link error: {{msg}}";
-var InvalidPublicKey = "VM Logic provided an invalid public key";
-var ActorNoPermission = "Actor {{actor_id}} doesn't have permission to account {{account_id}} to complete the action";
-var LackBalanceForState = "The account {{account_id}} wouldn't have enough balance to cover storage, required to have {{amount}} yoctoNEAR more";
-var ReceiverMismatch = "Wrong AccessKey used for transaction: transaction is sent to receiver_id={{tx_receiver}}, but is signed with function call access key that restricted to only use with receiver_id={{ak_receiver}}. Either change receiver_id in your transaction or switch to use a FullAccessKey.";
-var CostOverflow = "Transaction gas or balance cost is too high";
-var InvalidSignature = "Transaction is not signed with the given public key";
-var AccessKeyNotFound = "Signer \"{{account_id}}\" doesn't have access key with the given public_key {{public_key}}";
-var NotEnoughBalance = "Sender {{signer_id}} does not have enough balance {{#formatNear}}{{balance}}{{/formatNear}} for operation costing {{#formatNear}}{{cost}}{{/formatNear}}";
-var NotEnoughAllowance = "Access Key {account_id}:{public_key} does not have enough balance {{#formatNear}}{{allowance}}{{/formatNear}} for transaction costing {{#formatNear}}{{cost}}{{/formatNear}}";
-var Expired = "Transaction has expired";
-var DeleteAccountStaking = "Account {{account_id}} is staking and can not be deleted";
-var SignerDoesNotExist = "Signer {{signer_id}} does not exist";
-var TriesToStake = "Account {{account_id}} tried to stake {{#formatNear}}{{stake}}{{/formatNear}}, but has staked {{#formatNear}}{{locked}}{{/formatNear}} and only has {{#formatNear}}{{balance}}{{/formatNear}}";
-var AddKeyAlreadyExists = "The public key {{public_key}} is already used for an existing access key";
-var InvalidSigner = "Invalid signer account ID {{signer_id}} according to requirements";
-var CreateAccountNotAllowed = "The new account_id {{account_id}} can't be created by {{predecessor_id}}";
-var RequiresFullAccess = "The transaction contains more then one action, but it was signed with an access key which allows transaction to apply only one specific action. To apply more then one actions TX must be signed with a full access key";
-var TriesToUnstake = "Account {{account_id}} is not yet staked, but tried to unstake";
-var InvalidNonce = "Transaction nonce {{tx_nonce}} must be larger than nonce of the used access key {{ak_nonce}}";
-var AccountAlreadyExists = "Can't create a new account {{account_id}}, because it already exists";
-var InvalidChain = "Transaction parent block hash doesn't belong to the current chain";
-var AccountDoesNotExist = "Can't complete the action because account {{account_id}} doesn't exist";
-var AccessKeyDoesNotExist = "Can't complete the action because access key {{public_key}} doesn't exist";
-var MethodNameMismatch = "Transaction method name {{method_name}} isn't allowed by the access key";
-var DeleteAccountHasRent = "Account {{account_id}} can't be deleted. It has {{#formatNear}}{{balance}}{{/formatNear}}, which is enough to cover the rent";
-var DeleteAccountHasEnoughBalance = "Account {{account_id}} can't be deleted. It has {{#formatNear}}{{balance}}{{/formatNear}}, which is enough to cover it's storage";
-var InvalidReceiver = "Invalid receiver account ID {{receiver_id}} according to requirements";
-var DeleteKeyDoesNotExist = "Account {{account_id}} tries to remove an access key that doesn't exist";
-var Timeout = "Timeout exceeded";
-var Closed = "Connection closed";
-var ShardCongested = "Shard {{shard_id}} rejected the transaction due to congestion level {{congestion_level}}, try again later";
-var ShardStuck = "Shard {{shard_id}} rejected the transaction because it missed {{missed_chunks}} chunks and needs to recover before accepting new transactions, try again later";
-var require$$0$1 = {
-	GasLimitExceeded: GasLimitExceeded,
-	MethodEmptyName: MethodEmptyName,
-	WasmerCompileError: WasmerCompileError,
-	GuestPanic: GuestPanic,
-	Memory: Memory,
-	GasExceeded: GasExceeded,
-	MethodUTF8Error: MethodUTF8Error,
-	BadUTF16: BadUTF16,
-	WasmTrap: WasmTrap,
-	GasInstrumentation: GasInstrumentation,
-	InvalidPromiseIndex: InvalidPromiseIndex,
-	InvalidPromiseResultIndex: InvalidPromiseResultIndex,
-	Deserialization: Deserialization,
-	MethodNotFound: MethodNotFound,
-	InvalidRegisterId: InvalidRegisterId,
-	InvalidReceiptIndex: InvalidReceiptIndex,
-	EmptyMethodName: EmptyMethodName,
-	CannotReturnJointPromise: CannotReturnJointPromise,
-	StackHeightInstrumentation: StackHeightInstrumentation,
-	CodeDoesNotExist: CodeDoesNotExist,
-	MethodInvalidSignature: MethodInvalidSignature,
-	IntegerOverflow: IntegerOverflow,
-	MemoryAccessViolation: MemoryAccessViolation,
-	InvalidIteratorIndex: InvalidIteratorIndex,
-	IteratorWasInvalidated: IteratorWasInvalidated,
-	InvalidAccountId: InvalidAccountId,
-	Serialization: Serialization,
-	CannotAppendActionToJointPromise: CannotAppendActionToJointPromise,
-	InternalMemoryDeclared: InternalMemoryDeclared,
-	Instantiate: Instantiate,
-	ProhibitedInView: ProhibitedInView,
-	InvalidMethodName: InvalidMethodName,
-	BadUTF8: BadUTF8,
-	BalanceExceeded: BalanceExceeded,
-	LinkError: LinkError,
-	InvalidPublicKey: InvalidPublicKey,
-	ActorNoPermission: ActorNoPermission,
-	LackBalanceForState: LackBalanceForState,
-	ReceiverMismatch: ReceiverMismatch,
-	CostOverflow: CostOverflow,
-	InvalidSignature: InvalidSignature,
-	AccessKeyNotFound: AccessKeyNotFound,
-	NotEnoughBalance: NotEnoughBalance,
-	NotEnoughAllowance: NotEnoughAllowance,
-	Expired: Expired,
-	DeleteAccountStaking: DeleteAccountStaking,
-	SignerDoesNotExist: SignerDoesNotExist,
-	TriesToStake: TriesToStake,
-	AddKeyAlreadyExists: AddKeyAlreadyExists,
-	InvalidSigner: InvalidSigner,
-	CreateAccountNotAllowed: CreateAccountNotAllowed,
-	RequiresFullAccess: RequiresFullAccess,
-	TriesToUnstake: TriesToUnstake,
-	InvalidNonce: InvalidNonce,
-	AccountAlreadyExists: AccountAlreadyExists,
-	InvalidChain: InvalidChain,
-	AccountDoesNotExist: AccountDoesNotExist,
-	AccessKeyDoesNotExist: AccessKeyDoesNotExist,
-	MethodNameMismatch: MethodNameMismatch,
-	DeleteAccountHasRent: DeleteAccountHasRent,
-	DeleteAccountHasEnoughBalance: DeleteAccountHasEnoughBalance,
-	InvalidReceiver: InvalidReceiver,
-	DeleteKeyDoesNotExist: DeleteKeyDoesNotExist,
-	Timeout: Timeout,
-	Closed: Closed,
-	ShardCongested: ShardCongested,
-	ShardStuck: ShardStuck
-};
-
-var __create$2 = Object.create;
-var __defProp$k = Object.defineProperty;
-var __getOwnPropDesc$k = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$k = Object.getOwnPropertyNames;
-var __getProtoOf$2 = Object.getPrototypeOf;
-var __hasOwnProp$k = Object.prototype.hasOwnProperty;
-var __export$g = (target, all) => {
-  for (var name in all)
-    __defProp$k(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$k = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$k(from))
-      if (!__hasOwnProp$k.call(to, key) && key !== except)
-        __defProp$k(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$k(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM$2 = (mod, isNodeMode, target) => (target = mod != null ? __create$2(__getProtoOf$2(mod)) : {}, __copyProps$k(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  __defProp$k(target, "default", { value: mod, enumerable: true }) ,
-  mod
-));
-var __toCommonJS$k = (mod) => __copyProps$k(__defProp$k({}, "__esModule", { value: true }), mod);
-var errors_exports$2 = {};
-__export$g(errors_exports$2, {
-  ErrorMessages: () => ErrorMessages
-});
-var errors$3 = __toCommonJS$k(errors_exports$2);
-var import_error_messages = __toESM$2(require$$0$1);
-const ErrorMessages = import_error_messages.default;
-
-var commonjs$1 = {exports: {}};
-
-var __defProp$j = Object.defineProperty;
-var __getOwnPropDesc$j = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$j = Object.getOwnPropertyNames;
-var __hasOwnProp$j = Object.prototype.hasOwnProperty;
-var __copyProps$j = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$j(from))
-      if (!__hasOwnProp$j.call(to, key) && key !== except)
-        __defProp$j(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$j(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$j = (mod) => __copyProps$j(__defProp$j({}, "__esModule", { value: true }), mod);
-var accounts_exports = {};
-var accounts = __toCommonJS$j(accounts_exports);
-
-var __defProp$i = Object.defineProperty;
-var __getOwnPropDesc$i = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$i = Object.getOwnPropertyNames;
-var __hasOwnProp$i = Object.prototype.hasOwnProperty;
-var __export$f = (target, all) => {
-  for (var name in all)
-    __defProp$i(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$i = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$i(from))
-      if (!__hasOwnProp$i.call(to, key) && key !== except)
-        __defProp$i(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$i(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$i = (mod) => __copyProps$i(__defProp$i({}, "__esModule", { value: true }), mod);
-var assignable_exports = {};
-__export$f(assignable_exports, {
-  Assignable: () => Assignable
-});
-var assignable = __toCommonJS$i(assignable_exports);
-class Assignable {
-  constructor(properties) {
-    Object.keys(properties).map((key) => {
-      this[key] = properties[key];
-    });
-  }
-}
-
-var __defProp$h = Object.defineProperty;
-var __getOwnPropDesc$h = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$h = Object.getOwnPropertyNames;
-var __hasOwnProp$h = Object.prototype.hasOwnProperty;
-var __export$e = (target, all) => {
-  for (var name in all)
-    __defProp$h(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$h = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$h(from))
-      if (!__hasOwnProp$h.call(to, key) && key !== except)
-        __defProp$h(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$h(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$h = (mod) => __copyProps$h(__defProp$h({}, "__esModule", { value: true }), mod);
-var enum_exports = {};
-__export$e(enum_exports, {
-  Enum: () => Enum$1
-});
-var _enum = __toCommonJS$h(enum_exports);
-let Enum$1 = class Enum {
-  constructor(properties) {
-    if (Object.keys(properties).length !== 1) {
-      throw new Error("Enum can only take single value");
-    }
-    Object.keys(properties).map((key) => {
-      this[key] = properties[key];
-    });
-  }
-};
-
-var __defProp$g = Object.defineProperty;
-var __getOwnPropDesc$g = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$g = Object.getOwnPropertyNames;
-var __hasOwnProp$g = Object.prototype.hasOwnProperty;
-var __export$d = (target, all) => {
-  for (var name in all)
-    __defProp$g(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$g = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$g(from))
-      if (!__hasOwnProp$g.call(to, key) && key !== except)
-        __defProp$g(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$g(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$g = (mod) => __copyProps$g(__defProp$g({}, "__esModule", { value: true }), mod);
-var errors_exports$1 = {};
-__export$d(errors_exports$1, {
-  ArgumentTypeError: () => ArgumentTypeError,
-  ErrorContext: () => ErrorContext,
-  PositionalArgsError: () => PositionalArgsError,
-  TypedError: () => TypedError
-});
-var errors$2 = __toCommonJS$g(errors_exports$1);
-class PositionalArgsError extends Error {
-  constructor() {
-    super("Contract method calls expect named arguments wrapped in object, e.g. { argName1: argValue1, argName2: argValue2 }");
-  }
-}
-class ArgumentTypeError extends Error {
-  constructor(argName, argType, argValue) {
-    super(`Expected ${argType} for '${argName}' argument, but got '${JSON.stringify(argValue)}'`);
-  }
-}
-class TypedError extends Error {
-  type;
-  context;
-  constructor(message, type, context) {
-    super(message);
-    this.type = type || "UntypedError";
-    this.context = context;
-  }
-}
-class ErrorContext {
-  transactionHash;
-  constructor(transactionHash) {
-    this.transactionHash = transactionHash;
-  }
-}
-
-var __defProp$f = Object.defineProperty;
-var __getOwnPropDesc$f = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$f = Object.getOwnPropertyNames;
-var __hasOwnProp$f = Object.prototype.hasOwnProperty;
-var __export$c = (target, all) => {
-  for (var name in all)
-    __defProp$f(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$f = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$f(from))
-      if (!__hasOwnProp$f.call(to, key) && key !== except)
-        __defProp$f(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$f(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$f = (mod) => __copyProps$f(__defProp$f({}, "__esModule", { value: true }), mod);
-var light_client_exports = {};
-__export$c(light_client_exports, {
-  IdType: () => IdType
-});
-var light_client = __toCommonJS$f(light_client_exports);
-var IdType = /* @__PURE__ */ ((IdType2) => {
-  IdType2["Transaction"] = "transaction";
-  IdType2["Receipt"] = "receipt";
-  return IdType2;
-})(IdType || {});
-
-var __defProp$e = Object.defineProperty;
-var __getOwnPropDesc$e = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$e = Object.getOwnPropertyNames;
-var __hasOwnProp$e = Object.prototype.hasOwnProperty;
-var __copyProps$e = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$e(from))
-      if (!__hasOwnProp$e.call(to, key) && key !== except)
-        __defProp$e(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$e(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$e = (mod) => __copyProps$e(__defProp$e({}, "__esModule", { value: true }), mod);
-var protocol_exports = {};
-var protocol = __toCommonJS$e(protocol_exports);
-
-var __defProp$d = Object.defineProperty;
-var __getOwnPropDesc$d = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$d = Object.getOwnPropertyNames;
-var __hasOwnProp$d = Object.prototype.hasOwnProperty;
-var __copyProps$d = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$d(from))
-      if (!__hasOwnProp$d.call(to, key) && key !== except)
-        __defProp$d(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$d(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$d = (mod) => __copyProps$d(__defProp$d({}, "__esModule", { value: true }), mod);
-var request_exports = {};
-var request = __toCommonJS$d(request_exports);
-
-var __defProp$c = Object.defineProperty;
-var __getOwnPropDesc$c = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$c = Object.getOwnPropertyNames;
-var __hasOwnProp$c = Object.prototype.hasOwnProperty;
-var __export$b = (target, all) => {
-  for (var name in all)
-    __defProp$c(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$c = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$c(from))
-      if (!__hasOwnProp$c.call(to, key) && key !== except)
-        __defProp$c(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$c(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$c = (mod) => __copyProps$c(__defProp$c({}, "__esModule", { value: true }), mod);
-var response_exports = {};
-__export$b(response_exports, {
-  ExecutionStatusBasic: () => ExecutionStatusBasic,
-  FinalExecutionStatusBasic: () => FinalExecutionStatusBasic
-});
-var response = __toCommonJS$c(response_exports);
-var ExecutionStatusBasic = /* @__PURE__ */ ((ExecutionStatusBasic2) => {
-  ExecutionStatusBasic2["Unknown"] = "Unknown";
-  ExecutionStatusBasic2["Pending"] = "Pending";
-  ExecutionStatusBasic2["Failure"] = "Failure";
-  return ExecutionStatusBasic2;
-})(ExecutionStatusBasic || {});
-var FinalExecutionStatusBasic = /* @__PURE__ */ ((FinalExecutionStatusBasic2) => {
-  FinalExecutionStatusBasic2["NotStarted"] = "NotStarted";
-  FinalExecutionStatusBasic2["Started"] = "Started";
-  FinalExecutionStatusBasic2["Failure"] = "Failure";
-  return FinalExecutionStatusBasic2;
-})(FinalExecutionStatusBasic || {});
-
-var __defProp$b = Object.defineProperty;
-var __getOwnPropDesc$b = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$b = Object.getOwnPropertyNames;
-var __hasOwnProp$b = Object.prototype.hasOwnProperty;
-var __copyProps$b = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$b(from))
-      if (!__hasOwnProp$b.call(to, key) && key !== except)
-        __defProp$b(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$b(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$b = (mod) => __copyProps$b(__defProp$b({}, "__esModule", { value: true }), mod);
-var validator_exports = {};
-var validator = __toCommonJS$b(validator_exports);
-
-var __defProp$a = Object.defineProperty;
-var __getOwnPropDesc$a = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$a = Object.getOwnPropertyNames;
-var __hasOwnProp$a = Object.prototype.hasOwnProperty;
-var __export$a = (target, all) => {
-  for (var name in all)
-    __defProp$a(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$a = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$a(from))
-      if (!__hasOwnProp$a.call(to, key) && key !== except)
-        __defProp$a(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$a(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$a = (mod) => __copyProps$a(__defProp$a({}, "__esModule", { value: true }), mod);
-var provider_exports$1 = {};
-__export$a(provider_exports$1, {
-  AccessKeyInfoView: () => import_response.AccessKeyInfoView,
-  AccessKeyList: () => import_response.AccessKeyList,
-  AccessKeyView: () => import_response.AccessKeyView,
-  AccessKeyViewRaw: () => import_response.AccessKeyViewRaw,
-  AccessKeyWithPublicKey: () => import_protocol.AccessKeyWithPublicKey,
-  AccountBalanceInfo: () => import_response.AccountBalanceInfo,
-  AccountView: () => import_response.AccountView,
-  AccountViewRaw: () => import_response.AccountViewRaw,
-  BlockChange: () => import_protocol.BlockChange,
-  BlockChangeResult: () => import_protocol.BlockChangeResult,
-  BlockHash: () => import_protocol.BlockHash,
-  BlockHeader: () => import_protocol.BlockHeader,
-  BlockHeaderInnerLiteView: () => import_protocol.BlockHeaderInnerLiteView,
-  BlockHeight: () => import_protocol.BlockHeight,
-  BlockId: () => import_protocol.BlockId,
-  BlockReference: () => import_protocol.BlockReference,
-  BlockResult: () => import_protocol.BlockResult,
-  BlockShardId: () => import_protocol.BlockShardId,
-  CallContractViewFunctionResultRaw: () => import_response.CallContractViewFunctionResultRaw,
-  CallFunctionRequest: () => import_request.CallFunctionRequest,
-  ChangeResult: () => import_protocol.ChangeResult,
-  Chunk: () => import_protocol.Chunk,
-  ChunkHash: () => import_protocol.ChunkHash,
-  ChunkHeader: () => import_protocol.ChunkHeader,
-  ChunkId: () => import_protocol.ChunkId,
-  ChunkResult: () => import_protocol.ChunkResult,
-  CodeResult: () => import_response.CodeResult,
-  ContractCodeView: () => import_response.ContractCodeView,
-  ContractCodeViewRaw: () => import_response.ContractCodeViewRaw,
-  ContractStateView: () => import_response.ContractStateView,
-  CurrentEpochValidatorInfo: () => import_validator.CurrentEpochValidatorInfo,
-  EpochValidatorInfo: () => import_validator.EpochValidatorInfo,
-  ExecutionError: () => import_response.ExecutionError,
-  ExecutionOutcome: () => import_response.ExecutionOutcome,
-  ExecutionOutcomeReceiptDetail: () => import_response.ExecutionOutcomeReceiptDetail,
-  ExecutionOutcomeWithId: () => import_response.ExecutionOutcomeWithId,
-  ExecutionOutcomeWithIdView: () => import_response.ExecutionOutcomeWithIdView,
-  ExecutionStatus: () => import_response.ExecutionStatus,
-  ExecutionStatusBasic: () => import_response.ExecutionStatusBasic,
-  FinalExecutionOutcome: () => import_response.FinalExecutionOutcome,
-  FinalExecutionStatus: () => import_response.FinalExecutionStatus,
-  FinalExecutionStatusBasic: () => import_response.FinalExecutionStatusBasic,
-  Finality: () => import_protocol.Finality,
-  FinalityReference: () => import_protocol.FinalityReference,
-  FunctionCallPermissionView: () => import_response.FunctionCallPermissionView,
-  GasPrice: () => import_protocol.GasPrice,
-  IdType: () => import_light_client.IdType,
-  LightClientBlockLiteView: () => import_light_client.LightClientBlockLiteView,
-  LightClientProof: () => import_light_client.LightClientProof,
-  LightClientProofRequest: () => import_light_client.LightClientProofRequest,
-  MerkleNode: () => import_protocol.MerkleNode,
-  MerklePath: () => import_protocol.MerklePath,
-  NearProtocolConfig: () => import_protocol.NearProtocolConfig,
-  NearProtocolRuntimeConfig: () => import_protocol.NearProtocolRuntimeConfig,
-  NextEpochValidatorInfo: () => import_validator.NextEpochValidatorInfo,
-  NextLightClientBlockRequest: () => import_light_client.NextLightClientBlockRequest,
-  NextLightClientBlockResponse: () => import_light_client.NextLightClientBlockResponse,
-  NodeStatusResult: () => import_protocol.NodeStatusResult,
-  ProviderTransaction: () => import_protocol.Transaction,
-  QueryResponseKind: () => import_response.QueryResponseKind,
-  RpcQueryRequest: () => import_request.RpcQueryRequest,
-  SerializedReturnValue: () => import_response.SerializedReturnValue,
-  ShardId: () => import_protocol.ShardId,
-  StakedAccount: () => import_validator.StakedAccount,
-  SyncInfo: () => import_protocol.SyncInfo,
-  TotalWeight: () => import_protocol.TotalWeight,
-  TxExecutionStatus: () => import_protocol.TxExecutionStatus,
-  ValidatorStakeView: () => import_validator.ValidatorStakeView,
-  ViewAccessKeyListRequest: () => import_request.ViewAccessKeyListRequest,
-  ViewAccessKeyRequest: () => import_request.ViewAccessKeyRequest,
-  ViewAccountRequest: () => import_request.ViewAccountRequest,
-  ViewCodeRequest: () => import_request.ViewCodeRequest,
-  ViewStateRequest: () => import_request.ViewStateRequest,
-  ViewStateResult: () => import_response.ViewStateResult
-});
-var provider$1 = __toCommonJS$a(provider_exports$1);
-var import_light_client = light_client;
-var import_protocol = protocol;
-var import_request = request;
-var import_response = response;
-var import_validator = validator;
-
-(function (module) {
-	var __defProp = Object.defineProperty;
-	var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-	var __getOwnPropNames = Object.getOwnPropertyNames;
-	var __hasOwnProp = Object.prototype.hasOwnProperty;
-	var __copyProps = (to, from, except, desc) => {
-	  if (from && typeof from === "object" || typeof from === "function") {
-	    for (let key of __getOwnPropNames(from))
-	      if (!__hasOwnProp.call(to, key) && key !== except)
-	        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-	  }
-	  return to;
-	};
-	var __reExport = (target, mod, secondTarget) => (__copyProps(target, mod, "default"), secondTarget && __copyProps(secondTarget, mod, "default"));
-	var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-	var index_exports = {};
-	module.exports = __toCommonJS(index_exports);
-	__reExport(index_exports, accounts, module.exports);
-	__reExport(index_exports, assignable, module.exports);
-	__reExport(index_exports, _enum, module.exports);
-	__reExport(index_exports, errors$2, module.exports);
-	__reExport(index_exports, provider$1, module.exports);
-} (commonjs$1));
-
-var commonjsExports$1 = commonjs$1.exports;
 
 var mustache = {exports: {}};
 
@@ -1366,808 +796,193 @@ var mustache = {exports: {}};
 	}))); 
 } (mustache));
 
-var mustacheExports = mustache.exports;
-
-var lib$1 = {};
-
-(function (exports) {
-	/*! scure-base - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.bytes = exports.stringToBytes = exports.str = exports.bytesToString = exports.hex = exports.utf8 = exports.bech32m = exports.bech32 = exports.base58check = exports.createBase58check = exports.base58xmr = exports.base58xrp = exports.base58flickr = exports.base58 = exports.base64urlnopad = exports.base64url = exports.base64nopad = exports.base64 = exports.base32crockford = exports.base32hexnopad = exports.base32hex = exports.base32nopad = exports.base32 = exports.base16 = exports.utils = void 0;
-	function isBytes(a) {
-	    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
-	}
-	/** Asserts something is Uint8Array. */
-	function abytes(b, ...lengths) {
-	    if (!isBytes(b))
-	        throw new Error('Uint8Array expected');
-	    if (lengths.length > 0 && !lengths.includes(b.length))
-	        throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
-	}
-	function isArrayOf(isString, arr) {
-	    if (!Array.isArray(arr))
-	        return false;
-	    if (arr.length === 0)
-	        return true;
-	    if (isString) {
-	        return arr.every((item) => typeof item === 'string');
-	    }
-	    else {
-	        return arr.every((item) => Number.isSafeInteger(item));
-	    }
-	}
-	// no abytes: seems to have 10% slowdown. Why?!
-	function afn(input) {
-	    if (typeof input !== 'function')
-	        throw new Error('function expected');
-	    return true;
-	}
-	function astr(label, input) {
-	    if (typeof input !== 'string')
-	        throw new Error(`${label}: string expected`);
-	    return true;
-	}
-	function anumber(n) {
-	    if (!Number.isSafeInteger(n))
-	        throw new Error(`invalid integer: ${n}`);
-	}
-	function aArr(input) {
-	    if (!Array.isArray(input))
-	        throw new Error('array expected');
-	}
-	function astrArr(label, input) {
-	    if (!isArrayOf(true, input))
-	        throw new Error(`${label}: array of strings expected`);
-	}
-	function anumArr(label, input) {
-	    if (!isArrayOf(false, input))
-	        throw new Error(`${label}: array of numbers expected`);
-	}
-	/**
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function chain(...args) {
-	    const id = (a) => a;
-	    // Wrap call in closure so JIT can inline calls
-	    const wrap = (a, b) => (c) => a(b(c));
-	    // Construct chain of args[-1].encode(args[-2].encode([...]))
-	    const encode = args.map((x) => x.encode).reduceRight(wrap, id);
-	    // Construct chain of args[0].decode(args[1].decode(...))
-	    const decode = args.map((x) => x.decode).reduce(wrap, id);
-	    return { encode, decode };
-	}
-	/**
-	 * Encodes integer radix representation to array of strings using alphabet and back.
-	 * Could also be array of strings.
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function alphabet(letters) {
-	    // mapping 1 to "b"
-	    const lettersA = typeof letters === 'string' ? letters.split('') : letters;
-	    const len = lettersA.length;
-	    astrArr('alphabet', lettersA);
-	    // mapping "b" to 1
-	    const indexes = new Map(lettersA.map((l, i) => [l, i]));
-	    return {
-	        encode: (digits) => {
-	            aArr(digits);
-	            return digits.map((i) => {
-	                if (!Number.isSafeInteger(i) || i < 0 || i >= len)
-	                    throw new Error(`alphabet.encode: digit index outside alphabet "${i}". Allowed: ${letters}`);
-	                return lettersA[i];
-	            });
-	        },
-	        decode: (input) => {
-	            aArr(input);
-	            return input.map((letter) => {
-	                astr('alphabet.decode', letter);
-	                const i = indexes.get(letter);
-	                if (i === undefined)
-	                    throw new Error(`Unknown letter: "${letter}". Allowed: ${letters}`);
-	                return i;
-	            });
-	        },
-	    };
-	}
-	/**
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function join(separator = '') {
-	    astr('join', separator);
-	    return {
-	        encode: (from) => {
-	            astrArr('join.decode', from);
-	            return from.join(separator);
-	        },
-	        decode: (to) => {
-	            astr('join.decode', to);
-	            return to.split(separator);
-	        },
-	    };
-	}
-	/**
-	 * Pad strings array so it has integer number of bits
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function padding(bits, chr = '=') {
-	    anumber(bits);
-	    astr('padding', chr);
-	    return {
-	        encode(data) {
-	            astrArr('padding.encode', data);
-	            while ((data.length * bits) % 8)
-	                data.push(chr);
-	            return data;
-	        },
-	        decode(input) {
-	            astrArr('padding.decode', input);
-	            let end = input.length;
-	            if ((end * bits) % 8)
-	                throw new Error('padding: invalid, string should have whole number of bytes');
-	            for (; end > 0 && input[end - 1] === chr; end--) {
-	                const last = end - 1;
-	                const byte = last * bits;
-	                if (byte % 8 === 0)
-	                    throw new Error('padding: invalid, string has too much padding');
-	            }
-	            return input.slice(0, end);
-	        },
-	    };
-	}
-	/**
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function normalize(fn) {
-	    afn(fn);
-	    return { encode: (from) => from, decode: (to) => fn(to) };
-	}
-	/**
-	 * Slow: O(n^2) time complexity
-	 */
-	function convertRadix(data, from, to) {
-	    // base 1 is impossible
-	    if (from < 2)
-	        throw new Error(`convertRadix: invalid from=${from}, base cannot be less than 2`);
-	    if (to < 2)
-	        throw new Error(`convertRadix: invalid to=${to}, base cannot be less than 2`);
-	    aArr(data);
-	    if (!data.length)
-	        return [];
-	    let pos = 0;
-	    const res = [];
-	    const digits = Array.from(data, (d) => {
-	        anumber(d);
-	        if (d < 0 || d >= from)
-	            throw new Error(`invalid integer: ${d}`);
-	        return d;
-	    });
-	    const dlen = digits.length;
-	    while (true) {
-	        let carry = 0;
-	        let done = true;
-	        for (let i = pos; i < dlen; i++) {
-	            const digit = digits[i];
-	            const fromCarry = from * carry;
-	            const digitBase = fromCarry + digit;
-	            if (!Number.isSafeInteger(digitBase) ||
-	                fromCarry / from !== carry ||
-	                digitBase - digit !== fromCarry) {
-	                throw new Error('convertRadix: carry overflow');
-	            }
-	            const div = digitBase / to;
-	            carry = digitBase % to;
-	            const rounded = Math.floor(div);
-	            digits[i] = rounded;
-	            if (!Number.isSafeInteger(rounded) || rounded * to + carry !== digitBase)
-	                throw new Error('convertRadix: carry overflow');
-	            if (!done)
-	                continue;
-	            else if (!rounded)
-	                pos = i;
-	            else
-	                done = false;
-	        }
-	        res.push(carry);
-	        if (done)
-	            break;
-	    }
-	    for (let i = 0; i < data.length - 1 && data[i] === 0; i++)
-	        res.push(0);
-	    return res.reverse();
-	}
-	const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
-	const radix2carry = /* @__NO_SIDE_EFFECTS__ */ (from, to) => from + (to - gcd(from, to));
-	const powers = /* @__PURE__ */ (() => {
-	    let res = [];
-	    for (let i = 0; i < 40; i++)
-	        res.push(2 ** i);
-	    return res;
-	})();
-	/**
-	 * Implemented with numbers, because BigInt is 5x slower
-	 */
-	function convertRadix2(data, from, to, padding) {
-	    aArr(data);
-	    if (from <= 0 || from > 32)
-	        throw new Error(`convertRadix2: wrong from=${from}`);
-	    if (to <= 0 || to > 32)
-	        throw new Error(`convertRadix2: wrong to=${to}`);
-	    if (radix2carry(from, to) > 32) {
-	        throw new Error(`convertRadix2: carry overflow from=${from} to=${to} carryBits=${radix2carry(from, to)}`);
-	    }
-	    let carry = 0;
-	    let pos = 0; // bitwise position in current element
-	    const max = powers[from];
-	    const mask = powers[to] - 1;
-	    const res = [];
-	    for (const n of data) {
-	        anumber(n);
-	        if (n >= max)
-	            throw new Error(`convertRadix2: invalid data word=${n} from=${from}`);
-	        carry = (carry << from) | n;
-	        if (pos + from > 32)
-	            throw new Error(`convertRadix2: carry overflow pos=${pos} from=${from}`);
-	        pos += from;
-	        for (; pos >= to; pos -= to)
-	            res.push(((carry >> (pos - to)) & mask) >>> 0);
-	        const pow = powers[pos];
-	        if (pow === undefined)
-	            throw new Error('invalid carry');
-	        carry &= pow - 1; // clean carry, otherwise it will cause overflow
-	    }
-	    carry = (carry << (to - pos)) & mask;
-	    if (!padding && pos >= from)
-	        throw new Error('Excess padding');
-	    if (!padding && carry > 0)
-	        throw new Error(`Non-zero padding: ${carry}`);
-	    if (padding && pos > 0)
-	        res.push(carry >>> 0);
-	    return res;
-	}
-	/**
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function radix(num) {
-	    anumber(num);
-	    const _256 = 2 ** 8;
-	    return {
-	        encode: (bytes) => {
-	            if (!isBytes(bytes))
-	                throw new Error('radix.encode input should be Uint8Array');
-	            return convertRadix(Array.from(bytes), _256, num);
-	        },
-	        decode: (digits) => {
-	            anumArr('radix.decode', digits);
-	            return Uint8Array.from(convertRadix(digits, num, _256));
-	        },
-	    };
-	}
-	/**
-	 * If both bases are power of same number (like `2**8 <-> 2**64`),
-	 * there is a linear algorithm. For now we have implementation for power-of-two bases only.
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function radix2(bits, revPadding = false) {
-	    anumber(bits);
-	    if (bits <= 0 || bits > 32)
-	        throw new Error('radix2: bits should be in (0..32]');
-	    if (radix2carry(8, bits) > 32 || radix2carry(bits, 8) > 32)
-	        throw new Error('radix2: carry overflow');
-	    return {
-	        encode: (bytes) => {
-	            if (!isBytes(bytes))
-	                throw new Error('radix2.encode input should be Uint8Array');
-	            return convertRadix2(Array.from(bytes), 8, bits, !revPadding);
-	        },
-	        decode: (digits) => {
-	            anumArr('radix2.decode', digits);
-	            return Uint8Array.from(convertRadix2(digits, bits, 8, revPadding));
-	        },
-	    };
-	}
-	function unsafeWrapper(fn) {
-	    afn(fn);
-	    return function (...args) {
-	        try {
-	            return fn.apply(null, args);
-	        }
-	        catch (e) { }
-	    };
-	}
-	function checksum(len, fn) {
-	    anumber(len);
-	    afn(fn);
-	    return {
-	        encode(data) {
-	            if (!isBytes(data))
-	                throw new Error('checksum.encode: input should be Uint8Array');
-	            const sum = fn(data).slice(0, len);
-	            const res = new Uint8Array(data.length + len);
-	            res.set(data);
-	            res.set(sum, data.length);
-	            return res;
-	        },
-	        decode(data) {
-	            if (!isBytes(data))
-	                throw new Error('checksum.decode: input should be Uint8Array');
-	            const payload = data.slice(0, -len);
-	            const oldChecksum = data.slice(-len);
-	            const newChecksum = fn(payload).slice(0, len);
-	            for (let i = 0; i < len; i++)
-	                if (newChecksum[i] !== oldChecksum[i])
-	                    throw new Error('Invalid checksum');
-	            return payload;
-	        },
-	    };
-	}
-	// prettier-ignore
-	exports.utils = {
-	    alphabet, chain, checksum, convertRadix, convertRadix2, radix, radix2, join, padding,
-	};
-	// RFC 4648 aka RFC 3548
-	// ---------------------
-	/**
-	 * base16 encoding from RFC 4648.
-	 * @example
-	 * ```js
-	 * base16.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => '12AB'
-	 * ```
-	 */
-	exports.base16 = chain(radix2(4), alphabet('0123456789ABCDEF'), join(''));
-	/**
-	 * base32 encoding from RFC 4648. Has padding.
-	 * Use `base32nopad` for unpadded version.
-	 * Also check out `base32hex`, `base32hexnopad`, `base32crockford`.
-	 * @example
-	 * ```js
-	 * base32.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'CKVQ===='
-	 * base32.decode('CKVQ====');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base32 = chain(radix2(5), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'), padding(5), join(''));
-	/**
-	 * base32 encoding from RFC 4648. No padding.
-	 * Use `base32` for padded version.
-	 * Also check out `base32hex`, `base32hexnopad`, `base32crockford`.
-	 * @example
-	 * ```js
-	 * base32nopad.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'CKVQ'
-	 * base32nopad.decode('CKVQ');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base32nopad = chain(radix2(5), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'), join(''));
-	/**
-	 * base32 encoding from RFC 4648. Padded. Compared to ordinary `base32`, slightly different alphabet.
-	 * Use `base32hexnopad` for unpadded version.
-	 * @example
-	 * ```js
-	 * base32hex.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => '2ALG===='
-	 * base32hex.decode('2ALG====');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base32hex = chain(radix2(5), alphabet('0123456789ABCDEFGHIJKLMNOPQRSTUV'), padding(5), join(''));
-	/**
-	 * base32 encoding from RFC 4648. No padding. Compared to ordinary `base32`, slightly different alphabet.
-	 * Use `base32hex` for padded version.
-	 * @example
-	 * ```js
-	 * base32hexnopad.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => '2ALG'
-	 * base32hexnopad.decode('2ALG');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base32hexnopad = chain(radix2(5), alphabet('0123456789ABCDEFGHIJKLMNOPQRSTUV'), join(''));
-	/**
-	 * base32 encoding from RFC 4648. Doug Crockford's version.
-	 * https://www.crockford.com/base32.html
-	 * @example
-	 * ```js
-	 * base32crockford.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => '2ANG'
-	 * base32crockford.decode('2ANG');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base32crockford = chain(radix2(5), alphabet('0123456789ABCDEFGHJKMNPQRSTVWXYZ'), join(''), normalize((s) => s.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1')));
-	// Built-in base64 conversion https://caniuse.com/mdn-javascript_builtins_uint8array_frombase64
-	// prettier-ignore
-	const hasBase64Builtin = /* @__PURE__ */ (() => typeof Uint8Array.from([]).toBase64 === 'function' &&
-	    typeof Uint8Array.fromBase64 === 'function')();
-	const decodeBase64Builtin = (s, isUrl) => {
-	    astr('base64', s);
-	    const re = isUrl ? /^[A-Za-z0-9=_-]+$/ : /^[A-Za-z0-9=+/]+$/;
-	    const alphabet = isUrl ? 'base64url' : 'base64';
-	    if (s.length > 0 && !re.test(s))
-	        throw new Error('invalid base64');
-	    return Uint8Array.fromBase64(s, { alphabet, lastChunkHandling: 'strict' });
-	};
-	/**
-	 * base64 from RFC 4648. Padded.
-	 * Use `base64nopad` for unpadded version.
-	 * Also check out `base64url`, `base64urlnopad`.
-	 * Falls back to built-in function, when available.
-	 * @example
-	 * ```js
-	 * base64.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'Eqs='
-	 * base64.decode('Eqs=');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	// prettier-ignore
-	exports.base64 = hasBase64Builtin ? {
-	    encode(b) { abytes(b); return b.toBase64(); },
-	    decode(s) { return decodeBase64Builtin(s, false); },
-	} : chain(radix2(6), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'), padding(6), join(''));
-	/**
-	 * base64 from RFC 4648. No padding.
-	 * Use `base64` for padded version.
-	 * @example
-	 * ```js
-	 * base64nopad.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'Eqs'
-	 * base64nopad.decode('Eqs');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base64nopad = chain(radix2(6), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'), join(''));
-	/**
-	 * base64 from RFC 4648, using URL-safe alphabet. Padded.
-	 * Use `base64urlnopad` for unpadded version.
-	 * Falls back to built-in function, when available.
-	 * @example
-	 * ```js
-	 * base64url.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'Eqs='
-	 * base64url.decode('Eqs=');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	// prettier-ignore
-	exports.base64url = hasBase64Builtin ? {
-	    encode(b) { abytes(b); return b.toBase64({ alphabet: 'base64url' }); },
-	    decode(s) { return decodeBase64Builtin(s, true); },
-	} : chain(radix2(6), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'), padding(6), join(''));
-	/**
-	 * base64 from RFC 4648, using URL-safe alphabet. No padding.
-	 * Use `base64url` for padded version.
-	 * @example
-	 * ```js
-	 * base64urlnopad.encode(Uint8Array.from([0x12, 0xab]));
-	 * // => 'Eqs'
-	 * base64urlnopad.decode('Eqs');
-	 * // => Uint8Array.from([0x12, 0xab])
-	 * ```
-	 */
-	exports.base64urlnopad = chain(radix2(6), alphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'), join(''));
-	// base58 code
-	// -----------
-	const genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => chain(radix(58), alphabet(abc), join(''));
-	/**
-	 * base58: base64 without ambigous characters +, /, 0, O, I, l.
-	 * Quadratic (O(n^2)) - so, can't be used on large inputs.
-	 * @example
-	 * ```js
-	 * base58.decode('01abcdef');
-	 * // => '3UhJW'
-	 * ```
-	 */
-	exports.base58 = genBase58('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz');
-	/**
-	 * base58: flickr version. Check out `base58`.
-	 */
-	exports.base58flickr = genBase58('123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ');
-	/**
-	 * base58: XRP version. Check out `base58`.
-	 */
-	exports.base58xrp = genBase58('rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz');
-	// Data len (index) -> encoded block len
-	const XMR_BLOCK_LEN = [0, 2, 3, 5, 6, 7, 9, 10, 11];
-	/**
-	 * base58: XMR version. Check out `base58`.
-	 * Done in 8-byte blocks (which equals 11 chars in decoding). Last (non-full) block padded with '1' to size in XMR_BLOCK_LEN.
-	 * Block encoding significantly reduces quadratic complexity of base58.
-	 */
-	exports.base58xmr = {
-	    encode(data) {
-	        let res = '';
-	        for (let i = 0; i < data.length; i += 8) {
-	            const block = data.subarray(i, i + 8);
-	            res += exports.base58.encode(block).padStart(XMR_BLOCK_LEN[block.length], '1');
-	        }
-	        return res;
-	    },
-	    decode(str) {
-	        let res = [];
-	        for (let i = 0; i < str.length; i += 11) {
-	            const slice = str.slice(i, i + 11);
-	            const blockLen = XMR_BLOCK_LEN.indexOf(slice.length);
-	            const block = exports.base58.decode(slice);
-	            for (let j = 0; j < block.length - blockLen; j++) {
-	                if (block[j] !== 0)
-	                    throw new Error('base58xmr: wrong padding');
-	            }
-	            res = res.concat(Array.from(block.slice(block.length - blockLen)));
-	        }
-	        return Uint8Array.from(res);
-	    },
-	};
-	/**
-	 * Method, which creates base58check encoder.
-	 * Requires function, calculating sha256.
-	 */
-	const createBase58check = (sha256) => chain(checksum(4, (data) => sha256(sha256(data))), exports.base58);
-	exports.createBase58check = createBase58check;
-	/**
-	 * Use `createBase58check` instead.
-	 * @deprecated
-	 */
-	exports.base58check = exports.createBase58check;
-	const BECH_ALPHABET = chain(alphabet('qpzry9x8gf2tvdw0s3jn54khce6mua7l'), join(''));
-	const POLYMOD_GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-	function bech32Polymod(pre) {
-	    const b = pre >> 25;
-	    let chk = (pre & 0x1ffffff) << 5;
-	    for (let i = 0; i < POLYMOD_GENERATORS.length; i++) {
-	        if (((b >> i) & 1) === 1)
-	            chk ^= POLYMOD_GENERATORS[i];
-	    }
-	    return chk;
-	}
-	function bechChecksum(prefix, words, encodingConst = 1) {
-	    const len = prefix.length;
-	    let chk = 1;
-	    for (let i = 0; i < len; i++) {
-	        const c = prefix.charCodeAt(i);
-	        if (c < 33 || c > 126)
-	            throw new Error(`Invalid prefix (${prefix})`);
-	        chk = bech32Polymod(chk) ^ (c >> 5);
-	    }
-	    chk = bech32Polymod(chk);
-	    for (let i = 0; i < len; i++)
-	        chk = bech32Polymod(chk) ^ (prefix.charCodeAt(i) & 0x1f);
-	    for (let v of words)
-	        chk = bech32Polymod(chk) ^ v;
-	    for (let i = 0; i < 6; i++)
-	        chk = bech32Polymod(chk);
-	    chk ^= encodingConst;
-	    return BECH_ALPHABET.encode(convertRadix2([chk % powers[30]], 30, 5, false));
-	}
-	/**
-	 * @__NO_SIDE_EFFECTS__
-	 */
-	function genBech32(encoding) {
-	    const ENCODING_CONST = encoding === 'bech32' ? 1 : 0x2bc830a3;
-	    const _words = radix2(5);
-	    const fromWords = _words.decode;
-	    const toWords = _words.encode;
-	    const fromWordsUnsafe = unsafeWrapper(fromWords);
-	    function encode(prefix, words, limit = 90) {
-	        astr('bech32.encode prefix', prefix);
-	        if (isBytes(words))
-	            words = Array.from(words);
-	        anumArr('bech32.encode', words);
-	        const plen = prefix.length;
-	        if (plen === 0)
-	            throw new TypeError(`Invalid prefix length ${plen}`);
-	        const actualLength = plen + 7 + words.length;
-	        if (limit !== false && actualLength > limit)
-	            throw new TypeError(`Length ${actualLength} exceeds limit ${limit}`);
-	        const lowered = prefix.toLowerCase();
-	        const sum = bechChecksum(lowered, words, ENCODING_CONST);
-	        return `${lowered}1${BECH_ALPHABET.encode(words)}${sum}`;
-	    }
-	    function decode(str, limit = 90) {
-	        astr('bech32.decode input', str);
-	        const slen = str.length;
-	        if (slen < 8 || (limit !== false && slen > limit))
-	            throw new TypeError(`invalid string length: ${slen} (${str}). Expected (8..${limit})`);
-	        // don't allow mixed case
-	        const lowered = str.toLowerCase();
-	        if (str !== lowered && str !== str.toUpperCase())
-	            throw new Error(`String must be lowercase or uppercase`);
-	        const sepIndex = lowered.lastIndexOf('1');
-	        if (sepIndex === 0 || sepIndex === -1)
-	            throw new Error(`Letter "1" must be present between prefix and data only`);
-	        const prefix = lowered.slice(0, sepIndex);
-	        const data = lowered.slice(sepIndex + 1);
-	        if (data.length < 6)
-	            throw new Error('Data must be at least 6 characters long');
-	        const words = BECH_ALPHABET.decode(data).slice(0, -6);
-	        const sum = bechChecksum(prefix, words, ENCODING_CONST);
-	        if (!data.endsWith(sum))
-	            throw new Error(`Invalid checksum in ${str}: expected "${sum}"`);
-	        return { prefix, words };
-	    }
-	    const decodeUnsafe = unsafeWrapper(decode);
-	    function decodeToBytes(str) {
-	        const { prefix, words } = decode(str, false);
-	        return { prefix, words, bytes: fromWords(words) };
-	    }
-	    function encodeFromBytes(prefix, bytes) {
-	        return encode(prefix, toWords(bytes));
-	    }
-	    return {
-	        encode,
-	        decode,
-	        encodeFromBytes,
-	        decodeToBytes,
-	        decodeUnsafe,
-	        fromWords,
-	        fromWordsUnsafe,
-	        toWords,
-	    };
-	}
-	/**
-	 * bech32 from BIP 173. Operates on words.
-	 * For high-level, check out scure-btc-signer:
-	 * https://github.com/paulmillr/scure-btc-signer.
-	 */
-	exports.bech32 = genBech32('bech32');
-	/**
-	 * bech32m from BIP 350. Operates on words.
-	 * It was to mitigate `bech32` weaknesses.
-	 * For high-level, check out scure-btc-signer:
-	 * https://github.com/paulmillr/scure-btc-signer.
-	 */
-	exports.bech32m = genBech32('bech32m');
-	/**
-	 * UTF-8-to-byte decoder. Uses built-in TextDecoder / TextEncoder.
-	 * @example
-	 * ```js
-	 * const b = utf8.decode("hey"); // => new Uint8Array([ 104, 101, 121 ])
-	 * const str = utf8.encode(b); // "hey"
-	 * ```
-	 */
-	exports.utf8 = {
-	    encode: (data) => new TextDecoder().decode(data),
-	    decode: (str) => new TextEncoder().encode(str),
-	};
-	// Built-in hex conversion https://caniuse.com/mdn-javascript_builtins_uint8array_fromhex
-	// prettier-ignore
-	const hasHexBuiltin = /* @__PURE__ */ (() => typeof Uint8Array.from([]).toHex === 'function' &&
-	    typeof Uint8Array.fromHex === 'function')();
-	// prettier-ignore
-	const hexBuiltin = {
-	    encode(data) { abytes(data); return data.toHex(); },
-	    decode(s) { astr('hex', s); return Uint8Array.fromHex(s); },
-	};
-	/**
-	 * hex string decoder. Uses built-in function, when available.
-	 * @example
-	 * ```js
-	 * const b = hex.decode("0102ff"); // => new Uint8Array([ 1, 2, 255 ])
-	 * const str = hex.encode(b); // "0102ff"
-	 * ```
-	 */
-	exports.hex = hasHexBuiltin
-	    ? hexBuiltin
-	    : chain(radix2(4), alphabet('0123456789abcdef'), join(''), normalize((s) => {
-	        if (typeof s !== 'string' || s.length % 2 !== 0)
-	            throw new TypeError(`hex.decode: expected string, got ${typeof s} with length ${s.length}`);
-	        return s.toLowerCase();
-	    }));
-	// prettier-ignore
-	const CODERS = {
-	    utf8: exports.utf8, hex: exports.hex, base16: exports.base16, base32: exports.base32, base64: exports.base64, base64url: exports.base64url, base58: exports.base58, base58xmr: exports.base58xmr
-	};
-	const coderTypeError = 'Invalid encoding type. Available types: utf8, hex, base16, base32, base64, base64url, base58, base58xmr';
-	/** @deprecated */
-	const bytesToString = (type, bytes) => {
-	    if (typeof type !== 'string' || !CODERS.hasOwnProperty(type))
-	        throw new TypeError(coderTypeError);
-	    if (!isBytes(bytes))
-	        throw new TypeError('bytesToString() expects Uint8Array');
-	    return CODERS[type].encode(bytes);
-	};
-	exports.bytesToString = bytesToString;
-	/** @deprecated */
-	exports.str = exports.bytesToString; // as in python, but for bytes only
-	/** @deprecated */
-	const stringToBytes = (type, str) => {
-	    if (!CODERS.hasOwnProperty(type))
-	        throw new TypeError(coderTypeError);
-	    if (typeof str !== 'string')
-	        throw new TypeError('stringToBytes() expects string');
-	    return CODERS[type].decode(str);
-	};
-	exports.stringToBytes = stringToBytes;
-	/** @deprecated */
-	exports.bytes = exports.stringToBytes;
-	
-} (lib$1));
-
-var __defProp$9 = Object.defineProperty;
-var __getOwnPropDesc$9 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$9 = Object.getOwnPropertyNames;
-var __hasOwnProp$9 = Object.prototype.hasOwnProperty;
-var __export$9 = (target, all) => {
-  for (var name in all)
-    __defProp$9(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$9 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$9(from))
-      if (!__hasOwnProp$9.call(to, key) && key !== except)
-        __defProp$9(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$9(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$9 = (mod) => __copyProps$9(__defProp$9({}, "__esModule", { value: true }), mod);
-var format_exports = {};
-__export$9(format_exports, {
-  NEAR_NOMINATION: () => NEAR_NOMINATION,
-  NEAR_NOMINATION_EXP: () => NEAR_NOMINATION_EXP,
-  baseDecode: () => baseDecode,
-  baseEncode: () => baseEncode,
-  formatNearAmount: () => formatNearAmount,
-  parseNearAmount: () => parseNearAmount
-});
-var format = __toCommonJS$9(format_exports);
-var import_base = lib$1;
-const NEAR_NOMINATION_EXP = 24;
-const NEAR_NOMINATION = 10n ** BigInt(NEAR_NOMINATION_EXP);
-const ROUNDING_OFFSETS = [];
-const BN10 = 10n;
-for (let i = 0, offset = 5n; i < NEAR_NOMINATION_EXP; i++, offset = offset * BN10) {
-  ROUNDING_OFFSETS[i] = offset;
+/*! scure-base - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+function isBytes$2(a) {
+    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
 }
-function formatNearAmount(balance, fracDigits = NEAR_NOMINATION_EXP) {
-  let balanceBN = BigInt(balance);
-  if (fracDigits !== NEAR_NOMINATION_EXP) {
-    const roundingExp = NEAR_NOMINATION_EXP - fracDigits - 1;
-    if (roundingExp > 0) {
-      balanceBN += ROUNDING_OFFSETS[roundingExp];
+function isArrayOf(isString, arr) {
+    if (!Array.isArray(arr))
+        return false;
+    if (arr.length === 0)
+        return true;
+    if (isString) {
+        return arr.every((item) => typeof item === 'string');
     }
-  }
-  balance = balanceBN.toString();
-  const wholeStr = balance.substring(0, balance.length - NEAR_NOMINATION_EXP) || "0";
-  const fractionStr = balance.substring(balance.length - NEAR_NOMINATION_EXP).padStart(NEAR_NOMINATION_EXP, "0").substring(0, fracDigits);
-  return trimTrailingZeroes(`${formatWithCommas(wholeStr)}.${fractionStr}`);
+    else {
+        return arr.every((item) => Number.isSafeInteger(item));
+    }
 }
-function parseNearAmount(amt) {
-  if (!amt) {
-    return null;
-  }
-  amt = cleanupAmount(amt);
-  const split = amt.split(".");
-  const wholePart = split[0];
-  const fracPart = split[1] || "";
-  if (split.length > 2 || fracPart.length > NEAR_NOMINATION_EXP) {
-    throw new Error(`Cannot parse '${amt}' as NEAR amount`);
-  }
-  return trimLeadingZeroes(
-    wholePart + fracPart.padEnd(NEAR_NOMINATION_EXP, "0")
-  );
+function astr(label, input) {
+    if (typeof input !== 'string')
+        throw new Error(`${label}: string expected`);
+    return true;
 }
-function cleanupAmount(amount) {
-  return amount.replace(/,/g, "").trim();
+function anumber(n) {
+    if (!Number.isSafeInteger(n))
+        throw new Error(`invalid integer: ${n}`);
 }
-function trimTrailingZeroes(value) {
-  return value.replace(/\.?0*$/, "");
+function aArr(input) {
+    if (!Array.isArray(input))
+        throw new Error('array expected');
 }
-function trimLeadingZeroes(value) {
-  value = value.replace(/^0+/, "");
-  if (value === "") {
-    return "0";
-  }
-  return value;
+function astrArr(label, input) {
+    if (!isArrayOf(true, input))
+        throw new Error(`${label}: array of strings expected`);
 }
-function formatWithCommas(value) {
-  const pattern = /(-?\d+)(\d{3})/;
-  while (pattern.test(value)) {
-    value = value.replace(pattern, "$1,$2");
-  }
-  return value;
+function anumArr(label, input) {
+    if (!isArrayOf(false, input))
+        throw new Error(`${label}: array of numbers expected`);
 }
+/**
+ * @__NO_SIDE_EFFECTS__
+ */
+function chain(...args) {
+    const id = (a) => a;
+    // Wrap call in closure so JIT can inline calls
+    const wrap = (a, b) => (c) => a(b(c));
+    // Construct chain of args[-1].encode(args[-2].encode([...]))
+    const encode = args.map((x) => x.encode).reduceRight(wrap, id);
+    // Construct chain of args[0].decode(args[1].decode(...))
+    const decode = args.map((x) => x.decode).reduce(wrap, id);
+    return { encode, decode };
+}
+/**
+ * Encodes integer radix representation to array of strings using alphabet and back.
+ * Could also be array of strings.
+ * @__NO_SIDE_EFFECTS__
+ */
+function alphabet(letters) {
+    // mapping 1 to "b"
+    const lettersA = typeof letters === 'string' ? letters.split('') : letters;
+    const len = lettersA.length;
+    astrArr('alphabet', lettersA);
+    // mapping "b" to 1
+    const indexes = new Map(lettersA.map((l, i) => [l, i]));
+    return {
+        encode: (digits) => {
+            aArr(digits);
+            return digits.map((i) => {
+                if (!Number.isSafeInteger(i) || i < 0 || i >= len)
+                    throw new Error(`alphabet.encode: digit index outside alphabet "${i}". Allowed: ${letters}`);
+                return lettersA[i];
+            });
+        },
+        decode: (input) => {
+            aArr(input);
+            return input.map((letter) => {
+                astr('alphabet.decode', letter);
+                const i = indexes.get(letter);
+                if (i === undefined)
+                    throw new Error(`Unknown letter: "${letter}". Allowed: ${letters}`);
+                return i;
+            });
+        },
+    };
+}
+/**
+ * @__NO_SIDE_EFFECTS__
+ */
+function join(separator = '') {
+    astr('join', separator);
+    return {
+        encode: (from) => {
+            astrArr('join.decode', from);
+            return from.join(separator);
+        },
+        decode: (to) => {
+            astr('join.decode', to);
+            return to.split(separator);
+        },
+    };
+}
+/**
+ * Slow: O(n^2) time complexity
+ */
+function convertRadix(data, from, to) {
+    // base 1 is impossible
+    if (from < 2)
+        throw new Error(`convertRadix: invalid from=${from}, base cannot be less than 2`);
+    if (to < 2)
+        throw new Error(`convertRadix: invalid to=${to}, base cannot be less than 2`);
+    aArr(data);
+    if (!data.length)
+        return [];
+    let pos = 0;
+    const res = [];
+    const digits = Array.from(data, (d) => {
+        anumber(d);
+        if (d < 0 || d >= from)
+            throw new Error(`invalid integer: ${d}`);
+        return d;
+    });
+    const dlen = digits.length;
+    while (true) {
+        let carry = 0;
+        let done = true;
+        for (let i = pos; i < dlen; i++) {
+            const digit = digits[i];
+            const fromCarry = from * carry;
+            const digitBase = fromCarry + digit;
+            if (!Number.isSafeInteger(digitBase) ||
+                fromCarry / from !== carry ||
+                digitBase - digit !== fromCarry) {
+                throw new Error('convertRadix: carry overflow');
+            }
+            const div = digitBase / to;
+            carry = digitBase % to;
+            const rounded = Math.floor(div);
+            digits[i] = rounded;
+            if (!Number.isSafeInteger(rounded) || rounded * to + carry !== digitBase)
+                throw new Error('convertRadix: carry overflow');
+            if (!done)
+                continue;
+            else if (!rounded)
+                pos = i;
+            else
+                done = false;
+        }
+        res.push(carry);
+        if (done)
+            break;
+    }
+    for (let i = 0; i < data.length - 1 && data[i] === 0; i++)
+        res.push(0);
+    return res.reverse();
+}
+/**
+ * @__NO_SIDE_EFFECTS__
+ */
+function radix(num) {
+    anumber(num);
+    const _256 = 2 ** 8;
+    return {
+        encode: (bytes) => {
+            if (!isBytes$2(bytes))
+                throw new Error('radix.encode input should be Uint8Array');
+            return convertRadix(Array.from(bytes), _256, num);
+        },
+        decode: (digits) => {
+            anumArr('radix.decode', digits);
+            return Uint8Array.from(convertRadix(digits, num, _256));
+        },
+    };
+}
+// base58 code
+// -----------
+const genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => chain(radix(58), alphabet(abc), join(''));
+/**
+ * base58: base64 without ambigous characters +, /, 0, O, I, l.
+ * Quadratic (O(n^2)) - so, can't be used on large inputs.
+ * @example
+ * ```js
+ * base58.decode('01abcdef');
+ * // => '3UhJW'
+ * ```
+ */
+const base58 = genBase58('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz');
+
+const NEAR_NOMINATION_EXP = 24;
+10n ** BigInt(NEAR_NOMINATION_EXP);
 function baseEncode(value) {
   if (typeof value === "string") {
     const bytes = [];
@@ -2176,1801 +991,17 @@ function baseEncode(value) {
     }
     value = new Uint8Array(bytes);
   }
-  return import_base.base58.encode(value);
+  return base58.encode(value);
 }
 function baseDecode(value) {
-  return import_base.base58.decode(value);
+  return base58.decode(value);
 }
-
-var schema$1 = {
-	AccessKeyNotFound: {
-		name: "AccessKeyNotFound",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			public_key: ""
-		}
-	},
-	AccountAlreadyExists: {
-		name: "AccountAlreadyExists",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	AccountDoesNotExist: {
-		name: "AccountDoesNotExist",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	ActionError: {
-		name: "ActionError",
-		subtypes: [
-			"AccountAlreadyExists",
-			"AccountDoesNotExist",
-			"CreateAccountOnlyByRegistrar",
-			"CreateAccountNotAllowed",
-			"ActorNoPermission",
-			"DeleteKeyDoesNotExist",
-			"AddKeyAlreadyExists",
-			"DeleteAccountStaking",
-			"LackBalanceForState",
-			"TriesToUnstake",
-			"TriesToStake",
-			"InsufficientStake",
-			"FunctionCallError",
-			"NewReceiptValidationError",
-			"OnlyImplicitAccountCreationAllowed",
-			"DeleteAccountWithLargeState",
-			"DelegateActionInvalidSignature",
-			"DelegateActionSenderDoesNotMatchTxReceiver",
-			"DelegateActionExpired",
-			"DelegateActionAccessKeyError",
-			"DelegateActionInvalidNonce",
-			"DelegateActionNonceTooLarge"
-		],
-		props: {
-			index: ""
-		}
-	},
-	ActionsValidationError: {
-		name: "ActionsValidationError",
-		subtypes: [
-			"DeleteActionMustBeFinal",
-			"TotalPrepaidGasExceeded",
-			"TotalNumberOfActionsExceeded",
-			"AddKeyMethodNamesNumberOfBytesExceeded",
-			"AddKeyMethodNameLengthExceeded",
-			"IntegerOverflow",
-			"InvalidAccountId",
-			"ContractSizeExceeded",
-			"FunctionCallMethodNameLengthExceeded",
-			"FunctionCallArgumentsLengthExceeded",
-			"UnsuitableStakingKey",
-			"FunctionCallZeroAttachedGas",
-			"DelegateActionMustBeOnlyOne",
-			"UnsupportedProtocolFeature"
-		],
-		props: {
-		}
-	},
-	ActorNoPermission: {
-		name: "ActorNoPermission",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			actor_id: ""
-		}
-	},
-	AddKeyAlreadyExists: {
-		name: "AddKeyAlreadyExists",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			public_key: ""
-		}
-	},
-	AddKeyMethodNameLengthExceeded: {
-		name: "AddKeyMethodNameLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	AddKeyMethodNamesNumberOfBytesExceeded: {
-		name: "AddKeyMethodNamesNumberOfBytesExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			total_number_of_bytes: ""
-		}
-	},
-	AltBn128InvalidInput: {
-		name: "AltBn128InvalidInput",
-		subtypes: [
-		],
-		props: {
-			msg: ""
-		}
-	},
-	BadUTF16: {
-		name: "BadUTF16",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	BadUTF8: {
-		name: "BadUTF8",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	BalanceExceeded: {
-		name: "BalanceExceeded",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	BalanceMismatchError: {
-		name: "BalanceMismatchError",
-		subtypes: [
-		],
-		props: {
-			final_accounts_balance: "",
-			final_postponed_receipts_balance: "",
-			forwarded_buffered_receipts_balance: "",
-			incoming_receipts_balance: "",
-			incoming_validator_rewards: "",
-			initial_accounts_balance: "",
-			initial_postponed_receipts_balance: "",
-			new_buffered_receipts_balance: "",
-			new_delayed_receipts_balance: "",
-			other_burnt_amount: "",
-			outgoing_receipts_balance: "",
-			processed_delayed_receipts_balance: "",
-			slashed_burnt_amount: "",
-			tx_burnt_amount: ""
-		}
-	},
-	CallIndirectOOB: {
-		name: "CallIndirectOOB",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	CannotAppendActionToJointPromise: {
-		name: "CannotAppendActionToJointPromise",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	CannotReturnJointPromise: {
-		name: "CannotReturnJointPromise",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	CodeDoesNotExist: {
-		name: "CodeDoesNotExist",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	CompilationError: {
-		name: "CompilationError",
-		subtypes: [
-			"CodeDoesNotExist",
-			"PrepareError",
-			"WasmerCompileError"
-		],
-		props: {
-		}
-	},
-	ContractSizeExceeded: {
-		name: "ContractSizeExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			size: ""
-		}
-	},
-	CostOverflow: {
-		name: "CostOverflow",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	CreateAccountNotAllowed: {
-		name: "CreateAccountNotAllowed",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			predecessor_id: ""
-		}
-	},
-	CreateAccountOnlyByRegistrar: {
-		name: "CreateAccountOnlyByRegistrar",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			predecessor_id: "",
-			registrar_account_id: ""
-		}
-	},
-	DelegateActionExpired: {
-		name: "DelegateActionExpired",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	DelegateActionInvalidNonce: {
-		name: "DelegateActionInvalidNonce",
-		subtypes: [
-		],
-		props: {
-			ak_nonce: "",
-			delegate_nonce: ""
-		}
-	},
-	DelegateActionInvalidSignature: {
-		name: "DelegateActionInvalidSignature",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	DelegateActionMustBeOnlyOne: {
-		name: "DelegateActionMustBeOnlyOne",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	DelegateActionNonceTooLarge: {
-		name: "DelegateActionNonceTooLarge",
-		subtypes: [
-		],
-		props: {
-			delegate_nonce: "",
-			upper_bound: ""
-		}
-	},
-	DelegateActionSenderDoesNotMatchTxReceiver: {
-		name: "DelegateActionSenderDoesNotMatchTxReceiver",
-		subtypes: [
-		],
-		props: {
-			receiver_id: "",
-			sender_id: ""
-		}
-	},
-	DeleteAccountStaking: {
-		name: "DeleteAccountStaking",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	DeleteAccountWithLargeState: {
-		name: "DeleteAccountWithLargeState",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	DeleteActionMustBeFinal: {
-		name: "DeleteActionMustBeFinal",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	DeleteKeyDoesNotExist: {
-		name: "DeleteKeyDoesNotExist",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			public_key: ""
-		}
-	},
-	DepositWithFunctionCall: {
-		name: "DepositWithFunctionCall",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	Deprecated: {
-		name: "Deprecated",
-		subtypes: [
-		],
-		props: {
-			method_name: ""
-		}
-	},
-	Deserialization: {
-		name: "Deserialization",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	ECRecoverError: {
-		name: "ECRecoverError",
-		subtypes: [
-		],
-		props: {
-			msg: ""
-		}
-	},
-	Ed25519VerifyInvalidInput: {
-		name: "Ed25519VerifyInvalidInput",
-		subtypes: [
-		],
-		props: {
-			msg: ""
-		}
-	},
-	EmptyMethodName: {
-		name: "EmptyMethodName",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	Expired: {
-		name: "Expired",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	FunctionCallArgumentsLengthExceeded: {
-		name: "FunctionCallArgumentsLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	FunctionCallMethodNameLengthExceeded: {
-		name: "FunctionCallMethodNameLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	FunctionCallZeroAttachedGas: {
-		name: "FunctionCallZeroAttachedGas",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	GasExceeded: {
-		name: "GasExceeded",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	GasInstrumentation: {
-		name: "GasInstrumentation",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	GasLimitExceeded: {
-		name: "GasLimitExceeded",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	GenericTrap: {
-		name: "GenericTrap",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	GuestPanic: {
-		name: "GuestPanic",
-		subtypes: [
-		],
-		props: {
-			panic_msg: ""
-		}
-	},
-	HostError: {
-		name: "HostError",
-		subtypes: [
-			"BadUTF16",
-			"BadUTF8",
-			"GasExceeded",
-			"GasLimitExceeded",
-			"BalanceExceeded",
-			"EmptyMethodName",
-			"GuestPanic",
-			"IntegerOverflow",
-			"InvalidPromiseIndex",
-			"CannotAppendActionToJointPromise",
-			"CannotReturnJointPromise",
-			"InvalidPromiseResultIndex",
-			"InvalidRegisterId",
-			"IteratorWasInvalidated",
-			"MemoryAccessViolation",
-			"InvalidReceiptIndex",
-			"InvalidIteratorIndex",
-			"InvalidAccountId",
-			"InvalidMethodName",
-			"InvalidPublicKey",
-			"ProhibitedInView",
-			"NumberOfLogsExceeded",
-			"KeyLengthExceeded",
-			"ValueLengthExceeded",
-			"TotalLogLengthExceeded",
-			"NumberPromisesExceeded",
-			"NumberInputDataDependenciesExceeded",
-			"ReturnedValueLengthExceeded",
-			"ContractSizeExceeded",
-			"Deprecated",
-			"ECRecoverError",
-			"AltBn128InvalidInput",
-			"Ed25519VerifyInvalidInput"
-		],
-		props: {
-		}
-	},
-	IllegalArithmetic: {
-		name: "IllegalArithmetic",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	IncorrectCallIndirectSignature: {
-		name: "IncorrectCallIndirectSignature",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	IndirectCallToNull: {
-		name: "IndirectCallToNull",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	Instantiate: {
-		name: "Instantiate",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InsufficientStake: {
-		name: "InsufficientStake",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			minimum_stake: "",
-			stake: ""
-		}
-	},
-	IntegerOverflow: {
-		name: "IntegerOverflow",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InternalMemoryDeclared: {
-		name: "InternalMemoryDeclared",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidAccessKeyError: {
-		name: "InvalidAccessKeyError",
-		subtypes: [
-			"AccessKeyNotFound",
-			"ReceiverMismatch",
-			"MethodNameMismatch",
-			"RequiresFullAccess",
-			"NotEnoughAllowance",
-			"DepositWithFunctionCall"
-		],
-		props: {
-		}
-	},
-	InvalidAccountId: {
-		name: "InvalidAccountId",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidChain: {
-		name: "InvalidChain",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidDataReceiverId: {
-		name: "InvalidDataReceiverId",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	InvalidIteratorIndex: {
-		name: "InvalidIteratorIndex",
-		subtypes: [
-		],
-		props: {
-			iterator_index: ""
-		}
-	},
-	InvalidMethodName: {
-		name: "InvalidMethodName",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidNonce: {
-		name: "InvalidNonce",
-		subtypes: [
-		],
-		props: {
-			ak_nonce: "",
-			tx_nonce: ""
-		}
-	},
-	InvalidPredecessorId: {
-		name: "InvalidPredecessorId",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	InvalidPromiseIndex: {
-		name: "InvalidPromiseIndex",
-		subtypes: [
-		],
-		props: {
-			promise_idx: ""
-		}
-	},
-	InvalidPromiseResultIndex: {
-		name: "InvalidPromiseResultIndex",
-		subtypes: [
-		],
-		props: {
-			result_idx: ""
-		}
-	},
-	InvalidPublicKey: {
-		name: "InvalidPublicKey",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidReceiptIndex: {
-		name: "InvalidReceiptIndex",
-		subtypes: [
-		],
-		props: {
-			receipt_index: ""
-		}
-	},
-	InvalidReceiverId: {
-		name: "InvalidReceiverId",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	InvalidRegisterId: {
-		name: "InvalidRegisterId",
-		subtypes: [
-		],
-		props: {
-			register_id: ""
-		}
-	},
-	InvalidSignature: {
-		name: "InvalidSignature",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	InvalidSignerId: {
-		name: "InvalidSignerId",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	InvalidTxError: {
-		name: "InvalidTxError",
-		subtypes: [
-			"InvalidAccessKeyError",
-			"InvalidSignerId",
-			"SignerDoesNotExist",
-			"InvalidNonce",
-			"NonceTooLarge",
-			"InvalidReceiverId",
-			"InvalidSignature",
-			"NotEnoughBalance",
-			"LackBalanceForState",
-			"CostOverflow",
-			"InvalidChain",
-			"Expired",
-			"ActionsValidation",
-			"TransactionSizeExceeded",
-			"StorageError",
-			"ShardCongested",
-			"ShardStuck"
-		],
-		props: {
-		}
-	},
-	IteratorWasInvalidated: {
-		name: "IteratorWasInvalidated",
-		subtypes: [
-		],
-		props: {
-			iterator_index: ""
-		}
-	},
-	KeyLengthExceeded: {
-		name: "KeyLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	LackBalanceForState: {
-		name: "LackBalanceForState",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			amount: ""
-		}
-	},
-	Memory: {
-		name: "Memory",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MemoryAccessViolation: {
-		name: "MemoryAccessViolation",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MemoryOutOfBounds: {
-		name: "MemoryOutOfBounds",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MethodEmptyName: {
-		name: "MethodEmptyName",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MethodInvalidSignature: {
-		name: "MethodInvalidSignature",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MethodNameMismatch: {
-		name: "MethodNameMismatch",
-		subtypes: [
-		],
-		props: {
-			method_name: ""
-		}
-	},
-	MethodNotFound: {
-		name: "MethodNotFound",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	MethodResolveError: {
-		name: "MethodResolveError",
-		subtypes: [
-			"MethodEmptyName",
-			"MethodNotFound",
-			"MethodInvalidSignature"
-		],
-		props: {
-		}
-	},
-	MisalignedAtomicAccess: {
-		name: "MisalignedAtomicAccess",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	NonceTooLarge: {
-		name: "NonceTooLarge",
-		subtypes: [
-		],
-		props: {
-			tx_nonce: "",
-			upper_bound: ""
-		}
-	},
-	NotEnoughAllowance: {
-		name: "NotEnoughAllowance",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			allowance: "",
-			cost: "",
-			public_key: ""
-		}
-	},
-	NotEnoughBalance: {
-		name: "NotEnoughBalance",
-		subtypes: [
-		],
-		props: {
-			balance: "",
-			cost: "",
-			signer_id: ""
-		}
-	},
-	NumberInputDataDependenciesExceeded: {
-		name: "NumberInputDataDependenciesExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			number_of_input_data_dependencies: ""
-		}
-	},
-	NumberOfLogsExceeded: {
-		name: "NumberOfLogsExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: ""
-		}
-	},
-	NumberPromisesExceeded: {
-		name: "NumberPromisesExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			number_of_promises: ""
-		}
-	},
-	OnlyImplicitAccountCreationAllowed: {
-		name: "OnlyImplicitAccountCreationAllowed",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	PrepareError: {
-		name: "PrepareError",
-		subtypes: [
-			"Serialization",
-			"Deserialization",
-			"InternalMemoryDeclared",
-			"GasInstrumentation",
-			"StackHeightInstrumentation",
-			"Instantiate",
-			"Memory",
-			"TooManyFunctions",
-			"TooManyLocals"
-		],
-		props: {
-		}
-	},
-	ProhibitedInView: {
-		name: "ProhibitedInView",
-		subtypes: [
-		],
-		props: {
-			method_name: ""
-		}
-	},
-	ReceiptSizeExceeded: {
-		name: "ReceiptSizeExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			size: ""
-		}
-	},
-	ReceiptValidationError: {
-		name: "ReceiptValidationError",
-		subtypes: [
-			"InvalidPredecessorId",
-			"InvalidReceiverId",
-			"InvalidSignerId",
-			"InvalidDataReceiverId",
-			"ReturnedValueLengthExceeded",
-			"NumberInputDataDependenciesExceeded",
-			"ActionsValidation",
-			"ReceiptSizeExceeded"
-		],
-		props: {
-		}
-	},
-	ReceiverMismatch: {
-		name: "ReceiverMismatch",
-		subtypes: [
-		],
-		props: {
-			ak_receiver: "",
-			tx_receiver: ""
-		}
-	},
-	RequiresFullAccess: {
-		name: "RequiresFullAccess",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	ReturnedValueLengthExceeded: {
-		name: "ReturnedValueLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	Serialization: {
-		name: "Serialization",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	ShardCongested: {
-		name: "ShardCongested",
-		subtypes: [
-		],
-		props: {
-			congestion_level: "",
-			shard_id: ""
-		}
-	},
-	ShardStuck: {
-		name: "ShardStuck",
-		subtypes: [
-		],
-		props: {
-			missed_chunks: "",
-			shard_id: ""
-		}
-	},
-	SignerDoesNotExist: {
-		name: "SignerDoesNotExist",
-		subtypes: [
-		],
-		props: {
-			signer_id: ""
-		}
-	},
-	StackHeightInstrumentation: {
-		name: "StackHeightInstrumentation",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	StackOverflow: {
-		name: "StackOverflow",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	TooManyFunctions: {
-		name: "TooManyFunctions",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	TooManyLocals: {
-		name: "TooManyLocals",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	TotalLogLengthExceeded: {
-		name: "TotalLogLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	TotalNumberOfActionsExceeded: {
-		name: "TotalNumberOfActionsExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			total_number_of_actions: ""
-		}
-	},
-	TotalPrepaidGasExceeded: {
-		name: "TotalPrepaidGasExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			total_prepaid_gas: ""
-		}
-	},
-	TransactionSizeExceeded: {
-		name: "TransactionSizeExceeded",
-		subtypes: [
-		],
-		props: {
-			limit: "",
-			size: ""
-		}
-	},
-	TriesToStake: {
-		name: "TriesToStake",
-		subtypes: [
-		],
-		props: {
-			account_id: "",
-			balance: "",
-			locked: "",
-			stake: ""
-		}
-	},
-	TriesToUnstake: {
-		name: "TriesToUnstake",
-		subtypes: [
-		],
-		props: {
-			account_id: ""
-		}
-	},
-	TxExecutionError: {
-		name: "TxExecutionError",
-		subtypes: [
-			"ActionError",
-			"InvalidTxError"
-		],
-		props: {
-		}
-	},
-	Unreachable: {
-		name: "Unreachable",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	UnsuitableStakingKey: {
-		name: "UnsuitableStakingKey",
-		subtypes: [
-		],
-		props: {
-			public_key: ""
-		}
-	},
-	UnsupportedProtocolFeature: {
-		name: "UnsupportedProtocolFeature",
-		subtypes: [
-		],
-		props: {
-			protocol_feature: "",
-			version: ""
-		}
-	},
-	ValueLengthExceeded: {
-		name: "ValueLengthExceeded",
-		subtypes: [
-		],
-		props: {
-			length: "",
-			limit: ""
-		}
-	},
-	WasmTrap: {
-		name: "WasmTrap",
-		subtypes: [
-			"Unreachable",
-			"IncorrectCallIndirectSignature",
-			"MemoryOutOfBounds",
-			"CallIndirectOOB",
-			"IllegalArithmetic",
-			"MisalignedAtomicAccess",
-			"IndirectCallToNull",
-			"StackOverflow",
-			"GenericTrap"
-		],
-		props: {
-		}
-	},
-	WasmerCompileError: {
-		name: "WasmerCompileError",
-		subtypes: [
-		],
-		props: {
-			msg: ""
-		}
-	},
-	Closed: {
-		name: "Closed",
-		subtypes: [
-		],
-		props: {
-		}
-	},
-	ServerError: {
-		name: "ServerError",
-		subtypes: [
-			"TxExecutionError",
-			"Timeout",
-			"Closed"
-		],
-		props: {
-		}
-	},
-	Timeout: {
-		name: "Timeout",
-		subtypes: [
-		],
-		props: {
-		}
-	}
-};
-var require$$4 = {
-	schema: schema$1
-};
-
-var __create$1 = Object.create;
-var __defProp$8 = Object.defineProperty;
-var __getOwnPropDesc$8 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$8 = Object.getOwnPropertyNames;
-var __getProtoOf$1 = Object.getPrototypeOf;
-var __hasOwnProp$8 = Object.prototype.hasOwnProperty;
-var __export$8 = (target, all) => {
-  for (var name in all)
-    __defProp$8(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$8 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$8(from))
-      if (!__hasOwnProp$8.call(to, key) && key !== except)
-        __defProp$8(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$8(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM$1 = (mod, isNodeMode, target) => (target = mod != null ? __create$1(__getProtoOf$1(mod)) : {}, __copyProps$8(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  __defProp$8(target, "default", { value: mod, enumerable: true }) ,
-  mod
-));
-var __toCommonJS$8 = (mod) => __copyProps$8(__defProp$8({}, "__esModule", { value: true }), mod);
-var rpc_errors_exports = {};
-__export$8(rpc_errors_exports, {
-  ServerError: () => ServerError,
-  formatError: () => formatError,
-  getErrorTypeFromErrorMessage: () => getErrorTypeFromErrorMessage,
-  parseResultError: () => parseResultError,
-  parseRpcError: () => parseRpcError
-});
-var rpc_errors = __toCommonJS$8(rpc_errors_exports);
-var import_types = commonjsExports$1;
-var import_mustache = __toESM$1(mustacheExports);
-var import_format = format;
-var import_errors$2 = errors$3;
-var import_rpc_error_schema = __toESM$1(require$$4);
-const mustacheHelpers = {
-  formatNear: () => (n, render) => (0, import_format.formatNearAmount)(render(n))
-};
-class ServerError extends import_types.TypedError {
-}
-class ServerTransactionError extends ServerError {
-  transaction_outcome;
-}
-function parseRpcError(errorObj) {
-  const result = {};
-  const errorClassName = walkSubtype(errorObj, import_rpc_error_schema.default.schema, result, "");
-  const error = new ServerError(formatError(errorClassName, result), errorClassName);
-  Object.assign(error, result);
-  return error;
-}
-function parseResultError(result) {
-  const server_error = parseRpcError(result.status.Failure);
-  const server_tx_error = new ServerTransactionError();
-  Object.assign(server_tx_error, server_error);
-  server_tx_error.type = server_error.type;
-  server_tx_error.message = server_error.message;
-  server_tx_error.transaction_outcome = result.transaction_outcome;
-  return server_tx_error;
-}
-function formatError(errorClassName, errorData) {
-  if (typeof import_errors$2.ErrorMessages[errorClassName] === "string") {
-    return import_mustache.default.render(import_errors$2.ErrorMessages[errorClassName], {
-      ...errorData,
-      ...mustacheHelpers
-    });
-  }
-  return JSON.stringify(errorData);
-}
-function walkSubtype(errorObj, schema2, result, typeName) {
-  let error;
-  let type;
-  let errorTypeName;
-  for (const errorName in schema2) {
-    if (isString(errorObj[errorName])) {
-      return errorObj[errorName];
-    }
-    if (isObject(errorObj[errorName])) {
-      error = errorObj[errorName];
-      type = schema2[errorName];
-      errorTypeName = errorName;
-    } else if (isObject(errorObj.kind) && isObject(errorObj.kind[errorName])) {
-      error = errorObj.kind[errorName];
-      type = schema2[errorName];
-      errorTypeName = errorName;
-    } else {
-      continue;
-    }
-  }
-  if (error && type) {
-    for (const prop of Object.keys(type.props)) {
-      result[prop] = error[prop];
-    }
-    return walkSubtype(error, schema2, result, errorTypeName);
-  } else {
-    result.kind = errorObj;
-    return typeName;
-  }
-}
-function getErrorTypeFromErrorMessage(errorMessage, errorType) {
-  switch (true) {
-    case /^account .*? does not exist while viewing$/.test(errorMessage):
-      return "AccountDoesNotExist";
-    case /^Account .*? doesn't exist$/.test(errorMessage):
-      return "AccountDoesNotExist";
-    case /^access key .*? does not exist while viewing$/.test(errorMessage):
-      return "AccessKeyDoesNotExist";
-    case /wasm execution failed with error: FunctionCallError\(CompilationError\(CodeDoesNotExist/.test(errorMessage):
-      return "CodeDoesNotExist";
-    case /wasm execution failed with error: CompilationError\(CodeDoesNotExist/.test(errorMessage):
-      return "CodeDoesNotExist";
-    case /wasm execution failed with error: FunctionCallError\(MethodResolveError\(MethodNotFound/.test(errorMessage):
-      return "MethodNotFound";
-    case /wasm execution failed with error: MethodResolveError\(MethodNotFound/.test(errorMessage):
-      return "MethodNotFound";
-    case /Transaction nonce \d+ must be larger than nonce of the used access key \d+/.test(errorMessage):
-      return "InvalidNonce";
-    default:
-      return errorType;
-  }
-}
-function isObject(n) {
-  return Object.prototype.toString.call(n) === "[object Object]";
-}
-function isString(n) {
-  return Object.prototype.toString.call(n) === "[object String]";
-}
-
-var __defProp$7 = Object.defineProperty;
-var __getOwnPropDesc$7 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$7 = Object.getOwnPropertyNames;
-var __hasOwnProp$7 = Object.prototype.hasOwnProperty;
-var __export$7 = (target, all) => {
-  for (var name in all)
-    __defProp$7(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$7 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$7(from))
-      if (!__hasOwnProp$7.call(to, key) && key !== except)
-        __defProp$7(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$7(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$7 = (mod) => __copyProps$7(__defProp$7({}, "__esModule", { value: true }), mod);
-var errors_exports = {};
-__export$7(errors_exports, {
-  ErrorMessages: () => import_errors$1.ErrorMessages,
-  ServerError: () => import_rpc_errors.ServerError,
-  formatError: () => import_rpc_errors.formatError,
-  getErrorTypeFromErrorMessage: () => import_rpc_errors.getErrorTypeFromErrorMessage,
-  parseResultError: () => import_rpc_errors.parseResultError,
-  parseRpcError: () => import_rpc_errors.parseRpcError
-});
-var errors$1 = __toCommonJS$7(errors_exports);
-var import_errors$1 = errors$3;
-var import_rpc_errors = rpc_errors;
-
-var __defProp$6 = Object.defineProperty;
-var __getOwnPropDesc$6 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$6 = Object.getOwnPropertyNames;
-var __hasOwnProp$6 = Object.prototype.hasOwnProperty;
-var __export$6 = (target, all) => {
-  for (var name in all)
-    __defProp$6(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$6 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$6(from))
-      if (!__hasOwnProp$6.call(to, key) && key !== except)
-        __defProp$6(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$6(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$6 = (mod) => __copyProps$6(__defProp$6({}, "__esModule", { value: true }), mod);
-var console_logger_exports = {};
-__export$6(console_logger_exports, {
-  ConsoleLogger: () => ConsoleLogger
-});
-var console_logger = __toCommonJS$6(console_logger_exports);
-class ConsoleLogger {
-  constructor(logLevels) {
-    this.logLevels = logLevels;
-  }
-  isLevelEnabled = (level) => {
-    return this.logLevels.includes(level);
-  };
-  print(level, message, ...optionalParams) {
-    switch (level) {
-      case "error":
-      case "fatal":
-        return console.error(message, ...optionalParams);
-      case "warn":
-        return console.warn(message, ...optionalParams);
-      case "log":
-        return console.log(message, ...optionalParams);
-      case "debug":
-      case "verbose":
-        return console.debug(message, ...optionalParams);
-    }
-  }
-  verbose(message, ...optionalParams) {
-    if (!this.isLevelEnabled("verbose")) return;
-    this.print("verbose", message, ...optionalParams);
-  }
-  debug(message, ...optionalParams) {
-    if (!this.isLevelEnabled("debug")) return;
-    this.print("debug", message, ...optionalParams);
-  }
-  log(message, ...optionalParams) {
-    if (!this.isLevelEnabled("log")) return;
-    this.print("log", message, ...optionalParams);
-  }
-  warn(message, ...optionalParams) {
-    if (!this.isLevelEnabled("warn")) return;
-    this.print("warn", message, ...optionalParams);
-  }
-  error(message, ...optionalParams) {
-    if (!this.isLevelEnabled("error")) return;
-    this.print("error", message, ...optionalParams);
-  }
-  fatal(message, ...optionalParams) {
-    if (!this.isLevelEnabled("fatal")) return;
-    this.print("fatal", message, ...optionalParams);
-  }
-}
-
-var __defProp$5 = Object.defineProperty;
-var __getOwnPropDesc$5 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$5 = Object.getOwnPropertyNames;
-var __hasOwnProp$5 = Object.prototype.hasOwnProperty;
-var __export$5 = (target, all) => {
-  for (var name in all)
-    __defProp$5(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$5 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$5(from))
-      if (!__hasOwnProp$5.call(to, key) && key !== except)
-        __defProp$5(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$5(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$5 = (mod) => __copyProps$5(__defProp$5({}, "__esModule", { value: true }), mod);
-var logger_exports$1 = {};
-__export$5(logger_exports$1, {
-  Logger: () => Logger
-});
-var logger$1 = __toCommonJS$5(logger_exports$1);
-var import_console$1 = console_logger;
-const DEFAULT_LOG_LEVELS = [
-  "verbose",
-  "debug",
-  "log",
-  "warn",
-  "error",
-  "fatal"
-];
-const DEFAULT_LOGGER = new import_console$1.ConsoleLogger(DEFAULT_LOG_LEVELS);
-class Logger {
-  static instanceRef = DEFAULT_LOGGER;
-  static overrideLogger = (logger) => {
-    this.instanceRef = logger;
-  };
-  static error(message, ...optionalParams) {
-    this.instanceRef?.error(message, ...optionalParams);
-  }
-  /**
-   * Write a 'log' level log.
-   */
-  static log(message, ...optionalParams) {
-    this.instanceRef?.log(message, ...optionalParams);
-  }
-  /**
-   * Write a 'warn' level log.
-   */
-  static warn(message, ...optionalParams) {
-    this.instanceRef?.warn(message, ...optionalParams);
-  }
-  /**
-   * Write a 'debug' level log.
-   */
-  static debug(message, ...optionalParams) {
-    this.instanceRef?.debug?.(message, ...optionalParams);
-  }
-  /**
-   * Write a 'verbose' level log.
-   */
-  static verbose(message, ...optionalParams) {
-    this.instanceRef?.verbose?.(message, ...optionalParams);
-  }
-  static fatal(message, ...optionalParams) {
-    this.instanceRef?.fatal?.(message, ...optionalParams);
-  }
-}
-
-var __defProp$4 = Object.defineProperty;
-var __getOwnPropDesc$4 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$4 = Object.getOwnPropertyNames;
-var __hasOwnProp$4 = Object.prototype.hasOwnProperty;
-var __export$4 = (target, all) => {
-  for (var name in all)
-    __defProp$4(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$4 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$4(from))
-      if (!__hasOwnProp$4.call(to, key) && key !== except)
-        __defProp$4(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$4(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$4 = (mod) => __copyProps$4(__defProp$4({}, "__esModule", { value: true }), mod);
-var logger_exports = {};
-__export$4(logger_exports, {
-  ConsoleLogger: () => import_console.ConsoleLogger,
-  Logger: () => import_logger$1.Logger
-});
-var logger = __toCommonJS$4(logger_exports);
-var import_console = console_logger;
-var import_logger$1 = logger$1;
-
-var __defProp$3 = Object.defineProperty;
-var __getOwnPropDesc$3 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$3 = Object.getOwnPropertyNames;
-var __hasOwnProp$3 = Object.prototype.hasOwnProperty;
-var __export$3 = (target, all) => {
-  for (var name in all)
-    __defProp$3(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$3 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$3(from))
-      if (!__hasOwnProp$3.call(to, key) && key !== except)
-        __defProp$3(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$3(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$3 = (mod) => __copyProps$3(__defProp$3({}, "__esModule", { value: true }), mod);
-var logging_exports = {};
-__export$3(logging_exports, {
-  printTxOutcomeLogs: () => printTxOutcomeLogs,
-  printTxOutcomeLogsAndFailures: () => printTxOutcomeLogsAndFailures
-});
-var logging = __toCommonJS$3(logging_exports);
-var import_errors = errors$1;
-var import_logger = logger;
-function printTxOutcomeLogsAndFailures({
-  contractId,
-  outcome
-}) {
-  const flatLogs = [outcome.transaction_outcome, ...outcome.receipts_outcome].reduce((acc, it) => {
-    const isFailure = typeof it.outcome.status === "object" && typeof it.outcome.status.Failure === "object";
-    if (it.outcome.logs.length || isFailure) {
-      return acc.concat({
-        receiptIds: it.outcome.receipt_ids,
-        logs: it.outcome.logs,
-        failure: typeof it.outcome.status === "object" && it.outcome.status.Failure !== void 0 ? (0, import_errors.parseRpcError)(it.outcome.status.Failure) : null
-      });
-    } else {
-      return acc;
-    }
-  }, []);
-  for (const result of flatLogs) {
-    import_logger.Logger.log(`Receipt${result.receiptIds.length > 1 ? "s" : ""}: ${result.receiptIds.join(", ")}`);
-    printTxOutcomeLogs({
-      contractId,
-      logs: result.logs,
-      prefix: "	"
-    });
-    if (result.failure) {
-      import_logger.Logger.warn(`	Failure [${contractId}]: ${result.failure}`);
-    }
-  }
-}
-function printTxOutcomeLogs({
-  contractId,
-  logs,
-  prefix = ""
-}) {
-  for (const log of logs) {
-    import_logger.Logger.log(`${prefix}Log [${contractId}]: ${log}`);
-  }
-}
-
-var __defProp$2 = Object.defineProperty;
-var __getOwnPropDesc$2 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$2 = Object.getOwnPropertyNames;
-var __hasOwnProp$2 = Object.prototype.hasOwnProperty;
-var __export$2 = (target, all) => {
-  for (var name in all)
-    __defProp$2(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$2 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$2(from))
-      if (!__hasOwnProp$2.call(to, key) && key !== except)
-        __defProp$2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$2(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$2 = (mod) => __copyProps$2(__defProp$2({}, "__esModule", { value: true }), mod);
-var provider_exports = {};
-__export$2(provider_exports, {
-  getTransactionLastResult: () => getTransactionLastResult
-});
-var provider = __toCommonJS$2(provider_exports);
-function getTransactionLastResult(txResult) {
-  if (typeof txResult.status === "object" && typeof txResult.status.SuccessValue === "string") {
-    const value = Buffer.from(txResult.status.SuccessValue, "base64").toString();
-    try {
-      return JSON.parse(value);
-    } catch (e) {
-      return value;
-    }
-  }
-  return null;
-}
-
-/*!
- * depd
- * Copyright(c) 2015 Douglas Christopher Wilson
- * MIT Licensed
- */
-
-/**
- * Module exports.
- * @public
- */
-
-var browser$1 = depd;
-
-/**
- * Create deprecate for namespace in caller.
- */
-
-function depd (namespace) {
-  if (!namespace) {
-    throw new TypeError('argument namespace is required')
-  }
-
-  function deprecate (message) {
-    // no-op in browser
-  }
-
-  deprecate._file = undefined;
-  deprecate._ignored = true;
-  deprecate._namespace = namespace;
-  deprecate._traced = false;
-  deprecate._warned = Object.create(null);
-
-  deprecate.function = wrapfunction;
-  deprecate.property = wrapproperty;
-
-  return deprecate
-}
-
-/**
- * Return a wrapped function in a deprecation message.
- *
- * This is a no-op version of the wrapper, which does nothing but call
- * validation.
- */
-
-function wrapfunction (fn, message) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('argument fn must be a function')
-  }
-
-  return fn
-}
-
-/**
- * Wrap property in a deprecation message.
- *
- * This is a no-op version of the wrapper, which does nothing but call
- * validation.
- */
-
-function wrapproperty (obj, prop, message) {
-  if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) {
-    throw new TypeError('argument obj must be object')
-  }
-
-  var descriptor = Object.getOwnPropertyDescriptor(obj, prop);
-
-  if (!descriptor) {
-    throw new TypeError('must call property on owner object')
-  }
-
-  if (!descriptor.configurable) {
-    throw new TypeError('property must be configurable')
-  }
-}
-
-var __defProp$1 = Object.defineProperty;
-var __getOwnPropDesc$1 = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames$1 = Object.getOwnPropertyNames;
-var __hasOwnProp$1 = Object.prototype.hasOwnProperty;
-var __export$1 = (target, all) => {
-  for (var name in all)
-    __defProp$1(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps$1 = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames$1(from))
-      if (!__hasOwnProp$1.call(to, key) && key !== except)
-        __defProp$1(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc$1(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS$1 = (mod) => __copyProps$1(__defProp$1({}, "__esModule", { value: true }), mod);
-var utils_exports = {};
-__export$1(utils_exports, {
-  sortBigIntAsc: () => sortBigIntAsc
-});
-var utils$s = __toCommonJS$1(utils_exports);
-function sortBigIntAsc(a, b) {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  __defProp(target, "default", { value: mod, enumerable: true }) ,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var validators_exports = {};
-__export(validators_exports, {
-  diffEpochValidators: () => diffEpochValidators,
-  findSeatPrice: () => findSeatPrice
-});
-var validators = __toCommonJS(validators_exports);
-var import_depd = __toESM(browser$1);
-var import_utils = utils$s;
-function findSeatPrice(validators, maxNumberOfSeats, minimumStakeRatio, protocolVersion) {
-  if (protocolVersion && protocolVersion < 49) {
-    return findSeatPriceForProtocolBefore49(validators, maxNumberOfSeats);
-  }
-  if (!minimumStakeRatio) {
-    const deprecate = (0, import_depd.default)("findSeatPrice(validators, maxNumberOfSeats)");
-    deprecate("`use `findSeatPrice(validators, maxNumberOfSeats, minimumStakeRatio)` instead");
-    minimumStakeRatio = [1, 6250];
-  }
-  return findSeatPriceForProtocolAfter49(validators, maxNumberOfSeats, minimumStakeRatio);
-}
-function findSeatPriceForProtocolBefore49(validators, numSeats) {
-  const stakes = validators.map((v) => BigInt(v.stake)).sort(import_utils.sortBigIntAsc);
-  const num = BigInt(numSeats);
-  const stakesSum = stakes.reduce((a, b) => a + b);
-  if (stakesSum < num) {
-    throw new Error("Stakes are below seats");
-  }
-  let left = 1n, right = stakesSum + 1n;
-  while (left !== right - 1n) {
-    const mid = (left + right) / 2n;
-    let found = false;
-    let currentSum = 0n;
-    for (let i = 0; i < stakes.length; ++i) {
-      currentSum = currentSum + stakes[i] / mid;
-      if (currentSum >= num) {
-        left = mid;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      right = mid;
-    }
-  }
-  return left;
-}
-function findSeatPriceForProtocolAfter49(validators, maxNumberOfSeats, minimumStakeRatio) {
-  if (minimumStakeRatio.length != 2) {
-    throw Error("minimumStakeRatio should have 2 elements");
-  }
-  const stakes = validators.map((v) => BigInt(v.stake)).sort(import_utils.sortBigIntAsc);
-  const stakesSum = stakes.reduce((a, b) => a + b);
-  if (validators.length < maxNumberOfSeats) {
-    return stakesSum * BigInt(minimumStakeRatio[0]) / BigInt(minimumStakeRatio[1]);
-  } else {
-    return stakes[0] + 1n;
-  }
-}
-function diffEpochValidators(currentValidators, nextValidators) {
-  const validatorsMap = /* @__PURE__ */ new Map();
-  currentValidators.forEach((v) => validatorsMap.set(v.account_id, v));
-  const nextValidatorsSet = new Set(nextValidators.map((v) => v.account_id));
-  return {
-    newValidators: nextValidators.filter((v) => !validatorsMap.has(v.account_id)),
-    removedValidators: currentValidators.filter((v) => !nextValidatorsSet.has(v.account_id)),
-    changedValidators: nextValidators.filter((v) => validatorsMap.has(v.account_id) && validatorsMap.get(v.account_id).stake != v.stake).map((v) => ({ current: validatorsMap.get(v.account_id), next: v }))
-  };
-}
-
-(function (module) {
-	var __defProp = Object.defineProperty;
-	var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-	var __getOwnPropNames = Object.getOwnPropertyNames;
-	var __hasOwnProp = Object.prototype.hasOwnProperty;
-	var __copyProps = (to, from, except, desc) => {
-	  if (from && typeof from === "object" || typeof from === "function") {
-	    for (let key of __getOwnPropNames(from))
-	      if (!__hasOwnProp.call(to, key) && key !== except)
-	        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-	  }
-	  return to;
-	};
-	var __reExport = (target, mod, secondTarget) => (__copyProps(target, mod, "default"), secondTarget && __copyProps(secondTarget, mod, "default"));
-	var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-	var index_exports = {};
-	module.exports = __toCommonJS(index_exports);
-	__reExport(index_exports, constants, module.exports);
-	__reExport(index_exports, errors$1, module.exports);
-	__reExport(index_exports, format, module.exports);
-	__reExport(index_exports, logging, module.exports);
-	__reExport(index_exports, provider, module.exports);
-	__reExport(index_exports, validators, module.exports);
-	__reExport(index_exports, logger, module.exports);
-	__reExport(index_exports, utils$s, module.exports);
-} (commonjs$2));
-
-var commonjsExports = commonjs$2.exports;
-
-var ed25519 = {};
-
-var sha512 = {};
-
-var _md = {};
-
-var _assert = {};
 
 /**
  * Internal assertion helpers.
  * @module
  */
-Object.defineProperty(_assert, "__esModule", { value: true });
-_assert.anumber = anumber;
-_assert.abytes = abytes$1;
-_assert.ahash = ahash;
-_assert.aexists = aexists;
-_assert.aoutput = aoutput;
 /** Asserts something is positive integer. */
-function anumber(n) {
-    if (!Number.isSafeInteger(n) || n < 0)
-        throw new Error('positive integer expected, got ' + n);
-}
 /** Is number an Uint8Array? Copied from utils for perf. */
 function isBytes$1(a) {
     return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
@@ -3981,13 +1012,6 @@ function abytes$1(b, ...lengths) {
         throw new Error('Uint8Array expected');
     if (lengths.length > 0 && !lengths.includes(b.length))
         throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
-}
-/** Asserts something is hash */
-function ahash(h) {
-    if (typeof h !== 'function' || typeof h.create !== 'function')
-        throw new Error('Hash should be wrapped by utils.wrapConstructor');
-    anumber(h.outputLen);
-    anumber(h.blockLen);
 }
 /** Asserts a hash instance has not been destroyed / finished */
 function aexists(instance, checkFinished = true) {
@@ -4005,263 +1029,75 @@ function aoutput(out, instance) {
     }
 }
 
-var utils$r = {};
+const crypto$2 = typeof globalThis === 'object' && 'crypto' in globalThis ? globalThis.crypto : undefined;
 
-var crypto$2 = {};
+/**
+ * Utilities for hex, bytes, CSPRNG.
+ * @module
+ */
+/*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+// We use WebCrypto aka globalThis.crypto, which exists in browsers and node.js 16+.
+// node.js versions earlier than v19 don't declare it in global scope.
+// For node.js, package.json#exports field mapping rewrites import
+// from `crypto` to `cryptoNode`, which imports native module.
+// Makes the utils un-importable in browsers without a bundler.
+// Once node.js 18 is deprecated (2025-04-30), we can just drop the import.
+// Cast array to view
+function createView(arr) {
+    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+}
+/**
+ * Convert JS string to byte array.
+ * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
+ */
+function utf8ToBytes(str) {
+    if (typeof str !== 'string')
+        throw new Error('utf8ToBytes expected string, got ' + typeof str);
+    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
+}
+/**
+ * Normalizes (non-hex) string or Uint8Array to Uint8Array.
+ * Warning: when Uint8Array is passed, it would NOT get copied.
+ * Keep in mind for future mutable operations.
+ */
+function toBytes(data) {
+    if (typeof data === 'string')
+        data = utf8ToBytes(data);
+    abytes$1(data);
+    return data;
+}
+/** For runtime check if class implements interface */
+class Hash {
+    // Safe version that clones internal state
+    clone() {
+        return this._cloneInto();
+    }
+}
+/** Wraps hash function, creating an interface on top of it */
+function wrapConstructor(hashCons) {
+    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
+    const tmp = hashCons();
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = () => hashCons();
+    return hashC;
+}
+/** Cryptographically secure PRNG. Uses internal OS-level `crypto.getRandomValues`. */
+function randomBytes$1(bytesLength = 32) {
+    if (crypto$2 && typeof crypto$2.getRandomValues === 'function') {
+        return crypto$2.getRandomValues(new Uint8Array(bytesLength));
+    }
+    // Legacy Node.js compatibility
+    if (crypto$2 && typeof crypto$2.randomBytes === 'function') {
+        return crypto$2.randomBytes(bytesLength);
+    }
+    throw new Error('crypto.getRandomValues must be defined');
+}
 
-Object.defineProperty(crypto$2, "__esModule", { value: true });
-crypto$2.crypto = void 0;
-crypto$2.crypto = typeof globalThis === 'object' && 'crypto' in globalThis ? globalThis.crypto : undefined;
-
-(function (exports) {
-	/**
-	 * Utilities for hex, bytes, CSPRNG.
-	 * @module
-	 */
-	/*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.Hash = exports.nextTick = exports.byteSwapIfBE = exports.isLE = void 0;
-	exports.isBytes = isBytes;
-	exports.u8 = u8;
-	exports.u32 = u32;
-	exports.createView = createView;
-	exports.rotr = rotr;
-	exports.rotl = rotl;
-	exports.byteSwap = byteSwap;
-	exports.byteSwap32 = byteSwap32;
-	exports.bytesToHex = bytesToHex;
-	exports.hexToBytes = hexToBytes;
-	exports.asyncLoop = asyncLoop;
-	exports.utf8ToBytes = utf8ToBytes;
-	exports.toBytes = toBytes;
-	exports.concatBytes = concatBytes;
-	exports.checkOpts = checkOpts;
-	exports.wrapConstructor = wrapConstructor;
-	exports.wrapConstructorWithOpts = wrapConstructorWithOpts;
-	exports.wrapXOFConstructorWithOpts = wrapXOFConstructorWithOpts;
-	exports.randomBytes = randomBytes;
-	// We use WebCrypto aka globalThis.crypto, which exists in browsers and node.js 16+.
-	// node.js versions earlier than v19 don't declare it in global scope.
-	// For node.js, package.json#exports field mapping rewrites import
-	// from `crypto` to `cryptoNode`, which imports native module.
-	// Makes the utils un-importable in browsers without a bundler.
-	// Once node.js 18 is deprecated (2025-04-30), we can just drop the import.
-	const crypto_1 = crypto$2;
-	const _assert_js_1 = _assert;
-	// export { isBytes } from './_assert.js';
-	// We can't reuse isBytes from _assert, because somehow this causes huge perf issues
-	function isBytes(a) {
-	    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
-	}
-	// Cast array to different type
-	function u8(arr) {
-	    return new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-	}
-	function u32(arr) {
-	    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
-	}
-	// Cast array to view
-	function createView(arr) {
-	    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
-	}
-	/** The rotate right (circular right shift) operation for uint32 */
-	function rotr(word, shift) {
-	    return (word << (32 - shift)) | (word >>> shift);
-	}
-	/** The rotate left (circular left shift) operation for uint32 */
-	function rotl(word, shift) {
-	    return (word << shift) | ((word >>> (32 - shift)) >>> 0);
-	}
-	/** Is current platform little-endian? Most are. Big-Endian platform: IBM */
-	exports.isLE = (() => new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44)();
-	// The byte swap operation for uint32
-	function byteSwap(word) {
-	    return (((word << 24) & 0xff000000) |
-	        ((word << 8) & 0xff0000) |
-	        ((word >>> 8) & 0xff00) |
-	        ((word >>> 24) & 0xff));
-	}
-	/** Conditionally byte swap if on a big-endian platform */
-	exports.byteSwapIfBE = exports.isLE
-	    ? (n) => n
-	    : (n) => byteSwap(n);
-	/** In place byte swap for Uint32Array */
-	function byteSwap32(arr) {
-	    for (let i = 0; i < arr.length; i++) {
-	        arr[i] = byteSwap(arr[i]);
-	    }
-	}
-	// Array where index 0xf0 (240) is mapped to string 'f0'
-	const hexes = /* @__PURE__ */ Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
-	/**
-	 * Convert byte array to hex string.
-	 * @example bytesToHex(Uint8Array.from([0xca, 0xfe, 0x01, 0x23])) // 'cafe0123'
-	 */
-	function bytesToHex(bytes) {
-	    (0, _assert_js_1.abytes)(bytes);
-	    // pre-caching improves the speed 6x
-	    let hex = '';
-	    for (let i = 0; i < bytes.length; i++) {
-	        hex += hexes[bytes[i]];
-	    }
-	    return hex;
-	}
-	// We use optimized technique to convert hex string to byte array
-	const asciis = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
-	function asciiToBase16(ch) {
-	    if (ch >= asciis._0 && ch <= asciis._9)
-	        return ch - asciis._0; // '2' => 50-48
-	    if (ch >= asciis.A && ch <= asciis.F)
-	        return ch - (asciis.A - 10); // 'B' => 66-(65-10)
-	    if (ch >= asciis.a && ch <= asciis.f)
-	        return ch - (asciis.a - 10); // 'b' => 98-(97-10)
-	    return;
-	}
-	/**
-	 * Convert hex string to byte array.
-	 * @example hexToBytes('cafe0123') // Uint8Array.from([0xca, 0xfe, 0x01, 0x23])
-	 */
-	function hexToBytes(hex) {
-	    if (typeof hex !== 'string')
-	        throw new Error('hex string expected, got ' + typeof hex);
-	    const hl = hex.length;
-	    const al = hl / 2;
-	    if (hl % 2)
-	        throw new Error('hex string expected, got unpadded hex of length ' + hl);
-	    const array = new Uint8Array(al);
-	    for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
-	        const n1 = asciiToBase16(hex.charCodeAt(hi));
-	        const n2 = asciiToBase16(hex.charCodeAt(hi + 1));
-	        if (n1 === undefined || n2 === undefined) {
-	            const char = hex[hi] + hex[hi + 1];
-	            throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
-	        }
-	        array[ai] = n1 * 16 + n2; // multiply first octet, e.g. 'a3' => 10*16+3 => 160 + 3 => 163
-	    }
-	    return array;
-	}
-	/**
-	 * There is no setImmediate in browser and setTimeout is slow.
-	 * Call of async fn will return Promise, which will be fullfiled only on
-	 * next scheduler queue processing step and this is exactly what we need.
-	 */
-	const nextTick = async () => { };
-	exports.nextTick = nextTick;
-	/** Returns control to thread each 'tick' ms to avoid blocking. */
-	async function asyncLoop(iters, tick, cb) {
-	    let ts = Date.now();
-	    for (let i = 0; i < iters; i++) {
-	        cb(i);
-	        // Date.now() is not monotonic, so in case if clock goes backwards we return return control too
-	        const diff = Date.now() - ts;
-	        if (diff >= 0 && diff < tick)
-	            continue;
-	        await (0, exports.nextTick)();
-	        ts += diff;
-	    }
-	}
-	/**
-	 * Convert JS string to byte array.
-	 * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
-	 */
-	function utf8ToBytes(str) {
-	    if (typeof str !== 'string')
-	        throw new Error('utf8ToBytes expected string, got ' + typeof str);
-	    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
-	}
-	/**
-	 * Normalizes (non-hex) string or Uint8Array to Uint8Array.
-	 * Warning: when Uint8Array is passed, it would NOT get copied.
-	 * Keep in mind for future mutable operations.
-	 */
-	function toBytes(data) {
-	    if (typeof data === 'string')
-	        data = utf8ToBytes(data);
-	    (0, _assert_js_1.abytes)(data);
-	    return data;
-	}
-	/**
-	 * Copies several Uint8Arrays into one.
-	 */
-	function concatBytes(...arrays) {
-	    let sum = 0;
-	    for (let i = 0; i < arrays.length; i++) {
-	        const a = arrays[i];
-	        (0, _assert_js_1.abytes)(a);
-	        sum += a.length;
-	    }
-	    const res = new Uint8Array(sum);
-	    for (let i = 0, pad = 0; i < arrays.length; i++) {
-	        const a = arrays[i];
-	        res.set(a, pad);
-	        pad += a.length;
-	    }
-	    return res;
-	}
-	/** For runtime check if class implements interface */
-	class Hash {
-	    // Safe version that clones internal state
-	    clone() {
-	        return this._cloneInto();
-	    }
-	}
-	exports.Hash = Hash;
-	function checkOpts(defaults, opts) {
-	    if (opts !== undefined && {}.toString.call(opts) !== '[object Object]')
-	        throw new Error('Options should be object or undefined');
-	    const merged = Object.assign(defaults, opts);
-	    return merged;
-	}
-	/** Wraps hash function, creating an interface on top of it */
-	function wrapConstructor(hashCons) {
-	    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
-	    const tmp = hashCons();
-	    hashC.outputLen = tmp.outputLen;
-	    hashC.blockLen = tmp.blockLen;
-	    hashC.create = () => hashCons();
-	    return hashC;
-	}
-	function wrapConstructorWithOpts(hashCons) {
-	    const hashC = (msg, opts) => hashCons(opts).update(toBytes(msg)).digest();
-	    const tmp = hashCons({});
-	    hashC.outputLen = tmp.outputLen;
-	    hashC.blockLen = tmp.blockLen;
-	    hashC.create = (opts) => hashCons(opts);
-	    return hashC;
-	}
-	function wrapXOFConstructorWithOpts(hashCons) {
-	    const hashC = (msg, opts) => hashCons(opts).update(toBytes(msg)).digest();
-	    const tmp = hashCons({});
-	    hashC.outputLen = tmp.outputLen;
-	    hashC.blockLen = tmp.blockLen;
-	    hashC.create = (opts) => hashCons(opts);
-	    return hashC;
-	}
-	/** Cryptographically secure PRNG. Uses internal OS-level `crypto.getRandomValues`. */
-	function randomBytes(bytesLength = 32) {
-	    if (crypto_1.crypto && typeof crypto_1.crypto.getRandomValues === 'function') {
-	        return crypto_1.crypto.getRandomValues(new Uint8Array(bytesLength));
-	    }
-	    // Legacy Node.js compatibility
-	    if (crypto_1.crypto && typeof crypto_1.crypto.randomBytes === 'function') {
-	        return crypto_1.crypto.randomBytes(bytesLength);
-	    }
-	    throw new Error('crypto.getRandomValues must be defined');
-	}
-	
-} (utils$r));
-
-Object.defineProperty(_md, "__esModule", { value: true });
-_md.HashMD = void 0;
-_md.setBigUint64 = setBigUint64;
-_md.Chi = Chi;
-_md.Maj = Maj;
 /**
  * Internal Merkle-Damgard hash utils.
  * @module
  */
-const _assert_js_1 = _assert;
-const utils_js_1$6 = utils$r;
 /** Polyfill for Safari 14. https://caniuse.com/mdn-javascript_builtins_dataview_setbiguint64 */
 function setBigUint64(view, byteOffset, value, isLE) {
     if (typeof view.setBigUint64 === 'function')
@@ -4275,19 +1111,11 @@ function setBigUint64(view, byteOffset, value, isLE) {
     view.setUint32(byteOffset + h, wh, isLE);
     view.setUint32(byteOffset + l, wl, isLE);
 }
-/** Choice: a ? b : c */
-function Chi(a, b, c) {
-    return (a & b) ^ (~a & c);
-}
-/** Majority function, true if any two inputs is true. */
-function Maj(a, b, c) {
-    return (a & b) ^ (a & c) ^ (b & c);
-}
 /**
  * Merkle-Damgard hash construction base class.
  * Could be used to create MD5, RIPEMD, SHA1, SHA2.
  */
-class HashMD extends utils_js_1$6.Hash {
+class HashMD extends Hash {
     constructor(blockLen, outputLen, padOffset, isLE) {
         super();
         this.blockLen = blockLen;
@@ -4299,18 +1127,18 @@ class HashMD extends utils_js_1$6.Hash {
         this.pos = 0;
         this.destroyed = false;
         this.buffer = new Uint8Array(blockLen);
-        this.view = (0, utils_js_1$6.createView)(this.buffer);
+        this.view = createView(this.buffer);
     }
     update(data) {
-        (0, _assert_js_1.aexists)(this);
+        aexists(this);
         const { view, buffer, blockLen } = this;
-        data = (0, utils_js_1$6.toBytes)(data);
+        data = toBytes(data);
         const len = data.length;
         for (let pos = 0; pos < len;) {
             const take = Math.min(blockLen - this.pos, len - pos);
             // Fast path: we have at least one block in input, cast it to view and process
             if (take === blockLen) {
-                const dataView = (0, utils_js_1$6.createView)(data);
+                const dataView = createView(data);
                 for (; blockLen <= len - pos; pos += blockLen)
                     this.process(dataView, pos);
                 continue;
@@ -4328,8 +1156,8 @@ class HashMD extends utils_js_1$6.Hash {
         return this;
     }
     digestInto(out) {
-        (0, _assert_js_1.aexists)(this);
-        (0, _assert_js_1.aoutput)(out, this);
+        aexists(this);
+        aoutput(out, this);
         this.finished = true;
         // Padding
         // We can avoid allocation of buffer for padding completely if it
@@ -4353,7 +1181,7 @@ class HashMD extends utils_js_1$6.Hash {
         // So we just write lowest 64 bits of that value.
         setBigUint64(view, blockLen - 8, BigInt(this.length * 8), isLE);
         this.process(view, 0);
-        const oview = (0, utils_js_1$6.createView)(out);
+        const oview = createView(out);
         const len = this.outputLen;
         // NOTE: we do division by 4 later, which should be fused in single op with modulo by JIT
         if (len % 4)
@@ -4385,15 +1213,7 @@ class HashMD extends utils_js_1$6.Hash {
         return to;
     }
 }
-_md.HashMD = HashMD;
 
-var _u64 = {};
-
-Object.defineProperty(_u64, "__esModule", { value: true });
-_u64.add5L = _u64.add5H = _u64.add4H = _u64.add4L = _u64.add3H = _u64.add3L = _u64.rotlBL = _u64.rotlBH = _u64.rotlSL = _u64.rotlSH = _u64.rotr32L = _u64.rotr32H = _u64.rotrBL = _u64.rotrBH = _u64.rotrSL = _u64.rotrSH = _u64.shrSL = _u64.shrSH = _u64.toBig = void 0;
-_u64.fromBig = fromBig;
-_u64.split = split;
-_u64.add = add;
 /**
  * Internal helpers for u64. BigUint64Array is too slow as per 2025, so we implement it using Uint32Array.
  * @todo re-check https://issues.chromium.org/issues/42212588
@@ -4416,37 +1236,24 @@ function split(lst, le = false) {
     return [Ah, Al];
 }
 const toBig = (h, l) => (BigInt(h >>> 0) << _32n) | BigInt(l >>> 0);
-_u64.toBig = toBig;
 // for Shift in [0, 32)
 const shrSH = (h, _l, s) => h >>> s;
-_u64.shrSH = shrSH;
 const shrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
-_u64.shrSL = shrSL;
 // Right rotate for Shift in [1, 32)
 const rotrSH = (h, l, s) => (h >>> s) | (l << (32 - s));
-_u64.rotrSH = rotrSH;
 const rotrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
-_u64.rotrSL = rotrSL;
 // Right rotate for Shift in (32, 64), NOTE: 32 is special case.
 const rotrBH = (h, l, s) => (h << (64 - s)) | (l >>> (s - 32));
-_u64.rotrBH = rotrBH;
 const rotrBL = (h, l, s) => (h >>> (s - 32)) | (l << (64 - s));
-_u64.rotrBL = rotrBL;
 // Right rotate for shift===32 (just swaps l&h)
 const rotr32H = (_h, l) => l;
-_u64.rotr32H = rotr32H;
 const rotr32L = (h, _l) => h;
-_u64.rotr32L = rotr32L;
 // Left rotate for Shift in [1, 32)
 const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
-_u64.rotlSH = rotlSH;
 const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
-_u64.rotlSL = rotlSL;
 // Left rotate for Shift in (32, 64), NOTE: 32 is special case.
 const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
-_u64.rotlBH = rotlBH;
 const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
-_u64.rotlBL = rotlBL;
 // JS uses 32-bit signed integers for bitwise operations which means we cannot
 // simple take carry out of low bit sum by shift, we need to use division.
 function add(Ah, Al, Bh, Bl) {
@@ -4455,17 +1262,11 @@ function add(Ah, Al, Bh, Bl) {
 }
 // Addition with more than 2 elements
 const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
-_u64.add3L = add3L;
 const add3H = (low, Ah, Bh, Ch) => (Ah + Bh + Ch + ((low / 2 ** 32) | 0)) | 0;
-_u64.add3H = add3H;
 const add4L = (Al, Bl, Cl, Dl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0);
-_u64.add4L = add4L;
 const add4H = (low, Ah, Bh, Ch, Dh) => (Ah + Bh + Ch + Dh + ((low / 2 ** 32) | 0)) | 0;
-_u64.add4H = add4H;
 const add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
-_u64.add5L = add5L;
 const add5H = (low, Ah, Bh, Ch, Dh, Eh) => (Ah + Bh + Ch + Dh + Eh + ((low / 2 ** 32) | 0)) | 0;
-_u64.add5H = add5H;
 // prettier-ignore
 const u64 = {
     fromBig, split, toBig,
@@ -4475,10 +1276,7 @@ const u64 = {
     rotlSH, rotlSL, rotlBH, rotlBL,
     add, add3L, add3H, add4L, add4H, add5H, add5L,
 };
-_u64.default = u64;
 
-Object.defineProperty(sha512, "__esModule", { value: true });
-sha512.sha384 = sha512.sha512_256 = sha512.sha512_224 = sha512.sha512 = sha512.SHA384 = sha512.SHA512_256 = sha512.SHA512_224 = sha512.SHA512 = void 0;
 /**
  * SHA2-512 a.k.a. sha512 and sha384. It is slower than sha256 in js because u64 operations are slow.
  *
@@ -4486,12 +1284,9 @@ sha512.sha384 = sha512.sha512_256 = sha512.sha512_224 = sha512.sha512 = sha512.S
  * [the paper on truncated SHA512/256](https://eprint.iacr.org/2010/548.pdf).
  * @module
  */
-const _md_js_1 = _md;
-const _u64_js_1 = _u64;
-const utils_js_1$5 = utils$r;
 // Round contants (first 32 bits of the fractional parts of the cube roots of the first 80 primes 2..409):
 // prettier-ignore
-const [SHA512_Kh, SHA512_Kl] = /* @__PURE__ */ (() => _u64_js_1.default.split([
+const [SHA512_Kh, SHA512_Kl] = /* @__PURE__ */ (() => u64.split([
     '0x428a2f98d728ae22', '0x7137449123ef65cd', '0xb5c0fbcfec4d3b2f', '0xe9b5dba58189dbbc',
     '0x3956c25bf348b538', '0x59f111f1b605d019', '0x923f82a4af194f9b', '0xab1c5ed5da6d8118',
     '0xd807aa98a3030242', '0x12835b0145706fbe', '0x243185be4ee4b28c', '0x550c7dc3d5ffb4e2',
@@ -4516,7 +1311,7 @@ const [SHA512_Kh, SHA512_Kl] = /* @__PURE__ */ (() => _u64_js_1.default.split([
 // Temporary buffer, not used to store anything between runs
 const SHA512_W_H = /* @__PURE__ */ new Uint32Array(80);
 const SHA512_W_L = /* @__PURE__ */ new Uint32Array(80);
-let SHA512$2 = class SHA512 extends _md_js_1.HashMD {
+let SHA512$2 = class SHA512 extends HashMD {
     constructor() {
         super(128, 64, 16, false);
         // We cannot use array here since array allows indexing by variable which means optimizer/compiler cannot use registers.
@@ -4574,16 +1369,16 @@ let SHA512$2 = class SHA512 extends _md_js_1.HashMD {
             // s0 := (w[i-15] rightrotate 1) xor (w[i-15] rightrotate 8) xor (w[i-15] rightshift 7)
             const W15h = SHA512_W_H[i - 15] | 0;
             const W15l = SHA512_W_L[i - 15] | 0;
-            const s0h = _u64_js_1.default.rotrSH(W15h, W15l, 1) ^ _u64_js_1.default.rotrSH(W15h, W15l, 8) ^ _u64_js_1.default.shrSH(W15h, W15l, 7);
-            const s0l = _u64_js_1.default.rotrSL(W15h, W15l, 1) ^ _u64_js_1.default.rotrSL(W15h, W15l, 8) ^ _u64_js_1.default.shrSL(W15h, W15l, 7);
+            const s0h = u64.rotrSH(W15h, W15l, 1) ^ u64.rotrSH(W15h, W15l, 8) ^ u64.shrSH(W15h, W15l, 7);
+            const s0l = u64.rotrSL(W15h, W15l, 1) ^ u64.rotrSL(W15h, W15l, 8) ^ u64.shrSL(W15h, W15l, 7);
             // s1 := (w[i-2] rightrotate 19) xor (w[i-2] rightrotate 61) xor (w[i-2] rightshift 6)
             const W2h = SHA512_W_H[i - 2] | 0;
             const W2l = SHA512_W_L[i - 2] | 0;
-            const s1h = _u64_js_1.default.rotrSH(W2h, W2l, 19) ^ _u64_js_1.default.rotrBH(W2h, W2l, 61) ^ _u64_js_1.default.shrSH(W2h, W2l, 6);
-            const s1l = _u64_js_1.default.rotrSL(W2h, W2l, 19) ^ _u64_js_1.default.rotrBL(W2h, W2l, 61) ^ _u64_js_1.default.shrSL(W2h, W2l, 6);
+            const s1h = u64.rotrSH(W2h, W2l, 19) ^ u64.rotrBH(W2h, W2l, 61) ^ u64.shrSH(W2h, W2l, 6);
+            const s1l = u64.rotrSL(W2h, W2l, 19) ^ u64.rotrBL(W2h, W2l, 61) ^ u64.shrSL(W2h, W2l, 6);
             // SHA256_W[i] = s0 + s1 + SHA256_W[i - 7] + SHA256_W[i - 16];
-            const SUMl = _u64_js_1.default.add4L(s0l, s1l, SHA512_W_L[i - 7], SHA512_W_L[i - 16]);
-            const SUMh = _u64_js_1.default.add4H(SUMl, s0h, s1h, SHA512_W_H[i - 7], SHA512_W_H[i - 16]);
+            const SUMl = u64.add4L(s0l, s1l, SHA512_W_L[i - 7], SHA512_W_L[i - 16]);
+            const SUMh = u64.add4H(SUMl, s0h, s1h, SHA512_W_H[i - 7], SHA512_W_H[i - 16]);
             SHA512_W_H[i] = SUMh | 0;
             SHA512_W_L[i] = SUMl | 0;
         }
@@ -4591,19 +1386,19 @@ let SHA512$2 = class SHA512 extends _md_js_1.HashMD {
         // Compression function main loop, 80 rounds
         for (let i = 0; i < 80; i++) {
             // S1 := (e rightrotate 14) xor (e rightrotate 18) xor (e rightrotate 41)
-            const sigma1h = _u64_js_1.default.rotrSH(Eh, El, 14) ^ _u64_js_1.default.rotrSH(Eh, El, 18) ^ _u64_js_1.default.rotrBH(Eh, El, 41);
-            const sigma1l = _u64_js_1.default.rotrSL(Eh, El, 14) ^ _u64_js_1.default.rotrSL(Eh, El, 18) ^ _u64_js_1.default.rotrBL(Eh, El, 41);
+            const sigma1h = u64.rotrSH(Eh, El, 14) ^ u64.rotrSH(Eh, El, 18) ^ u64.rotrBH(Eh, El, 41);
+            const sigma1l = u64.rotrSL(Eh, El, 14) ^ u64.rotrSL(Eh, El, 18) ^ u64.rotrBL(Eh, El, 41);
             //const T1 = (H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i]) | 0;
             const CHIh = (Eh & Fh) ^ (~Eh & Gh);
             const CHIl = (El & Fl) ^ (~El & Gl);
             // T1 = H + sigma1 + Chi(E, F, G) + SHA512_K[i] + SHA512_W[i]
             // prettier-ignore
-            const T1ll = _u64_js_1.default.add5L(Hl, sigma1l, CHIl, SHA512_Kl[i], SHA512_W_L[i]);
-            const T1h = _u64_js_1.default.add5H(T1ll, Hh, sigma1h, CHIh, SHA512_Kh[i], SHA512_W_H[i]);
+            const T1ll = u64.add5L(Hl, sigma1l, CHIl, SHA512_Kl[i], SHA512_W_L[i]);
+            const T1h = u64.add5H(T1ll, Hh, sigma1h, CHIh, SHA512_Kh[i], SHA512_W_H[i]);
             const T1l = T1ll | 0;
             // S0 := (a rightrotate 28) xor (a rightrotate 34) xor (a rightrotate 39)
-            const sigma0h = _u64_js_1.default.rotrSH(Ah, Al, 28) ^ _u64_js_1.default.rotrBH(Ah, Al, 34) ^ _u64_js_1.default.rotrBH(Ah, Al, 39);
-            const sigma0l = _u64_js_1.default.rotrSL(Ah, Al, 28) ^ _u64_js_1.default.rotrBL(Ah, Al, 34) ^ _u64_js_1.default.rotrBL(Ah, Al, 39);
+            const sigma0h = u64.rotrSH(Ah, Al, 28) ^ u64.rotrBH(Ah, Al, 34) ^ u64.rotrBH(Ah, Al, 39);
+            const sigma0l = u64.rotrSL(Ah, Al, 28) ^ u64.rotrBL(Ah, Al, 34) ^ u64.rotrBL(Ah, Al, 39);
             const MAJh = (Ah & Bh) ^ (Ah & Ch) ^ (Bh & Ch);
             const MAJl = (Al & Bl) ^ (Al & Cl) ^ (Bl & Cl);
             Hh = Gh | 0;
@@ -4612,26 +1407,26 @@ let SHA512$2 = class SHA512 extends _md_js_1.HashMD {
             Gl = Fl | 0;
             Fh = Eh | 0;
             Fl = El | 0;
-            ({ h: Eh, l: El } = _u64_js_1.default.add(Dh | 0, Dl | 0, T1h | 0, T1l | 0));
+            ({ h: Eh, l: El } = u64.add(Dh | 0, Dl | 0, T1h | 0, T1l | 0));
             Dh = Ch | 0;
             Dl = Cl | 0;
             Ch = Bh | 0;
             Cl = Bl | 0;
             Bh = Ah | 0;
             Bl = Al | 0;
-            const All = _u64_js_1.default.add3L(T1l, sigma0l, MAJl);
-            Ah = _u64_js_1.default.add3H(All, T1h, sigma0h, MAJh);
+            const All = u64.add3L(T1l, sigma0l, MAJl);
+            Ah = u64.add3H(All, T1h, sigma0h, MAJh);
             Al = All | 0;
         }
         // Add the compressed chunk to the current hash value
-        ({ h: Ah, l: Al } = _u64_js_1.default.add(this.Ah | 0, this.Al | 0, Ah | 0, Al | 0));
-        ({ h: Bh, l: Bl } = _u64_js_1.default.add(this.Bh | 0, this.Bl | 0, Bh | 0, Bl | 0));
-        ({ h: Ch, l: Cl } = _u64_js_1.default.add(this.Ch | 0, this.Cl | 0, Ch | 0, Cl | 0));
-        ({ h: Dh, l: Dl } = _u64_js_1.default.add(this.Dh | 0, this.Dl | 0, Dh | 0, Dl | 0));
-        ({ h: Eh, l: El } = _u64_js_1.default.add(this.Eh | 0, this.El | 0, Eh | 0, El | 0));
-        ({ h: Fh, l: Fl } = _u64_js_1.default.add(this.Fh | 0, this.Fl | 0, Fh | 0, Fl | 0));
-        ({ h: Gh, l: Gl } = _u64_js_1.default.add(this.Gh | 0, this.Gl | 0, Gh | 0, Gl | 0));
-        ({ h: Hh, l: Hl } = _u64_js_1.default.add(this.Hh | 0, this.Hl | 0, Hh | 0, Hl | 0));
+        ({ h: Ah, l: Al } = u64.add(this.Ah | 0, this.Al | 0, Ah | 0, Al | 0));
+        ({ h: Bh, l: Bl } = u64.add(this.Bh | 0, this.Bl | 0, Bh | 0, Bl | 0));
+        ({ h: Ch, l: Cl } = u64.add(this.Ch | 0, this.Cl | 0, Ch | 0, Cl | 0));
+        ({ h: Dh, l: Dl } = u64.add(this.Dh | 0, this.Dl | 0, Dh | 0, Dl | 0));
+        ({ h: Eh, l: El } = u64.add(this.Eh | 0, this.El | 0, Eh | 0, El | 0));
+        ({ h: Fh, l: Fl } = u64.add(this.Fh | 0, this.Fl | 0, Fh | 0, Fl | 0));
+        ({ h: Gh, l: Gl } = u64.add(this.Gh | 0, this.Gl | 0, Gh | 0, Gl | 0));
+        ({ h: Hh, l: Hl } = u64.add(this.Hh | 0, this.Hl | 0, Hh | 0, Hl | 0));
         this.set(Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl);
     }
     roundClean() {
@@ -4643,132 +1438,21 @@ let SHA512$2 = class SHA512 extends _md_js_1.HashMD {
         this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 };
-sha512.SHA512 = SHA512$2;
-class SHA512_224 extends SHA512$2 {
-    constructor() {
-        super();
-        // h -- high 32 bits, l -- low 32 bits
-        this.Ah = 0x8c3d37c8 | 0;
-        this.Al = 0x19544da2 | 0;
-        this.Bh = 0x73e19966 | 0;
-        this.Bl = 0x89dcd4d6 | 0;
-        this.Ch = 0x1dfab7ae | 0;
-        this.Cl = 0x32ff9c82 | 0;
-        this.Dh = 0x679dd514 | 0;
-        this.Dl = 0x582f9fcf | 0;
-        this.Eh = 0x0f6d2b69 | 0;
-        this.El = 0x7bd44da8 | 0;
-        this.Fh = 0x77e36f73 | 0;
-        this.Fl = 0x04c48942 | 0;
-        this.Gh = 0x3f9d85a8 | 0;
-        this.Gl = 0x6a1d36c8 | 0;
-        this.Hh = 0x1112e6ad | 0;
-        this.Hl = 0x91d692a1 | 0;
-        this.outputLen = 28;
-    }
-}
-sha512.SHA512_224 = SHA512_224;
-class SHA512_256 extends SHA512$2 {
-    constructor() {
-        super();
-        // h -- high 32 bits, l -- low 32 bits
-        this.Ah = 0x22312194 | 0;
-        this.Al = 0xfc2bf72c | 0;
-        this.Bh = 0x9f555fa3 | 0;
-        this.Bl = 0xc84c64c2 | 0;
-        this.Ch = 0x2393b86b | 0;
-        this.Cl = 0x6f53b151 | 0;
-        this.Dh = 0x96387719 | 0;
-        this.Dl = 0x5940eabd | 0;
-        this.Eh = 0x96283ee2 | 0;
-        this.El = 0xa88effe3 | 0;
-        this.Fh = 0xbe5e1e25 | 0;
-        this.Fl = 0x53863992 | 0;
-        this.Gh = 0x2b0199fc | 0;
-        this.Gl = 0x2c85b8aa | 0;
-        this.Hh = 0x0eb72ddc | 0;
-        this.Hl = 0x81c52ca2 | 0;
-        this.outputLen = 32;
-    }
-}
-sha512.SHA512_256 = SHA512_256;
-let SHA384$1 = class SHA384 extends SHA512$2 {
-    constructor() {
-        super();
-        // h -- high 32 bits, l -- low 32 bits
-        this.Ah = 0xcbbb9d5d | 0;
-        this.Al = 0xc1059ed8 | 0;
-        this.Bh = 0x629a292a | 0;
-        this.Bl = 0x367cd507 | 0;
-        this.Ch = 0x9159015a | 0;
-        this.Cl = 0x3070dd17 | 0;
-        this.Dh = 0x152fecd8 | 0;
-        this.Dl = 0xf70e5939 | 0;
-        this.Eh = 0x67332667 | 0;
-        this.El = 0xffc00b31 | 0;
-        this.Fh = 0x8eb44a87 | 0;
-        this.Fl = 0x68581511 | 0;
-        this.Gh = 0xdb0c2e0d | 0;
-        this.Gl = 0x64f98fa7 | 0;
-        this.Hh = 0x47b5481d | 0;
-        this.Hl = 0xbefa4fa4 | 0;
-        this.outputLen = 48;
-    }
-};
-sha512.SHA384 = SHA384$1;
 /** SHA2-512 hash function. */
-sha512.sha512 = (0, utils_js_1$5.wrapConstructor)(() => new SHA512$2());
-/** SHA2-512/224 "truncated" hash function, with improved resistance to length extension attacks. */
-sha512.sha512_224 = (0, utils_js_1$5.wrapConstructor)(() => new SHA512_224());
-/** SHA2-512/256 "truncated" hash function, with improved resistance to length extension attacks. */
-sha512.sha512_256 = (0, utils_js_1$5.wrapConstructor)(() => new SHA512_256());
-/** SHA2-384 hash function. */
-sha512.sha384 = (0, utils_js_1$5.wrapConstructor)(() => new SHA384$1());
-
-var curve$1 = {};
-
-var modular = {};
-
-var utils$q = {};
+const sha512 = /* @__PURE__ */ wrapConstructor(() => new SHA512$2());
 
 /**
  * Hex, bytes and number utilities.
  * @module
  */
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-Object.defineProperty(utils$q, "__esModule", { value: true });
-utils$q.notImplemented = utils$q.bitMask = void 0;
-utils$q.isBytes = isBytes;
-utils$q.abytes = abytes;
-utils$q.abool = abool;
-utils$q.bytesToHex = bytesToHex;
-utils$q.numberToHexUnpadded = numberToHexUnpadded;
-utils$q.hexToNumber = hexToNumber;
-utils$q.hexToBytes = hexToBytes;
-utils$q.bytesToNumberBE = bytesToNumberBE;
-utils$q.bytesToNumberLE = bytesToNumberLE;
-utils$q.numberToBytesBE = numberToBytesBE;
-utils$q.numberToBytesLE = numberToBytesLE;
-utils$q.numberToVarBytesBE = numberToVarBytesBE;
-utils$q.ensureBytes = ensureBytes;
-utils$q.concatBytes = concatBytes;
-utils$q.equalBytes = equalBytes;
-utils$q.utf8ToBytes = utf8ToBytes;
-utils$q.inRange = inRange;
-utils$q.aInRange = aInRange;
-utils$q.bitLen = bitLen;
-utils$q.bitGet = bitGet;
-utils$q.bitSet = bitSet;
-utils$q.createHmacDrbg = createHmacDrbg;
-utils$q.validateObject = validateObject;
-utils$q.memoized = memoized;
 // 100 lines of code in the file are duplicated from noble-hashes (utils).
 // This is OK: `abstract` directory does not use noble-hashes.
 // User may opt-in into using different hashing library. This way, noble-hashes
 // won't be included into their bundle.
-const _0n$4 = /* @__PURE__ */ BigInt(0);
+const _0n$3 = /* @__PURE__ */ BigInt(0);
 const _1n$4 = /* @__PURE__ */ BigInt(1);
-const _2n$2 = /* @__PURE__ */ BigInt(2);
+const _2n$3 = /* @__PURE__ */ BigInt(2);
 function isBytes(a) {
     return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
 }
@@ -4794,14 +1478,10 @@ function bytesToHex(bytes) {
     }
     return hex;
 }
-function numberToHexUnpadded(num) {
-    const hex = num.toString(16);
-    return hex.length & 1 ? '0' + hex : hex;
-}
 function hexToNumber(hex) {
     if (typeof hex !== 'string')
         throw new Error('hex string expected, got ' + typeof hex);
-    return hex === '' ? _0n$4 : BigInt('0x' + hex); // Big Endian
+    return hex === '' ? _0n$3 : BigInt('0x' + hex); // Big Endian
 }
 // We use optimized technique to convert hex string to byte array
 const asciis = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
@@ -4849,10 +1529,6 @@ function numberToBytesBE(n, len) {
 }
 function numberToBytesLE(n, len) {
     return numberToBytesBE(n, len).reverse();
-}
-// Unpadded, rarely used
-function numberToVarBytesBE(n) {
-    return hexToBytes(numberToHexUnpadded(n));
 }
 /**
  * Takes hex string or Uint8Array, converts to Uint8Array.
@@ -4904,25 +1580,8 @@ function concatBytes(...arrays) {
     }
     return res;
 }
-// Compares 2 u8a-s in kinda constant time
-function equalBytes(a, b) {
-    if (a.length !== b.length)
-        return false;
-    let diff = 0;
-    for (let i = 0; i < a.length; i++)
-        diff |= a[i] ^ b[i];
-    return diff === 0;
-}
-/**
- * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
- */
-function utf8ToBytes(str) {
-    if (typeof str !== 'string')
-        throw new Error('string expected');
-    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
-}
 // Is positive bigint
-const isPosBig = (n) => typeof n === 'bigint' && _0n$4 <= n;
+const isPosBig = (n) => typeof n === 'bigint' && _0n$3 <= n;
 function inRange(n, min, max) {
     return isPosBig(n) && isPosBig(min) && isPosBig(max) && min <= n && n < max;
 }
@@ -4947,91 +1606,15 @@ function aInRange(title, n, min, max) {
  */
 function bitLen(n) {
     let len;
-    for (len = 0; n > _0n$4; n >>= _1n$4, len += 1)
+    for (len = 0; n > _0n$3; n >>= _1n$4, len += 1)
         ;
     return len;
-}
-/**
- * Gets single bit at position.
- * NOTE: first bit position is 0 (same as arrays)
- * Same as `!!+Array.from(n.toString(2)).reverse()[pos]`
- */
-function bitGet(n, pos) {
-    return (n >> BigInt(pos)) & _1n$4;
-}
-/**
- * Sets single bit at position.
- */
-function bitSet(n, pos, value) {
-    return n | ((value ? _1n$4 : _0n$4) << BigInt(pos));
 }
 /**
  * Calculate mask for N bits. Not using ** operator with bigints because of old engines.
  * Same as BigInt(`0b${Array(i).fill('1').join('')}`)
  */
-const bitMask = (n) => (_2n$2 << BigInt(n - 1)) - _1n$4;
-utils$q.bitMask = bitMask;
-// DRBG
-const u8n = (data) => new Uint8Array(data); // creates Uint8Array
-const u8fr = (arr) => Uint8Array.from(arr); // another shortcut
-/**
- * Minimal HMAC-DRBG from NIST 800-90 for RFC6979 sigs.
- * @returns function that will call DRBG until 2nd arg returns something meaningful
- * @example
- *   const drbg = createHmacDRBG<Key>(32, 32, hmac);
- *   drbg(seed, bytesToKey); // bytesToKey must return Key or undefined
- */
-function createHmacDrbg(hashLen, qByteLen, hmacFn) {
-    if (typeof hashLen !== 'number' || hashLen < 2)
-        throw new Error('hashLen must be a number');
-    if (typeof qByteLen !== 'number' || qByteLen < 2)
-        throw new Error('qByteLen must be a number');
-    if (typeof hmacFn !== 'function')
-        throw new Error('hmacFn must be a function');
-    // Step B, Step C: set hashLen to 8*ceil(hlen/8)
-    let v = u8n(hashLen); // Minimal non-full-spec HMAC-DRBG from NIST 800-90 for RFC6979 sigs.
-    let k = u8n(hashLen); // Steps B and C of RFC6979 3.2: set hashLen, in our case always same
-    let i = 0; // Iterations counter, will throw when over 1000
-    const reset = () => {
-        v.fill(1);
-        k.fill(0);
-        i = 0;
-    };
-    const h = (...b) => hmacFn(k, v, ...b); // hmac(k)(v, ...values)
-    const reseed = (seed = u8n()) => {
-        // HMAC-DRBG reseed() function. Steps D-G
-        k = h(u8fr([0x00]), seed); // k = hmac(k || v || 0x00 || seed)
-        v = h(); // v = hmac(k || v)
-        if (seed.length === 0)
-            return;
-        k = h(u8fr([0x01]), seed); // k = hmac(k || v || 0x01 || seed)
-        v = h(); // v = hmac(k || v)
-    };
-    const gen = () => {
-        // HMAC-DRBG generate() function
-        if (i++ >= 1000)
-            throw new Error('drbg: tried 1000 values');
-        let len = 0;
-        const out = [];
-        while (len < qByteLen) {
-            v = h();
-            const sl = v.slice();
-            out.push(sl);
-            len += v.length;
-        }
-        return concatBytes(...out);
-    };
-    const genUntil = (seed, pred) => {
-        reset();
-        reseed(seed); // Steps D-G
-        let res = undefined; // Step H: grind until k is in [1..n-1]
-        while (!(res = pred(gen())))
-            reseed();
-        reset();
-        return res;
-    };
-    return genUntil;
-}
+const bitMask = (n) => (_2n$3 << BigInt(n - 1)) - _1n$4;
 // Validating curves and fields
 const validatorFns = {
     bigint: (val) => typeof val === 'bigint',
@@ -5063,21 +1646,6 @@ function validateObject(object, validators, optValidators = {}) {
         checkField(fieldName, type, true);
     return object;
 }
-// validate type tests
-// const o: { a: number; b: number; c: number } = { a: 1, b: 5, c: 6 };
-// const z0 = validateObject(o, { a: 'isSafeInteger' }, { c: 'bigint' }); // Ok!
-// // Should fail type-check
-// const z1 = validateObject(o, { a: 'tmp' }, { c: 'zz' });
-// const z2 = validateObject(o, { a: 'isSafeInteger' }, { c: 'zz' });
-// const z3 = validateObject(o, { test: 'boolean', z: 'bug' });
-// const z4 = validateObject(o, { a: 'boolean', z: 'bug' });
-/**
- * throws not implemented error
- */
-const notImplemented = () => {
-    throw new Error('not implemented');
-};
-utils$q.notImplemented = notImplemented;
 /**
  * Memoizes (caches) computation result.
  * Uses WeakMap: the value is going auto-cleaned by GC after last reference is removed.
@@ -5094,28 +1662,6 @@ function memoized(fn) {
     };
 }
 
-Object.defineProperty(modular, "__esModule", { value: true });
-modular.isNegativeLE = void 0;
-modular.mod = mod;
-modular.pow = pow;
-modular.pow2 = pow2;
-modular.invert = invert;
-modular.tonelliShanks = tonelliShanks;
-modular.FpSqrt = FpSqrt;
-modular.validateField = validateField;
-modular.FpPow = FpPow;
-modular.FpInvertBatch = FpInvertBatch;
-modular.FpDiv = FpDiv;
-modular.FpLegendre = FpLegendre;
-modular.FpIsSquare = FpIsSquare;
-modular.nLength = nLength;
-modular.Field = Field;
-modular.FpSqrtOdd = FpSqrtOdd;
-modular.FpSqrtEven = FpSqrtEven;
-modular.hashToPrivateScalar = hashToPrivateScalar;
-modular.getFieldBytesLength = getFieldBytesLength;
-modular.getMinHashLength = getMinHashLength;
-modular.mapHashToField = mapHashToField;
 /**
  * Utils for modular division and finite fields.
  * A finite field over 11 is integer number operations `mod 11`.
@@ -5123,15 +1669,14 @@ modular.mapHashToField = mapHashToField;
  * @module
  */
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-const utils_js_1$4 = utils$q;
 // prettier-ignore
-const _0n$3 = BigInt(0), _1n$3 = BigInt(1), _2n$1 = /* @__PURE__ */ BigInt(2), _3n = /* @__PURE__ */ BigInt(3);
+const _0n$2 = BigInt(0), _1n$3 = BigInt(1), _2n$2 = /* @__PURE__ */ BigInt(2), _3n = /* @__PURE__ */ BigInt(3);
 // prettier-ignore
-const _4n = /* @__PURE__ */ BigInt(4), _5n = /* @__PURE__ */ BigInt(5), _8n$1 = /* @__PURE__ */ BigInt(8);
+const _4n = /* @__PURE__ */ BigInt(4), _5n$1 = /* @__PURE__ */ BigInt(5), _8n$2 = /* @__PURE__ */ BigInt(8);
 // Calculates a modulo b
 function mod(a, b) {
     const result = a % b;
-    return result >= _0n$3 ? result : b + result;
+    return result >= _0n$2 ? result : b + result;
 }
 /**
  * Efficiently raise num to power and do modular division.
@@ -5141,14 +1686,14 @@ function mod(a, b) {
  * pow(2n, 6n, 11n) // 64n % 11n == 9n
  */
 function pow(num, power, modulo) {
-    if (power < _0n$3)
+    if (power < _0n$2)
         throw new Error('invalid exponent, negatives unsupported');
-    if (modulo <= _0n$3)
+    if (modulo <= _0n$2)
         throw new Error('invalid modulus');
     if (modulo === _1n$3)
-        return _0n$3;
+        return _0n$2;
     let res = _1n$3;
-    while (power > _0n$3) {
+    while (power > _0n$2) {
         if (power & _1n$3)
             res = (res * num) % modulo;
         num = (num * num) % modulo;
@@ -5159,7 +1704,7 @@ function pow(num, power, modulo) {
 /** Does `x^(2^power)` mod p. `pow2(30, 4)` == `30^(2^4)` */
 function pow2(x, power, modulo) {
     let res = x;
-    while (power-- > _0n$3) {
+    while (power-- > _0n$2) {
         res *= res;
         res %= modulo;
     }
@@ -5170,16 +1715,16 @@ function pow2(x, power, modulo) {
  * Implemented using [Euclidean GCD](https://brilliant.org/wiki/extended-euclidean-algorithm/).
  */
 function invert(number, modulo) {
-    if (number === _0n$3)
+    if (number === _0n$2)
         throw new Error('invert: expected non-zero number');
-    if (modulo <= _0n$3)
+    if (modulo <= _0n$2)
         throw new Error('invert: expected positive modulus, got ' + modulo);
     // Fermat's little theorem "CT-like" version inv(n) = n^(m-2) mod m is 30x slower.
     let a = mod(number, modulo);
     let b = modulo;
     // prettier-ignore
-    let x = _0n$3, u = _1n$3;
-    while (a !== _0n$3) {
+    let x = _0n$2, u = _1n$3;
+    while (a !== _0n$2) {
         // JIT applies optimization if those two lines follow each other
         const q = b / a;
         const r = b % a;
@@ -5206,14 +1751,14 @@ function tonelliShanks(P) {
     // (a | p) ≡ 1    if a is a square (mod p)
     // (a | p) ≡ -1   if a is not a square (mod p)
     // (a | p) ≡ 0    if a ≡ 0 (mod p)
-    const legendreC = (P - _1n$3) / _2n$1;
+    const legendreC = (P - _1n$3) / _2n$2;
     let Q, S, Z;
     // Step 1: By factoring out powers of 2 from p - 1,
     // find q and s such that p - 1 = q*(2^s) with q odd
-    for (Q = P - _1n$3, S = 0; Q % _2n$1 === _0n$3; Q /= _2n$1, S++)
+    for (Q = P - _1n$3, S = 0; Q % _2n$2 === _0n$2; Q /= _2n$2, S++)
         ;
     // Step 2: Select a non-square z such that (z | p) ≡ -1 and set c ≡ zq
-    for (Z = _2n$1; Z < P && pow(Z, legendreC, P) !== P - _1n$3; Z++) {
+    for (Z = _2n$2; Z < P && pow(Z, legendreC, P) !== P - _1n$3; Z++) {
         // Crash instead of infinity loop, we cannot reasonable count until P.
         if (Z > 1000)
             throw new Error('Cannot find square root: likely non-prime P');
@@ -5229,7 +1774,7 @@ function tonelliShanks(P) {
         };
     }
     // Slow-path
-    const Q1div2 = (Q + _1n$3) / _2n$1;
+    const Q1div2 = (Q + _1n$3) / _2n$2;
     return function tonelliSlow(Fp, n) {
         // Step 0: Check that n is indeed a square: (n | p) should not be ≡ -1
         if (Fp.pow(n, legendreC) === Fp.neg(Fp.ONE))
@@ -5288,13 +1833,13 @@ function FpSqrt(P) {
         };
     }
     // Atkin algorithm for q ≡ 5 (mod 8), https://eprint.iacr.org/2012/685.pdf (page 10)
-    if (P % _8n$1 === _5n) {
-        const c1 = (P - _5n) / _8n$1;
+    if (P % _8n$2 === _5n$1) {
+        const c1 = (P - _5n$1) / _8n$2;
         return function sqrt5mod8(Fp, n) {
-            const n2 = Fp.mul(n, _2n$1);
+            const n2 = Fp.mul(n, _2n$2);
             const v = Fp.pow(n2, c1);
             const nv = Fp.mul(n, v);
-            const i = Fp.mul(Fp.mul(nv, _2n$1), v);
+            const i = Fp.mul(Fp.mul(nv, _2n$2), v);
             const root = Fp.mul(nv, Fp.sub(i, Fp.ONE));
             if (!Fp.eql(Fp.sqr(root), n))
                 throw new Error('Cannot find square root');
@@ -5306,7 +1851,6 @@ function FpSqrt(P) {
 }
 // Little-endian check for first LE bit (last BE bit);
 const isNegativeLE = (num, modulo) => (mod(num, modulo) & _1n$3) === _1n$3;
-modular.isNegativeLE = isNegativeLE;
 // prettier-ignore
 const FIELD_FIELDS = [
     'create', 'isValid', 'is0', 'neg', 'inv', 'sqrt', 'sqr',
@@ -5324,7 +1868,7 @@ function validateField(field) {
         map[val] = 'function';
         return map;
     }, initial);
-    return (0, utils_js_1$4.validateObject)(field, opts);
+    return validateObject(field, opts);
 }
 // Generic field functions
 /**
@@ -5334,15 +1878,15 @@ function validateField(field) {
 function FpPow(f, num, power) {
     // Should have same speed as pow for bigints
     // TODO: benchmark!
-    if (power < _0n$3)
+    if (power < _0n$2)
         throw new Error('invalid exponent, negatives unsupported');
-    if (power === _0n$3)
+    if (power === _0n$2)
         return f.ONE;
     if (power === _1n$3)
         return num;
     let p = f.ONE;
     let d = num;
-    while (power > _0n$3) {
+    while (power > _0n$2) {
         if (power & _1n$3)
             p = f.mul(p, d);
         d = f.sqr(d);
@@ -5374,27 +1918,6 @@ function FpInvertBatch(f, nums) {
     }, inverted);
     return tmp;
 }
-function FpDiv(f, lhs, rhs) {
-    return f.mul(lhs, typeof rhs === 'bigint' ? invert(rhs, f.ORDER) : f.inv(rhs));
-}
-/**
- * Legendre symbol.
- * * (a | p) ≡ 1    if a is a square (mod p), quadratic residue
- * * (a | p) ≡ -1   if a is not a square (mod p), quadratic non residue
- * * (a | p) ≡ 0    if a ≡ 0 (mod p)
- */
-function FpLegendre(order) {
-    const legendreConst = (order - _1n$3) / _2n$1; // Integer arithmetic
-    return (f, x) => f.pow(x, legendreConst);
-}
-// This function returns True whenever the value x is a square in the field F.
-function FpIsSquare(f) {
-    const legendre = FpLegendre(f.ORDER);
-    return (x) => {
-        const p = legendre(f, x);
-        return f.eql(p, f.ZERO) || f.eql(p, f.ONE);
-    };
-}
 // CURVE.n lengths
 function nLength(n, nBitLength) {
     // Bit size, byte size of CURVE.n
@@ -5418,7 +1941,7 @@ function nLength(n, nBitLength) {
  * @param redef optional faster redefinitions of sqrt and other methods
  */
 function Field(ORDER, bitLen, isLE = false, redef = {}) {
-    if (ORDER <= _0n$3)
+    if (ORDER <= _0n$2)
         throw new Error('invalid field: expected ORDER > 0, got ' + ORDER);
     const { nBitLength: BITS, nByteLength: BYTES } = nLength(ORDER, bitLen);
     if (BYTES > 2048)
@@ -5429,16 +1952,16 @@ function Field(ORDER, bitLen, isLE = false, redef = {}) {
         isLE,
         BITS,
         BYTES,
-        MASK: (0, utils_js_1$4.bitMask)(BITS),
-        ZERO: _0n$3,
+        MASK: bitMask(BITS),
+        ZERO: _0n$2,
         ONE: _1n$3,
         create: (num) => mod(num, ORDER),
         isValid: (num) => {
             if (typeof num !== 'bigint')
                 throw new Error('invalid field element: expected bigint, got ' + typeof num);
-            return _0n$3 <= num && num < ORDER; // 0 is valid element, but it's not invertible
+            return _0n$2 <= num && num < ORDER; // 0 is valid element, but it's not invertible
         },
-        is0: (num) => num === _0n$3,
+        is0: (num) => num === _0n$2,
         isOdd: (num) => (num & _1n$3) === _1n$3,
         neg: (num) => mod(-num, ORDER),
         eql: (lhs, rhs) => lhs === rhs,
@@ -5464,105 +1987,23 @@ function Field(ORDER, bitLen, isLE = false, redef = {}) {
         // TODO: do we really need constant cmov?
         // We don't have const-time bigints anyway, so probably will be not very useful
         cmov: (a, b, c) => (c ? b : a),
-        toBytes: (num) => (isLE ? (0, utils_js_1$4.numberToBytesLE)(num, BYTES) : (0, utils_js_1$4.numberToBytesBE)(num, BYTES)),
+        toBytes: (num) => (isLE ? numberToBytesLE(num, BYTES) : numberToBytesBE(num, BYTES)),
         fromBytes: (bytes) => {
             if (bytes.length !== BYTES)
                 throw new Error('Field.fromBytes: expected ' + BYTES + ' bytes, got ' + bytes.length);
-            return isLE ? (0, utils_js_1$4.bytesToNumberLE)(bytes) : (0, utils_js_1$4.bytesToNumberBE)(bytes);
+            return isLE ? bytesToNumberLE(bytes) : bytesToNumberBE(bytes);
         },
     });
     return Object.freeze(f);
 }
-function FpSqrtOdd(Fp, elm) {
-    if (!Fp.isOdd)
-        throw new Error("Field doesn't have isOdd");
-    const root = Fp.sqrt(elm);
-    return Fp.isOdd(root) ? root : Fp.neg(root);
-}
-function FpSqrtEven(Fp, elm) {
-    if (!Fp.isOdd)
-        throw new Error("Field doesn't have isOdd");
-    const root = Fp.sqrt(elm);
-    return Fp.isOdd(root) ? Fp.neg(root) : root;
-}
-/**
- * "Constant-time" private key generation utility.
- * Same as mapKeyToField, but accepts less bytes (40 instead of 48 for 32-byte field).
- * Which makes it slightly more biased, less secure.
- * @deprecated use `mapKeyToField` instead
- */
-function hashToPrivateScalar(hash, groupOrder, isLE = false) {
-    hash = (0, utils_js_1$4.ensureBytes)('privateHash', hash);
-    const hashLen = hash.length;
-    const minLen = nLength(groupOrder).nByteLength + 8;
-    if (minLen < 24 || hashLen < minLen || hashLen > 1024)
-        throw new Error('hashToPrivateScalar: expected ' + minLen + '-1024 bytes of input, got ' + hashLen);
-    const num = isLE ? (0, utils_js_1$4.bytesToNumberLE)(hash) : (0, utils_js_1$4.bytesToNumberBE)(hash);
-    return mod(num, groupOrder - _1n$3) + _1n$3;
-}
-/**
- * Returns total number of bytes consumed by the field element.
- * For example, 32 bytes for usual 256-bit weierstrass curve.
- * @param fieldOrder number of field elements, usually CURVE.n
- * @returns byte length of field
- */
-function getFieldBytesLength(fieldOrder) {
-    if (typeof fieldOrder !== 'bigint')
-        throw new Error('field order must be bigint');
-    const bitLength = fieldOrder.toString(2).length;
-    return Math.ceil(bitLength / 8);
-}
-/**
- * Returns minimal amount of bytes that can be safely reduced
- * by field order.
- * Should be 2^-128 for 128-bit curve such as P256.
- * @param fieldOrder number of field elements, usually CURVE.n
- * @returns byte length of target hash
- */
-function getMinHashLength(fieldOrder) {
-    const length = getFieldBytesLength(fieldOrder);
-    return length + Math.ceil(length / 2);
-}
-/**
- * "Constant-time" private key generation utility.
- * Can take (n + n/2) or more bytes of uniform input e.g. from CSPRNG or KDF
- * and convert them into private scalar, with the modulo bias being negligible.
- * Needs at least 48 bytes of input for 32-byte private key.
- * https://research.kudelskisecurity.com/2020/07/28/the-definitive-guide-to-modulo-bias-and-how-to-avoid-it/
- * FIPS 186-5, A.2 https://csrc.nist.gov/publications/detail/fips/186/5/final
- * RFC 9380, https://www.rfc-editor.org/rfc/rfc9380#section-5
- * @param hash hash output from SHA3 or a similar function
- * @param groupOrder size of subgroup - (e.g. secp256k1.CURVE.n)
- * @param isLE interpret hash bytes as LE num
- * @returns valid private scalar
- */
-function mapHashToField(key, fieldOrder, isLE = false) {
-    const len = key.length;
-    const fieldLen = getFieldBytesLength(fieldOrder);
-    const minLen = getMinHashLength(fieldOrder);
-    // No small numbers: need to understand bias story. No huge numbers: easier to detect JS timings.
-    if (len < 16 || len < minLen || len > 1024)
-        throw new Error('expected ' + minLen + '-1024 bytes of input, got ' + len);
-    const num = isLE ? (0, utils_js_1$4.bytesToNumberLE)(key) : (0, utils_js_1$4.bytesToNumberBE)(key);
-    // `mod(x, 11)` can sometimes produce 0. `mod(x, 10) + 1` is the same, but no 0
-    const reduced = mod(num, fieldOrder - _1n$3) + _1n$3;
-    return isLE ? (0, utils_js_1$4.numberToBytesLE)(reduced, fieldLen) : (0, utils_js_1$4.numberToBytesBE)(reduced, fieldLen);
-}
 
-Object.defineProperty(curve$1, "__esModule", { value: true });
-curve$1.wNAF = wNAF;
-curve$1.pippenger = pippenger;
-curve$1.precomputeMSMUnsafe = precomputeMSMUnsafe;
-curve$1.validateBasic = validateBasic;
 /**
  * Methods for elliptic curve multiplication by scalars.
  * Contains wNAF, pippenger
  * @module
  */
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-const modular_js_1$3 = modular;
-const utils_js_1$3 = utils$q;
-const _0n$2 = BigInt(0);
+const _0n$1 = BigInt(0);
 const _1n$2 = BigInt(1);
 function constTimeNegate(condition, item) {
     const neg = item.negate();
@@ -5624,7 +2065,7 @@ function wNAF(c, bits) {
         // non-const time multiplication ladder
         unsafeLadder(elm, n, p = c.ZERO) {
             let d = elm;
-            while (n > _0n$2) {
+            while (n > _0n$1) {
                 if (n & _1n$2)
                     p = p.add(d);
                 d = d.double();
@@ -5730,7 +2171,7 @@ function wNAF(c, bits) {
             const shiftBy = BigInt(W);
             for (let window = 0; window < windows; window++) {
                 const offset = window * windowSize;
-                if (n === _0n$2)
+                if (n === _0n$1)
                     break; // No need to go over empty scalar
                 // Extract W bits.
                 let wbits = Number(n & mask);
@@ -5804,7 +2245,7 @@ function pippenger(c, fieldN, points, scalars) {
     if (points.length !== scalars.length)
         throw new Error('arrays of points and scalars must have equal length');
     const zero = c.ZERO;
-    const wbits = (0, utils_js_1$3.bitLen)(BigInt(points.length));
+    const wbits = bitLen(BigInt(points.length));
     const windowSize = wbits > 12 ? wbits - 3 : wbits > 4 ? wbits - 2 : wbits ? 2 : 1; // in bits
     const MASK = (1 << windowSize) - 1;
     const buckets = new Array(MASK + 1).fill(zero); // +1 for zero array
@@ -5830,88 +2271,9 @@ function pippenger(c, fieldN, points, scalars) {
     }
     return sum;
 }
-/**
- * Precomputed multi-scalar multiplication (MSM, Pa + Qb + Rc + ...).
- * @param c Curve Point constructor
- * @param fieldN field over CURVE.N - important that it's not over CURVE.P
- * @param points array of L curve points
- * @returns function which multiplies points with scaars
- */
-function precomputeMSMUnsafe(c, fieldN, points, windowSize) {
-    /**
-     * Performance Analysis of Window-based Precomputation
-     *
-     * Base Case (256-bit scalar, 8-bit window):
-     * - Standard precomputation requires:
-     *   - 31 additions per scalar × 256 scalars = 7,936 ops
-     *   - Plus 255 summary additions = 8,191 total ops
-     *   Note: Summary additions can be optimized via accumulator
-     *
-     * Chunked Precomputation Analysis:
-     * - Using 32 chunks requires:
-     *   - 255 additions per chunk
-     *   - 256 doublings
-     *   - Total: (255 × 32) + 256 = 8,416 ops
-     *
-     * Memory Usage Comparison:
-     * Window Size | Standard Points | Chunked Points
-     * ------------|-----------------|---------------
-     *     4-bit   |     520         |      15
-     *     8-bit   |    4,224        |     255
-     *    10-bit   |   13,824        |   1,023
-     *    16-bit   |  557,056        |  65,535
-     *
-     * Key Advantages:
-     * 1. Enables larger window sizes due to reduced memory overhead
-     * 2. More efficient for smaller scalar counts:
-     *    - 16 chunks: (16 × 255) + 256 = 4,336 ops
-     *    - ~2x faster than standard 8,191 ops
-     *
-     * Limitations:
-     * - Not suitable for plain precomputes (requires 256 constant doublings)
-     * - Performance degrades with larger scalar counts:
-     *   - Optimal for ~256 scalars
-     *   - Less efficient for 4096+ scalars (Pippenger preferred)
-     */
-    validateW(windowSize, fieldN.BITS);
-    validateMSMPoints(points, c);
-    const zero = c.ZERO;
-    const tableSize = 2 ** windowSize - 1; // table size (without zero)
-    const chunks = Math.ceil(fieldN.BITS / windowSize); // chunks of item
-    const MASK = BigInt((1 << windowSize) - 1);
-    const tables = points.map((p) => {
-        const res = [];
-        for (let i = 0, acc = p; i < tableSize; i++) {
-            res.push(acc);
-            acc = acc.add(p);
-        }
-        return res;
-    });
-    return (scalars) => {
-        validateMSMScalars(scalars, fieldN);
-        if (scalars.length > points.length)
-            throw new Error('array of scalars must be smaller than array of points');
-        let res = zero;
-        for (let i = 0; i < chunks; i++) {
-            // No need to double if accumulator is still zero.
-            if (res !== zero)
-                for (let j = 0; j < windowSize; j++)
-                    res = res.double();
-            const shiftBy = BigInt(chunks * windowSize - (i + 1) * windowSize);
-            for (let j = 0; j < scalars.length; j++) {
-                const n = scalars[j];
-                const curr = Number((n >> shiftBy) & MASK);
-                if (!curr)
-                    continue; // skip zero scalars chunks
-                res = res.add(tables[j][curr - 1]);
-            }
-        }
-        return res;
-    };
-}
 function validateBasic(curve) {
-    (0, modular_js_1$3.validateField)(curve.Fp);
-    (0, utils_js_1$3.validateObject)(curve, {
+    validateField(curve.Fp);
+    validateObject(curve, {
         n: 'bigint',
         h: 'bigint',
         Gx: 'field',
@@ -5922,34 +2284,26 @@ function validateBasic(curve) {
     });
     // Set defaults
     return Object.freeze({
-        ...(0, modular_js_1$3.nLength)(curve.n, curve.nBitLength),
+        ...nLength(curve.n, curve.nBitLength),
         ...curve,
         ...{ p: curve.Fp.ORDER },
     });
 }
 
-var edwards$1 = {};
-
-Object.defineProperty(edwards$1, "__esModule", { value: true });
-edwards$1.twistedEdwards = twistedEdwards;
 /**
  * Twisted Edwards curve. The formula is: ax² + y² = 1 + dx²y².
  * For design rationale of types / exports, see weierstrass module documentation.
  * @module
  */
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-const curve_js_1 = curve$1;
-const modular_js_1$2 = modular;
-const ut = utils$q;
-const utils_js_1$2 = utils$q;
 // Be friendly to bad ECMAScript parsers by not using bigint literals
 // prettier-ignore
-const _0n$1 = BigInt(0), _1n$1 = BigInt(1), _2n = BigInt(2), _8n = BigInt(8);
+const _0n = BigInt(0), _1n$1 = BigInt(1), _2n$1 = BigInt(2), _8n$1 = BigInt(8);
 // verification rule is either zip215 or rfc8032 / nist186-5. Consult fromHex:
 const VERIFY_DEFAULT = { zip215: true };
-function validateOpts$1(curve) {
-    const opts = (0, curve_js_1.validateBasic)(curve);
-    ut.validateObject(curve, {
+function validateOpts(curve) {
+    const opts = validateBasic(curve);
+    validateObject(curve, {
         hash: 'function',
         a: 'bigint',
         d: 'bigint',
@@ -5971,15 +2325,15 @@ function validateOpts$1(curve) {
  * const curve = twistedEdwards({ a, d, Fp: Field(p), n, Gx, Gy, h })
  */
 function twistedEdwards(curveDef) {
-    const CURVE = validateOpts$1(curveDef);
+    const CURVE = validateOpts(curveDef);
     const { Fp, n: CURVE_ORDER, prehash: prehash, hash: cHash, randomBytes, nByteLength, h: cofactor, } = CURVE;
     // Important:
     // There are some places where Fp.BYTES is used instead of nByteLength.
     // So far, everything has been tested with curves of Fp.BYTES == nByteLength.
     // TODO: test and find curves which behave otherwise.
-    const MASK = _2n << (BigInt(nByteLength * 8) - _1n$1);
+    const MASK = _2n$1 << (BigInt(nByteLength * 8) - _1n$1);
     const modP = Fp.create; // Function overrides
-    const Fn = (0, modular_js_1$2.Field)(CURVE.n, CURVE.nBitLength);
+    const Fn = Field(CURVE.n, CURVE.nBitLength);
     // sqrt(u/v)
     const uvRatio = CURVE.uvRatio ||
         ((u, v) => {
@@ -5987,13 +2341,13 @@ function twistedEdwards(curveDef) {
                 return { isValid: true, value: Fp.sqrt(u * Fp.inv(v)) };
             }
             catch (e) {
-                return { isValid: false, value: _0n$1 };
+                return { isValid: false, value: _0n };
             }
         });
     const adjustScalarBytes = CURVE.adjustScalarBytes || ((bytes) => bytes); // NOOP
     const domain = CURVE.domain ||
         ((data, ctx, phflag) => {
-            (0, utils_js_1$2.abool)('phflag', phflag);
+            abool('phflag', phflag);
             if (ctx.length || phflag)
                 throw new Error('Contexts/pre-hash are not supported');
             return data;
@@ -6001,7 +2355,7 @@ function twistedEdwards(curveDef) {
     // 0 <= n < MASK
     // Coordinates larger than Fp.ORDER are allowed for zip215
     function aCoordinate(title, n) {
-        ut.aInRange('coordinate ' + title, n, _0n$1, MASK);
+        aInRange('coordinate ' + title, n, _0n, MASK);
     }
     function assertPoint(other) {
         if (!(other instanceof Point))
@@ -6009,21 +2363,21 @@ function twistedEdwards(curveDef) {
     }
     // Converts Extended point to default (x, y) coordinates.
     // Can accept precomputed Z^-1 - for example, from invertBatch.
-    const toAffineMemo = (0, utils_js_1$2.memoized)((p, iz) => {
+    const toAffineMemo = memoized((p, iz) => {
         const { ex: x, ey: y, ez: z } = p;
         const is0 = p.is0();
         if (iz == null)
-            iz = is0 ? _8n : Fp.inv(z); // 8 was chosen arbitrarily
+            iz = is0 ? _8n$1 : Fp.inv(z); // 8 was chosen arbitrarily
         const ax = modP(x * iz);
         const ay = modP(y * iz);
         const zz = modP(z * iz);
         if (is0)
-            return { x: _0n$1, y: _1n$1 };
+            return { x: _0n, y: _1n$1 };
         if (zz !== _1n$1)
             throw new Error('invZ was invalid');
         return { x: ax, y: ay };
     });
-    const assertValidMemo = (0, utils_js_1$2.memoized)((p) => {
+    const assertValidMemo = memoized((p) => {
         const { a, d } = CURVE;
         if (p.is0())
             throw new Error('bad point: ZERO'); // TODO: optimize, with vars below?
@@ -6080,7 +2434,7 @@ function twistedEdwards(curveDef) {
         }
         // Multiscalar Multiplication
         static msm(points, scalars) {
-            return (0, curve_js_1.pippenger)(Point, Fn, points, scalars);
+            return pippenger(Point, Fn, points, scalars);
         }
         // "Private method", don't use it directly
         _setWindowSize(windowSize) {
@@ -6117,7 +2471,7 @@ function twistedEdwards(curveDef) {
             const { ex: X1, ey: Y1, ez: Z1 } = this;
             const A = modP(X1 * X1); // A = X12
             const B = modP(Y1 * Y1); // B = Y12
-            const C = modP(_2n * modP(Z1 * Z1)); // C = 2*Z12
+            const C = modP(_2n$1 * modP(Z1 * Z1)); // C = 2*Z12
             const D = modP(a * A); // D = a*A
             const x1y1 = X1 + Y1;
             const E = modP(modP(x1y1 * x1y1) - A - B); // E = (X1+Y1)2-A-B
@@ -6146,10 +2500,10 @@ function twistedEdwards(curveDef) {
                 const A = modP((Y1 - X1) * (Y2 + X2));
                 const B = modP((Y1 + X1) * (Y2 - X2));
                 const F = modP(B - A);
-                if (F === _0n$1)
+                if (F === _0n)
                     return this.double(); // Same point. Tests say it doesn't affect timing
-                const C = modP(Z1 * _2n * T2);
-                const D = modP(T1 * _2n * Z2);
+                const C = modP(Z1 * _2n$1 * T2);
+                const D = modP(T1 * _2n$1 * Z2);
                 const E = D + C;
                 const G = B + A;
                 const H = D - C;
@@ -6182,7 +2536,7 @@ function twistedEdwards(curveDef) {
         // Constant-time multiplication.
         multiply(scalar) {
             const n = scalar;
-            ut.aInRange('scalar', n, _1n$1, CURVE_ORDER); // 1 <= scalar < L
+            aInRange('scalar', n, _1n$1, CURVE_ORDER); // 1 <= scalar < L
             const { p, f } = this.wNAF(n);
             return Point.normalizeZ([p, f])[0];
         }
@@ -6193,8 +2547,8 @@ function twistedEdwards(curveDef) {
         // Accepts optional accumulator to merge with multiply (important for sparse scalars)
         multiplyUnsafe(scalar, acc = Point.ZERO) {
             const n = scalar;
-            ut.aInRange('scalar', n, _0n$1, CURVE_ORDER); // 0 <= scalar < L
-            if (n === _0n$1)
+            aInRange('scalar', n, _0n, CURVE_ORDER); // 0 <= scalar < L
+            if (n === _0n)
                 return I;
             if (this.is0() || n === _1n$1)
                 return this;
@@ -6228,18 +2582,18 @@ function twistedEdwards(curveDef) {
         static fromHex(hex, zip215 = false) {
             const { d, a } = CURVE;
             const len = Fp.BYTES;
-            hex = (0, utils_js_1$2.ensureBytes)('pointHex', hex, len); // copy hex to a new array
-            (0, utils_js_1$2.abool)('zip215', zip215);
+            hex = ensureBytes('pointHex', hex, len); // copy hex to a new array
+            abool('zip215', zip215);
             const normed = hex.slice(); // copy again, we'll manipulate it
             const lastByte = hex[len - 1]; // select last byte
             normed[len - 1] = lastByte & -129; // clear last bit
-            const y = ut.bytesToNumberLE(normed);
+            const y = bytesToNumberLE(normed);
             // zip215=true is good for consensus-critical apps. =false follows RFC8032 / NIST186-5.
             // RFC8032 prohibits >= p, but ZIP215 doesn't
             // zip215=true:  0 <= y < MASK (2^256 for ed25519)
             // zip215=false: 0 <= y < P (2^255-19 for ed25519)
             const max = zip215 ? MASK : Fp.ORDER;
-            ut.aInRange('pointHex.y', y, _0n$1, max);
+            aInRange('pointHex.y', y, _0n, max);
             // Ed25519: x² = (y²-1)/(dy²+1) mod p. Ed448: x² = (y²-1)/(dy²-1) mod p. Generic case:
             // ax²+y²=1+dx²y² => y²-1=dx²y²-ax² => y²-1=x²(dy²-a) => x²=(y²-1)/(dy²-a)
             const y2 = modP(y * y); // denominator is always non-0 mod p.
@@ -6250,7 +2604,7 @@ function twistedEdwards(curveDef) {
                 throw new Error('Point.fromHex: invalid y coordinate');
             const isXOdd = (x & _1n$1) === _1n$1; // There are 2 square roots. Use x_0 bit to select proper
             const isLastByteOdd = (lastByte & 0x80) !== 0; // x_0, last bit
-            if (!zip215 && x === _0n$1 && isLastByteOdd)
+            if (!zip215 && x === _0n && isLastByteOdd)
                 // if x=0 and x_0 = 1, fail
                 throw new Error('Point.fromHex: x=0 and x_0=1');
             if (isLastByteOdd !== isXOdd)
@@ -6262,32 +2616,32 @@ function twistedEdwards(curveDef) {
         }
         toRawBytes() {
             const { x, y } = this.toAffine();
-            const bytes = ut.numberToBytesLE(y, Fp.BYTES); // each y has 2 x values (x, -y)
+            const bytes = numberToBytesLE(y, Fp.BYTES); // each y has 2 x values (x, -y)
             bytes[bytes.length - 1] |= x & _1n$1 ? 0x80 : 0; // when compressing, it's enough to store y
             return bytes; // and use the last byte to encode sign of x
         }
         toHex() {
-            return ut.bytesToHex(this.toRawBytes()); // Same as toRawBytes, but returns string.
+            return bytesToHex(this.toRawBytes()); // Same as toRawBytes, but returns string.
         }
     }
     Point.BASE = new Point(CURVE.Gx, CURVE.Gy, _1n$1, modP(CURVE.Gx * CURVE.Gy));
-    Point.ZERO = new Point(_0n$1, _1n$1, _1n$1, _0n$1); // 0, 1, 1, 0
+    Point.ZERO = new Point(_0n, _1n$1, _1n$1, _0n); // 0, 1, 1, 0
     const { BASE: G, ZERO: I } = Point;
-    const wnaf = (0, curve_js_1.wNAF)(Point, nByteLength * 8);
+    const wnaf = wNAF(Point, nByteLength * 8);
     function modN(a) {
-        return (0, modular_js_1$2.mod)(a, CURVE_ORDER);
+        return mod(a, CURVE_ORDER);
     }
     // Little-endian SHA512 with modulo n
     function modN_LE(hash) {
-        return modN(ut.bytesToNumberLE(hash));
+        return modN(bytesToNumberLE(hash));
     }
     /** Convenience method that creates public key and other stuff. RFC8032 5.1.5 */
     function getExtendedPublicKey(key) {
         const len = Fp.BYTES;
-        key = (0, utils_js_1$2.ensureBytes)('private key', key, len);
+        key = ensureBytes('private key', key, len);
         // Hash private key with curve's hash function to produce uniformingly random input
         // Check byte lengths: ensure(64, h(ensure(32, key)))
-        const hashed = (0, utils_js_1$2.ensureBytes)('hashed private key', cHash(key), 2 * len);
+        const hashed = ensureBytes('hashed private key', cHash(key), 2 * len);
         const head = adjustScalarBytes(hashed.slice(0, len)); // clear first half bits, produce FE
         const prefix = hashed.slice(len, 2 * len); // second half is called key prefix (5.1.6)
         const scalar = modN_LE(head); // The actual private scalar
@@ -6301,12 +2655,12 @@ function twistedEdwards(curveDef) {
     }
     // int('LE', SHA512(dom2(F, C) || msgs)) mod N
     function hashDomainToScalar(context = new Uint8Array(), ...msgs) {
-        const msg = ut.concatBytes(...msgs);
-        return modN_LE(cHash(domain(msg, (0, utils_js_1$2.ensureBytes)('context', context), !!prehash)));
+        const msg = concatBytes(...msgs);
+        return modN_LE(cHash(domain(msg, ensureBytes('context', context), !!prehash)));
     }
     /** Signs message with privateKey. RFC8032 5.1.6 */
     function sign(msg, privKey, options = {}) {
-        msg = (0, utils_js_1$2.ensureBytes)('message', msg);
+        msg = ensureBytes('message', msg);
         if (prehash)
             msg = prehash(msg); // for ed25519ph etc.
         const { prefix, scalar, pointBytes } = getExtendedPublicKey(privKey);
@@ -6314,9 +2668,9 @@ function twistedEdwards(curveDef) {
         const R = G.multiply(r).toRawBytes(); // R = rG
         const k = hashDomainToScalar(options.context, R, pointBytes, msg); // R || A || PH(M)
         const s = modN(r + k * scalar); // S = (r + k * s) mod L
-        ut.aInRange('signature.s', s, _0n$1, CURVE_ORDER); // 0 <= s < l
-        const res = ut.concatBytes(R, ut.numberToBytesLE(s, Fp.BYTES));
-        return (0, utils_js_1$2.ensureBytes)('result', res, Fp.BYTES * 2); // 64-byte signature
+        aInRange('signature.s', s, _0n, CURVE_ORDER); // 0 <= s < l
+        const res = concatBytes(R, numberToBytesLE(s, Fp.BYTES));
+        return ensureBytes('result', res, Fp.BYTES * 2); // 64-byte signature
     }
     const verifyOpts = VERIFY_DEFAULT;
     /**
@@ -6326,14 +2680,14 @@ function twistedEdwards(curveDef) {
     function verify(sig, msg, publicKey, options = verifyOpts) {
         const { context, zip215 } = options;
         const len = Fp.BYTES; // Verifies EdDSA signature against message and public key. RFC8032 5.1.7.
-        sig = (0, utils_js_1$2.ensureBytes)('signature', sig, 2 * len); // An extended group equation is checked.
-        msg = (0, utils_js_1$2.ensureBytes)('message', msg);
-        publicKey = (0, utils_js_1$2.ensureBytes)('publicKey', publicKey, len);
+        sig = ensureBytes('signature', sig, 2 * len); // An extended group equation is checked.
+        msg = ensureBytes('message', msg);
+        publicKey = ensureBytes('publicKey', publicKey, len);
         if (zip215 !== undefined)
-            (0, utils_js_1$2.abool)('zip215', zip215);
+            abool('zip215', zip215);
         if (prehash)
             msg = prehash(msg); // for ed25519ph, etc
-        const s = ut.bytesToNumberLE(sig.slice(len, 2 * len));
+        const s = bytesToNumberLE(sig.slice(len, 2 * len));
         let A, R, SB;
         try {
             // zip215=true is good for consensus-critical apps. =false follows RFC8032 / NIST186-5.
@@ -6381,834 +2735,115 @@ function twistedEdwards(curveDef) {
     };
 }
 
-var hashToCurve = {};
-
-Object.defineProperty(hashToCurve, "__esModule", { value: true });
-hashToCurve.expand_message_xmd = expand_message_xmd;
-hashToCurve.expand_message_xof = expand_message_xof;
-hashToCurve.hash_to_field = hash_to_field;
-hashToCurve.isogenyMap = isogenyMap;
-hashToCurve.createHasher = createHasher;
-const modular_js_1$1 = modular;
-const utils_js_1$1 = utils$q;
-// Octet Stream to Integer. "spec" implementation of os2ip is 2.5x slower vs bytesToNumberBE.
-const os2ip = utils_js_1$1.bytesToNumberBE;
-// Integer to Octet Stream (numberToBytesBE)
-function i2osp(value, length) {
-    anum(value);
-    anum(length);
-    if (value < 0 || value >= 1 << (8 * length))
-        throw new Error('invalid I2OSP input: ' + value);
-    const res = Array.from({ length }).fill(0);
-    for (let i = length - 1; i >= 0; i--) {
-        res[i] = value & 0xff;
-        value >>>= 8;
-    }
-    return new Uint8Array(res);
-}
-function strxor(a, b) {
-    const arr = new Uint8Array(a.length);
-    for (let i = 0; i < a.length; i++) {
-        arr[i] = a[i] ^ b[i];
-    }
-    return arr;
-}
-function anum(item) {
-    if (!Number.isSafeInteger(item))
-        throw new Error('number expected');
-}
 /**
- * Produces a uniformly random byte string using a cryptographic hash function H that outputs b bits.
- * [RFC 9380 5.3.1](https://www.rfc-editor.org/rfc/rfc9380#section-5.3.1).
- */
-function expand_message_xmd(msg, DST, lenInBytes, H) {
-    (0, utils_js_1$1.abytes)(msg);
-    (0, utils_js_1$1.abytes)(DST);
-    anum(lenInBytes);
-    // https://www.rfc-editor.org/rfc/rfc9380#section-5.3.3
-    if (DST.length > 255)
-        DST = H((0, utils_js_1$1.concatBytes)((0, utils_js_1$1.utf8ToBytes)('H2C-OVERSIZE-DST-'), DST));
-    const { outputLen: b_in_bytes, blockLen: r_in_bytes } = H;
-    const ell = Math.ceil(lenInBytes / b_in_bytes);
-    if (lenInBytes > 65535 || ell > 255)
-        throw new Error('expand_message_xmd: invalid lenInBytes');
-    const DST_prime = (0, utils_js_1$1.concatBytes)(DST, i2osp(DST.length, 1));
-    const Z_pad = i2osp(0, r_in_bytes);
-    const l_i_b_str = i2osp(lenInBytes, 2); // len_in_bytes_str
-    const b = new Array(ell);
-    const b_0 = H((0, utils_js_1$1.concatBytes)(Z_pad, msg, l_i_b_str, i2osp(0, 1), DST_prime));
-    b[0] = H((0, utils_js_1$1.concatBytes)(b_0, i2osp(1, 1), DST_prime));
-    for (let i = 1; i <= ell; i++) {
-        const args = [strxor(b_0, b[i - 1]), i2osp(i + 1, 1), DST_prime];
-        b[i] = H((0, utils_js_1$1.concatBytes)(...args));
-    }
-    const pseudo_random_bytes = (0, utils_js_1$1.concatBytes)(...b);
-    return pseudo_random_bytes.slice(0, lenInBytes);
-}
-/**
- * Produces a uniformly random byte string using an extendable-output function (XOF) H.
- * 1. The collision resistance of H MUST be at least k bits.
- * 2. H MUST be an XOF that has been proved indifferentiable from
- *    a random oracle under a reasonable cryptographic assumption.
- * [RFC 9380 5.3.2](https://www.rfc-editor.org/rfc/rfc9380#section-5.3.2).
- */
-function expand_message_xof(msg, DST, lenInBytes, k, H) {
-    (0, utils_js_1$1.abytes)(msg);
-    (0, utils_js_1$1.abytes)(DST);
-    anum(lenInBytes);
-    // https://www.rfc-editor.org/rfc/rfc9380#section-5.3.3
-    // DST = H('H2C-OVERSIZE-DST-' || a_very_long_DST, Math.ceil((lenInBytes * k) / 8));
-    if (DST.length > 255) {
-        const dkLen = Math.ceil((2 * k) / 8);
-        DST = H.create({ dkLen }).update((0, utils_js_1$1.utf8ToBytes)('H2C-OVERSIZE-DST-')).update(DST).digest();
-    }
-    if (lenInBytes > 65535 || DST.length > 255)
-        throw new Error('expand_message_xof: invalid lenInBytes');
-    return (H.create({ dkLen: lenInBytes })
-        .update(msg)
-        .update(i2osp(lenInBytes, 2))
-        // 2. DST_prime = DST || I2OSP(len(DST), 1)
-        .update(DST)
-        .update(i2osp(DST.length, 1))
-        .digest());
-}
-/**
- * Hashes arbitrary-length byte strings to a list of one or more elements of a finite field F.
- * [RFC 9380 5.2](https://www.rfc-editor.org/rfc/rfc9380#section-5.2).
- * @param msg a byte string containing the message to hash
- * @param count the number of elements of F to output
- * @param options `{DST: string, p: bigint, m: number, k: number, expand: 'xmd' | 'xof', hash: H}`, see above
- * @returns [u_0, ..., u_(count - 1)], a list of field elements.
- */
-function hash_to_field(msg, count, options) {
-    (0, utils_js_1$1.validateObject)(options, {
-        DST: 'stringOrUint8Array',
-        p: 'bigint',
-        m: 'isSafeInteger',
-        k: 'isSafeInteger',
-        hash: 'hash',
-    });
-    const { p, k, m, hash, expand, DST: _DST } = options;
-    (0, utils_js_1$1.abytes)(msg);
-    anum(count);
-    const DST = typeof _DST === 'string' ? (0, utils_js_1$1.utf8ToBytes)(_DST) : _DST;
-    const log2p = p.toString(2).length;
-    const L = Math.ceil((log2p + k) / 8); // section 5.1 of ietf draft link above
-    const len_in_bytes = count * m * L;
-    let prb; // pseudo_random_bytes
-    if (expand === 'xmd') {
-        prb = expand_message_xmd(msg, DST, len_in_bytes, hash);
-    }
-    else if (expand === 'xof') {
-        prb = expand_message_xof(msg, DST, len_in_bytes, k, hash);
-    }
-    else if (expand === '_internal_pass') {
-        // for internal tests only
-        prb = msg;
-    }
-    else {
-        throw new Error('expand must be "xmd" or "xof"');
-    }
-    const u = new Array(count);
-    for (let i = 0; i < count; i++) {
-        const e = new Array(m);
-        for (let j = 0; j < m; j++) {
-            const elm_offset = L * (j + i * m);
-            const tv = prb.subarray(elm_offset, elm_offset + L);
-            e[j] = (0, modular_js_1$1.mod)(os2ip(tv), p);
-        }
-        u[i] = e;
-    }
-    return u;
-}
-function isogenyMap(field, map) {
-    // Make same order as in spec
-    const COEFF = map.map((i) => Array.from(i).reverse());
-    return (x, y) => {
-        const [xNum, xDen, yNum, yDen] = COEFF.map((val) => val.reduce((acc, i) => field.add(field.mul(acc, x), i)));
-        x = field.div(xNum, xDen); // xNum / xDen
-        y = field.mul(y, field.div(yNum, yDen)); // y * (yNum / yDev)
-        return { x: x, y: y };
-    };
-}
-/** Creates hash-to-curve methods from EC Point and mapToCurve function. */
-function createHasher(Point, mapToCurve, def) {
-    if (typeof mapToCurve !== 'function')
-        throw new Error('mapToCurve() must be defined');
-    return {
-        // Encodes byte string to elliptic curve.
-        // hash_to_curve from https://www.rfc-editor.org/rfc/rfc9380#section-3
-        hashToCurve(msg, options) {
-            const u = hash_to_field(msg, 2, { ...def, DST: def.DST, ...options });
-            const u0 = Point.fromAffine(mapToCurve(u[0]));
-            const u1 = Point.fromAffine(mapToCurve(u[1]));
-            const P = u0.add(u1).clearCofactor();
-            P.assertValidity();
-            return P;
-        },
-        // Encodes byte string to elliptic curve.
-        // encode_to_curve from https://www.rfc-editor.org/rfc/rfc9380#section-3
-        encodeToCurve(msg, options) {
-            const u = hash_to_field(msg, 1, { ...def, DST: def.encodeDST, ...options });
-            const P = Point.fromAffine(mapToCurve(u[0])).clearCofactor();
-            P.assertValidity();
-            return P;
-        },
-        // Same as encodeToCurve, but without hash
-        mapToCurve(scalars) {
-            if (!Array.isArray(scalars))
-                throw new Error('mapToCurve: expected array of bigints');
-            for (const i of scalars)
-                if (typeof i !== 'bigint')
-                    throw new Error('mapToCurve: expected array of bigints');
-            const P = Point.fromAffine(mapToCurve(scalars)).clearCofactor();
-            P.assertValidity();
-            return P;
-        },
-    };
-}
-
-var montgomery$1 = {};
-
-Object.defineProperty(montgomery$1, "__esModule", { value: true });
-montgomery$1.montgomery = montgomery;
-/**
- * Montgomery curve methods. It's not really whole montgomery curve,
- * just bunch of very specific methods for X25519 / X448 from
- * [RFC 7748](https://www.rfc-editor.org/rfc/rfc7748)
+ * ed25519 Twisted Edwards curve with following addons:
+ * - X25519 ECDH
+ * - Ristretto cofactor elimination
+ * - Elligator hash-to-group / point indistinguishability
  * @module
  */
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-const modular_js_1 = modular;
-const utils_js_1 = utils$q;
-const _0n = BigInt(0);
-const _1n = BigInt(1);
-function validateOpts(curve) {
-    (0, utils_js_1.validateObject)(curve, {
-        a: 'bigint',
-    }, {
-        montgomeryBits: 'isSafeInteger',
-        nByteLength: 'isSafeInteger',
-        adjustScalarBytes: 'function',
-        domain: 'function',
-        powPminus2: 'function',
-        Gu: 'bigint',
-    });
-    // Set defaults
-    return Object.freeze({ ...curve });
+const ED25519_P = BigInt('57896044618658097711785492504343953926634992332820282019728792003956564819949');
+// √(-1) aka √(a) aka 2^((p-1)/4)
+const ED25519_SQRT_M1 = /* @__PURE__ */ BigInt('19681161376707505956807079304988542015446066515923890162744021073123829784752');
+// prettier-ignore
+BigInt(0); const _1n = BigInt(1), _2n = BigInt(2); BigInt(3);
+// prettier-ignore
+const _5n = BigInt(5), _8n = BigInt(8);
+function ed25519_pow_2_252_3(x) {
+    // prettier-ignore
+    const _10n = BigInt(10), _20n = BigInt(20), _40n = BigInt(40), _80n = BigInt(80);
+    const P = ED25519_P;
+    const x2 = (x * x) % P;
+    const b2 = (x2 * x) % P; // x^3, 11
+    const b4 = (pow2(b2, _2n, P) * b2) % P; // x^15, 1111
+    const b5 = (pow2(b4, _1n, P) * x) % P; // x^31
+    const b10 = (pow2(b5, _5n, P) * b5) % P;
+    const b20 = (pow2(b10, _10n, P) * b10) % P;
+    const b40 = (pow2(b20, _20n, P) * b20) % P;
+    const b80 = (pow2(b40, _40n, P) * b40) % P;
+    const b160 = (pow2(b80, _80n, P) * b80) % P;
+    const b240 = (pow2(b160, _80n, P) * b80) % P;
+    const b250 = (pow2(b240, _10n, P) * b10) % P;
+    const pow_p_5_8 = (pow2(b250, _2n, P) * x) % P;
+    // ^ To pow to (p+3)/8, multiply it by x.
+    return { pow_p_5_8, b2 };
 }
-// Uses only one coordinate instead of two
-function montgomery(curveDef) {
-    const CURVE = validateOpts(curveDef);
-    const { P } = CURVE;
-    const modP = (n) => (0, modular_js_1.mod)(n, P);
-    const montgomeryBits = CURVE.montgomeryBits;
-    const montgomeryBytes = Math.ceil(montgomeryBits / 8);
-    const fieldLen = CURVE.nByteLength;
-    const adjustScalarBytes = CURVE.adjustScalarBytes || ((bytes) => bytes);
-    const powPminus2 = CURVE.powPminus2 || ((x) => (0, modular_js_1.pow)(x, P - BigInt(2), P));
-    // cswap from RFC7748. But it is not from RFC7748!
-    /*
-      cswap(swap, x_2, x_3):
-           dummy = mask(swap) AND (x_2 XOR x_3)
-           x_2 = x_2 XOR dummy
-           x_3 = x_3 XOR dummy
-           Return (x_2, x_3)
-    Where mask(swap) is the all-1 or all-0 word of the same length as x_2
-     and x_3, computed, e.g., as mask(swap) = 0 - swap.
-    */
-    function cswap(swap, x_2, x_3) {
-        const dummy = modP(swap * (x_2 - x_3));
-        x_2 = modP(x_2 - dummy);
-        x_3 = modP(x_3 + dummy);
-        return [x_2, x_3];
-    }
-    // x25519 from 4
-    // The constant a24 is (486662 - 2) / 4 = 121665 for curve25519/X25519
-    const a24 = (CURVE.a - BigInt(2)) / BigInt(4);
-    /**
-     *
-     * @param pointU u coordinate (x) on Montgomery Curve 25519
-     * @param scalar by which the point would be multiplied
-     * @returns new Point on Montgomery curve
-     */
-    function montgomeryLadder(u, scalar) {
-        (0, utils_js_1.aInRange)('u', u, _0n, P);
-        (0, utils_js_1.aInRange)('scalar', scalar, _0n, P);
-        // Section 5: Implementations MUST accept non-canonical values and process them as
-        // if they had been reduced modulo the field prime.
-        const k = scalar;
-        const x_1 = u;
-        let x_2 = _1n;
-        let z_2 = _0n;
-        let x_3 = u;
-        let z_3 = _1n;
-        let swap = _0n;
-        let sw;
-        for (let t = BigInt(montgomeryBits - 1); t >= _0n; t--) {
-            const k_t = (k >> t) & _1n;
-            swap ^= k_t;
-            sw = cswap(swap, x_2, x_3);
-            x_2 = sw[0];
-            x_3 = sw[1];
-            sw = cswap(swap, z_2, z_3);
-            z_2 = sw[0];
-            z_3 = sw[1];
-            swap = k_t;
-            const A = x_2 + z_2;
-            const AA = modP(A * A);
-            const B = x_2 - z_2;
-            const BB = modP(B * B);
-            const E = AA - BB;
-            const C = x_3 + z_3;
-            const D = x_3 - z_3;
-            const DA = modP(D * A);
-            const CB = modP(C * B);
-            const dacb = DA + CB;
-            const da_cb = DA - CB;
-            x_3 = modP(dacb * dacb);
-            z_3 = modP(x_1 * modP(da_cb * da_cb));
-            x_2 = modP(AA * BB);
-            z_2 = modP(E * (AA + modP(a24 * E)));
-        }
-        // (x_2, x_3) = cswap(swap, x_2, x_3)
-        sw = cswap(swap, x_2, x_3);
-        x_2 = sw[0];
-        x_3 = sw[1];
-        // (z_2, z_3) = cswap(swap, z_2, z_3)
-        sw = cswap(swap, z_2, z_3);
-        z_2 = sw[0];
-        z_3 = sw[1];
-        // z_2^(p - 2)
-        const z2 = powPminus2(z_2);
-        // Return x_2 * (z_2^(p - 2))
-        return modP(x_2 * z2);
-    }
-    function encodeUCoordinate(u) {
-        return (0, utils_js_1.numberToBytesLE)(modP(u), montgomeryBytes);
-    }
-    function decodeUCoordinate(uEnc) {
-        // Section 5: When receiving such an array, implementations of X25519
-        // MUST mask the most significant bit in the final byte.
-        const u = (0, utils_js_1.ensureBytes)('u coordinate', uEnc, montgomeryBytes);
-        if (fieldLen === 32)
-            u[31] &= 127; // 0b0111_1111
-        return (0, utils_js_1.bytesToNumberLE)(u);
-    }
-    function decodeScalar(n) {
-        const bytes = (0, utils_js_1.ensureBytes)('scalar', n);
-        const len = bytes.length;
-        if (len !== montgomeryBytes && len !== fieldLen) {
-            let valid = '' + montgomeryBytes + ' or ' + fieldLen;
-            throw new Error('invalid scalar, expected ' + valid + ' bytes, got ' + len);
-        }
-        return (0, utils_js_1.bytesToNumberLE)(adjustScalarBytes(bytes));
-    }
-    function scalarMult(scalar, u) {
-        const pointU = decodeUCoordinate(u);
-        const _scalar = decodeScalar(scalar);
-        const pu = montgomeryLadder(pointU, _scalar);
-        // The result was not contributory
-        // https://cr.yp.to/ecdh.html#validate
-        if (pu === _0n)
-            throw new Error('invalid private or public key received');
-        return encodeUCoordinate(pu);
-    }
-    // Computes public key from private. By doing scalar multiplication of base point.
-    const GuBytes = encodeUCoordinate(CURVE.Gu);
-    function scalarMultBase(scalar) {
-        return scalarMult(scalar, GuBytes);
-    }
-    return {
-        scalarMult,
-        scalarMultBase,
-        getSharedSecret: (privateKey, publicKey) => scalarMult(privateKey, publicKey),
-        getPublicKey: (privateKey) => scalarMultBase(privateKey),
-        utils: { randomPrivateKey: () => CURVE.randomBytes(CURVE.nByteLength) },
-        GuBytes: GuBytes,
-    };
+function adjustScalarBytes(bytes) {
+    // Section 5: For X25519, in order to decode 32 random bytes as an integer scalar,
+    // set the three least significant bits of the first byte
+    bytes[0] &= 248; // 0b1111_1000
+    // and the most significant bit of the last to zero,
+    bytes[31] &= 127; // 0b0111_1111
+    // set the second most significant bit of the last byte to 1
+    bytes[31] |= 64; // 0b0100_0000
+    return bytes;
 }
-
-(function (exports) {
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.hash_to_ristretto255 = exports.hashToRistretto255 = exports.RistrettoPoint = exports.encodeToCurve = exports.hashToCurve = exports.edwardsToMontgomery = exports.x25519 = exports.ed25519ph = exports.ed25519ctx = exports.ed25519 = exports.ED25519_TORSION_SUBGROUP = void 0;
-	exports.edwardsToMontgomeryPub = edwardsToMontgomeryPub;
-	exports.edwardsToMontgomeryPriv = edwardsToMontgomeryPriv;
-	/**
-	 * ed25519 Twisted Edwards curve with following addons:
-	 * - X25519 ECDH
-	 * - Ristretto cofactor elimination
-	 * - Elligator hash-to-group / point indistinguishability
-	 * @module
-	 */
-	/*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-	const sha512_1 = sha512;
-	const utils_1 = utils$r;
-	const curve_js_1 = curve$1;
-	const edwards_js_1 = edwards$1;
-	const hash_to_curve_js_1 = hashToCurve;
-	const modular_js_1 = modular;
-	const montgomery_js_1 = montgomery$1;
-	const utils_js_1 = utils$q;
-	const ED25519_P = BigInt('57896044618658097711785492504343953926634992332820282019728792003956564819949');
-	// √(-1) aka √(a) aka 2^((p-1)/4)
-	const ED25519_SQRT_M1 = /* @__PURE__ */ BigInt('19681161376707505956807079304988542015446066515923890162744021073123829784752');
-	// prettier-ignore
-	const _0n = BigInt(0), _1n = BigInt(1), _2n = BigInt(2), _3n = BigInt(3);
-	// prettier-ignore
-	const _5n = BigInt(5), _8n = BigInt(8);
-	function ed25519_pow_2_252_3(x) {
-	    // prettier-ignore
-	    const _10n = BigInt(10), _20n = BigInt(20), _40n = BigInt(40), _80n = BigInt(80);
-	    const P = ED25519_P;
-	    const x2 = (x * x) % P;
-	    const b2 = (x2 * x) % P; // x^3, 11
-	    const b4 = ((0, modular_js_1.pow2)(b2, _2n, P) * b2) % P; // x^15, 1111
-	    const b5 = ((0, modular_js_1.pow2)(b4, _1n, P) * x) % P; // x^31
-	    const b10 = ((0, modular_js_1.pow2)(b5, _5n, P) * b5) % P;
-	    const b20 = ((0, modular_js_1.pow2)(b10, _10n, P) * b10) % P;
-	    const b40 = ((0, modular_js_1.pow2)(b20, _20n, P) * b20) % P;
-	    const b80 = ((0, modular_js_1.pow2)(b40, _40n, P) * b40) % P;
-	    const b160 = ((0, modular_js_1.pow2)(b80, _80n, P) * b80) % P;
-	    const b240 = ((0, modular_js_1.pow2)(b160, _80n, P) * b80) % P;
-	    const b250 = ((0, modular_js_1.pow2)(b240, _10n, P) * b10) % P;
-	    const pow_p_5_8 = ((0, modular_js_1.pow2)(b250, _2n, P) * x) % P;
-	    // ^ To pow to (p+3)/8, multiply it by x.
-	    return { pow_p_5_8, b2 };
-	}
-	function adjustScalarBytes(bytes) {
-	    // Section 5: For X25519, in order to decode 32 random bytes as an integer scalar,
-	    // set the three least significant bits of the first byte
-	    bytes[0] &= 248; // 0b1111_1000
-	    // and the most significant bit of the last to zero,
-	    bytes[31] &= 127; // 0b0111_1111
-	    // set the second most significant bit of the last byte to 1
-	    bytes[31] |= 64; // 0b0100_0000
-	    return bytes;
-	}
-	// sqrt(u/v)
-	function uvRatio(u, v) {
-	    const P = ED25519_P;
-	    const v3 = (0, modular_js_1.mod)(v * v * v, P); // v³
-	    const v7 = (0, modular_js_1.mod)(v3 * v3 * v, P); // v⁷
-	    // (p+3)/8 and (p-5)/8
-	    const pow = ed25519_pow_2_252_3(u * v7).pow_p_5_8;
-	    let x = (0, modular_js_1.mod)(u * v3 * pow, P); // (uv³)(uv⁷)^(p-5)/8
-	    const vx2 = (0, modular_js_1.mod)(v * x * x, P); // vx²
-	    const root1 = x; // First root candidate
-	    const root2 = (0, modular_js_1.mod)(x * ED25519_SQRT_M1, P); // Second root candidate
-	    const useRoot1 = vx2 === u; // If vx² = u (mod p), x is a square root
-	    const useRoot2 = vx2 === (0, modular_js_1.mod)(-u, P); // If vx² = -u, set x <-- x * 2^((p-1)/4)
-	    const noRoot = vx2 === (0, modular_js_1.mod)(-u * ED25519_SQRT_M1, P); // There is no valid root, vx² = -u√(-1)
-	    if (useRoot1)
-	        x = root1;
-	    if (useRoot2 || noRoot)
-	        x = root2; // We return root2 anyway, for const-time
-	    if ((0, modular_js_1.isNegativeLE)(x, P))
-	        x = (0, modular_js_1.mod)(-x, P);
-	    return { isValid: useRoot1 || useRoot2, value: x };
-	}
-	// Just in case
-	exports.ED25519_TORSION_SUBGROUP = [
-	    '0100000000000000000000000000000000000000000000000000000000000000',
-	    'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
-	    '0000000000000000000000000000000000000000000000000000000000000080',
-	    '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
-	    'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
-	    '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
-	    '0000000000000000000000000000000000000000000000000000000000000000',
-	    'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
-	];
-	const Fp = /* @__PURE__ */ (() => (0, modular_js_1.Field)(ED25519_P, undefined, true))();
-	const ed25519Defaults = /* @__PURE__ */ (() => ({
-	    // Param: a
-	    a: BigInt(-1), // Fp.create(-1) is proper; our way still works and is faster
-	    // d is equal to -121665/121666 over finite field.
-	    // Negative number is P - number, and division is invert(number, P)
-	    d: BigInt('37095705934669439343138083508754565189542113879843219016388785533085940283555'),
-	    // Finite field 𝔽p over which we'll do calculations; 2n**255n - 19n
-	    Fp,
-	    // Subgroup order: how many points curve has
-	    // 2n**252n + 27742317777372353535851937790883648493n;
-	    n: BigInt('7237005577332262213973186563042994240857116359379907606001950938285454250989'),
-	    // Cofactor
-	    h: _8n,
-	    // Base point (x, y) aka generator point
-	    Gx: BigInt('15112221349535400772501151409588531511454012693041857206046113283949847762202'),
-	    Gy: BigInt('46316835694926478169428394003475163141307993866256225615783033603165251855960'),
-	    hash: sha512_1.sha512,
-	    randomBytes: utils_1.randomBytes,
-	    adjustScalarBytes,
-	    // dom2
-	    // Ratio of u to v. Allows us to combine inversion and square root. Uses algo from RFC8032 5.1.3.
-	    // Constant-time, u/√v
-	    uvRatio,
-	}))();
-	/**
-	 * ed25519 curve with EdDSA signatures.
-	 * @example
-	 * import { ed25519 } from '@noble/curves/ed25519';
-	 * const priv = ed25519.utils.randomPrivateKey();
-	 * const pub = ed25519.getPublicKey(priv);
-	 * const msg = new TextEncoder().encode('hello');
-	 * const sig = ed25519.sign(msg, priv);
-	 * ed25519.verify(sig, msg, pub); // Default mode: follows ZIP215
-	 * ed25519.verify(sig, msg, pub, { zip215: false }); // RFC8032 / FIPS 186-5
-	 */
-	exports.ed25519 = (() => (0, edwards_js_1.twistedEdwards)(ed25519Defaults))();
-	function ed25519_domain(data, ctx, phflag) {
-	    if (ctx.length > 255)
-	        throw new Error('Context is too big');
-	    return (0, utils_1.concatBytes)((0, utils_1.utf8ToBytes)('SigEd25519 no Ed25519 collisions'), new Uint8Array([phflag ? 1 : 0, ctx.length]), ctx, data);
-	}
-	exports.ed25519ctx = (() => (0, edwards_js_1.twistedEdwards)({
-	    ...ed25519Defaults,
-	    domain: ed25519_domain,
-	}))();
-	exports.ed25519ph = (() => (0, edwards_js_1.twistedEdwards)(Object.assign({}, ed25519Defaults, {
-	    domain: ed25519_domain,
-	    prehash: sha512_1.sha512,
-	})))();
-	/**
-	 * ECDH using curve25519 aka x25519.
-	 * @example
-	 * import { x25519 } from '@noble/curves/ed25519';
-	 * const priv = 'a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4';
-	 * const pub = 'e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c';
-	 * x25519.getSharedSecret(priv, pub) === x25519.scalarMult(priv, pub); // aliases
-	 * x25519.getPublicKey(priv) === x25519.scalarMultBase(priv);
-	 * x25519.getPublicKey(x25519.utils.randomPrivateKey());
-	 */
-	exports.x25519 = (() => (0, montgomery_js_1.montgomery)({
-	    P: ED25519_P,
-	    a: BigInt(486662),
-	    montgomeryBits: 255, // n is 253 bits
-	    nByteLength: 32,
-	    Gu: BigInt(9),
-	    powPminus2: (x) => {
-	        const P = ED25519_P;
-	        // x^(p-2) aka x^(2^255-21)
-	        const { pow_p_5_8, b2 } = ed25519_pow_2_252_3(x);
-	        return (0, modular_js_1.mod)((0, modular_js_1.pow2)(pow_p_5_8, _3n, P) * b2, P);
-	    },
-	    adjustScalarBytes,
-	    randomBytes: utils_1.randomBytes,
-	}))();
-	/**
-	 * Converts ed25519 public key to x25519 public key. Uses formula:
-	 * * `(u, v) = ((1+y)/(1-y), sqrt(-486664)*u/x)`
-	 * * `(x, y) = (sqrt(-486664)*u/v, (u-1)/(u+1))`
-	 * @example
-	 *   const someonesPub = ed25519.getPublicKey(ed25519.utils.randomPrivateKey());
-	 *   const aPriv = x25519.utils.randomPrivateKey();
-	 *   x25519.getSharedSecret(aPriv, edwardsToMontgomeryPub(someonesPub))
-	 */
-	function edwardsToMontgomeryPub(edwardsPub) {
-	    const { y } = exports.ed25519.ExtendedPoint.fromHex(edwardsPub);
-	    const _1n = BigInt(1);
-	    return Fp.toBytes(Fp.create((_1n + y) * Fp.inv(_1n - y)));
-	}
-	exports.edwardsToMontgomery = edwardsToMontgomeryPub; // deprecated
-	/**
-	 * Converts ed25519 secret key to x25519 secret key.
-	 * @example
-	 *   const someonesPub = x25519.getPublicKey(x25519.utils.randomPrivateKey());
-	 *   const aPriv = ed25519.utils.randomPrivateKey();
-	 *   x25519.getSharedSecret(edwardsToMontgomeryPriv(aPriv), someonesPub)
-	 */
-	function edwardsToMontgomeryPriv(edwardsPriv) {
-	    const hashed = ed25519Defaults.hash(edwardsPriv.subarray(0, 32));
-	    return ed25519Defaults.adjustScalarBytes(hashed).subarray(0, 32);
-	}
-	// Hash To Curve Elligator2 Map (NOTE: different from ristretto255 elligator)
-	// NOTE: very important part is usage of FpSqrtEven for ELL2_C1_EDWARDS, since
-	// SageMath returns different root first and everything falls apart
-	const ELL2_C1 = /* @__PURE__ */ (() => (Fp.ORDER + _3n) / _8n)(); // 1. c1 = (q + 3) / 8       # Integer arithmetic
-	const ELL2_C2 = /* @__PURE__ */ (() => Fp.pow(_2n, ELL2_C1))(); // 2. c2 = 2^c1
-	const ELL2_C3 = /* @__PURE__ */ (() => Fp.sqrt(Fp.neg(Fp.ONE)))(); // 3. c3 = sqrt(-1)
-	// prettier-ignore
-	function map_to_curve_elligator2_curve25519(u) {
-	    const ELL2_C4 = (Fp.ORDER - _5n) / _8n; // 4. c4 = (q - 5) / 8       # Integer arithmetic
-	    const ELL2_J = BigInt(486662);
-	    let tv1 = Fp.sqr(u); //  1.  tv1 = u^2
-	    tv1 = Fp.mul(tv1, _2n); //  2.  tv1 = 2 * tv1
-	    let xd = Fp.add(tv1, Fp.ONE); //  3.   xd = tv1 + 1         # Nonzero: -1 is square (mod p), tv1 is not
-	    let x1n = Fp.neg(ELL2_J); //  4.  x1n = -J              # x1 = x1n / xd = -J / (1 + 2 * u^2)
-	    let tv2 = Fp.sqr(xd); //  5.  tv2 = xd^2
-	    let gxd = Fp.mul(tv2, xd); //  6.  gxd = tv2 * xd        # gxd = xd^3
-	    let gx1 = Fp.mul(tv1, ELL2_J); //  7.  gx1 = J * tv1         # x1n + J * xd
-	    gx1 = Fp.mul(gx1, x1n); //  8.  gx1 = gx1 * x1n       # x1n^2 + J * x1n * xd
-	    gx1 = Fp.add(gx1, tv2); //  9.  gx1 = gx1 + tv2       # x1n^2 + J * x1n * xd + xd^2
-	    gx1 = Fp.mul(gx1, x1n); //  10. gx1 = gx1 * x1n       # x1n^3 + J * x1n^2 * xd + x1n * xd^2
-	    let tv3 = Fp.sqr(gxd); //  11. tv3 = gxd^2
-	    tv2 = Fp.sqr(tv3); //  12. tv2 = tv3^2           # gxd^4
-	    tv3 = Fp.mul(tv3, gxd); //  13. tv3 = tv3 * gxd       # gxd^3
-	    tv3 = Fp.mul(tv3, gx1); //  14. tv3 = tv3 * gx1       # gx1 * gxd^3
-	    tv2 = Fp.mul(tv2, tv3); //  15. tv2 = tv2 * tv3       # gx1 * gxd^7
-	    let y11 = Fp.pow(tv2, ELL2_C4); //  16. y11 = tv2^c4        # (gx1 * gxd^7)^((p - 5) / 8)
-	    y11 = Fp.mul(y11, tv3); //  17. y11 = y11 * tv3       # gx1*gxd^3*(gx1*gxd^7)^((p-5)/8)
-	    let y12 = Fp.mul(y11, ELL2_C3); //  18. y12 = y11 * c3
-	    tv2 = Fp.sqr(y11); //  19. tv2 = y11^2
-	    tv2 = Fp.mul(tv2, gxd); //  20. tv2 = tv2 * gxd
-	    let e1 = Fp.eql(tv2, gx1); //  21.  e1 = tv2 == gx1
-	    let y1 = Fp.cmov(y12, y11, e1); //  22.  y1 = CMOV(y12, y11, e1)  # If g(x1) is square, this is its sqrt
-	    let x2n = Fp.mul(x1n, tv1); //  23. x2n = x1n * tv1       # x2 = x2n / xd = 2 * u^2 * x1n / xd
-	    let y21 = Fp.mul(y11, u); //  24. y21 = y11 * u
-	    y21 = Fp.mul(y21, ELL2_C2); //  25. y21 = y21 * c2
-	    let y22 = Fp.mul(y21, ELL2_C3); //  26. y22 = y21 * c3
-	    let gx2 = Fp.mul(gx1, tv1); //  27. gx2 = gx1 * tv1       # g(x2) = gx2 / gxd = 2 * u^2 * g(x1)
-	    tv2 = Fp.sqr(y21); //  28. tv2 = y21^2
-	    tv2 = Fp.mul(tv2, gxd); //  29. tv2 = tv2 * gxd
-	    let e2 = Fp.eql(tv2, gx2); //  30.  e2 = tv2 == gx2
-	    let y2 = Fp.cmov(y22, y21, e2); //  31.  y2 = CMOV(y22, y21, e2)  # If g(x2) is square, this is its sqrt
-	    tv2 = Fp.sqr(y1); //  32. tv2 = y1^2
-	    tv2 = Fp.mul(tv2, gxd); //  33. tv2 = tv2 * gxd
-	    let e3 = Fp.eql(tv2, gx1); //  34.  e3 = tv2 == gx1
-	    let xn = Fp.cmov(x2n, x1n, e3); //  35.  xn = CMOV(x2n, x1n, e3)  # If e3, x = x1, else x = x2
-	    let y = Fp.cmov(y2, y1, e3); //  36.   y = CMOV(y2, y1, e3)    # If e3, y = y1, else y = y2
-	    let e4 = Fp.isOdd(y); //  37.  e4 = sgn0(y) == 1        # Fix sign of y
-	    y = Fp.cmov(y, Fp.neg(y), e3 !== e4); //  38.   y = CMOV(y, -y, e3 XOR e4)
-	    return { xMn: xn, xMd: xd, yMn: y, yMd: _1n }; //  39. return (xn, xd, y, 1)
-	}
-	const ELL2_C1_EDWARDS = /* @__PURE__ */ (() => (0, modular_js_1.FpSqrtEven)(Fp, Fp.neg(BigInt(486664))))(); // sgn0(c1) MUST equal 0
-	function map_to_curve_elligator2_edwards25519(u) {
-	    const { xMn, xMd, yMn, yMd } = map_to_curve_elligator2_curve25519(u); //  1.  (xMn, xMd, yMn, yMd) =
-	    // map_to_curve_elligator2_curve25519(u)
-	    let xn = Fp.mul(xMn, yMd); //  2.  xn = xMn * yMd
-	    xn = Fp.mul(xn, ELL2_C1_EDWARDS); //  3.  xn = xn * c1
-	    let xd = Fp.mul(xMd, yMn); //  4.  xd = xMd * yMn    # xn / xd = c1 * xM / yM
-	    let yn = Fp.sub(xMn, xMd); //  5.  yn = xMn - xMd
-	    let yd = Fp.add(xMn, xMd); //  6.  yd = xMn + xMd    # (n / d - 1) / (n / d + 1) = (n - d) / (n + d)
-	    let tv1 = Fp.mul(xd, yd); //  7. tv1 = xd * yd
-	    let e = Fp.eql(tv1, Fp.ZERO); //  8.   e = tv1 == 0
-	    xn = Fp.cmov(xn, Fp.ZERO, e); //  9.  xn = CMOV(xn, 0, e)
-	    xd = Fp.cmov(xd, Fp.ONE, e); //  10. xd = CMOV(xd, 1, e)
-	    yn = Fp.cmov(yn, Fp.ONE, e); //  11. yn = CMOV(yn, 1, e)
-	    yd = Fp.cmov(yd, Fp.ONE, e); //  12. yd = CMOV(yd, 1, e)
-	    const inv = Fp.invertBatch([xd, yd]); // batch division
-	    return { x: Fp.mul(xn, inv[0]), y: Fp.mul(yn, inv[1]) }; //  13. return (xn, xd, yn, yd)
-	}
-	const htf = /* @__PURE__ */ (() => (0, hash_to_curve_js_1.createHasher)(exports.ed25519.ExtendedPoint, (scalars) => map_to_curve_elligator2_edwards25519(scalars[0]), {
-	    DST: 'edwards25519_XMD:SHA-512_ELL2_RO_',
-	    encodeDST: 'edwards25519_XMD:SHA-512_ELL2_NU_',
-	    p: Fp.ORDER,
-	    m: 1,
-	    k: 128,
-	    expand: 'xmd',
-	    hash: sha512_1.sha512,
-	}))();
-	exports.hashToCurve = (() => htf.hashToCurve)();
-	exports.encodeToCurve = (() => htf.encodeToCurve)();
-	function assertRstPoint(other) {
-	    if (!(other instanceof RistPoint))
-	        throw new Error('RistrettoPoint expected');
-	}
-	// √(-1) aka √(a) aka 2^((p-1)/4)
-	const SQRT_M1 = ED25519_SQRT_M1;
-	// √(ad - 1)
-	const SQRT_AD_MINUS_ONE = /* @__PURE__ */ BigInt('25063068953384623474111414158702152701244531502492656460079210482610430750235');
-	// 1 / √(a-d)
-	const INVSQRT_A_MINUS_D = /* @__PURE__ */ BigInt('54469307008909316920995813868745141605393597292927456921205312896311721017578');
-	// 1-d²
-	const ONE_MINUS_D_SQ = /* @__PURE__ */ BigInt('1159843021668779879193775521855586647937357759715417654439879720876111806838');
-	// (d-1)²
-	const D_MINUS_ONE_SQ = /* @__PURE__ */ BigInt('40440834346308536858101042469323190826248399146238708352240133220865137265952');
-	// Calculates 1/√(number)
-	const invertSqrt = (number) => uvRatio(_1n, number);
-	const MAX_255B = /* @__PURE__ */ BigInt('0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
-	const bytes255ToNumberLE = (bytes) => exports.ed25519.CURVE.Fp.create((0, utils_js_1.bytesToNumberLE)(bytes) & MAX_255B);
-	// Computes Elligator map for Ristretto
-	// https://ristretto.group/formulas/elligator.html
-	function calcElligatorRistrettoMap(r0) {
-	    const { d } = exports.ed25519.CURVE;
-	    const P = exports.ed25519.CURVE.Fp.ORDER;
-	    const mod = exports.ed25519.CURVE.Fp.create;
-	    const r = mod(SQRT_M1 * r0 * r0); // 1
-	    const Ns = mod((r + _1n) * ONE_MINUS_D_SQ); // 2
-	    let c = BigInt(-1); // 3
-	    const D = mod((c - d * r) * mod(r + d)); // 4
-	    let { isValid: Ns_D_is_sq, value: s } = uvRatio(Ns, D); // 5
-	    let s_ = mod(s * r0); // 6
-	    if (!(0, modular_js_1.isNegativeLE)(s_, P))
-	        s_ = mod(-s_);
-	    if (!Ns_D_is_sq)
-	        s = s_; // 7
-	    if (!Ns_D_is_sq)
-	        c = r; // 8
-	    const Nt = mod(c * (r - _1n) * D_MINUS_ONE_SQ - D); // 9
-	    const s2 = s * s;
-	    const W0 = mod((s + s) * D); // 10
-	    const W1 = mod(Nt * SQRT_AD_MINUS_ONE); // 11
-	    const W2 = mod(_1n - s2); // 12
-	    const W3 = mod(_1n + s2); // 13
-	    return new exports.ed25519.ExtendedPoint(mod(W0 * W3), mod(W2 * W1), mod(W1 * W3), mod(W0 * W2));
-	}
-	/**
-	 * Each ed25519/ExtendedPoint has 8 different equivalent points. This can be
-	 * a source of bugs for protocols like ring signatures. Ristretto was created to solve this.
-	 * Ristretto point operates in X:Y:Z:T extended coordinates like ExtendedPoint,
-	 * but it should work in its own namespace: do not combine those two.
-	 * https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448
-	 */
-	class RistPoint {
-	    // Private property to discourage combining ExtendedPoint + RistrettoPoint
-	    // Always use Ristretto encoding/decoding instead.
-	    constructor(ep) {
-	        this.ep = ep;
-	    }
-	    static fromAffine(ap) {
-	        return new RistPoint(exports.ed25519.ExtendedPoint.fromAffine(ap));
-	    }
-	    /**
-	     * Takes uniform output of 64-byte hash function like sha512 and converts it to `RistrettoPoint`.
-	     * The hash-to-group operation applies Elligator twice and adds the results.
-	     * **Note:** this is one-way map, there is no conversion from point to hash.
-	     * https://ristretto.group/formulas/elligator.html
-	     * @param hex 64-byte output of a hash function
-	     */
-	    static hashToCurve(hex) {
-	        hex = (0, utils_js_1.ensureBytes)('ristrettoHash', hex, 64);
-	        const r1 = bytes255ToNumberLE(hex.slice(0, 32));
-	        const R1 = calcElligatorRistrettoMap(r1);
-	        const r2 = bytes255ToNumberLE(hex.slice(32, 64));
-	        const R2 = calcElligatorRistrettoMap(r2);
-	        return new RistPoint(R1.add(R2));
-	    }
-	    /**
-	     * Converts ristretto-encoded string to ristretto point.
-	     * https://ristretto.group/formulas/decoding.html
-	     * @param hex Ristretto-encoded 32 bytes. Not every 32-byte string is valid ristretto encoding
-	     */
-	    static fromHex(hex) {
-	        hex = (0, utils_js_1.ensureBytes)('ristrettoHex', hex, 32);
-	        const { a, d } = exports.ed25519.CURVE;
-	        const P = exports.ed25519.CURVE.Fp.ORDER;
-	        const mod = exports.ed25519.CURVE.Fp.create;
-	        const emsg = 'RistrettoPoint.fromHex: the hex is not valid encoding of RistrettoPoint';
-	        const s = bytes255ToNumberLE(hex);
-	        // 1. Check that s_bytes is the canonical encoding of a field element, or else abort.
-	        // 3. Check that s is non-negative, or else abort
-	        if (!(0, utils_js_1.equalBytes)((0, utils_js_1.numberToBytesLE)(s, 32), hex) || (0, modular_js_1.isNegativeLE)(s, P))
-	            throw new Error(emsg);
-	        const s2 = mod(s * s);
-	        const u1 = mod(_1n + a * s2); // 4 (a is -1)
-	        const u2 = mod(_1n - a * s2); // 5
-	        const u1_2 = mod(u1 * u1);
-	        const u2_2 = mod(u2 * u2);
-	        const v = mod(a * d * u1_2 - u2_2); // 6
-	        const { isValid, value: I } = invertSqrt(mod(v * u2_2)); // 7
-	        const Dx = mod(I * u2); // 8
-	        const Dy = mod(I * Dx * v); // 9
-	        let x = mod((s + s) * Dx); // 10
-	        if ((0, modular_js_1.isNegativeLE)(x, P))
-	            x = mod(-x); // 10
-	        const y = mod(u1 * Dy); // 11
-	        const t = mod(x * y); // 12
-	        if (!isValid || (0, modular_js_1.isNegativeLE)(t, P) || y === _0n)
-	            throw new Error(emsg);
-	        return new RistPoint(new exports.ed25519.ExtendedPoint(x, y, _1n, t));
-	    }
-	    static msm(points, scalars) {
-	        const Fn = (0, modular_js_1.Field)(exports.ed25519.CURVE.n, exports.ed25519.CURVE.nBitLength);
-	        return (0, curve_js_1.pippenger)(RistPoint, Fn, points, scalars);
-	    }
-	    /**
-	     * Encodes ristretto point to Uint8Array.
-	     * https://ristretto.group/formulas/encoding.html
-	     */
-	    toRawBytes() {
-	        let { ex: x, ey: y, ez: z, et: t } = this.ep;
-	        const P = exports.ed25519.CURVE.Fp.ORDER;
-	        const mod = exports.ed25519.CURVE.Fp.create;
-	        const u1 = mod(mod(z + y) * mod(z - y)); // 1
-	        const u2 = mod(x * y); // 2
-	        // Square root always exists
-	        const u2sq = mod(u2 * u2);
-	        const { value: invsqrt } = invertSqrt(mod(u1 * u2sq)); // 3
-	        const D1 = mod(invsqrt * u1); // 4
-	        const D2 = mod(invsqrt * u2); // 5
-	        const zInv = mod(D1 * D2 * t); // 6
-	        let D; // 7
-	        if ((0, modular_js_1.isNegativeLE)(t * zInv, P)) {
-	            let _x = mod(y * SQRT_M1);
-	            let _y = mod(x * SQRT_M1);
-	            x = _x;
-	            y = _y;
-	            D = mod(D1 * INVSQRT_A_MINUS_D);
-	        }
-	        else {
-	            D = D2; // 8
-	        }
-	        if ((0, modular_js_1.isNegativeLE)(x * zInv, P))
-	            y = mod(-y); // 9
-	        let s = mod((z - y) * D); // 10 (check footer's note, no sqrt(-a))
-	        if ((0, modular_js_1.isNegativeLE)(s, P))
-	            s = mod(-s);
-	        return (0, utils_js_1.numberToBytesLE)(s, 32); // 11
-	    }
-	    toHex() {
-	        return (0, utils_js_1.bytesToHex)(this.toRawBytes());
-	    }
-	    toString() {
-	        return this.toHex();
-	    }
-	    // Compare one point to another.
-	    equals(other) {
-	        assertRstPoint(other);
-	        const { ex: X1, ey: Y1 } = this.ep;
-	        const { ex: X2, ey: Y2 } = other.ep;
-	        const mod = exports.ed25519.CURVE.Fp.create;
-	        // (x1 * y2 == y1 * x2) | (y1 * y2 == x1 * x2)
-	        const one = mod(X1 * Y2) === mod(Y1 * X2);
-	        const two = mod(Y1 * Y2) === mod(X1 * X2);
-	        return one || two;
-	    }
-	    add(other) {
-	        assertRstPoint(other);
-	        return new RistPoint(this.ep.add(other.ep));
-	    }
-	    subtract(other) {
-	        assertRstPoint(other);
-	        return new RistPoint(this.ep.subtract(other.ep));
-	    }
-	    multiply(scalar) {
-	        return new RistPoint(this.ep.multiply(scalar));
-	    }
-	    multiplyUnsafe(scalar) {
-	        return new RistPoint(this.ep.multiplyUnsafe(scalar));
-	    }
-	    double() {
-	        return new RistPoint(this.ep.double());
-	    }
-	    negate() {
-	        return new RistPoint(this.ep.negate());
-	    }
-	}
-	exports.RistrettoPoint = (() => {
-	    if (!RistPoint.BASE)
-	        RistPoint.BASE = new RistPoint(exports.ed25519.ExtendedPoint.BASE);
-	    if (!RistPoint.ZERO)
-	        RistPoint.ZERO = new RistPoint(exports.ed25519.ExtendedPoint.ZERO);
-	    return RistPoint;
-	})();
-	// Hashing to ristretto255. https://www.rfc-editor.org/rfc/rfc9380#appendix-B
-	const hashToRistretto255 = (msg, options) => {
-	    const d = options.DST;
-	    const DST = typeof d === 'string' ? (0, utils_1.utf8ToBytes)(d) : d;
-	    const uniform_bytes = (0, hash_to_curve_js_1.expand_message_xmd)(msg, DST, 64, sha512_1.sha512);
-	    const P = RistPoint.hashToCurve(uniform_bytes);
-	    return P;
-	};
-	exports.hashToRistretto255 = hashToRistretto255;
-	exports.hash_to_ristretto255 = exports.hashToRistretto255; // legacy
-	
-} (ed25519));
+// sqrt(u/v)
+function uvRatio(u, v) {
+    const P = ED25519_P;
+    const v3 = mod(v * v * v, P); // v³
+    const v7 = mod(v3 * v3 * v, P); // v⁷
+    // (p+3)/8 and (p-5)/8
+    const pow = ed25519_pow_2_252_3(u * v7).pow_p_5_8;
+    let x = mod(u * v3 * pow, P); // (uv³)(uv⁷)^(p-5)/8
+    const vx2 = mod(v * x * x, P); // vx²
+    const root1 = x; // First root candidate
+    const root2 = mod(x * ED25519_SQRT_M1, P); // Second root candidate
+    const useRoot1 = vx2 === u; // If vx² = u (mod p), x is a square root
+    const useRoot2 = vx2 === mod(-u, P); // If vx² = -u, set x <-- x * 2^((p-1)/4)
+    const noRoot = vx2 === mod(-u * ED25519_SQRT_M1, P); // There is no valid root, vx² = -u√(-1)
+    if (useRoot1)
+        x = root1;
+    if (useRoot2 || noRoot)
+        x = root2; // We return root2 anyway, for const-time
+    if (isNegativeLE(x, P))
+        x = mod(-x, P);
+    return { isValid: useRoot1 || useRoot2, value: x };
+}
+const Fp = /* @__PURE__ */ (() => Field(ED25519_P, undefined, true))();
+const ed25519Defaults = /* @__PURE__ */ (() => ({
+    // Param: a
+    a: BigInt(-1), // Fp.create(-1) is proper; our way still works and is faster
+    // d is equal to -121665/121666 over finite field.
+    // Negative number is P - number, and division is invert(number, P)
+    d: BigInt('37095705934669439343138083508754565189542113879843219016388785533085940283555'),
+    // Finite field 𝔽p over which we'll do calculations; 2n**255n - 19n
+    Fp,
+    // Subgroup order: how many points curve has
+    // 2n**252n + 27742317777372353535851937790883648493n;
+    n: BigInt('7237005577332262213973186563042994240857116359379907606001950938285454250989'),
+    // Cofactor
+    h: _8n,
+    // Base point (x, y) aka generator point
+    Gx: BigInt('15112221349535400772501151409588531511454012693041857206046113283949847762202'),
+    Gy: BigInt('46316835694926478169428394003475163141307993866256225615783033603165251855960'),
+    hash: sha512,
+    randomBytes: randomBytes$1,
+    adjustScalarBytes,
+    // dom2
+    // Ratio of u to v. Allows us to combine inversion and square root. Uses algo from RFC8032 5.1.3.
+    // Constant-time, u/√v
+    uvRatio,
+}))();
+/**
+ * ed25519 curve with EdDSA signatures.
+ * @example
+ * import { ed25519 } from '@noble/curves/ed25519';
+ * const priv = ed25519.utils.randomPrivateKey();
+ * const pub = ed25519.getPublicKey(priv);
+ * const msg = new TextEncoder().encode('hello');
+ * const sig = ed25519.sign(msg, priv);
+ * ed25519.verify(sig, msg, pub); // Default mode: follows ZIP215
+ * ed25519.verify(sig, msg, pub, { zip215: false }); // RFC8032 / FIPS 186-5
+ */
+const ed25519 = /* @__PURE__ */ (() => twistedEdwards(ed25519Defaults))();
 
 var browser = {exports: {}};
 
 var safeBuffer = {exports: {}};
 
-var buffer$1 = {};
+var buffer = {};
 
 var base64Js = {};
 
@@ -9553,14 +5188,14 @@ ieee754.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 	function BufferBigIntNotDefined () {
 	  throw new Error('BigInt not supported')
 	} 
-} (buffer$1));
+} (buffer));
 
 /*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 
 (function (module, exports) {
 	/* eslint-disable node/no-deprecated-api */
-	var buffer = buffer$1;
-	var Buffer = buffer.Buffer;
+	var buffer$1 = buffer;
+	var Buffer = buffer$1.Buffer;
 
 	// alternative to using Object.keys for old browsers
 	function copyProps (src, dst) {
@@ -9569,10 +5204,10 @@ ieee754.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 	  }
 	}
 	if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow) {
-	  module.exports = buffer;
+	  module.exports = buffer$1;
 	} else {
 	  // Copy properties from require('buffer')
-	  copyProps(buffer, exports);
+	  copyProps(buffer$1, exports);
 	  exports.Buffer = SafeBuffer;
 	}
 
@@ -9620,7 +5255,7 @@ ieee754.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 	  if (typeof size !== 'number') {
 	    throw new TypeError('Argument must be a number')
 	  }
-	  return buffer.SlowBuffer(size)
+	  return buffer$1.SlowBuffer(size)
 	}; 
 } (safeBuffer, safeBuffer.exports));
 
@@ -9638,7 +5273,7 @@ function oldBrowser () {
   throw new Error('Secure random number generation is not supported by this browser.\nUse Chrome, Firefox or Internet Explorer 11')
 }
 
-var Buffer$1 = safeBufferExports.Buffer;
+var Buffer = safeBufferExports.Buffer;
 var crypto$1 = commonjsGlobal.crypto || commonjsGlobal.msCrypto;
 
 if (crypto$1 && crypto$1.getRandomValues) {
@@ -9651,7 +5286,7 @@ function randomBytes (size, cb) {
   // phantomjs needs to throw
   if (size > MAX_UINT32) throw new RangeError('requested too many random bytes')
 
-  var bytes = Buffer$1.allocUnsafe(size);
+  var bytes = Buffer.allocUnsafe(size);
 
   if (size > 0) {  // getRandomValues fails on IE if size == 0
     if (size > MAX_BYTES) { // this is the max bytes crypto.getRandomValues
@@ -9676,8 +5311,7 @@ function randomBytes (size, cb) {
 }
 
 var browserExports = browser.exports;
-
-var public_key = {};
+var randombytes = /*@__PURE__*/getDefaultExportFromCjs(browserExports);
 
 const errors = {
   IMPOSSIBLE_CASE: 'Impossible case. Please create issue.',
@@ -10022,15 +5656,15 @@ var version = "6.6.1";
 var require$$0 = {
 	version: version};
 
-var utils$p = {};
+var utils$m = {};
 
 var bn = {exports: {}};
 
 var _nodeResolve_empty = {};
 
 var _nodeResolve_empty$1 = /*#__PURE__*/Object.freeze({
-	__proto__: null,
-	default: _nodeResolve_empty
+  __proto__: null,
+  default: _nodeResolve_empty
 });
 
 var require$$1 = /*@__PURE__*/getAugmentedNamespace(_nodeResolve_empty$1);
@@ -13498,7 +9132,7 @@ assert$f.equal = function assertEqual(l, r, msg) {
     throw new Error(msg || ('Assertion failed: ' + l + ' != ' + r));
 };
 
-var utils$o = {};
+var utils$l = {};
 
 (function (exports) {
 
@@ -13558,14 +9192,14 @@ var utils$o = {};
 	  else
 	    return arr;
 	}; 
-} (utils$o));
+} (utils$l));
 
 (function (exports) {
 
 	var utils = exports;
 	var BN = bnExports;
 	var minAssert = minimalisticAssert;
-	var minUtils = utils$o;
+	var minUtils = utils$l;
 
 	utils.assert = minAssert;
 	utils.toArray = minUtils.toArray;
@@ -13681,7 +9315,7 @@ var utils$o = {};
 	  return new BN(bytes, 'hex', 'le');
 	}
 	utils.intFromLE = intFromLE; 
-} (utils$p));
+} (utils$m));
 
 var brorand = {exports: {}};
 
@@ -13756,10 +9390,10 @@ var brorandExports = brorand.exports;
 var curve = {};
 
 var BN$8 = bnExports;
-var utils$n = utils$p;
-var getNAF = utils$n.getNAF;
-var getJSF = utils$n.getJSF;
-var assert$e = utils$n.assert;
+var utils$k = utils$m;
+var getNAF = utils$k.getNAF;
+var getJSF = utils$k.getJSF;
+var assert$e = utils$k.assert;
 
 function BaseCurve(type, conf) {
   this.type = type;
@@ -14022,7 +9656,7 @@ BasePoint.prototype.validate = function validate() {
 };
 
 BaseCurve.prototype.decodePoint = function decodePoint(bytes, enc) {
-  bytes = utils$n.toArray(bytes, enc);
+  bytes = utils$k.toArray(bytes, enc);
 
   var len = this.p.byteLength();
 
@@ -14060,7 +9694,7 @@ BasePoint.prototype._encode = function _encode(compact) {
 };
 
 BasePoint.prototype.encode = function encode(enc, compact) {
-  return utils$n.encode(this._encode(compact), enc);
+  return utils$k.encode(this._encode(compact), enc);
 };
 
 BasePoint.prototype.precompute = function precompute(power) {
@@ -14166,12 +9800,12 @@ if (typeof Object.create === 'function') {
 
 var inherits_browserExports = inherits_browser.exports;
 
-var utils$m = utils$p;
+var utils$j = utils$m;
 var BN$7 = bnExports;
 var inherits$3 = inherits_browserExports;
 var Base$2 = base;
 
-var assert$d = utils$m.assert;
+var assert$d = utils$j.assert;
 
 function ShortCurve(conf) {
   Base$2.call(this, 'short', conf);
@@ -15107,7 +10741,7 @@ var BN$6 = bnExports;
 var inherits$2 = inherits_browserExports;
 var Base$1 = base;
 
-var utils$l = utils$p;
+var utils$i = utils$m;
 
 function MontCurve(conf) {
   Base$1.call(this, 'mont', conf);
@@ -15147,7 +10781,7 @@ function Point$1(curve, x, z) {
 inherits$2(Point$1, Base$1.BasePoint);
 
 MontCurve.prototype.decodePoint = function decodePoint(bytes, enc) {
-  return this.point(utils$l.toArray(bytes, enc), 1);
+  return this.point(utils$i.toArray(bytes, enc), 1);
 };
 
 MontCurve.prototype.point = function point(x, z) {
@@ -15280,12 +10914,12 @@ Point$1.prototype.getX = function getX() {
   return this.x.fromRed();
 };
 
-var utils$k = utils$p;
+var utils$h = utils$m;
 var BN$5 = bnExports;
 var inherits$1 = inherits_browserExports;
 var Base = base;
 
-var assert$c = utils$k.assert;
+var assert$c = utils$h.assert;
 
 function EdwardsCurve(conf) {
   // NOTE: Important as we are creating point in Base.call()
@@ -15728,12 +11362,12 @@ var curves$2 = {};
 
 var hash$2 = {};
 
-var utils$j = {};
+var utils$g = {};
 
 var assert$b = minimalisticAssert;
 var inherits = inherits_browserExports;
 
-utils$j.inherits = inherits;
+utils$g.inherits = inherits;
 
 function isSurrogatePair(msg, i) {
   if ((msg.charCodeAt(i) & 0xFC00) !== 0xD800) {
@@ -15790,7 +11424,7 @@ function toArray(msg, enc) {
   }
   return res;
 }
-utils$j.toArray = toArray;
+utils$g.toArray = toArray;
 
 function toHex(msg) {
   var res = '';
@@ -15798,7 +11432,7 @@ function toHex(msg) {
     res += zero2(msg[i].toString(16));
   return res;
 }
-utils$j.toHex = toHex;
+utils$g.toHex = toHex;
 
 function htonl(w) {
   var res = (w >>> 24) |
@@ -15807,7 +11441,7 @@ function htonl(w) {
             ((w & 0xff) << 24);
   return res >>> 0;
 }
-utils$j.htonl = htonl;
+utils$g.htonl = htonl;
 
 function toHex32(msg, endian) {
   var res = '';
@@ -15819,7 +11453,7 @@ function toHex32(msg, endian) {
   }
   return res;
 }
-utils$j.toHex32 = toHex32;
+utils$g.toHex32 = toHex32;
 
 function zero2(word) {
   if (word.length === 1)
@@ -15827,7 +11461,7 @@ function zero2(word) {
   else
     return word;
 }
-utils$j.zero2 = zero2;
+utils$g.zero2 = zero2;
 
 function zero8(word) {
   if (word.length === 7)
@@ -15847,7 +11481,7 @@ function zero8(word) {
   else
     return word;
 }
-utils$j.zero8 = zero8;
+utils$g.zero8 = zero8;
 
 function join32(msg, start, end, endian) {
   var len = end - start;
@@ -15863,7 +11497,7 @@ function join32(msg, start, end, endian) {
   }
   return res;
 }
-utils$j.join32 = join32;
+utils$g.join32 = join32;
 
 function split32(msg, endian) {
   var res = new Array(msg.length * 4);
@@ -15883,37 +11517,37 @@ function split32(msg, endian) {
   }
   return res;
 }
-utils$j.split32 = split32;
+utils$g.split32 = split32;
 
 function rotr32$1(w, b) {
   return (w >>> b) | (w << (32 - b));
 }
-utils$j.rotr32 = rotr32$1;
+utils$g.rotr32 = rotr32$1;
 
 function rotl32$2(w, b) {
   return (w << b) | (w >>> (32 - b));
 }
-utils$j.rotl32 = rotl32$2;
+utils$g.rotl32 = rotl32$2;
 
 function sum32$3(a, b) {
   return (a + b) >>> 0;
 }
-utils$j.sum32 = sum32$3;
+utils$g.sum32 = sum32$3;
 
 function sum32_3$1(a, b, c) {
   return (a + b + c) >>> 0;
 }
-utils$j.sum32_3 = sum32_3$1;
+utils$g.sum32_3 = sum32_3$1;
 
 function sum32_4$2(a, b, c, d) {
   return (a + b + c + d) >>> 0;
 }
-utils$j.sum32_4 = sum32_4$2;
+utils$g.sum32_4 = sum32_4$2;
 
 function sum32_5$2(a, b, c, d, e) {
   return (a + b + c + d + e) >>> 0;
 }
-utils$j.sum32_5 = sum32_5$2;
+utils$g.sum32_5 = sum32_5$2;
 
 function sum64$1(buf, pos, ah, al) {
   var bh = buf[pos];
@@ -15924,20 +11558,20 @@ function sum64$1(buf, pos, ah, al) {
   buf[pos] = hi >>> 0;
   buf[pos + 1] = lo;
 }
-utils$j.sum64 = sum64$1;
+utils$g.sum64 = sum64$1;
 
 function sum64_hi$1(ah, al, bh, bl) {
   var lo = (al + bl) >>> 0;
   var hi = (lo < al ? 1 : 0) + ah + bh;
   return hi >>> 0;
 }
-utils$j.sum64_hi = sum64_hi$1;
+utils$g.sum64_hi = sum64_hi$1;
 
 function sum64_lo$1(ah, al, bh, bl) {
   var lo = al + bl;
   return lo >>> 0;
 }
-utils$j.sum64_lo = sum64_lo$1;
+utils$g.sum64_lo = sum64_lo$1;
 
 function sum64_4_hi$1(ah, al, bh, bl, ch, cl, dh, dl) {
   var carry = 0;
@@ -15952,13 +11586,13 @@ function sum64_4_hi$1(ah, al, bh, bl, ch, cl, dh, dl) {
   var hi = ah + bh + ch + dh + carry;
   return hi >>> 0;
 }
-utils$j.sum64_4_hi = sum64_4_hi$1;
+utils$g.sum64_4_hi = sum64_4_hi$1;
 
 function sum64_4_lo$1(ah, al, bh, bl, ch, cl, dh, dl) {
   var lo = al + bl + cl + dl;
   return lo >>> 0;
 }
-utils$j.sum64_4_lo = sum64_4_lo$1;
+utils$g.sum64_4_lo = sum64_4_lo$1;
 
 function sum64_5_hi$1(ah, al, bh, bl, ch, cl, dh, dl, eh, el) {
   var carry = 0;
@@ -15975,41 +11609,41 @@ function sum64_5_hi$1(ah, al, bh, bl, ch, cl, dh, dl, eh, el) {
   var hi = ah + bh + ch + dh + eh + carry;
   return hi >>> 0;
 }
-utils$j.sum64_5_hi = sum64_5_hi$1;
+utils$g.sum64_5_hi = sum64_5_hi$1;
 
 function sum64_5_lo$1(ah, al, bh, bl, ch, cl, dh, dl, eh, el) {
   var lo = al + bl + cl + dl + el;
 
   return lo >>> 0;
 }
-utils$j.sum64_5_lo = sum64_5_lo$1;
+utils$g.sum64_5_lo = sum64_5_lo$1;
 
 function rotr64_hi$1(ah, al, num) {
   var r = (al << (32 - num)) | (ah >>> num);
   return r >>> 0;
 }
-utils$j.rotr64_hi = rotr64_hi$1;
+utils$g.rotr64_hi = rotr64_hi$1;
 
 function rotr64_lo$1(ah, al, num) {
   var r = (ah << (32 - num)) | (al >>> num);
   return r >>> 0;
 }
-utils$j.rotr64_lo = rotr64_lo$1;
+utils$g.rotr64_lo = rotr64_lo$1;
 
 function shr64_hi$1(ah, al, num) {
   return ah >>> num;
 }
-utils$j.shr64_hi = shr64_hi$1;
+utils$g.shr64_hi = shr64_hi$1;
 
 function shr64_lo$1(ah, al, num) {
   var r = (ah << (32 - num)) | (al >>> num);
   return r >>> 0;
 }
-utils$j.shr64_lo = shr64_lo$1;
+utils$g.shr64_lo = shr64_lo$1;
 
 var common$5 = {};
 
-var utils$i = utils$j;
+var utils$f = utils$g;
 var assert$a = minimalisticAssert;
 
 function BlockHash$4() {
@@ -16028,7 +11662,7 @@ common$5.BlockHash = BlockHash$4;
 
 BlockHash$4.prototype.update = function update(msg, enc) {
   // Convert message to array, pad it, and join into 32bit blocks
-  msg = utils$i.toArray(msg, enc);
+  msg = utils$f.toArray(msg, enc);
   if (!this.pending)
     this.pending = msg;
   else
@@ -16045,7 +11679,7 @@ BlockHash$4.prototype.update = function update(msg, enc) {
     if (this.pending.length === 0)
       this.pending = null;
 
-    msg = utils$i.join32(msg, 0, msg.length - r, this.endian);
+    msg = utils$f.join32(msg, 0, msg.length - r, this.endian);
     for (var i = 0; i < msg.length; i += this._delta32)
       this._update(msg, i, i + this._delta32);
   }
@@ -16104,8 +11738,8 @@ var sha = {};
 
 var common$4 = {};
 
-var utils$h = utils$j;
-var rotr32 = utils$h.rotr32;
+var utils$e = utils$g;
+var rotr32 = utils$e.rotr32;
 
 function ft_1$1(s, x, y, z) {
   if (s === 0)
@@ -16152,13 +11786,13 @@ function g1_256$1(x) {
 }
 common$4.g1_256 = g1_256$1;
 
-var utils$g = utils$j;
+var utils$d = utils$g;
 var common$3 = common$5;
 var shaCommon$1 = common$4;
 
-var rotl32$1 = utils$g.rotl32;
-var sum32$2 = utils$g.sum32;
-var sum32_5$1 = utils$g.sum32_5;
+var rotl32$1 = utils$d.rotl32;
+var sum32$2 = utils$d.sum32;
+var sum32_5$1 = utils$d.sum32_5;
 var ft_1 = shaCommon$1.ft_1;
 var BlockHash$3 = common$3.BlockHash;
 
@@ -16178,7 +11812,7 @@ function SHA1() {
   this.W = new Array(80);
 }
 
-utils$g.inherits(SHA1, BlockHash$3);
+utils$d.inherits(SHA1, BlockHash$3);
 var _1 = SHA1;
 
 SHA1.blockSize = 512;
@@ -16220,19 +11854,19 @@ SHA1.prototype._update = function _update(msg, start) {
 
 SHA1.prototype._digest = function digest(enc) {
   if (enc === 'hex')
-    return utils$g.toHex32(this.h, 'big');
+    return utils$d.toHex32(this.h, 'big');
   else
-    return utils$g.split32(this.h, 'big');
+    return utils$d.split32(this.h, 'big');
 };
 
-var utils$f = utils$j;
+var utils$c = utils$g;
 var common$2 = common$5;
 var shaCommon = common$4;
 var assert$9 = minimalisticAssert;
 
-var sum32$1 = utils$f.sum32;
-var sum32_4$1 = utils$f.sum32_4;
-var sum32_5 = utils$f.sum32_5;
+var sum32$1 = utils$c.sum32;
+var sum32_4$1 = utils$c.sum32_4;
+var sum32_5 = utils$c.sum32_5;
 var ch32 = shaCommon.ch32;
 var maj32 = shaCommon.maj32;
 var s0_256 = shaCommon.s0_256;
@@ -16273,7 +11907,7 @@ function SHA256$1() {
   this.k = sha256_K;
   this.W = new Array(64);
 }
-utils$f.inherits(SHA256$1, BlockHash$2);
+utils$c.inherits(SHA256$1, BlockHash$2);
 var _256 = SHA256$1;
 
 SHA256$1.blockSize = 512;
@@ -16324,12 +11958,12 @@ SHA256$1.prototype._update = function _update(msg, start) {
 
 SHA256$1.prototype._digest = function digest(enc) {
   if (enc === 'hex')
-    return utils$f.toHex32(this.h, 'big');
+    return utils$c.toHex32(this.h, 'big');
   else
-    return utils$f.split32(this.h, 'big');
+    return utils$c.split32(this.h, 'big');
 };
 
-var utils$e = utils$j;
+var utils$b = utils$g;
 var SHA256 = _256;
 
 function SHA224() {
@@ -16341,7 +11975,7 @@ function SHA224() {
     0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939,
     0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4 ];
 }
-utils$e.inherits(SHA224, SHA256);
+utils$b.inherits(SHA224, SHA256);
 var _224 = SHA224;
 
 SHA224.blockSize = 512;
@@ -16352,26 +11986,26 @@ SHA224.padLength = 64;
 SHA224.prototype._digest = function digest(enc) {
   // Just truncate output
   if (enc === 'hex')
-    return utils$e.toHex32(this.h.slice(0, 7), 'big');
+    return utils$b.toHex32(this.h.slice(0, 7), 'big');
   else
-    return utils$e.split32(this.h.slice(0, 7), 'big');
+    return utils$b.split32(this.h.slice(0, 7), 'big');
 };
 
-var utils$d = utils$j;
+var utils$a = utils$g;
 var common$1 = common$5;
 var assert$8 = minimalisticAssert;
 
-var rotr64_hi = utils$d.rotr64_hi;
-var rotr64_lo = utils$d.rotr64_lo;
-var shr64_hi = utils$d.shr64_hi;
-var shr64_lo = utils$d.shr64_lo;
-var sum64 = utils$d.sum64;
-var sum64_hi = utils$d.sum64_hi;
-var sum64_lo = utils$d.sum64_lo;
-var sum64_4_hi = utils$d.sum64_4_hi;
-var sum64_4_lo = utils$d.sum64_4_lo;
-var sum64_5_hi = utils$d.sum64_5_hi;
-var sum64_5_lo = utils$d.sum64_5_lo;
+var rotr64_hi = utils$a.rotr64_hi;
+var rotr64_lo = utils$a.rotr64_lo;
+var shr64_hi = utils$a.shr64_hi;
+var shr64_lo = utils$a.shr64_lo;
+var sum64 = utils$a.sum64;
+var sum64_hi = utils$a.sum64_hi;
+var sum64_lo = utils$a.sum64_lo;
+var sum64_4_hi = utils$a.sum64_4_hi;
+var sum64_4_lo = utils$a.sum64_4_lo;
+var sum64_5_hi = utils$a.sum64_5_hi;
+var sum64_5_lo = utils$a.sum64_5_lo;
 
 var BlockHash$1 = common$1.BlockHash;
 
@@ -16435,7 +12069,7 @@ function SHA512$1() {
   this.k = sha512_K;
   this.W = new Array(160);
 }
-utils$d.inherits(SHA512$1, BlockHash$1);
+utils$a.inherits(SHA512$1, BlockHash$1);
 var _512 = SHA512$1;
 
 SHA512$1.blockSize = 1024;
@@ -16565,9 +12199,9 @@ SHA512$1.prototype._update = function _update(msg, start) {
 
 SHA512$1.prototype._digest = function digest(enc) {
   if (enc === 'hex')
-    return utils$d.toHex32(this.h, 'big');
+    return utils$a.toHex32(this.h, 'big');
   else
-    return utils$d.split32(this.h, 'big');
+    return utils$a.split32(this.h, 'big');
 };
 
 function ch64_hi(xh, xl, yh, yl, zh) {
@@ -16686,7 +12320,7 @@ function g1_512_lo(xh, xl) {
   return r;
 }
 
-var utils$c = utils$j;
+var utils$9 = utils$g;
 
 var SHA512 = _512;
 
@@ -16705,7 +12339,7 @@ function SHA384() {
     0xdb0c2e0d, 0x64f98fa7,
     0x47b5481d, 0xbefa4fa4 ];
 }
-utils$c.inherits(SHA384, SHA512);
+utils$9.inherits(SHA384, SHA512);
 var _384 = SHA384;
 
 SHA384.blockSize = 1024;
@@ -16715,9 +12349,9 @@ SHA384.padLength = 128;
 
 SHA384.prototype._digest = function digest(enc) {
   if (enc === 'hex')
-    return utils$c.toHex32(this.h.slice(0, 12), 'big');
+    return utils$9.toHex32(this.h.slice(0, 12), 'big');
   else
-    return utils$c.split32(this.h.slice(0, 12), 'big');
+    return utils$9.split32(this.h.slice(0, 12), 'big');
 };
 
 sha.sha1 = _1;
@@ -16728,13 +12362,13 @@ sha.sha512 = _512;
 
 var ripemd = {};
 
-var utils$b = utils$j;
+var utils$8 = utils$g;
 var common = common$5;
 
-var rotl32 = utils$b.rotl32;
-var sum32 = utils$b.sum32;
-var sum32_3 = utils$b.sum32_3;
-var sum32_4 = utils$b.sum32_4;
+var rotl32 = utils$8.rotl32;
+var sum32 = utils$8.sum32;
+var sum32_3 = utils$8.sum32_3;
+var sum32_4 = utils$8.sum32_4;
 var BlockHash = common.BlockHash;
 
 function RIPEMD160() {
@@ -16746,7 +12380,7 @@ function RIPEMD160() {
   this.h = [ 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0 ];
   this.endian = 'little';
 }
-utils$b.inherits(RIPEMD160, BlockHash);
+utils$8.inherits(RIPEMD160, BlockHash);
 ripemd.ripemd160 = RIPEMD160;
 
 RIPEMD160.blockSize = 512;
@@ -16797,9 +12431,9 @@ RIPEMD160.prototype._update = function update(msg, start) {
 
 RIPEMD160.prototype._digest = function digest(enc) {
   if (enc === 'hex')
-    return utils$b.toHex32(this.h, 'little');
+    return utils$8.toHex32(this.h, 'little');
   else
-    return utils$b.split32(this.h, 'little');
+    return utils$8.split32(this.h, 'little');
 };
 
 function f(j, x, y, z) {
@@ -16873,7 +12507,7 @@ var sh = [
   8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
 ];
 
-var utils$a = utils$j;
+var utils$7 = utils$g;
 var assert$7 = minimalisticAssert;
 
 function Hmac(hash, key, enc) {
@@ -16885,7 +12519,7 @@ function Hmac(hash, key, enc) {
   this.inner = null;
   this.outer = null;
 
-  this._init(utils$a.toArray(key, enc));
+  this._init(utils$7.toArray(key, enc));
 }
 var hmac = Hmac;
 
@@ -16922,7 +12556,7 @@ Hmac.prototype.digest = function digest(enc) {
 (function (exports) {
 	var hash = exports;
 
-	hash.utils = utils$j;
+	hash.utils = utils$g;
 	hash.common = common$5;
 	hash.sha = sha;
 	hash.ripemd = ripemd;
@@ -16937,13 +12571,13 @@ Hmac.prototype.digest = function digest(enc) {
 	hash.ripemd160 = hash.ripemd.ripemd160; 
 } (hash$2));
 
-var secp256k1;
+var secp256k1$1;
 var hasRequiredSecp256k1;
 
 function requireSecp256k1 () {
-	if (hasRequiredSecp256k1) return secp256k1;
+	if (hasRequiredSecp256k1) return secp256k1$1;
 	hasRequiredSecp256k1 = 1;
-	secp256k1 = {
+	secp256k1$1 = {
 	  doubles: {
 	    step: 4,
 	    points: [
@@ -17723,7 +13357,7 @@ function requireSecp256k1 () {
 	    ],
 	  },
 	};
-	return secp256k1;
+	return secp256k1$1;
 }
 
 (function (exports) {
@@ -17732,7 +13366,7 @@ function requireSecp256k1 () {
 
 	var hash = hash$2;
 	var curve$1 = curve;
-	var utils = utils$p;
+	var utils = utils$m;
 
 	var assert = utils.assert;
 
@@ -17935,7 +13569,7 @@ function requireSecp256k1 () {
 } (curves$2));
 
 var hash$1 = hash$2;
-var utils$9 = utils$o;
+var utils$6 = utils$l;
 var assert$6 = minimalisticAssert;
 
 function HmacDRBG$1(options) {
@@ -17952,9 +13586,9 @@ function HmacDRBG$1(options) {
   this.K = null;
   this.V = null;
 
-  var entropy = utils$9.toArray(options.entropy, options.entropyEnc || 'hex');
-  var nonce = utils$9.toArray(options.nonce, options.nonceEnc || 'hex');
-  var pers = utils$9.toArray(options.pers, options.persEnc || 'hex');
+  var entropy = utils$6.toArray(options.entropy, options.entropyEnc || 'hex');
+  var nonce = utils$6.toArray(options.nonce, options.nonceEnc || 'hex');
+  var pers = utils$6.toArray(options.pers, options.persEnc || 'hex');
   assert$6(entropy.length >= (this.minEntropy / 8),
          'Not enough entropy. Minimum is: ' + this.minEntropy + ' bits');
   this._init(entropy, nonce, pers);
@@ -18007,8 +13641,8 @@ HmacDRBG$1.prototype.reseed = function reseed(entropy, entropyEnc, add, addEnc) 
     entropyEnc = null;
   }
 
-  entropy = utils$9.toArray(entropy, entropyEnc);
-  add = utils$9.toArray(add, addEnc);
+  entropy = utils$6.toArray(entropy, entropyEnc);
+  add = utils$6.toArray(add, addEnc);
 
   assert$6(entropy.length >= (this.minEntropy / 8),
          'Not enough entropy. Minimum is: ' + this.minEntropy + ' bits');
@@ -18030,7 +13664,7 @@ HmacDRBG$1.prototype.generate = function generate(len, enc, add, addEnc) {
 
   // Optional additional data
   if (add) {
-    add = utils$9.toArray(add, addEnc || 'hex');
+    add = utils$6.toArray(add, addEnc || 'hex');
     this._update(add);
   }
 
@@ -18043,12 +13677,12 @@ HmacDRBG$1.prototype.generate = function generate(len, enc, add, addEnc) {
   var res = temp.slice(0, len);
   this._update(add);
   this._reseed++;
-  return utils$9.encode(res, enc);
+  return utils$6.encode(res, enc);
 };
 
 var BN$4 = bnExports;
-var utils$8 = utils$p;
-var assert$5 = utils$8.assert;
+var utils$5 = utils$m;
+var assert$5 = utils$5.assert;
 
 function KeyPair$4(ec, options) {
   this.ec = ec;
@@ -18168,8 +13802,8 @@ KeyPair$4.prototype.inspect = function inspect() {
 
 var BN$3 = bnExports;
 
-var utils$7 = utils$p;
-var assert$4 = utils$7.assert;
+var utils$4 = utils$m;
+var assert$4 = utils$4.assert;
 
 function Signature$4(options, enc) {
   if (options instanceof Signature$4)
@@ -18186,7 +13820,7 @@ function Signature$4(options, enc) {
   else
     this.recoveryParam = options.recoveryParam;
 }
-var signature$2 = Signature$4;
+var signature$1 = Signature$4;
 
 function Position() {
   this.place = 0;
@@ -18237,7 +13871,7 @@ function rmPadding(buf) {
 }
 
 Signature$4.prototype._importDER = function _importDER(data, enc) {
-  data = utils$7.toArray(data, enc);
+  data = utils$4.toArray(data, enc);
   var p = new Position();
   if (data[p.place++] !== 0x30) {
     return false;
@@ -18338,18 +13972,18 @@ Signature$4.prototype.toDER = function toDER(enc) {
   var res = [ 0x30 ];
   constructLength(res, backHalf.length);
   res = res.concat(backHalf);
-  return utils$7.encode(res, enc);
+  return utils$4.encode(res, enc);
 };
 
 var BN$2 = bnExports;
 var HmacDRBG = hmacDrbg;
-var utils$6 = utils$p;
+var utils$3 = utils$m;
 var curves$1 = curves$2;
 var rand = brorandExports;
-var assert$3 = utils$6.assert;
+var assert$3 = utils$3.assert;
 
 var KeyPair$3 = key$1;
-var Signature$3 = signature$2;
+var Signature$3 = signature$1;
 
 function EC$1(options) {
   if (!(this instanceof EC$1))
@@ -18618,10 +14252,10 @@ EC$1.prototype.getKeyRecoveryParam = function(e, signature, Q, enc) {
   throw new Error('Unable to find valid recovery factor');
 };
 
-var utils$5 = utils$p;
-var assert$2 = utils$5.assert;
-var parseBytes$2 = utils$5.parseBytes;
-var cachedProperty$1 = utils$5.cachedProperty;
+var utils$2 = utils$m;
+var assert$2 = utils$2.assert;
+var parseBytes$2 = utils$2.parseBytes;
+var cachedProperty$1 = utils$2.cachedProperty;
 
 /**
 * @param {EDDSA} eddsa - instance
@@ -18703,20 +14337,20 @@ KeyPair$2.prototype.verify = function verify(message, sig) {
 
 KeyPair$2.prototype.getSecret = function getSecret(enc) {
   assert$2(this._secret, 'KeyPair is public only');
-  return utils$5.encode(this.secret(), enc);
+  return utils$2.encode(this.secret(), enc);
 };
 
 KeyPair$2.prototype.getPublic = function getPublic(enc) {
-  return utils$5.encode(this.pubBytes(), enc);
+  return utils$2.encode(this.pubBytes(), enc);
 };
 
 var key = KeyPair$2;
 
 var BN$1 = bnExports;
-var utils$4 = utils$p;
-var assert$1 = utils$4.assert;
-var cachedProperty = utils$4.cachedProperty;
-var parseBytes$1 = utils$4.parseBytes;
+var utils$1 = utils$m;
+var assert$1 = utils$1.assert;
+var cachedProperty = utils$1.cachedProperty;
+var parseBytes$1 = utils$1.parseBytes;
 
 /**
 * @param {EDDSA} eddsa - eddsa instance
@@ -18772,18 +14406,18 @@ Signature$2.prototype.toBytes = function toBytes() {
 };
 
 Signature$2.prototype.toHex = function toHex() {
-  return utils$4.encode(this.toBytes(), 'hex').toUpperCase();
+  return utils$1.encode(this.toBytes(), 'hex').toUpperCase();
 };
 
-var signature$1 = Signature$2;
+var signature = Signature$2;
 
 var hash = hash$2;
 var curves = curves$2;
-var utils$3 = utils$p;
-var assert = utils$3.assert;
-var parseBytes = utils$3.parseBytes;
+var utils = utils$m;
+var assert = utils.assert;
+var parseBytes = utils.parseBytes;
 var KeyPair$1 = key;
-var Signature$1 = signature$1;
+var Signature$1 = signature;
 
 function EDDSA(curve) {
   assert(curve === 'ed25519', 'only tested with ed25519 so far');
@@ -18843,7 +14477,7 @@ EDDSA.prototype.hashInt = function hashInt() {
   var hash = this.hash();
   for (var i = 0; i < arguments.length; i++)
     hash.update(arguments[i]);
-  return utils$3.intFromLE(hash.digest()).umod(this.curve.n);
+  return utils.intFromLE(hash.digest()).umod(this.curve.n);
 };
 
 EDDSA.prototype.keyFromPublic = function keyFromPublic(pub) {
@@ -18875,13 +14509,13 @@ EDDSA.prototype.encodePoint = function encodePoint(point) {
 };
 
 EDDSA.prototype.decodePoint = function decodePoint(bytes) {
-  bytes = utils$3.parseBytes(bytes);
+  bytes = utils.parseBytes(bytes);
 
   var lastIx = bytes.length - 1;
   var normed = bytes.slice(0, lastIx).concat(bytes[lastIx] & -129);
   var xIsOdd = (bytes[lastIx] & 0x80) !== 0;
 
-  var y = utils$3.intFromLE(normed);
+  var y = utils.intFromLE(normed);
   return this.curve.pointFromY(y, xIsOdd);
 };
 
@@ -18890,7 +14524,7 @@ EDDSA.prototype.encodeInt = function encodeInt(num) {
 };
 
 EDDSA.prototype.decodeInt = function decodeInt(bytes) {
-  return utils$3.intFromLE(bytes);
+  return utils.intFromLE(bytes);
 };
 
 EDDSA.prototype.isPoint = function isPoint(val) {
@@ -18902,7 +14536,7 @@ EDDSA.prototype.isPoint = function isPoint(val) {
 	var elliptic = exports;
 
 	elliptic.version = require$$0.version;
-	elliptic.utils = utils$p;
+	elliptic.utils = utils$m;
 	elliptic.rand = brorandExports;
 	elliptic.curve = curve;
 	elliptic.curves = curves$2;
@@ -19321,366 +14955,296 @@ var elliptic$1 = {
 
 var elliptic = lib(elliptic$1);
 
-var __importDefault$2 = (commonjsGlobal && commonjsGlobal.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(public_key, "__esModule", { value: true });
-public_key.PublicKey = void 0;
-const utils_1$2 = commonjsExports;
-const ed25519_1$1 = ed25519;
-const secp256k1_1$1 = __importDefault$2(elliptic);
-const constants_1$2 = constants$1;
+var secp256k1 = /*@__PURE__*/getDefaultExportFromCjs(elliptic);
+
 function key_type_to_str(keyType) {
-    switch (keyType) {
-        case constants_1$2.KeyType.ED25519: return 'ed25519';
-        case constants_1$2.KeyType.SECP256K1: return 'secp256k1';
-        default: throw new Error(`Unknown key type ${keyType}`);
-    }
+  switch (keyType) {
+    case KeyType.ED25519:
+      return "ed25519";
+    case KeyType.SECP256K1:
+      return "secp256k1";
+    default:
+      throw new Error(`Unknown key type ${keyType}`);
+  }
 }
 function str_to_key_type(keyType) {
-    switch (keyType.toLowerCase()) {
-        case 'ed25519': return constants_1$2.KeyType.ED25519;
-        case 'secp256k1': return constants_1$2.KeyType.SECP256K1;
-        default: throw new Error(`Unknown key type ${keyType}`);
-    }
+  switch (keyType.toLowerCase()) {
+    case "ed25519":
+      return KeyType.ED25519;
+    case "secp256k1":
+      return KeyType.SECP256K1;
+    default:
+      throw new Error(`Unknown key type ${keyType}`);
+  }
 }
 function resolveEnumKeyName$1(keyType) {
-    switch (keyType) {
-        case constants_1$2.KeyType.ED25519: {
-            return 'ed25519Key';
-        }
-        case constants_1$2.KeyType.SECP256K1: {
-            return 'secp256k1Key';
-        }
-        default: {
-            throw Error(`unknown type ${keyType}`);
-        }
+  switch (keyType) {
+    case KeyType.ED25519: {
+      return "ed25519Key";
     }
+    case KeyType.SECP256K1: {
+      return "secp256k1Key";
+    }
+    default: {
+      throw Error(`unknown type ${keyType}`);
+    }
+  }
 }
-/**
- * DUPLICATED FROM @near-js/types - REPLACE WITH IMPORTED REFERENCE AND DELETE
- * This ends up being necessary for Wallet Selector dependencies with
- * outdated peer dependencies and should only be temporary
- */
 class Enum {
-    constructor(properties) {
-        if (Object.keys(properties).length !== 1) {
-            throw new Error('Enum can only take single value');
-        }
-        Object.keys(properties).map((key) => {
-            this[key] = properties[key];
-        });
+  constructor(properties) {
+    if (Object.keys(properties).length !== 1) {
+      throw new Error("Enum can only take single value");
     }
+    Object.keys(properties).map((key) => {
+      this[key] = properties[key];
+    });
+  }
 }
-/**
- * PublicKey representation that has type and bytes of the key.
- */
 class PublicKey extends Enum {
-    enum;
-    ed25519Key;
-    secp256k1Key;
-    constructor(publicKey) {
-        const keyName = resolveEnumKeyName$1(publicKey.keyType);
-        super({ [keyName]: publicKey });
-        this[keyName] = publicKey;
-        this.enum = keyName;
+  enum;
+  ed25519Key;
+  secp256k1Key;
+  constructor(publicKey) {
+    const keyName = resolveEnumKeyName$1(publicKey.keyType);
+    super({ [keyName]: publicKey });
+    this[keyName] = publicKey;
+    this.enum = keyName;
+  }
+  /**
+   * Creates a PublicKey instance from a string or an existing PublicKey instance.
+   * @param value The string or PublicKey instance to create a PublicKey from.
+   * @returns {PublicKey} The PublicKey instance.
+   */
+  static from(value) {
+    if (typeof value === "string") {
+      return PublicKey.fromString(value);
     }
-    /**
-     * Creates a PublicKey instance from a string or an existing PublicKey instance.
-     * @param value The string or PublicKey instance to create a PublicKey from.
-     * @returns {PublicKey} The PublicKey instance.
-     */
-    static from(value) {
-        if (typeof value === 'string') {
-            return PublicKey.fromString(value);
-        }
-        return value;
+    return value;
+  }
+  /**
+   * Creates a PublicKey instance from an encoded key string.
+   * @param encodedKey The encoded key string.
+   * @returns {PublicKey} The PublicKey instance created from the encoded key string.
+   */
+  static fromString(encodedKey) {
+    const parts = encodedKey.split(":");
+    let publicKey;
+    let keyType;
+    if (parts.length === 1) {
+      publicKey = parts[0];
+    } else if (parts.length === 2) {
+      publicKey = parts[1];
+      keyType = str_to_key_type(parts[0]);
+    } else {
+      throw new Error("Invalid encoded key format, must be <curve>:<encoded key>");
     }
-    /**
-     * Creates a PublicKey instance from an encoded key string.
-     * @param encodedKey The encoded key string.
-     * @returns {PublicKey} The PublicKey instance created from the encoded key string.
-     */
-    static fromString(encodedKey) {
-        const parts = encodedKey.split(':');
-        let publicKey;
-        let keyType;
-        if (parts.length === 1) {
-            publicKey = parts[0];
-        }
-        else if (parts.length === 2) {
-            publicKey = parts[1];
-            keyType = str_to_key_type(parts[0]);
-        }
-        else {
-            throw new Error('Invalid encoded key format, must be <curve>:<encoded key>');
-        }
-        const decodedPublicKey = (0, utils_1$2.baseDecode)(publicKey);
-        if (!keyType) {
-            keyType = decodedPublicKey.length === constants_1$2.KeySize.SECP256k1_PUBLIC_KEY ? constants_1$2.KeyType.SECP256K1 : constants_1$2.KeyType.ED25519;
-        }
-        const keySize = keyType === constants_1$2.KeyType.ED25519 ? constants_1$2.KeySize.ED25519_PUBLIC_KEY : constants_1$2.KeySize.SECP256k1_PUBLIC_KEY;
-        if (decodedPublicKey.length !== keySize) {
-            throw new Error(`Invalid public key size (${decodedPublicKey.length}), must be ${keySize}`);
-        }
-        return new PublicKey({ keyType, data: decodedPublicKey });
+    const decodedPublicKey = baseDecode(publicKey);
+    if (!keyType) {
+      keyType = decodedPublicKey.length === KeySize.SECP256k1_PUBLIC_KEY ? KeyType.SECP256K1 : KeyType.ED25519;
     }
-    /**
-     * Returns a string representation of the public key.
-     * @returns {string} The string representation of the public key.
-     */
-    toString() {
-        const encodedKey = (0, utils_1$2.baseEncode)(this.data);
-        return `${key_type_to_str(this.keyType)}:${encodedKey}`;
+    const keySize = keyType === KeyType.ED25519 ? KeySize.ED25519_PUBLIC_KEY : KeySize.SECP256k1_PUBLIC_KEY;
+    if (decodedPublicKey.length !== keySize) {
+      throw new Error(`Invalid public key size (${decodedPublicKey.length}), must be ${keySize}`);
     }
-    /**
-     * Verifies a message signature using the public key.
-     * @param message The message to be verified.
-     * @param signature The signature to be verified.
-     * @returns {boolean} `true` if the signature is valid, otherwise `false`.
-     */
-    verify(message, signature) {
-        const keyType = this.keyType;
-        const data = this.data;
-        switch (keyType) {
-            case constants_1$2.KeyType.ED25519:
-                return ed25519_1$1.ed25519.verify(signature, message, data);
-            case constants_1$2.KeyType.SECP256K1:
-                return secp256k1_1$1.default.ecdsaVerify(signature.subarray(0, 64), message, new Uint8Array([0x04, ...data]));
-            default:
-                throw new Error(`Unknown key type: ${keyType}`);
-        }
+    return new PublicKey({ keyType, data: decodedPublicKey });
+  }
+  /**
+   * Returns a string representation of the public key.
+   * @returns {string} The string representation of the public key.
+   */
+  toString() {
+    const encodedKey = baseEncode(this.data);
+    return `${key_type_to_str(this.keyType)}:${encodedKey}`;
+  }
+  /**
+   * Verifies a message signature using the public key.
+   * @param message The message to be verified.
+   * @param signature The signature to be verified.
+   * @returns {boolean} `true` if the signature is valid, otherwise `false`.
+   */
+  verify(message, signature) {
+    const keyType = this.keyType;
+    const data = this.data;
+    switch (keyType) {
+      case KeyType.ED25519:
+        return ed25519.verify(signature, message, data);
+      case KeyType.SECP256K1:
+        return secp256k1.ecdsaVerify(signature.subarray(0, 64), message, new Uint8Array([4, ...data]));
+      default:
+        throw new Error(`Unknown key type: ${keyType}`);
     }
-    get keyPair() {
-        return this.ed25519Key || this.secp256k1Key;
-    }
-    get keyType() {
-        return this.keyPair.keyType;
-    }
-    get data() {
-        return this.keyPair.data;
-    }
+  }
+  get keyPair() {
+    return this.ed25519Key || this.secp256k1Key;
+  }
+  get keyType() {
+    return this.keyPair.keyType;
+  }
+  get data() {
+    return this.keyPair.data;
+  }
 }
-public_key.PublicKey = PublicKey;
 
-var __importDefault$1 = (commonjsGlobal && commonjsGlobal.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(key_pair_ed25519, "__esModule", { value: true });
-key_pair_ed25519.KeyPairEd25519 = void 0;
-const utils_1$1 = commonjsExports;
-const ed25519_1 = ed25519;
-const randombytes_1$1 = __importDefault$1(browserExports);
-const constants_1$1 = constants$1;
-const key_pair_base_1$2 = key_pair_base;
-const public_key_1$1 = public_key;
-/**
- * This class provides key pair functionality for Ed25519 curve:
- * generating key pairs, encoding key pairs, signing and verifying.
- */
-class KeyPairEd25519 extends key_pair_base_1$2.KeyPairBase {
-    publicKey;
-    secretKey;
-    extendedSecretKey;
-    /**
-     * Construct an instance of key pair given a secret key.
-     * It's generally assumed that these are encoded in base58.
-     * @param extendedSecretKey
-     */
-    constructor(extendedSecretKey) {
-        super();
-        const decoded = (0, utils_1$1.baseDecode)(extendedSecretKey);
-        const secretKey = new Uint8Array(decoded.slice(0, constants_1$1.KeySize.SECRET_KEY));
-        const publicKey = ed25519_1.ed25519.getPublicKey(new Uint8Array(secretKey));
-        this.publicKey = new public_key_1$1.PublicKey({ keyType: constants_1$1.KeyType.ED25519, data: publicKey });
-        this.secretKey = (0, utils_1$1.baseEncode)(secretKey);
-        this.extendedSecretKey = extendedSecretKey;
-    }
-    /**
-     * Generate a new random keypair.
-     * @example
-     * const keyRandom = KeyPair.fromRandom();
-     * keyRandom.publicKey
-     * // returns [PUBLIC_KEY]
-     *
-     * keyRandom.secretKey
-     * // returns [SECRET_KEY]
-     */
-    static fromRandom() {
-        const secretKey = (0, randombytes_1$1.default)(constants_1$1.KeySize.SECRET_KEY);
-        const publicKey = ed25519_1.ed25519.getPublicKey(new Uint8Array(secretKey));
-        const extendedSecretKey = new Uint8Array([...secretKey, ...publicKey]);
-        return new KeyPairEd25519((0, utils_1$1.baseEncode)(extendedSecretKey));
-    }
-    /**
-     * Signs a message using the key pair's secret key.
-     * @param message The message to be signed.
-     * @returns {Signature} The signature object containing the signature and the public key.
-     */
-    sign(message) {
-        const signature = ed25519_1.ed25519.sign(message, (0, utils_1$1.baseDecode)(this.secretKey));
-        return { signature, publicKey: this.publicKey };
-    }
-    /**
-     * Verifies the signature of a message using the key pair's public key.
-     * @param message The message to be verified.
-     * @param signature The signature to be verified.
-     * @returns {boolean} `true` if the signature is valid, otherwise `false`.
-     */
-    verify(message, signature) {
-        return this.publicKey.verify(message, signature);
-    }
-    /**
-     * Returns a string representation of the key pair in the format 'ed25519:[extendedSecretKey]'.
-     * @returns {string} The string representation of the key pair.
-     */
-    toString() {
-        return `ed25519:${this.extendedSecretKey}`;
-    }
-    /**
-     * Retrieves the public key associated with the key pair.
-     * @returns {PublicKey} The public key.
-     */
-    getPublicKey() {
-        return this.publicKey;
-    }
+class KeyPairEd25519 extends KeyPairBase {
+  publicKey;
+  secretKey;
+  extendedSecretKey;
+  /**
+   * Construct an instance of key pair given a secret key.
+   * It's generally assumed that these are encoded in base58.
+   * @param extendedSecretKey
+   */
+  constructor(extendedSecretKey) {
+    super();
+    const decoded = baseDecode(extendedSecretKey);
+    const secretKey = new Uint8Array(decoded.slice(0, KeySize.SECRET_KEY));
+    const publicKey = ed25519.getPublicKey(new Uint8Array(secretKey));
+    this.publicKey = new PublicKey({ keyType: KeyType.ED25519, data: publicKey });
+    this.secretKey = baseEncode(secretKey);
+    this.extendedSecretKey = extendedSecretKey;
+  }
+  /**
+   * Generate a new random keypair.
+   * @example
+   * const keyRandom = KeyPair.fromRandom();
+   * keyRandom.publicKey
+   * // returns [PUBLIC_KEY]
+   *
+   * keyRandom.secretKey
+   * // returns [SECRET_KEY]
+   */
+  static fromRandom() {
+    const secretKey = randombytes(KeySize.SECRET_KEY);
+    const publicKey = ed25519.getPublicKey(new Uint8Array(secretKey));
+    const extendedSecretKey = new Uint8Array([...secretKey, ...publicKey]);
+    return new KeyPairEd25519(baseEncode(extendedSecretKey));
+  }
+  /**
+   * Signs a message using the key pair's secret key.
+   * @param message The message to be signed.
+   * @returns {Signature} The signature object containing the signature and the public key.
+   */
+  sign(message) {
+    const signature = ed25519.sign(message, baseDecode(this.secretKey));
+    return { signature, publicKey: this.publicKey };
+  }
+  /**
+   * Verifies the signature of a message using the key pair's public key.
+   * @param message The message to be verified.
+   * @param signature The signature to be verified.
+   * @returns {boolean} `true` if the signature is valid, otherwise `false`.
+   */
+  verify(message, signature) {
+    return this.publicKey.verify(message, signature);
+  }
+  /**
+   * Returns a string representation of the key pair in the format 'ed25519:[extendedSecretKey]'.
+   * @returns {string} The string representation of the key pair.
+   */
+  toString() {
+    return `ed25519:${this.extendedSecretKey}`;
+  }
+  /**
+   * Retrieves the public key associated with the key pair.
+   * @returns {PublicKey} The public key.
+   */
+  getPublicKey() {
+    return this.publicKey;
+  }
 }
-key_pair_ed25519.KeyPairEd25519 = KeyPairEd25519;
 
-var key_pair_secp256k1 = {};
-
-var __importDefault = (commonjsGlobal && commonjsGlobal.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(key_pair_secp256k1, "__esModule", { value: true });
-key_pair_secp256k1.KeyPairSecp256k1 = void 0;
-const utils_1 = commonjsExports;
-const randombytes_1 = __importDefault(browserExports);
-const secp256k1_1 = __importDefault(elliptic);
-const constants_1 = constants$1;
-const key_pair_base_1$1 = key_pair_base;
-const public_key_1 = public_key;
-/**
- * This class provides key pair functionality for secp256k1 curve:
- * generating key pairs, encoding key pairs, signing and verifying.
- * nearcore expects secp256k1 public keys to be 64 bytes at all times,
- * even when string encoded the secp256k1 library returns 65 byte keys
- * (including a 1 byte header that indicates how the pubkey was encoded).
- * We'll force the secp256k1 library to always encode uncompressed
- * keys with the corresponding 0x04 header byte, then manually
- * insert/remove that byte as needed.
- */
-class KeyPairSecp256k1 extends key_pair_base_1$1.KeyPairBase {
-    publicKey;
-    secretKey;
-    extendedSecretKey;
-    /**
-     * Construct an instance of key pair given a secret key.
-     * It's generally assumed that these are encoded in base58.
-     * @param {string} extendedSecretKey
-     */
-    constructor(extendedSecretKey) {
-        super();
-        const decoded = (0, utils_1.baseDecode)(extendedSecretKey);
-        const secretKey = new Uint8Array(decoded.slice(0, constants_1.KeySize.SECRET_KEY));
-        const withHeader = secp256k1_1.default.publicKeyCreate(new Uint8Array(secretKey), false);
-        const data = withHeader.subarray(1, withHeader.length); // remove the 0x04 header byte
-        this.publicKey = new public_key_1.PublicKey({
-            keyType: constants_1.KeyType.SECP256K1,
-            data
-        });
-        this.secretKey = (0, utils_1.baseEncode)(secretKey);
-        this.extendedSecretKey = extendedSecretKey;
-    }
-    /**
-     * Generate a new random keypair.
-     * @example
-     * const keyRandom = KeyPair.fromRandom();
-     * keyRandom.publicKey
-     * // returns [PUBLIC_KEY]
-     *
-     * keyRandom.secretKey
-     * // returns [SECRET_KEY]
-     */
-    static fromRandom() {
-        // TODO: find better way to generate PK
-        const secretKey = (0, randombytes_1.default)(constants_1.KeySize.SECRET_KEY);
-        const withHeader = secp256k1_1.default.publicKeyCreate(new Uint8Array(secretKey), false);
-        const publicKey = withHeader.subarray(1, withHeader.length);
-        const extendedSecretKey = new Uint8Array([...secretKey, ...publicKey]);
-        return new KeyPairSecp256k1((0, utils_1.baseEncode)(extendedSecretKey));
-    }
-    sign(message) {
-        // nearcore expects 65 byte signatures formed by appending the recovery id to the 64 byte signature
-        const { signature, recid } = secp256k1_1.default.ecdsaSign(message, (0, utils_1.baseDecode)(this.secretKey));
-        return { signature: new Uint8Array([...signature, recid]), publicKey: this.publicKey };
-    }
-    verify(message, signature) {
-        return this.publicKey.verify(message, signature);
-    }
-    toString() {
-        return `secp256k1:${this.extendedSecretKey}`;
-    }
-    getPublicKey() {
-        return this.publicKey;
-    }
+class KeyPairSecp256k1 extends KeyPairBase {
+  publicKey;
+  secretKey;
+  extendedSecretKey;
+  /**
+   * Construct an instance of key pair given a secret key.
+   * It's generally assumed that these are encoded in base58.
+   * @param {string} extendedSecretKey
+   */
+  constructor(extendedSecretKey) {
+    super();
+    const decoded = baseDecode(extendedSecretKey);
+    const secretKey = new Uint8Array(decoded.slice(0, KeySize.SECRET_KEY));
+    const withHeader = secp256k1.publicKeyCreate(new Uint8Array(secretKey), false);
+    const data = withHeader.subarray(1, withHeader.length);
+    this.publicKey = new PublicKey({
+      keyType: KeyType.SECP256K1,
+      data
+    });
+    this.secretKey = baseEncode(secretKey);
+    this.extendedSecretKey = extendedSecretKey;
+  }
+  /**
+   * Generate a new random keypair.
+   * @example
+   * const keyRandom = KeyPair.fromRandom();
+   * keyRandom.publicKey
+   * // returns [PUBLIC_KEY]
+   *
+   * keyRandom.secretKey
+   * // returns [SECRET_KEY]
+   */
+  static fromRandom() {
+    const secretKey = randombytes(KeySize.SECRET_KEY);
+    const withHeader = secp256k1.publicKeyCreate(new Uint8Array(secretKey), false);
+    const publicKey = withHeader.subarray(1, withHeader.length);
+    const extendedSecretKey = new Uint8Array([...secretKey, ...publicKey]);
+    return new KeyPairSecp256k1(baseEncode(extendedSecretKey));
+  }
+  sign(message) {
+    const { signature, recid } = secp256k1.ecdsaSign(message, baseDecode(this.secretKey));
+    return { signature: new Uint8Array([...signature, recid]), publicKey: this.publicKey };
+  }
+  verify(message, signature) {
+    return this.publicKey.verify(message, signature);
+  }
+  toString() {
+    return `secp256k1:${this.extendedSecretKey}`;
+  }
+  getPublicKey() {
+    return this.publicKey;
+  }
 }
-key_pair_secp256k1.KeyPairSecp256k1 = KeyPairSecp256k1;
 
-Object.defineProperty(key_pair, "__esModule", { value: true });
-key_pair.KeyPair = void 0;
-const key_pair_base_1 = key_pair_base;
-const key_pair_ed25519_1 = key_pair_ed25519;
-const key_pair_secp256k1_1 = key_pair_secp256k1;
-class KeyPair extends key_pair_base_1.KeyPairBase {
-    /**
-     * @param curve Name of elliptical curve, case-insensitive
-     * @returns Random KeyPair based on the curve
-     */
-    static fromRandom(curve) {
-        switch (curve.toUpperCase()) {
-            case 'ED25519': return key_pair_ed25519_1.KeyPairEd25519.fromRandom();
-            case 'SECP256K1': return key_pair_secp256k1_1.KeyPairSecp256k1.fromRandom();
-            default: throw new Error(`Unknown curve ${curve}`);
-        }
+class KeyPair extends KeyPairBase {
+  /**
+   * @param curve Name of elliptical curve, case-insensitive
+   * @returns Random KeyPair based on the curve
+   */
+  static fromRandom(curve) {
+    switch (curve.toUpperCase()) {
+      case "ED25519":
+        return KeyPairEd25519.fromRandom();
+      case "SECP256K1":
+        return KeyPairSecp256k1.fromRandom();
+      default:
+        throw new Error(`Unknown curve ${curve}`);
     }
-    /**
-     * Creates a key pair from an encoded key string.
-     * @param encodedKey The encoded key string.
-     * @returns {KeyPair} The key pair created from the encoded key string.
-     */
-    static fromString(encodedKey) {
-        const parts = encodedKey.split(':');
-        if (parts.length === 2) {
-            switch (parts[0].toUpperCase()) {
-                case 'ED25519': return new key_pair_ed25519_1.KeyPairEd25519(parts[1]);
-                case 'SECP256K1': return new key_pair_secp256k1_1.KeyPairSecp256k1(parts[1]);
-                default: throw new Error(`Unknown curve: ${parts[0]}`);
-            }
-        }
-        else {
-            throw new Error('Invalid encoded key format, must be <curve>:<encoded key>');
-        }
+  }
+  /**
+   * Creates a key pair from an encoded key string.
+   * @param encodedKey The encoded key string.
+   * @returns {KeyPair} The key pair created from the encoded key string.
+   */
+  static fromString(encodedKey) {
+    const parts = encodedKey.split(":");
+    if (parts.length === 2) {
+      switch (parts[0].toUpperCase()) {
+        case "ED25519":
+          return new KeyPairEd25519(parts[1]);
+        case "SECP256K1":
+          return new KeyPairSecp256k1(parts[1]);
+        default:
+          throw new Error(`Unknown curve: ${parts[0]}`);
+      }
+    } else {
+      throw new Error("Invalid encoded key format, must be <curve>:<encoded key>");
     }
+  }
 }
-key_pair.KeyPair = KeyPair;
 
-(function (exports) {
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.PublicKey = exports.KeyPairSecp256k1 = exports.KeyPairEd25519 = exports.KeyPair = exports.KeyType = void 0;
-	var constants_1 = constants$1;
-	Object.defineProperty(exports, "KeyType", { enumerable: true, get: function () { return constants_1.KeyType; } });
-	var key_pair_1 = key_pair;
-	Object.defineProperty(exports, "KeyPair", { enumerable: true, get: function () { return key_pair_1.KeyPair; } });
-	var key_pair_ed25519_1 = key_pair_ed25519;
-	Object.defineProperty(exports, "KeyPairEd25519", { enumerable: true, get: function () { return key_pair_ed25519_1.KeyPairEd25519; } });
-	var key_pair_secp256k1_1 = key_pair_secp256k1;
-	Object.defineProperty(exports, "KeyPairSecp256k1", { enumerable: true, get: function () { return key_pair_secp256k1_1.KeyPairSecp256k1; } });
-	var public_key_1 = public_key;
-	Object.defineProperty(exports, "PublicKey", { enumerable: true, get: function () { return public_key_1.PublicKey; } }); 
-} (commonjs$3));
-
-var integers = ['u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'f32', 'f64'];
+var integers$1 = ['u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'f32', 'f64'];
 
 var EncodeBuffer$1 = /** @class */ (function () {
     function EncodeBuffer() {
@@ -19766,7 +15330,7 @@ function expect_enum$1(value, fieldPath) {
     }
 }
 // Validate Schema
-var VALID_STRING_TYPES$1 = integers.concat(['bool', 'string']);
+var VALID_STRING_TYPES$1 = integers$1.concat(['bool', 'string']);
 var VALID_OBJECT_KEYS$1 = ['option', 'enum', 'array', 'set', 'map', 'struct'];
 var ErrorSchema$1 = /** @class */ (function (_super) {
     __extends$1(ErrorSchema, _super);
@@ -19853,7 +15417,7 @@ var BorshSerializer$1 = /** @class */ (function () {
     };
     BorshSerializer.prototype.encode_value = function (value, schema) {
         if (typeof schema === 'string') {
-            if (integers.includes(schema))
+            if (integers$1.includes(schema))
                 return this.encode_integer(value, schema);
             if (schema === 'string')
                 return this.encode_string(value);
@@ -20014,7 +15578,7 @@ var BorshSerializer$1 = /** @class */ (function () {
     return BorshSerializer;
 }());
 
-function serialize$2(schema, value, validate) {
+function serialize$1(schema, value, validate) {
     if (validate === void 0) { validate = true; }
     if (validate)
         validate_schema$1(schema);
@@ -20022,311 +15586,8 @@ function serialize$2(schema, value, validate) {
     return serializer.encode(value, schema);
 }
 
-var commonjs = {};
+var integers = ['u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'f32', 'f64'];
 
-var action_creators = {};
-
-var actions = {};
-
-Object.defineProperty(actions, "__esModule", { value: true });
-actions.Action = actions.SignedDelegate = actions.DeleteAccount = actions.DeleteKey = actions.AddKey = actions.Stake = actions.Transfer = actions.FunctionCall = actions.DeployContract = actions.CreateAccount = actions.AccessKey = actions.AccessKeyPermission = actions.FullAccessPermission = actions.FunctionCallPermission = void 0;
-const types_1$1 = commonjsExports$1;
-class FunctionCallPermission {
-    allowance;
-    receiverId;
-    methodNames;
-    constructor({ allowance, receiverId, methodNames }) {
-        this.allowance = allowance;
-        this.receiverId = receiverId;
-        this.methodNames = methodNames;
-    }
-}
-actions.FunctionCallPermission = FunctionCallPermission;
-class FullAccessPermission {
-}
-actions.FullAccessPermission = FullAccessPermission;
-class AccessKeyPermission extends types_1$1.Enum {
-    enum;
-    functionCall;
-    fullAccess;
-    constructor(props) {
-        super(props);
-        for (const [k, v] of Object.entries(props || {})) {
-            this[k] = v;
-            this.enum = k;
-        }
-    }
-}
-actions.AccessKeyPermission = AccessKeyPermission;
-class AccessKey {
-    nonce;
-    permission;
-    constructor({ nonce, permission }) {
-        this.nonce = nonce;
-        this.permission = permission;
-    }
-}
-actions.AccessKey = AccessKey;
-class CreateAccount {
-}
-actions.CreateAccount = CreateAccount;
-class DeployContract {
-    code;
-    constructor({ code }) {
-        this.code = code;
-    }
-}
-actions.DeployContract = DeployContract;
-class FunctionCall {
-    methodName;
-    args;
-    gas;
-    deposit;
-    constructor({ methodName, args, gas, deposit }) {
-        this.methodName = methodName;
-        this.args = args;
-        this.gas = gas;
-        this.deposit = deposit;
-    }
-}
-actions.FunctionCall = FunctionCall;
-class Transfer {
-    deposit;
-    constructor({ deposit }) {
-        this.deposit = deposit;
-    }
-}
-actions.Transfer = Transfer;
-class Stake {
-    stake;
-    publicKey;
-    constructor({ stake, publicKey }) {
-        this.stake = stake;
-        this.publicKey = publicKey;
-    }
-}
-actions.Stake = Stake;
-class AddKey {
-    publicKey;
-    accessKey;
-    constructor({ publicKey, accessKey }) {
-        this.publicKey = publicKey;
-        this.accessKey = accessKey;
-    }
-}
-actions.AddKey = AddKey;
-class DeleteKey {
-    publicKey;
-    constructor({ publicKey }) {
-        this.publicKey = publicKey;
-    }
-}
-actions.DeleteKey = DeleteKey;
-class DeleteAccount {
-    beneficiaryId;
-    constructor({ beneficiaryId }) {
-        this.beneficiaryId = beneficiaryId;
-    }
-}
-actions.DeleteAccount = DeleteAccount;
-class SignedDelegate {
-    delegateAction;
-    signature;
-    constructor({ delegateAction, signature }) {
-        this.delegateAction = delegateAction;
-        this.signature = signature;
-    }
-}
-actions.SignedDelegate = SignedDelegate;
-/**
- * Contains a list of the valid transaction Actions available with this API
- * @see {@link https://nomicon.io/RuntimeSpec/Actions.html | Actions Spec}
- */
-class Action extends types_1$1.Enum {
-    enum;
-    createAccount;
-    deployContract;
-    functionCall;
-    transfer;
-    stake;
-    addKey;
-    deleteKey;
-    deleteAccount;
-    signedDelegate;
-    constructor(props) {
-        super(props);
-        for (const [k, v] of Object.entries(props || {})) {
-            this[k] = v;
-            this.enum = k;
-        }
-    }
-}
-actions.Action = Action;
-
-Object.defineProperty(action_creators, "__esModule", { value: true });
-action_creators.actionCreators = action_creators.stringifyJsonOrBytes = void 0;
-const actions_1 = actions;
-/**
- * Creates a full access key with full access permissions.
- * @returns A new full access key.
- */
-function fullAccessKey() {
-    return new actions_1.AccessKey({
-        nonce: 0n,
-        permission: new actions_1.AccessKeyPermission({
-            fullAccess: new actions_1.FullAccessPermission(),
-        }),
-    });
-}
-/**
- * Creates an access key with function call permission for a specific receiver and method names.
- * @param receiverId The NEAR account ID of the function call receiver.
- * @param methodNames An array of method names allowed for function calls.
- * @param allowance An optional allowance (maximum amount) for the function call. Default: Unlimited.
- * @returns A new access key with function call permission.
- */
-function functionCallAccessKey(receiverId, methodNames, allowance) {
-    return new actions_1.AccessKey({
-        nonce: 0n,
-        permission: new actions_1.AccessKeyPermission({
-            functionCall: new actions_1.FunctionCallPermission({
-                receiverId,
-                allowance,
-                methodNames,
-            }),
-        }),
-    });
-}
-/**
- * Creates a new action for creating a new NEAR account.
- * @returns A new action for creating a new account.
- */
-function createAccount$1() {
-    return new actions_1.Action({ createAccount: new actions_1.CreateAccount() });
-}
-/**
- * Creates a new action for deploying a contract with the provided code.
- * @param code The Uint8Array representing the code of the contract.
- * @returns A new action for deploying a contract.
- */
-function deployContract$1(code) {
-    return new actions_1.Action({ deployContract: new actions_1.DeployContract({ code }) });
-}
-/**
- * Converts an input argument to a Buffer, handling cases for both JSON and Uint8Array.
- * @param args The input argument, either JSON object or Uint8Array.
- * @returns A Buffer representation of the input argument.
- */
-function stringifyJsonOrBytes(args) {
-    const isUint8Array = args.byteLength !== undefined && args.byteLength === args.length;
-    return isUint8Array ? args : Buffer.from(JSON.stringify(args));
-}
-action_creators.stringifyJsonOrBytes = stringifyJsonOrBytes;
-/**
- * Constructs {@link Action} instance representing contract method call.
- *
- * @param methodName the name of the method to call
- * @param args arguments to pass to method. Can be either plain JS object which gets serialized as JSON automatically
- *  or `Uint8Array` instance which represents bytes passed as is.
- * @param gas max amount of gas that method call can use
- * @param deposit amount of NEAR (in yoctoNEAR) to send together with the call
- * @param stringify Convert input arguments into bytes array.
- */
-function functionCall$1(methodName, args, gas = 0n, deposit = 0n, stringify = stringifyJsonOrBytes) {
-    return new actions_1.Action({
-        functionCall: new actions_1.FunctionCall({
-            methodName,
-            args: stringify(args),
-            gas,
-            deposit,
-        }),
-    });
-}
-/**
- * Creates a new action for transferring funds, optionally specifying a deposit amount.
- * @param deposit The amount to be deposited along with the transfer. Default: 0.
- * @returns A new action for transferring funds.
- */
-function transfer$1(deposit = 0n) {
-    return new actions_1.Action({ transfer: new actions_1.Transfer({ deposit }) });
-}
-/**
- * Creates a new action for staking tokens, specifying the stake amount and public key.
- * @param stake The amount to be staked. Default: 0.
- * @param publicKey The public key associated with the staking action.
- * @returns A new action for staking tokens.
- */
-function stake$1(stake = 0n, publicKey) {
-    return new actions_1.Action({ stake: new actions_1.Stake({ stake, publicKey }) });
-}
-/**
- * Creates a new action for adding a public key with a specified access key.
- * @param publicKey The public key to be added.
- * @param accessKey The access key associated with the added public key.
- * @returns A new action for adding a public key.
- */
-function addKey$1(publicKey, accessKey) {
-    return new actions_1.Action({ addKey: new actions_1.AddKey({ publicKey, accessKey }) });
-}
-/**
- * Creates a new action for deleting a public key.
- * @param publicKey The public key to be deleted.
- * @returns A new action for deleting a public key.
- */
-function deleteKey$1(publicKey) {
-    return new actions_1.Action({ deleteKey: new actions_1.DeleteKey({ publicKey }) });
-}
-/**
- * Creates a new action for deleting an account with the specified beneficiary ID.
- * @param beneficiaryId The NEAR account ID of the beneficiary.
- * @returns A new action for deleting an account.
- */
-function deleteAccount$1(beneficiaryId) {
-    return new actions_1.Action({ deleteAccount: new actions_1.DeleteAccount({ beneficiaryId }) });
-}
-/**
- * Creates a new action for a signed delegation, specifying the delegate action and signature.
- * @param delegateAction The delegate action to be performed.
- * @param signature The signature associated with the delegate action.
- * @returns A new action for a signed delegation.
- */
-function signedDelegate({ delegateAction, signature, }) {
-    return new actions_1.Action({
-        signedDelegate: new actions_1.SignedDelegate({ delegateAction, signature }),
-    });
-}
-action_creators.actionCreators = {
-    addKey: addKey$1,
-    createAccount: createAccount$1,
-    deleteAccount: deleteAccount$1,
-    deleteKey: deleteKey$1,
-    deployContract: deployContract$1,
-    fullAccessKey,
-    functionCall: functionCall$1,
-    functionCallAccessKey,
-    signedDelegate,
-    stake: stake$1,
-    transfer: transfer$1,
-};
-
-var create_transaction = {};
-
-var schema = {};
-
-var cjs = {};
-
-var serialize$1 = {};
-
-var types = {};
-
-types.__esModule = true;
-types.integers = void 0;
-types.integers = ['u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'f32', 'f64'];
-
-var buffer = {};
-
-buffer.__esModule = true;
-buffer.DecodeBuffer = buffer.EncodeBuffer = void 0;
 var EncodeBuffer = /** @class */ (function () {
     function EncodeBuffer() {
         this.offset = 0;
@@ -20361,7 +15622,6 @@ var EncodeBuffer = /** @class */ (function () {
     };
     return EncodeBuffer;
 }());
-buffer.EncodeBuffer = EncodeBuffer;
 var DecodeBuffer = /** @class */ (function () {
     function DecodeBuffer(buf) {
         this.offset = 0;
@@ -20392,11 +15652,8 @@ var DecodeBuffer = /** @class */ (function () {
     };
     return DecodeBuffer;
 }());
-buffer.DecodeBuffer = DecodeBuffer;
 
-var utils$2 = {};
-
-var __extends = (commonjsGlobal && commonjsGlobal.__extends) || (function () {
+var __extends = (undefined && undefined.__extends) || (function () {
     var extendStatics = function (d, b) {
         extendStatics = Object.setPrototypeOf ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
@@ -20411,9 +15668,6 @@ var __extends = (commonjsGlobal && commonjsGlobal.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
-utils$2.__esModule = true;
-utils$2.validate_schema = utils$2.ErrorSchema = utils$2.expect_enum = utils$2.expect_same_size = utils$2.expect_bigint = utils$2.expect_type = utils$2.isArrayLike = void 0;
-var types_js_1$2 = types;
 function isArrayLike(value) {
     // source: https://stackoverflow.com/questions/24048547/checking-if-an-object-is-array-like
     return (Array.isArray(value) ||
@@ -20425,13 +15679,11 @@ function isArrayLike(value) {
                 (value.length > 0 &&
                     (value.length - 1) in value))));
 }
-utils$2.isArrayLike = isArrayLike;
 function expect_type(value, type, fieldPath) {
     if (typeof (value) !== type) {
         throw new Error("Expected ".concat(type, " not ").concat(typeof (value), "(").concat(value, ") at ").concat(fieldPath.join('.')));
     }
 }
-utils$2.expect_type = expect_type;
 function expect_bigint(value, fieldPath) {
     var basicType = ['number', 'string', 'bigint', 'boolean'].includes(typeof (value));
     var strObject = typeof (value) === 'object' && value !== null && 'toString' in value;
@@ -20439,21 +15691,18 @@ function expect_bigint(value, fieldPath) {
         throw new Error("Expected bigint, number, boolean or string not ".concat(typeof (value), "(").concat(value, ") at ").concat(fieldPath.join('.')));
     }
 }
-utils$2.expect_bigint = expect_bigint;
 function expect_same_size(length, expected, fieldPath) {
     if (length !== expected) {
         throw new Error("Array length ".concat(length, " does not match schema length ").concat(expected, " at ").concat(fieldPath.join('.')));
     }
 }
-utils$2.expect_same_size = expect_same_size;
 function expect_enum(value, fieldPath) {
     if (typeof (value) !== 'object' || value === null) {
         throw new Error("Expected object not ".concat(typeof (value), "(").concat(value, ") at ").concat(fieldPath.join('.')));
     }
 }
-utils$2.expect_enum = expect_enum;
 // Validate Schema
-var VALID_STRING_TYPES = types_js_1$2.integers.concat(['bool', 'string']);
+var VALID_STRING_TYPES = integers.concat(['bool', 'string']);
 var VALID_OBJECT_KEYS = ['option', 'enum', 'array', 'set', 'map', 'struct'];
 var ErrorSchema = /** @class */ (function (_super) {
     __extends(ErrorSchema, _super);
@@ -20463,7 +15712,6 @@ var ErrorSchema = /** @class */ (function (_super) {
     }
     return ErrorSchema;
 }(Error));
-utils$2.ErrorSchema = ErrorSchema;
 function validate_schema(schema) {
     if (typeof (schema) === 'string' && VALID_STRING_TYPES.includes(schema)) {
         return;
@@ -20488,7 +15736,6 @@ function validate_schema(schema) {
     }
     throw new ErrorSchema(schema, VALID_OBJECT_KEYS.join(', ') + ' or ' + VALID_STRING_TYPES.join(', '));
 }
-utils$2.validate_schema = validate_schema;
 function validate_enum_schema(schema) {
     if (!Array.isArray(schema))
         throw new ErrorSchema(schema, 'Array');
@@ -20530,37 +15777,9 @@ function validate_struct_schema(schema) {
     }
 }
 
-var __createBinding$1 = (commonjsGlobal && commonjsGlobal.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault$1 = (commonjsGlobal && commonjsGlobal.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar$1 = (commonjsGlobal && commonjsGlobal.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding$1(result, mod, k);
-    __setModuleDefault$1(result, mod);
-    return result;
-};
-serialize$1.__esModule = true;
-serialize$1.BorshSerializer = void 0;
-var types_js_1$1 = types;
-var buffer_js_1$1 = buffer;
-var utils$1 = __importStar$1(utils$2);
 var BorshSerializer = /** @class */ (function () {
     function BorshSerializer(checkTypes) {
-        this.encoded = new buffer_js_1$1.EncodeBuffer();
+        this.encoded = new EncodeBuffer();
         this.fieldPath = ['value'];
         this.checkTypes = checkTypes;
     }
@@ -20570,7 +15789,7 @@ var BorshSerializer = /** @class */ (function () {
     };
     BorshSerializer.prototype.encode_value = function (value, schema) {
         if (typeof schema === 'string') {
-            if (types_js_1$1.integers.includes(schema))
+            if (integers.includes(schema))
                 return this.encode_integer(value, schema);
             if (schema === 'string')
                 return this.encode_string(value);
@@ -20595,11 +15814,11 @@ var BorshSerializer = /** @class */ (function () {
     BorshSerializer.prototype.encode_integer = function (value, schema) {
         var size = parseInt(schema.substring(1));
         if (size <= 32 || schema == 'f64') {
-            this.checkTypes && utils$1.expect_type(value, 'number', this.fieldPath);
+            this.checkTypes && expect_type(value, 'number', this.fieldPath);
             this.encoded.store_value(value, schema);
         }
         else {
-            this.checkTypes && utils$1.expect_bigint(value, this.fieldPath);
+            this.checkTypes && expect_bigint(value, this.fieldPath);
             this.encode_bigint(BigInt(value), size);
         }
     };
@@ -20613,7 +15832,7 @@ var BorshSerializer = /** @class */ (function () {
         this.encoded.store_bytes(new Uint8Array(buffer));
     };
     BorshSerializer.prototype.encode_string = function (value) {
-        this.checkTypes && utils$1.expect_type(value, 'string', this.fieldPath);
+        this.checkTypes && expect_type(value, 'string', this.fieldPath);
         var _value = value;
         // 4 bytes for length
         this.encoded.store_value(_value.length, 'u32');
@@ -20623,7 +15842,7 @@ var BorshSerializer = /** @class */ (function () {
         }
     };
     BorshSerializer.prototype.encode_boolean = function (value) {
-        this.checkTypes && utils$1.expect_type(value, 'boolean', this.fieldPath);
+        this.checkTypes && expect_type(value, 'boolean', this.fieldPath);
         this.encoded.store_value(value ? 1 : 0, 'u8');
     };
     BorshSerializer.prototype.encode_option = function (value, schema) {
@@ -20636,7 +15855,7 @@ var BorshSerializer = /** @class */ (function () {
         }
     };
     BorshSerializer.prototype.encode_enum = function (value, schema) {
-        this.checkTypes && utils$1.expect_enum(value, this.fieldPath);
+        this.checkTypes && expect_enum(value, this.fieldPath);
         var valueKey = Object.keys(value)[0];
         for (var i = 0; i < schema["enum"].length; i++) {
             var valueSchema = schema["enum"][i];
@@ -20648,7 +15867,7 @@ var BorshSerializer = /** @class */ (function () {
         throw new Error("Enum key (".concat(valueKey, ") not found in enum schema: ").concat(JSON.stringify(schema), " at ").concat(this.fieldPath.join('.')));
     };
     BorshSerializer.prototype.encode_array = function (value, schema) {
-        if (utils$1.isArrayLike(value))
+        if (isArrayLike(value))
             return this.encode_arraylike(value, schema);
         if (value instanceof ArrayBuffer)
             return this.encode_buffer(value, schema);
@@ -20656,7 +15875,7 @@ var BorshSerializer = /** @class */ (function () {
     };
     BorshSerializer.prototype.encode_arraylike = function (value, schema) {
         if (schema.array.len) {
-            utils$1.expect_same_size(value.length, schema.array.len, this.fieldPath);
+            expect_same_size(value.length, schema.array.len, this.fieldPath);
         }
         else {
             // 4 bytes for length
@@ -20669,7 +15888,7 @@ var BorshSerializer = /** @class */ (function () {
     };
     BorshSerializer.prototype.encode_buffer = function (value, schema) {
         if (schema.array.len) {
-            utils$1.expect_same_size(value.byteLength, schema.array.len, this.fieldPath);
+            expect_same_size(value.byteLength, schema.array.len, this.fieldPath);
         }
         else {
             // 4 bytes for length
@@ -20679,7 +15898,7 @@ var BorshSerializer = /** @class */ (function () {
         this.encoded.store_bytes(new Uint8Array(value));
     };
     BorshSerializer.prototype.encode_set = function (value, schema) {
-        this.checkTypes && utils$1.expect_type(value, 'object', this.fieldPath);
+        this.checkTypes && expect_type(value, 'object', this.fieldPath);
         var isSet = value instanceof Set;
         var values = isSet ? Array.from(value.values()) : Object.values(value);
         // 4 bytes for length
@@ -20691,7 +15910,7 @@ var BorshSerializer = /** @class */ (function () {
         }
     };
     BorshSerializer.prototype.encode_map = function (value, schema) {
-        this.checkTypes && utils$1.expect_type(value, 'object', this.fieldPath);
+        this.checkTypes && expect_type(value, 'object', this.fieldPath);
         var isMap = value instanceof Map;
         var keys = isMap ? Array.from(value.keys()) : Object.keys(value);
         // 4 bytes for length
@@ -20704,7 +15923,7 @@ var BorshSerializer = /** @class */ (function () {
         }
     };
     BorshSerializer.prototype.encode_struct = function (value, schema) {
-        this.checkTypes && utils$1.expect_type(value, 'object', this.fieldPath);
+        this.checkTypes && expect_type(value, 'object', this.fieldPath);
         for (var _i = 0, _a = Object.keys(schema.struct); _i < _a.length; _i++) {
             var key = _a[_i];
             this.fieldPath.push(key);
@@ -20714,24 +15933,17 @@ var BorshSerializer = /** @class */ (function () {
     };
     return BorshSerializer;
 }());
-serialize$1.BorshSerializer = BorshSerializer;
 
-var deserialize$1 = {};
-
-deserialize$1.__esModule = true;
-deserialize$1.BorshDeserializer = void 0;
-var types_js_1 = types;
-var buffer_js_1 = buffer;
 var BorshDeserializer = /** @class */ (function () {
     function BorshDeserializer(bufferArray) {
-        this.buffer = new buffer_js_1.DecodeBuffer(bufferArray);
+        this.buffer = new DecodeBuffer(bufferArray);
     }
     BorshDeserializer.prototype.decode = function (schema) {
         return this.decode_value(schema);
     };
     BorshDeserializer.prototype.decode_value = function (schema) {
         if (typeof schema === 'string') {
-            if (types_js_1.integers.includes(schema))
+            if (integers.includes(schema))
                 return this.decode_integer(schema);
             if (schema === 'string')
                 return this.decode_string();
@@ -20834,524 +16046,275 @@ var BorshDeserializer = /** @class */ (function () {
     };
     return BorshDeserializer;
 }());
-deserialize$1.BorshDeserializer = BorshDeserializer;
 
-var __createBinding = (commonjsGlobal && commonjsGlobal.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (commonjsGlobal && commonjsGlobal.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (commonjsGlobal && commonjsGlobal.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-cjs.__esModule = true;
-cjs.deserialize = cjs.serialize = void 0;
-var serialize_js_1 = serialize$1;
-var deserialize_js_1 = deserialize$1;
-var utils = __importStar(utils$2);
 function serialize(schema, value, validate) {
     if (validate === void 0) { validate = true; }
     if (validate)
-        utils.validate_schema(schema);
-    var serializer = new serialize_js_1.BorshSerializer(validate);
+        validate_schema(schema);
+    var serializer = new BorshSerializer(validate);
     return serializer.encode(value, schema);
 }
-cjs.serialize = serialize;
 function deserialize(schema, buffer, validate) {
     if (validate === void 0) { validate = true; }
     if (validate)
-        utils.validate_schema(schema);
-    var deserializer = new deserialize_js_1.BorshDeserializer(buffer);
+        validate_schema(schema);
+    var deserializer = new BorshDeserializer(buffer);
     return deserializer.decode(schema);
 }
-cjs.deserialize = deserialize;
 
-var prefix = {};
-
-Object.defineProperty(prefix, "__esModule", { value: true });
-prefix.DelegateActionPrefix = void 0;
-const ACTIONABLE_MESSAGE_BASE = Math.pow(2, 30);
-// const NON_ACTIONABLE_MESSAGE_BASE = Math.pow(2, 31);
-/** The set of NEPs for which an [NEP-461](https://github.com/near/NEPs/pull/461) prefix is required on the message prior to hashing **/
-const NEP = {
-    MetaTransactions: 366,
-};
-/** Base class for NEP message prefixes **/
-class NEPPrefix {
-    prefix;
-    constructor({ prefix }) {
-        this.prefix = prefix;
+function encodeTransaction(transaction) {
+  const schema = transaction instanceof SignedTransaction ? SCHEMA.SignedTransaction : SCHEMA.Transaction;
+  return serialize(schema, transaction);
+}
+function decodeTransaction(bytes) {
+  return new Transaction(deserialize(SCHEMA.Transaction, bytes));
+}
+function decodeSignedTransaction(bytes) {
+  return new SignedTransaction(deserialize(SCHEMA.SignedTransaction, bytes));
+}
+class Transaction {
+  signerId;
+  publicKey;
+  nonce;
+  receiverId;
+  actions;
+  blockHash;
+  constructor({ signerId, publicKey, nonce, receiverId, actions, blockHash }) {
+    this.signerId = signerId;
+    this.publicKey = publicKey;
+    this.nonce = nonce;
+    this.receiverId = receiverId;
+    this.actions = actions;
+    this.blockHash = blockHash;
+  }
+  encode() {
+    return encodeTransaction(this);
+  }
+  static decode(bytes) {
+    return decodeTransaction(bytes);
+  }
+}
+class SignedTransaction {
+  transaction;
+  signature;
+  constructor({ transaction, signature }) {
+    this.transaction = transaction;
+    this.signature = signature;
+  }
+  encode() {
+    return encodeTransaction(this);
+  }
+  static decode(bytes) {
+    return decodeSignedTransaction(bytes);
+  }
+}
+const SCHEMA = new class BorshSchema {
+  Ed25519Signature = {
+    struct: {
+      data: { array: { type: "u8", len: 64 } }
     }
-}
-/** Class for constructing prefixes on actionable (on-chain) messages **/
-class ActionableMessagePrefix extends NEPPrefix {
-    /** Given the NEP number, set the prefix using 2^30 as the offset **/
-    constructor(prefix) {
-        super({ prefix: ACTIONABLE_MESSAGE_BASE + prefix });
+  };
+  Secp256k1Signature = {
+    struct: {
+      data: { array: { type: "u8", len: 65 } }
     }
-}
-/**
- * Class for constructing prefixes on non-actionable (off-chain) messages
- * @todo uncomment when off-chain messages are supported
- * **/
-// abstract class NonActionableMessagePrefix extends NEPPrefix {
-//     /** Given the NEP number, set the prefix using 2^31 as the offset **/
-//     protected constructor(prefix: number) {
-//         super({ prefix: NON_ACTIONABLE_MESSAGE_BASE + prefix });
-//     }
-// }
-/** Prefix for delegate actions whose signatures must always be distinguishable from valid transaction signatures **/
-class DelegateActionPrefix extends ActionableMessagePrefix {
-    constructor() { super(NEP.MetaTransactions); }
-}
-prefix.DelegateActionPrefix = DelegateActionPrefix;
+  };
+  Signature = {
+    enum: [
+      { struct: { ed25519Signature: this.Ed25519Signature } },
+      { struct: { secp256k1Signature: this.Secp256k1Signature } }
+    ]
+  };
+  Ed25519Data = {
+    struct: {
+      data: { array: { type: "u8", len: 32 } }
+    }
+  };
+  Secp256k1Data = {
+    struct: {
+      data: { array: { type: "u8", len: 64 } }
+    }
+  };
+  PublicKey = {
+    enum: [
+      { struct: { ed25519Key: this.Ed25519Data } },
+      { struct: { secp256k1Key: this.Secp256k1Data } }
+    ]
+  };
+  FunctionCallPermission = {
+    struct: {
+      allowance: { option: "u128" },
+      receiverId: "string",
+      methodNames: { array: { type: "string" } }
+    }
+  };
+  FullAccessPermission = {
+    struct: {}
+  };
+  AccessKeyPermission = {
+    enum: [
+      { struct: { functionCall: this.FunctionCallPermission } },
+      { struct: { fullAccess: this.FullAccessPermission } }
+    ]
+  };
+  AccessKey = {
+    struct: {
+      nonce: "u64",
+      permission: this.AccessKeyPermission
+    }
+  };
+  CreateAccount = {
+    struct: {}
+  };
+  DeployContract = {
+    struct: {
+      code: { array: { type: "u8" } }
+    }
+  };
+  FunctionCall = {
+    struct: {
+      methodName: "string",
+      args: { array: { type: "u8" } },
+      gas: "u64",
+      deposit: "u128"
+    }
+  };
+  Transfer = {
+    struct: {
+      deposit: "u128"
+    }
+  };
+  Stake = {
+    struct: {
+      stake: "u128",
+      publicKey: this.PublicKey
+    }
+  };
+  AddKey = {
+    struct: {
+      publicKey: this.PublicKey,
+      accessKey: this.AccessKey
+    }
+  };
+  DeleteKey = {
+    struct: {
+      publicKey: this.PublicKey
+    }
+  };
+  DeleteAccount = {
+    struct: {
+      beneficiaryId: "string"
+    }
+  };
+  DelegateActionPrefix = {
+    struct: {
+      prefix: "u32"
+    }
+  };
+  ClassicActions = {
+    enum: [
+      { struct: { createAccount: this.CreateAccount } },
+      { struct: { deployContract: this.DeployContract } },
+      { struct: { functionCall: this.FunctionCall } },
+      { struct: { transfer: this.Transfer } },
+      { struct: { stake: this.Stake } },
+      { struct: { addKey: this.AddKey } },
+      { struct: { deleteKey: this.DeleteKey } },
+      { struct: { deleteAccount: this.DeleteAccount } }
+    ]
+  };
+  DelegateAction = {
+    struct: {
+      senderId: "string",
+      receiverId: "string",
+      actions: { array: { type: this.ClassicActions } },
+      nonce: "u64",
+      maxBlockHeight: "u64",
+      publicKey: this.PublicKey
+    }
+  };
+  SignedDelegate = {
+    struct: {
+      delegateAction: this.DelegateAction,
+      signature: this.Signature
+    }
+  };
+  Action = {
+    enum: [
+      { struct: { createAccount: this.CreateAccount } },
+      { struct: { deployContract: this.DeployContract } },
+      { struct: { functionCall: this.FunctionCall } },
+      { struct: { transfer: this.Transfer } },
+      { struct: { stake: this.Stake } },
+      { struct: { addKey: this.AddKey } },
+      { struct: { deleteKey: this.DeleteKey } },
+      { struct: { deleteAccount: this.DeleteAccount } },
+      { struct: { signedDelegate: this.SignedDelegate } }
+    ]
+  };
+  Transaction = {
+    struct: {
+      signerId: "string",
+      publicKey: this.PublicKey,
+      nonce: "u64",
+      receiverId: "string",
+      blockHash: { array: { type: "u8", len: 32 } },
+      actions: { array: { type: this.Action } }
+    }
+  };
+  SignedTransaction = {
+    struct: {
+      transaction: this.Transaction,
+      signature: this.Signature
+    }
+  };
+}();
 
-(function (exports) {
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.SCHEMA = exports.SignedTransaction = exports.Transaction = exports.decodeSignedTransaction = exports.decodeTransaction = exports.encodeTransaction = exports.encodeSignedDelegate = exports.encodeDelegateAction = void 0;
-	const borsh_1 = cjs;
-	const prefix_1 = prefix;
-	/**
-	 * Borsh-encode a delegate action for inclusion as an action within a meta transaction
-	 * NB per NEP-461 this requires a Borsh-serialized prefix specific to delegate actions, ensuring
-	 *  signed delegate actions may never be identical to signed transactions with the same fields
-	 * @param delegateAction Delegate action to be signed by the meta transaction sender
-	 */
-	function encodeDelegateAction(delegateAction) {
-	    return new Uint8Array([
-	        ...(0, borsh_1.serialize)(exports.SCHEMA.DelegateActionPrefix, new prefix_1.DelegateActionPrefix()),
-	        ...(0, borsh_1.serialize)(exports.SCHEMA.DelegateAction, delegateAction),
-	    ]);
-	}
-	exports.encodeDelegateAction = encodeDelegateAction;
-	/**
-	 * Borsh-encode a signed delegate for validation and execution by a relayer
-	 * @param signedDelegate Signed delegate to be executed in a meta transaction
-	 */
-	function encodeSignedDelegate(signedDelegate) {
-	    return (0, borsh_1.serialize)(exports.SCHEMA.SignedDelegate, signedDelegate);
-	}
-	exports.encodeSignedDelegate = encodeSignedDelegate;
-	/**
-	 * Borsh-encode a transaction or signed transaction into a serialized form.
-	 * @param transaction The transaction or signed transaction object to be encoded.
-	 * @returns A serialized representation of the input transaction.
-	 */
-	function encodeTransaction(transaction) {
-	    const schema = transaction instanceof SignedTransaction ? exports.SCHEMA.SignedTransaction : exports.SCHEMA.Transaction;
-	    return (0, borsh_1.serialize)(schema, transaction);
-	}
-	exports.encodeTransaction = encodeTransaction;
-	/**
-	 * Borsh-decode a Transaction instance from a buffer
-	 * @param bytes Uint8Array data to be decoded
-	 */
-	function decodeTransaction(bytes) {
-	    return new Transaction((0, borsh_1.deserialize)(exports.SCHEMA.Transaction, bytes));
-	}
-	exports.decodeTransaction = decodeTransaction;
-	/**
-	 * Borsh-decode a SignedTransaction instance from a buffer
-	 * @param bytes Uint8Array data to be decoded
-	 */
-	function decodeSignedTransaction(bytes) {
-	    return new SignedTransaction((0, borsh_1.deserialize)(exports.SCHEMA.SignedTransaction, bytes));
-	}
-	exports.decodeSignedTransaction = decodeSignedTransaction;
-	class Transaction {
-	    signerId;
-	    publicKey;
-	    nonce;
-	    receiverId;
-	    actions;
-	    blockHash;
-	    constructor({ signerId, publicKey, nonce, receiverId, actions, blockHash }) {
-	        this.signerId = signerId;
-	        this.publicKey = publicKey;
-	        this.nonce = nonce;
-	        this.receiverId = receiverId;
-	        this.actions = actions;
-	        this.blockHash = blockHash;
-	    }
-	    encode() {
-	        return encodeTransaction(this);
-	    }
-	    static decode(bytes) {
-	        return decodeTransaction(bytes);
-	    }
-	}
-	exports.Transaction = Transaction;
-	class SignedTransaction {
-	    transaction;
-	    signature;
-	    constructor({ transaction, signature }) {
-	        this.transaction = transaction;
-	        this.signature = signature;
-	    }
-	    encode() {
-	        return encodeTransaction(this);
-	    }
-	    static decode(bytes) {
-	        return decodeSignedTransaction(bytes);
-	    }
-	}
-	exports.SignedTransaction = SignedTransaction;
-	exports.SCHEMA = new class BorshSchema {
-	    Ed25519Signature = {
-	        struct: {
-	            data: { array: { type: 'u8', len: 64 } },
-	        }
-	    };
-	    Secp256k1Signature = {
-	        struct: {
-	            data: { array: { type: 'u8', len: 65 } },
-	        }
-	    };
-	    Signature = {
-	        enum: [
-	            { struct: { ed25519Signature: this.Ed25519Signature } },
-	            { struct: { secp256k1Signature: this.Secp256k1Signature } },
-	        ]
-	    };
-	    Ed25519Data = {
-	        struct: {
-	            data: { array: { type: 'u8', len: 32 } },
-	        }
-	    };
-	    Secp256k1Data = {
-	        struct: {
-	            data: { array: { type: 'u8', len: 64 } },
-	        }
-	    };
-	    PublicKey = {
-	        enum: [
-	            { struct: { ed25519Key: this.Ed25519Data } },
-	            { struct: { secp256k1Key: this.Secp256k1Data } },
-	        ]
-	    };
-	    FunctionCallPermission = {
-	        struct: {
-	            allowance: { option: 'u128' },
-	            receiverId: 'string',
-	            methodNames: { array: { type: 'string' } },
-	        }
-	    };
-	    FullAccessPermission = {
-	        struct: {}
-	    };
-	    AccessKeyPermission = {
-	        enum: [
-	            { struct: { functionCall: this.FunctionCallPermission } },
-	            { struct: { fullAccess: this.FullAccessPermission } },
-	        ]
-	    };
-	    AccessKey = {
-	        struct: {
-	            nonce: 'u64',
-	            permission: this.AccessKeyPermission,
-	        }
-	    };
-	    CreateAccount = {
-	        struct: {}
-	    };
-	    DeployContract = {
-	        struct: {
-	            code: { array: { type: 'u8' } },
-	        }
-	    };
-	    FunctionCall = {
-	        struct: {
-	            methodName: 'string',
-	            args: { array: { type: 'u8' } },
-	            gas: 'u64',
-	            deposit: 'u128',
-	        }
-	    };
-	    Transfer = {
-	        struct: {
-	            deposit: 'u128',
-	        }
-	    };
-	    Stake = {
-	        struct: {
-	            stake: 'u128',
-	            publicKey: this.PublicKey,
-	        }
-	    };
-	    AddKey = {
-	        struct: {
-	            publicKey: this.PublicKey,
-	            accessKey: this.AccessKey,
-	        }
-	    };
-	    DeleteKey = {
-	        struct: {
-	            publicKey: this.PublicKey,
-	        }
-	    };
-	    DeleteAccount = {
-	        struct: {
-	            beneficiaryId: 'string',
-	        }
-	    };
-	    DelegateActionPrefix = {
-	        struct: {
-	            prefix: 'u32',
-	        }
-	    };
-	    ClassicActions = {
-	        enum: [
-	            { struct: { createAccount: this.CreateAccount } },
-	            { struct: { deployContract: this.DeployContract } },
-	            { struct: { functionCall: this.FunctionCall } },
-	            { struct: { transfer: this.Transfer } },
-	            { struct: { stake: this.Stake } },
-	            { struct: { addKey: this.AddKey } },
-	            { struct: { deleteKey: this.DeleteKey } },
-	            { struct: { deleteAccount: this.DeleteAccount } },
-	        ]
-	    };
-	    DelegateAction = {
-	        struct: {
-	            senderId: 'string',
-	            receiverId: 'string',
-	            actions: { array: { type: this.ClassicActions } },
-	            nonce: 'u64',
-	            maxBlockHeight: 'u64',
-	            publicKey: this.PublicKey,
-	        }
-	    };
-	    SignedDelegate = {
-	        struct: {
-	            delegateAction: this.DelegateAction,
-	            signature: this.Signature,
-	        }
-	    };
-	    Action = {
-	        enum: [
-	            { struct: { createAccount: this.CreateAccount } },
-	            { struct: { deployContract: this.DeployContract } },
-	            { struct: { functionCall: this.FunctionCall } },
-	            { struct: { transfer: this.Transfer } },
-	            { struct: { stake: this.Stake } },
-	            { struct: { addKey: this.AddKey } },
-	            { struct: { deleteKey: this.DeleteKey } },
-	            { struct: { deleteAccount: this.DeleteAccount } },
-	            { struct: { signedDelegate: this.SignedDelegate } },
-	        ]
-	    };
-	    Transaction = {
-	        struct: {
-	            signerId: 'string',
-	            publicKey: this.PublicKey,
-	            nonce: 'u64',
-	            receiverId: 'string',
-	            blockHash: { array: { type: 'u8', len: 32 } },
-	            actions: { array: { type: this.Action } },
-	        }
-	    };
-	    SignedTransaction = {
-	        struct: {
-	            transaction: this.Transaction,
-	            signature: this.Signature,
-	        }
-	    };
-	}; 
-} (schema));
-
-Object.defineProperty(create_transaction, "__esModule", { value: true });
-create_transaction.createTransaction = void 0;
-const schema_1 = schema;
-/**
- * Creates a new transaction object with the provided parameters.
- * @param signerId The NEAR account ID of the transaction signer.
- * @param publicKey The public key associated with the signer.
- * @param receiverId The NEAR account ID of the transaction receiver.
- * @param nonce The nonce value for the transaction, represented as a BN, string, or number.
- * @param actions An array of transaction actions to be performed.
- * @param blockHash The hash of the block where the transaction will be included.
- * @returns A new transaction object initialized with the provided parameters.
- */
 function createTransaction(signerId, publicKey, receiverId, nonce, actions, blockHash) {
-    const txNonce = typeof nonce === 'bigint' ? nonce : BigInt(nonce);
-    return new schema_1.Transaction({
-        signerId,
-        publicKey,
-        nonce: txNonce,
-        receiverId,
-        actions,
-        blockHash,
-    });
+  const txNonce = typeof nonce === "bigint" ? nonce : BigInt(nonce);
+  return new Transaction({
+    signerId,
+    publicKey,
+    nonce: txNonce,
+    receiverId,
+    actions,
+    blockHash
+  });
 }
-create_transaction.createTransaction = createTransaction;
 
-var delegate = {};
-
-Object.defineProperty(delegate, "__esModule", { value: true });
-delegate.buildDelegateAction = delegate.DelegateAction = void 0;
-const action_creators_1 = action_creators;
-const { addKey, createAccount, deleteAccount, deleteKey, deployContract, functionCall, stake, transfer, } = action_creators_1.actionCreators;
-class DelegateAction {
-    senderId;
-    receiverId;
-    actions;
-    nonce;
-    maxBlockHeight;
-    publicKey;
-    constructor({ senderId, receiverId, actions, nonce, maxBlockHeight, publicKey }) {
-        this.senderId = senderId;
-        this.receiverId = receiverId;
-        this.actions = actions;
-        this.nonce = nonce;
-        this.maxBlockHeight = maxBlockHeight;
-        this.publicKey = publicKey;
-    }
-}
-delegate.DelegateAction = DelegateAction;
-/**
- * Compose a delegate action for inclusion with a meta transaction signed on the sender's behalf
- * @param actions The set of actions to be included in the meta transaction
- * @param maxBlockHeight The maximum block height for which this action can be executed as part of a transaction
- * @param nonce Current nonce on the access key used to sign the delegate action
- * @param publicKey Public key for the access key used to sign the delegate action
- * @param receiverId Account ID for the intended receiver of the meta transaction
- * @param senderId Account ID for the intended signer of the delegate action
- */
-function buildDelegateAction({ actions, maxBlockHeight, nonce, publicKey, receiverId, senderId, }) {
-    return new DelegateAction({
-        senderId,
-        receiverId,
-        actions: actions.map((a) => {
-            // @ts-expect-error type workaround
-            if (!a.type && !a.params) {
-                return a;
-            }
-            // @ts-expect-error type workaround
-            switch (a.type) {
-                case 'AddKey': {
-                    // @ts-expect-error type workaround
-                    const { publicKey, accessKey } = a.params;
-                    return addKey(publicKey, accessKey);
-                }
-                case 'CreateAccount': {
-                    // @ts-expect-error type workaround
-                    return createAccount(a.params.createAccount);
-                }
-                case 'DeleteAccount': {
-                    // @ts-expect-error type workaround
-                    return deleteAccount(a.params.deleteAccount);
-                }
-                case 'DeleteKey': {
-                    // @ts-expect-error type workaround
-                    return deleteKey(a.params.publicKey);
-                }
-                case 'DeployContract': {
-                    // @ts-expect-error type workaround
-                    return deployContract(a.params.code);
-                }
-                case 'FunctionCall': {
-                    // @ts-expect-error type workaround
-                    const { methodName, args, gas, deposit } = a.params;
-                    return functionCall(methodName, args, gas, deposit);
-                }
-                case 'Stake': {
-                    // @ts-expect-error type workaround
-                    return stake(a.params.stake, a.params.publicKey);
-                }
-                case 'Transfer': {
-                    // @ts-expect-error type workaround
-                    const { deposit } = a.params;
-                    return transfer(deposit);
-                }
-            }
-            throw new Error('Unrecognized action');
-        }),
-        nonce,
-        maxBlockHeight,
-        publicKey,
-    });
-}
-delegate.buildDelegateAction = buildDelegateAction;
-
-var signature = {};
-
-Object.defineProperty(signature, "__esModule", { value: true });
-signature.Signature = void 0;
-const crypto_1 = commonjs$3;
-const types_1 = commonjsExports$1;
 function resolveEnumKeyName(keyType) {
-    switch (keyType) {
-        case crypto_1.KeyType.ED25519: {
-            return 'ed25519Signature';
-        }
-        case crypto_1.KeyType.SECP256K1: {
-            return 'secp256k1Signature';
-        }
-        default: {
-            throw Error(`unknown type ${keyType}`);
-        }
+  switch (keyType) {
+    case KeyType.ED25519: {
+      return "ed25519Signature";
     }
+    case KeyType.SECP256K1: {
+      return "secp256k1Signature";
+    }
+    default: {
+      throw Error(`unknown type ${keyType}`);
+    }
+  }
 }
-class Signature extends types_1.Enum {
-    enum;
-    ed25519Signature;
-    secp256k1Signature;
-    constructor(signature) {
-        const keyName = resolveEnumKeyName(signature.keyType);
-        super({ [keyName]: signature });
-        this[keyName] = signature;
-        this.enum = keyName;
-    }
-    get signature() {
-        return this.ed25519Signature || this.secp256k1Signature;
-    }
-    get signatureType() {
-        return this.signature.keyType;
-    }
-    get data() {
-        return this.signature.data;
-    }
+class Signature extends Enum$1 {
+  enum;
+  ed25519Signature;
+  secp256k1Signature;
+  constructor(signature) {
+    const keyName = resolveEnumKeyName(signature.keyType);
+    super({ [keyName]: signature });
+    this[keyName] = signature;
+    this.enum = keyName;
+  }
+  get signature() {
+    return this.ed25519Signature || this.secp256k1Signature;
+  }
+  get signatureType() {
+    return this.signature.keyType;
+  }
+  get data() {
+    return this.signature.data;
+  }
 }
-signature.Signature = Signature;
-
-(function (exports) {
-	var __createBinding = (commonjsGlobal && commonjsGlobal.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-	    if (k2 === undefined) k2 = k;
-	    var desc = Object.getOwnPropertyDescriptor(m, k);
-	    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-	      desc = { enumerable: true, get: function() { return m[k]; } };
-	    }
-	    Object.defineProperty(o, k2, desc);
-	}) : (function(o, m, k, k2) {
-	    if (k2 === undefined) k2 = k;
-	    o[k2] = m[k];
-	}));
-	var __exportStar = (commonjsGlobal && commonjsGlobal.__exportStar) || function(m, exports) {
-	    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
-	};
-	Object.defineProperty(exports, "__esModule", { value: true });
-	__exportStar(action_creators, exports);
-	__exportStar(actions, exports);
-	__exportStar(create_transaction, exports);
-	__exportStar(delegate, exports);
-	__exportStar(schema, exports);
-	__exportStar(signature, exports); 
-} (commonjs));
 
 var sha256 = {exports: {}};
 
@@ -22289,6 +17252,47 @@ function sign_transaction_with_encrypted_key(prf_output_base64, encrypted_privat
     return v10;
 }
 
+/**
+ * @param {string} attestation_object_b64u
+ * @returns {Uint8Array}
+ */
+function extract_cose_public_key_from_attestation$1(attestation_object_b64u) {
+    const ptr0 = passStringToWasm0(attestation_object_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.extract_cose_public_key_from_attestation(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * @param {Uint8Array} cose_key_bytes
+ * @returns {string}
+ */
+function validate_cose_key_format$1(cose_key_bytes) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(cose_key_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.validate_cose_key_format(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
         if (typeof WebAssembly.instantiateStreaming === 'function') {
@@ -22531,19 +17535,21 @@ async function __wbg_init(module_or_path) {
 }
 
 var wasmModule = /*#__PURE__*/Object.freeze({
-	__proto__: null,
-	decrypt_and_sign_transaction_with_prf: decrypt_and_sign_transaction_with_prf,
-	decrypt_data_aes_gcm: decrypt_data_aes_gcm$1,
-	default: __wbg_init,
-	derive_encryption_key_from_prf: derive_encryption_key_from_prf$1,
-	derive_near_keypair_from_cose_p256: derive_near_keypair_from_cose_p256,
-	encrypt_data_aes_gcm: encrypt_data_aes_gcm,
-	generate_and_encrypt_near_keypair_with_prf: generate_and_encrypt_near_keypair_with_prf$1,
-	generate_near_keypair: generate_near_keypair,
-	initSync: initSync,
-	init_panic_hook: init_panic_hook,
-	sign_near_transaction_with_prf: sign_near_transaction_with_prf,
-	sign_transaction_with_encrypted_key: sign_transaction_with_encrypted_key
+  __proto__: null,
+  decrypt_and_sign_transaction_with_prf: decrypt_and_sign_transaction_with_prf,
+  decrypt_data_aes_gcm: decrypt_data_aes_gcm$1,
+  default: __wbg_init,
+  derive_encryption_key_from_prf: derive_encryption_key_from_prf$1,
+  derive_near_keypair_from_cose_p256: derive_near_keypair_from_cose_p256,
+  encrypt_data_aes_gcm: encrypt_data_aes_gcm,
+  extract_cose_public_key_from_attestation: extract_cose_public_key_from_attestation$1,
+  generate_and_encrypt_near_keypair_with_prf: generate_and_encrypt_near_keypair_with_prf$1,
+  generate_near_keypair: generate_near_keypair,
+  initSync: initSync,
+  init_panic_hook: init_panic_hook,
+  sign_near_transaction_with_prf: sign_near_transaction_with_prf,
+  sign_transaction_with_encrypted_key: sign_transaction_with_encrypted_key,
+  validate_cose_key_format: validate_cose_key_format$1
 });
 
 // === WORKER MESSAGE TYPE ENUMS ===
@@ -22552,6 +17558,8 @@ var WorkerRequestType;
     WorkerRequestType["ENCRYPT_PRIVATE_KEY_WITH_PRF"] = "ENCRYPT_PRIVATE_KEY_WITH_PRF";
     WorkerRequestType["DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF"] = "DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF";
     WorkerRequestType["DECRYPT_PRIVATE_KEY_WITH_PRF"] = "DECRYPT_PRIVATE_KEY_WITH_PRF";
+    WorkerRequestType["EXTRACT_COSE_PUBLIC_KEY"] = "EXTRACT_COSE_PUBLIC_KEY";
+    WorkerRequestType["VALIDATE_COSE_KEY"] = "VALIDATE_COSE_KEY";
 })(WorkerRequestType || (WorkerRequestType = {}));
 var WorkerResponseType;
 (function (WorkerResponseType) {
@@ -22561,11 +17569,15 @@ var WorkerResponseType;
     WorkerResponseType["SIGNATURE_FAILURE"] = "SIGNATURE_FAILURE";
     WorkerResponseType["DECRYPTION_SUCCESS"] = "DECRYPTION_SUCCESS";
     WorkerResponseType["DECRYPTION_FAILURE"] = "DECRYPTION_FAILURE";
+    WorkerResponseType["COSE_KEY_SUCCESS"] = "COSE_KEY_SUCCESS";
+    WorkerResponseType["COSE_KEY_FAILURE"] = "COSE_KEY_FAILURE";
+    WorkerResponseType["COSE_VALIDATION_SUCCESS"] = "COSE_VALIDATION_SUCCESS";
+    WorkerResponseType["COSE_VALIDATION_FAILURE"] = "COSE_VALIDATION_FAILURE";
     WorkerResponseType["ERROR"] = "ERROR";
 })(WorkerResponseType || (WorkerResponseType = {}));
 
 // @ts-ignore
-globalThis.Buffer = buffer$1.Buffer;
+globalThis.Buffer = buffer.Buffer;
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
 const wasmUrl = new URL('./passkey_crypto_worker_bg.wasm', import.meta.url);
 // === CONSTANTS ===
@@ -22576,7 +17588,7 @@ const STORE_NAME = 'encryptedKeys';
 const HKDF_INFO = 'near-key-encryption';
 const HKDF_SALT = '';
 // === WASM MODULE FUNCTIONS ===
-const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf } = wasmModule;
+const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf, extract_cose_public_key_from_attestation, validate_cose_key_format } = wasmModule;
 // === UTILITY FUNCTIONS ===
 /**
  * Initialize WASM module with caching support
@@ -22747,6 +17759,12 @@ self.onmessage = async (event) => {
             case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
                 await handleDecryptPrivateKeyWithPrf(payload);
                 break;
+            case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
+                await handleExtractCosePublicKey(payload);
+                break;
+            case WorkerRequestType.VALIDATE_COSE_KEY:
+                await handleValidateCoseKey(payload);
+                break;
             default:
                 sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
         }
@@ -22826,7 +17844,7 @@ function decryptPrivateKeyString(encryptedKeyData, prfOutput) {
  */
 function decryptPrivateKey(encryptedKeyData, prfOutput) {
     const decryptedPrivateKeyString = decryptPrivateKeyString(encryptedKeyData, prfOutput);
-    return commonjs$3.KeyPair.fromString(decryptedPrivateKeyString);
+    return KeyPair.fromString(decryptedPrivateKeyString);
 }
 /**
  * Create NEAR transaction from parameters
@@ -22837,30 +17855,30 @@ function createNearTransaction(nearAccountId, keyPair, payload) {
         {
             functionCall: {
                 methodName: contractMethodName,
-                args: buffer$1.Buffer.from(JSON.stringify(contractArgs)),
+                args: buffer.Buffer.from(JSON.stringify(contractArgs)),
                 gas: BigInt(gasAmount),
                 deposit: BigInt(depositAmount)
             }
         }
     ];
-    return commonjs.createTransaction(nearAccountId, keyPair.getPublicKey(), receiverId, BigInt(nonce), actions, buffer$1.Buffer.from(blockHashBytes));
+    return createTransaction(nearAccountId, keyPair.getPublicKey(), receiverId, BigInt(nonce), actions, buffer.Buffer.from(blockHashBytes));
 }
 /**
  * Sign transaction and create signed transaction
  */
 function signTransaction(transaction, keyPair) {
-    const serializedTx = serialize$2(commonjs.SCHEMA.Transaction, transaction);
+    const serializedTx = serialize$1(SCHEMA.Transaction, transaction);
     const hash = new Uint8Array(sha256Exports.sha256.array(serializedTx));
     const signatureFromKeyPair = keyPair.sign(hash);
-    const nearSignature = new commonjs.Signature({
+    const nearSignature = new Signature({
         keyType: keyPair.getPublicKey().keyType,
         data: signatureFromKeyPair.signature
     });
-    const signedTransaction = new commonjs.SignedTransaction({
+    const signedTransaction = new SignedTransaction({
         transaction,
         signature: nearSignature
     });
-    return serialize$2(commonjs.SCHEMA.SignedTransaction, signedTransaction);
+    return serialize$1(SCHEMA.SignedTransaction, signedTransaction);
 }
 /**
  * Handle transaction decryption and signing with PRF
@@ -22916,6 +17934,59 @@ async function handleDecryptPrivateKeyWithPrf(payload) {
         sendResponseAndTerminate({
             type: WorkerResponseType.DECRYPTION_FAILURE,
             payload: { error: error.message || 'PRF decryption failed' }
+        });
+    }
+}
+// === COSE KEY EXTRACTION WORKFLOW ===
+/**
+ * Handle COSE public key extraction from attestation object
+ */
+async function handleExtractCosePublicKey(payload) {
+    try {
+        const { attestationObjectBase64url } = payload;
+        console.log('WORKER: Extracting COSE public key from attestation object');
+        // Call the WASM function to extract COSE public key
+        const cosePublicKeyBytes = extract_cose_public_key_from_attestation(attestationObjectBase64url);
+        console.log('WORKER: Successfully extracted COSE public key:', cosePublicKeyBytes.length, 'bytes');
+        sendResponseAndTerminate({
+            type: WorkerResponseType.COSE_KEY_SUCCESS,
+            payload: {
+                cosePublicKeyBytes: Array.from(cosePublicKeyBytes)
+            }
+        });
+    }
+    catch (error) {
+        console.error('WORKER: COSE key extraction failed:', error.message);
+        sendResponseAndTerminate({
+            type: WorkerResponseType.COSE_KEY_FAILURE,
+            payload: { error: error.message || 'COSE key extraction failed' }
+        });
+    }
+}
+/**
+ * Handle COSE key format validation
+ */
+async function handleValidateCoseKey(payload) {
+    try {
+        const { coseKeyBytes } = payload;
+        console.log('WORKER: Validating COSE key format for key bytes:', coseKeyBytes.length);
+        // Call the WASM function to validate COSE key format
+        const validationResult = validate_cose_key_format(new Uint8Array(coseKeyBytes));
+        const validationInfo = JSON.parse(validationResult);
+        console.log('WORKER: COSE key validation result:', validationInfo);
+        sendResponseAndTerminate({
+            type: WorkerResponseType.COSE_VALIDATION_SUCCESS,
+            payload: {
+                valid: validationInfo.valid,
+                info: validationInfo
+            }
+        });
+    }
+    catch (error) {
+        console.error('WORKER: COSE key validation failed:', error.message);
+        sendResponseAndTerminate({
+            type: WorkerResponseType.COSE_VALIDATION_FAILURE,
+            payload: { error: error.message || 'COSE key validation failed' }
         });
     }
 }

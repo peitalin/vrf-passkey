@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { usePasskeyContext } from '@web3authn/passkey/react'
 import { Toggle } from './Toggle'
 import { GreetingMenu } from './GreetingMenu'
@@ -14,9 +14,8 @@ import {
 export function PasskeyLogin() {
   const {
     loginState: {
-    isLoggedIn,
-    username,
-    nearPublicKey,
+      isLoggedIn,
+      nearPublicKey,
       nearAccountId
     },
     logout,
@@ -24,11 +23,12 @@ export function PasskeyLogin() {
     registerPasskey,
     optimisticAuth,
     setOptimisticAuth,
-    webAuthnManager,
+    passkeyManager,
   } = usePasskeyContext();
 
   const [localUsernameInput, setLocalUsernameInput] = useState('');
   const [isPasskeyRegisteredForLocalInput, setIsPasskeyRegisteredForLocalInput] = useState(false);
+  const [domain, setDomain] = useState(() => optimisticAuth ? 'webauthn-contract.testnet' : 'testnet');
   const [isSecureContext] = useState(() => window.isSecureContext);
 
   const usernameInputRef = useRef<HTMLInputElement>(null);
@@ -38,30 +38,32 @@ export function PasskeyLogin() {
     setOptimisticAuth(checked);
   }, [setOptimisticAuth]);
 
-  // Only auto-populate username when input is empty
+  const webAuthnManager = useMemo(() => passkeyManager.getWebAuthnManager(), [passkeyManager]);
+  const accountName = useMemo(() => nearAccountId?.split('.')?.[0], [nearAccountId]);
+
+  // Only auto-populate when input is empty when nearAccountId first loads
   useEffect(() => {
     const loadUserData = async () => {
-      // Don't auto-populate if user has typed something
-      if (localUsernameInput.trim()) return;
-
-      if (username) {
+      if (accountName && nearAccountId) {
         // User is logged in, show their username
-        setLocalUsernameInput(username);
-        const hasCredential = await webAuthnManager.hasPasskeyCredential(username);
+        setLocalUsernameInput(accountName);
+        const hasCredential = await webAuthnManager.hasPasskeyCredential(nearAccountId);
         setIsPasskeyRegisteredForLocalInput(hasCredential);
       } else {
         // No logged-in user, try to show last used username
-        const prevUsername = await webAuthnManager.getLastUsedUsername();
-        if (prevUsername) {
-          setLocalUsernameInput(prevUsername);
-          const hasCredential = await webAuthnManager.hasPasskeyCredential(prevUsername);
+        const prevAccountId = await webAuthnManager.getLastUsedNearAccountId();
+        if (prevAccountId) {
+          // Extract just the username part from the full account ID
+          const username = prevAccountId.split('.')[0];
+          setLocalUsernameInput(username);
+          const hasCredential = await webAuthnManager.hasPasskeyCredential(prevAccountId);
           setIsPasskeyRegisteredForLocalInput(hasCredential);
         }
       }
     };
 
     loadUserData();
-  }, [username, localUsernameInput, webAuthnManager]);
+  }, [accountName]);
 
   // Update postfix position when username changes
   useEffect(() => {
@@ -98,7 +100,9 @@ export function PasskeyLogin() {
     setLocalUsernameInput(newUsername);
 
     if (newUsername) {
-      const hasCredential = await webAuthnManager.hasPasskeyCredential(newUsername);
+      // Construct the full account ID to check for credentials
+      const fullAccountId = `${newUsername}.${domain}`;
+      const hasCredential = await webAuthnManager.hasPasskeyCredential(fullAccountId);
       setIsPasskeyRegisteredForLocalInput(hasCredential);
     } else {
       setIsPasskeyRegisteredForLocalInput(false);
@@ -109,8 +113,10 @@ export function PasskeyLogin() {
     if (!localUsernameInput.trim()) {
       return;
     }
+    let newAccountId = `${localUsernameInput.trim()}.${domain}`;
+    console.log('newAccountId', newAccountId);
     try {
-      const result = await registerPasskey(localUsernameInput.trim(), {
+      const result = await registerPasskey(newAccountId, {
         optimisticAuth,
         onEvent: (event: RegistrationSSEEvent) => {
           switch (event.phase) {
@@ -121,7 +127,7 @@ export function PasskeyLogin() {
               break;
             case 'user-ready':
               if (event.status === 'success') {
-                toast.success(`Welcome ${event.username}! Registration complete!`, { id: 'registration' });
+                toast.success(`Welcome ${event.nearAccountId}! Registration complete!`, { id: 'registration' });
               }
               break;
             case 'registration-complete':
@@ -149,19 +155,20 @@ export function PasskeyLogin() {
   };
 
   const onLogin = async () => {
-    const userToAttemptLogin = localUsernameInput.trim();
-    const result = await loginPasskey(userToAttemptLogin || undefined, {
+    let accountId = `${localUsernameInput.trim()}.${domain}`;
+    console.log('login with accountId', accountId);
+    const result = await loginPasskey(accountId, {
       optimisticAuth,
       onEvent: (event: LoginEvent) => {
         switch (event.type) {
           case 'loginStarted':
-            toast.loading(`Logging in${event.data.username ? ' as ' + event.data.username : ''}...`, { id: 'login' });
+            toast.loading(`Logging in ${event.data.nearAccountId ? ' as ' + event.data.nearAccountId : ''}...`, { id: 'login' });
             break;
           case 'loginProgress':
             toast.loading(event.data.message, { id: 'login' });
             break;
           case 'loginCompleted':
-            toast.success(`Logged in as ${event.data.username}!`, { id: 'login' });
+            toast.success(`Logged in as ${event.data.nearAccountId}!`, { id: 'login' });
             break;
           case 'loginFailed':
             toast.error(event.data.error, { id: 'login' });
@@ -174,6 +181,9 @@ export function PasskeyLogin() {
       // Login successful
     }
   };
+
+  console.log('localUsernameInput', localUsernameInput);
+
 
   if (!isSecureContext) {
     return (
@@ -197,7 +207,7 @@ export function PasskeyLogin() {
           </>
         ) : (
           <>
-            <h2>Welcome, {username}</h2>
+            <h2>Welcome, {accountName}</h2>
             <p className="caption">Send NEAR transactions with Passkeys</p>
           </>
         )}
