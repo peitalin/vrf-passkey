@@ -10,6 +10,7 @@ import {
 } from '../utils/routing';
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult } from './types';
+import { indexDBManager } from '../IndexDBManager';
 
 interface BlockInfo {
   header: {
@@ -138,11 +139,74 @@ export async function executeAction(
       }
     });
 
-    const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrfAndUrl(
-      routing.serverUrl,
-      nearAccountId,
-      'signing'
-    );
+    let passkeyAssertion: PublicKeyCredential;
+    let prfOutput: ArrayBuffer;
+
+    if (routing.mode === 'serverless') {
+      // Serverless mode: Direct WebAuthn authentication with PRF
+      console.log('[Direct Action] Using serverless authentication');
+
+      // Get stored authenticator data for this user
+      const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+      if (authenticators.length === 0) {
+        throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+      }
+
+      // Build authentication options using stored credential
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const authOptions: PublicKeyCredentialRequestOptions = {
+        challenge,
+        rpId: window.location.hostname,
+        allowCredentials: authenticators.map(auth => {
+          return {
+            id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
+            type: 'public-key' as const,
+            transports: auth.transports as AuthenticatorTransport[]
+          };
+        }),
+        userVerification: 'preferred' as UserVerificationRequirement,
+        timeout: 60000,
+        extensions: {
+          prf: {
+            eval: {
+              first: new Uint8Array(new Array(32).fill(42)) // Use the same PRF salt as other operations
+            }
+          }
+        }
+      };
+
+      const credential = await navigator.credentials.get({
+        publicKey: authOptions
+      }) as PublicKeyCredential;
+
+      if (!credential) {
+        throw new Error('WebAuthn authentication failed or was cancelled');
+      }
+
+      const extensionResults = credential.getClientExtensionResults();
+      const prfResult = (extensionResults as any).prf?.results?.first;
+
+      if (!prfResult) {
+        throw new Error('PRF output not available - required for transaction signing');
+      }
+
+      passkeyAssertion = credential;
+      prfOutput = prfResult!;
+    } else {
+      // Server mode: Use server-based authentication
+      const authResult = await webAuthnManager.authenticateWithPrfAndUrl(
+        routing.serverUrl!,
+        nearAccountId,
+        'signing'
+      );
+
+      if (!authResult.prfOutput) {
+        throw new Error('PRF output not available from server authentication - required for transaction signing');
+      }
+
+      passkeyAssertion = authResult.credential;
+      prfOutput = authResult.prfOutput;
+    }
 
     if (!passkeyAssertion || !prfOutput) {
       const errorMsg = 'PRF authentication failed or no PRF output';

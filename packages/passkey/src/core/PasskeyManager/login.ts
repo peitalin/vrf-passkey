@@ -1,16 +1,14 @@
 import { bufferDecode, publicKeyCredentialToJSON, bufferEncode } from '../../utils/encoders';
-import { DEFAULT_GAS_STRING, RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
+import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
 import { indexDBManager } from '../IndexDBManager';
 import { ContractService } from '../ContractService';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
-import type { WebAuthnManager } from '../WebAuthnManager';
 import type { PasskeyManager } from '../PasskeyManager';
 import type { ServerAuthenticationOptions } from '../../types';
 import type {
   LoginOptions,
   LoginResult,
   LoginEvent,
-  PasskeyManagerConfig
 } from './types';
 import {
   VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,

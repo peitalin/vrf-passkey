@@ -1,5 +1,4 @@
-import { bufferEncode, publicKeyCredentialToJSON, bufferDecode } from '../../utils/encoders';
-import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID, RPC_NODE_URL } from '../../config';
+import { bufferEncode, publicKeyCredentialToJSON } from '../../utils/encoders';
 import { indexDBManager } from '../IndexDBManager';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
 import { validateNearAccountId, validateServerRegistrationAccountId } from '../utils/validation';

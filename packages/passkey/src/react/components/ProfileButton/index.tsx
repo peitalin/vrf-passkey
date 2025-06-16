@@ -60,7 +60,11 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
       disabled: false,
       onClick: async () => {
         try {
-          const { userAccountId, privateKey, publicKey } = await passkeyManager.exportKeyPair();
+          const {
+            userAccountId,
+            privateKey,
+            publicKey
+          } = await passkeyManager.exportKeyPair(nearAccountId!, optimisticAuth);
 
           // Small delay to allow document to regain focus after WebAuthn
           await new Promise(resolve => setTimeout(resolve, 150));
