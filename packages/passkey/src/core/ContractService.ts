@@ -179,14 +179,17 @@ export class ContractService {
         }))
       : null;
 
+    // Extract username for contract calls - contract expects just username for proper suggestions
+    const username = nearAccountId.split('.')[0];
+
     // Build contract arguments (replicate server logic)
     const contractArgs: ContractGenerateOptionsArgs = {
       rp_name: this.rpName,
       rp_id: this.rpId,
-      user_name: nearAccountId,
+      user_name: username, // Use username for contract (contract expects username)
       user_id: userId,
       challenge: null, // Let contract generate challenge
-      user_display_name: nearAccountId,
+      user_display_name: username, // Use username for contract display
       timeout: 60000,
       attestation_type: "none",
       exclude_credentials: excludeCredentials,

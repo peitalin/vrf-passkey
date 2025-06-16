@@ -204,7 +204,7 @@ export class WebAuthnManager {
   ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     try {
       const requestData: GenerateAuthenticationOptionsRequest = {
-        accountId: nearAccountId ? indexDBManager.extractUsername(nearAccountId) : undefined
+        accountId: nearAccountId
       };
 
       const response = await fetch(`${serverUrl}/generate-authentication-options`, {
@@ -298,9 +298,9 @@ export class WebAuthnManager {
 
     // Add PRF extension
     options.extensions = {
-      ...options.extensions,
-      prf: {
-        eval: {
+        ...options.extensions,
+        prf: {
+          eval: {
           first: this.webauthnWorkers.getPrfSalts().nearKeyEncryption
         }
       }
@@ -384,8 +384,8 @@ export class WebAuthnManager {
     const authenticationOptions = this.convertAuthenticationOptions(options);
     authenticationOptions.extensions = {
       ...authenticationOptions.extensions,
-      prf: {
-        eval: {
+        prf: {
+          eval: {
           first: this.webauthnWorkers.getPrfSalts().nearKeyEncryption
         }
       }

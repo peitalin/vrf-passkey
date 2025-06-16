@@ -296,16 +296,16 @@ async function getRegistrationOptionsSimpleWebAuthn(
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> {
-  const username = user.nearAccountId.split('.')[0];
-  console.log(`Using SimpleWebAuthn for registration options for user: ${username} (Web2 mode)`);
+  const fullAccountId = user.nearAccountId;
+  console.log(`Using SimpleWebAuthn for registration options for user: ${fullAccountId} (Web2 mode)`);
 
   // generate options with SimpleWebAuthn to get a challenge
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
     rpID: config.rpID,
-    userID: username, // Use just the username, not the full account ID
-    userName: username,
-    userDisplayName: username,
+    userID: fullAccountId, // Use the full account ID for clarity
+    userName: fullAccountId,
+    userDisplayName: fullAccountId,
     excludeCredentials: rawAuthenticators.map(auth => ({
       id: isoBase64URL.toBuffer(auth.credentialID),
       type: 'public-key' as const,

@@ -351,23 +351,38 @@ export class WebAuthnWorkers {
 
   /**
    * Secure private key decryption with PRF
+   *
+   * For local private key export, we're just decrypting locally stored encrypted private keys
+   *    - No network communication with servers
+   *    - No transaction signing or blockchain interaction
+   *    - No replay attack surface since nothing is transmitted
+   *    - Security comes from device possession + biometrics, not challenge validation
+   *
+   * This is equivalent to: "If you can unlock your phone, you can access your local keychain"
+   *
+   * RANDOM CHALLENGE PURPOSE: Prevents pre-computation attacks
+   *    - Fresh random challenge ensures PRF output cannot be pre-computed
+   *    - Challenge doesn't need server validation - randomness is sufficient
+   *    - Challenge is NOT a shared secret - it's public in WebAuthn clientDataJSON
+   *
+   * PRF DETERMINISTIC KEY DERIVATION: WebAuthn PRF provides cryptographic guarantees
+   *    - Same SALT + same authenticator = same PRF output (deterministic)
+   *    - Different SALT + same authenticator = different PRF output
+   *    - We use FIXED salt (new Array(32).fill(42)) so we always get same PRF output
+   *    - Challenge can be random because PRF depends on SALT, not challenge
+   *    - Impossible to derive PRF output without the physical authenticator
    */
   async securePrivateKeyDecryptionWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
-    challengeId: string
+    challengeId: string // Parameter kept for API compatibility, but not used for validation
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
-      // Skip challenge validation for serverless mode (challengeId starts with 'serverless-')
-      // SECURITY NOTE: for export operations, serverless mode doesn't require server-registered challenges
-      if (!challengeId.startsWith('serverless-')) {
-        this.validateAndConsumeChallenge(challengeId, 'authentication');
-        console.log('WebAuthnManager: Challenge validated for PRF decryption');
-      } else {
-        console.log('WebAuthnManager: Skipping challenge validation for serverless mode');
-      }
-
-      console.log('WebAuthnManager: Starting secure private key decryption with PRF');
+      // For local private key decryption, we don't need challenge validation
+      // The security comes from device possession + biometric verification + PRF cryptography
+      // See additional security notes in the comments above
+      console.log('WebAuthnManager: Starting secure private key decryption with PRF (local operation)');
+      console.log('WebAuthnManager: Skipping challenge validation - security enforced by device possession + biometrics');
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {

@@ -690,6 +690,9 @@ async function handleRegistrationWithRelayer(
     const challengeB64url = bufferEncode(challenge);
     const userId = `user_${Date.now()}_${crypto.randomUUID()}`;
 
+    // Extract username for WebAuthn user entity (displayed in passkey UI)
+    const username = indexDBManager.extractUsername(nearAccountId);
+
     // Build registration options for WebAuthn ceremony
     const registrationOptions: PublicKeyCredentialCreationOptions = {
       challenge,
@@ -699,8 +702,8 @@ async function handleRegistrationWithRelayer(
       },
       user: {
         id: new TextEncoder().encode(userId),
-        name: nearAccountId,
-        displayName: nearAccountId
+        name: username, // Use username for WebAuthn display
+        displayName: username // Use username for WebAuthn display
       },
       pubKeyCredParams: [
         { alg: -7, type: 'public-key' }, // ES256
@@ -750,17 +753,7 @@ async function handleRegistrationWithRelayer(
     // Step 2: Generate NEAR keypair using PRF output
     console.log('🔑 Serverless registration: Generating NEAR keypair with PRF');
 
-    // Sanitize username for NEAR account ID
-    const username = indexDBManager.extractUsername(nearAccountId);
-    const sanitizedUsername = username.toLowerCase()
-      .replace(/[^a-z0-9_\-]/g, '')
-      .substring(0, 32);
-
-    if (!sanitizedUsername) {
-      throw new Error('Invalid username - must contain at least one alphanumeric character');
-    }
-
-    const finalNearAccountId = `${sanitizedUsername}.testnet`;
+    const finalNearAccountId = nearAccountId; // Use the provided account ID directly
 
     const keyGenResult = await webAuthnManager.secureRegistrationWithPrf(
       nearAccountId,
@@ -880,15 +873,71 @@ async function handleRegistrationWithRelayer(
       message: 'Authenticator data stored successfully'
     });
 
-    // Step 5: Contract registration (optional for serverless)
+    // Step 5: Contract registration - ACTUALLY store authenticator in contract for recovery
+    console.log('📜 Serverless registration: Storing authenticator in contract for recovery');
+
     onEvent?.({
       step: 5,
       sessionId: tempSessionId,
       phase: 'contract-registration',
-      status: 'success',
+      status: 'progress',
       timestamp: Date.now(),
-      message: 'Contract registration completed via faucet account creation'
+      message: 'Storing authenticator in contract for account recovery...'
     });
+
+    try {
+      // Store authenticator in contract for recovery purposes
+      const { WEBAUTHN_CONTRACT_ID } = await import('../../config');
+
+      // Extract COSE public key from the credential
+      const attestationObjectBase64url = bufferEncode(response.attestationObject);
+      const cosePublicKey = await webAuthnManager.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
+
+      // Use the user's own account to store the authenticator (they pay gas)
+      const contractResult = await passkeyManager.callContract({
+        contractId: WEBAUTHN_CONTRACT_ID,
+        methodName: 'store_authenticator',
+        args: {
+          user_id: finalNearAccountId,
+          credential_id: credentialId,
+          credential_public_key: Array.from(cosePublicKey),
+          counter: 0,
+          transports: transports,
+          client_managed_near_public_key: keyGenResult.publicKey,
+          name: `Passkey for ${finalNearAccountId}`,
+          registered: new Date().toISOString(),
+          backed_up: false
+        },
+        gas: '50000000000000', // 50 TGas
+        attachedDeposit: '0',
+        nearAccountId: finalNearAccountId,
+        requiresAuth: true,
+        optimisticAuth: false
+      });
+
+      console.log('📜 Contract storage result:', contractResult);
+
+      onEvent?.({
+        step: 5,
+        sessionId: tempSessionId,
+        phase: 'contract-registration',
+        status: 'success',
+        timestamp: Date.now(),
+        message: 'Authenticator stored in contract successfully - can be recovered if local data is lost'
+      });
+
+    } catch (contractError: any) {
+      console.warn('📜 Failed to store authenticator in contract (continuing anyway):', contractError.message);
+
+      onEvent?.({
+        step: 5,
+        sessionId: tempSessionId,
+        phase: 'contract-registration',
+        status: 'success', // Don't fail registration over this
+        timestamp: Date.now(),
+        message: 'Local registration completed - contract storage failed but account is functional'
+      });
+    }
 
     // Step 6: Complete registration
     onEvent?.({
