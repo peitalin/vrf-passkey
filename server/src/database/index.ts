@@ -20,9 +20,7 @@ try {
 export const initDB = () => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      nearAccountId TEXT NULLABLE,
+      nearAccountId TEXT PRIMARY KEY,
       currentChallenge TEXT NULLABLE,
       currentCommitmentId TEXT NULLABLE
     );
@@ -37,7 +35,6 @@ export const initDB = () => {
       counter INTEGER NOT NULL,
       transports TEXT NULLABLE,          -- JSON string array
       clientNearPublicKey TEXT NULLABLE,
-      name TEXT NULLABLE,
       registered TEXT NOT NULL,          -- ISO date string
       lastUsed TEXT NULLABLE,            -- ISO date string
       backedUp INTEGER NOT NULL,         -- 0 for false, 1 for true
@@ -69,7 +66,6 @@ export const authenticatorCacheOperations = {
     counter: number;
     transports: string | null;
     clientNearPublicKey: string | null;
-    name: string | null;
     registered: string;
     lastUsed: string | null;
     backedUp: number;
@@ -80,7 +76,6 @@ export const authenticatorCacheOperations = {
       credentialID: authenticator.credentialID,
       counter: authenticator.counter,
       transports: authenticator.transports,
-      name: authenticator.name,
       registered: authenticator.registered,
       backedUp: authenticator.backedUp
     });
@@ -89,19 +84,18 @@ export const authenticatorCacheOperations = {
       const result = db.prepare(`
         INSERT OR REPLACE INTO authenticators_cache (
           nearAccountId, credentialID, credentialPublicKey, counter, transports,
-          clientNearPublicKey, name, registered, lastUsed, backedUp, syncedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          clientNearPublicKey, registered, lastUsed, backedUp, syncedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         authenticator.nearAccountId,
-      authenticator.credentialID,
-      authenticator.credentialPublicKey,
-      authenticator.counter,
-      authenticator.transports,
+        authenticator.credentialID,
+        authenticator.credentialPublicKey,
+        authenticator.counter,
+        authenticator.transports,
         authenticator.clientNearPublicKey,
-        authenticator.name,
-      authenticator.registered,
+        authenticator.registered,
         authenticator.lastUsed,
-      authenticator.backedUp,
+        authenticator.backedUp,
         syncedAt
       );
       console.log(`🔍 Database upsert result:`, result);
@@ -165,7 +159,6 @@ export const mapCachedToStoredAuthenticator = (rawAuth: any): StoredAuthenticato
   counter: rawAuth.counter,
   transports: rawAuth.transports ? JSON.parse(rawAuth.transports) : undefined,
   userId: rawAuth.nearAccountId, // Map nearAccountId to userId for compatibility
-  name: rawAuth.name,
   registered: new Date(rawAuth.registered),
   lastUsed: rawAuth.lastUsed ? new Date(rawAuth.lastUsed) : undefined,
   backedUp: rawAuth.backedUp === 1,

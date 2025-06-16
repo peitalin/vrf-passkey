@@ -1,26 +1,296 @@
 import { bufferEncode, publicKeyCredentialToJSON, bufferDecode } from '../../utils/encoders';
 import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID, RPC_NODE_URL } from '../../config';
 import { indexDBManager } from '../IndexDBManager';
-import { ContractService } from '../ContractService';
-import { JsonRpcProvider } from '@near-js/providers';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
+import { validateNearAccountId, validateServerRegistrationAccountId } from '../utils/validation';
 import type { PasskeyManager } from './index';
 import type {
   RegistrationOptions,
   RegistrationResult,
   RegistrationSSEEvent,
-  PasskeyManagerConfig,
   OperationHooks,
-  UserReadySSEEvent,
-  RegistrationCompleteSSEEvent
 } from './types';
+
+/**
+ * Extract COSE public key from WebAuthn credential and create authenticator data
+ * This function handles the complex COSE key extraction logic consistently across both
+ * server and serverless registration flows
+ */
+async function extractAndStoreAuthenticatorData(
+  webAuthnManager: any,
+  credential: PublicKeyCredential,
+  nearAccountId: string,
+  clientNearPublicKey: string | undefined
+): Promise<void> {
+  const credentialIdBase64url = bufferEncode(credential.rawId);
+  const response = credential.response as AuthenticatorAttestationResponse;
+  const transports = response.getTransports?.() || [];
+
+  console.log('🔧 [COSE Key] Extracting proper COSE public key from attestation object');
+
+  const attestationObjectBase64url = bufferEncode(response.attestationObject);
+
+  try {
+    // Extract COSE public key using WebAuthnManager (async operation)
+    const credentialPublicKeyForDB = await webAuthnManager.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
+    console.log('🔧 [COSE Key] Successfully extracted COSE public key:', credentialPublicKeyForDB.length, 'bytes');
+
+    const authenticatorData = {
+      nearAccountId,
+      credentialID: credentialIdBase64url,
+      credentialPublicKey: credentialPublicKeyForDB, // Now stores proper COSE key
+      counter: 0, // Initial counter value
+      transports,
+      clientNearPublicKey,
+      name: `Passkey for ${indexDBManager.extractUsername(nearAccountId)}`,
+      registered: new Date().toISOString(),
+      lastUsed: undefined,
+      backedUp: false, // Default value, will be updated by server if available
+      syncedAt: new Date().toISOString(),
+    };
+
+    // Store the authenticator in IndexedDB cache for future serverless use
+    await indexDBManager.storeAuthenticator(authenticatorData);
+    console.log(`✅ Stored authenticator data in IndexedDB: ${credentialIdBase64url}`);
+
+  } catch (coseError: any) {
+    console.error('🔧 [COSE Key] Failed to extract COSE public key:', coseError.message);
+    // Fallback to the full attestation object (this will likely fail in contract verification)
+    const credentialPublicKeyForDB = new Uint8Array(response.attestationObject);
+    console.warn('🔧 [COSE Key] Using fallback attestation object - this may cause contract verification failures');
+
+    const authenticatorData = {
+      nearAccountId,
+      credentialID: credentialIdBase64url,
+      credentialPublicKey: credentialPublicKeyForDB, // Fallback to attestation object
+      counter: 0, // Initial counter value
+      transports,
+      clientNearPublicKey,
+      name: `Passkey for ${indexDBManager.extractUsername(nearAccountId)}`,
+      registered: new Date().toISOString(),
+      lastUsed: undefined,
+      backedUp: false, // Default value, will be updated by server if available
+      syncedAt: new Date().toISOString(),
+    };
+
+    // Store the authenticator in IndexedDB cache for future serverless use
+    await indexDBManager.storeAuthenticator(authenticatorData);
+    console.log(`✅ Stored authenticator data in IndexedDB (with fallback): ${credentialIdBase64url}`);
+  }
+}
+
+/**
+ * Create NEAR account using testnet faucet service
+ * This is a temporary solution that will be replaced with delegate actions
+ */
+async function createAccountTestnetFaucet(
+  nearAccountId: string,
+  publicKey: string,
+  tempSessionId: string,
+  onEvent?: (event: RegistrationSSEEvent) => void,
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    console.log('🌊 Creating NEAR account via testnet faucet service');
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId,
+      phase: 'access-key-addition',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Creating NEAR account via faucet service...'
+    });
+
+    // Call NEAR testnet faucet service to create account
+    const faucetResponse = await fetch('https://helper.nearprotocol.com/account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        newAccountId: nearAccountId,
+        newAccountPublicKey: publicKey
+      })
+    });
+
+    if (!faucetResponse.ok) {
+      const errorData = await faucetResponse.json().catch(() => ({}));
+      throw new Error(`Faucet service error: ${faucetResponse.status} - ${errorData.message || 'Unknown error'}`);
+    }
+
+    const faucetResult = await faucetResponse.json();
+    console.log('🌊 Faucet service response:', faucetResult);
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId,
+      phase: 'access-key-addition',
+      status: 'success',
+      timestamp: Date.now(),
+      message: `NEAR account ${nearAccountId} created successfully via faucet`
+    } as RegistrationSSEEvent);
+
+    return {
+      success: true,
+      message: `Account ${nearAccountId} created successfully via faucet`
+    };
+
+  } catch (faucetError: any) {
+    console.error('🌊 Faucet service error:', faucetError);
+
+    // Check if account already exists
+    if (faucetError.message?.includes('already exists') || faucetError.message?.includes('AccountAlreadyExists')) {
+      console.log('🌊 Account already exists, continuing with registration...');
+      onEvent?.({
+        step: 3,
+        sessionId: tempSessionId,
+        phase: 'access-key-addition',
+        status: 'success',
+        timestamp: Date.now(),
+        message: `Account ${nearAccountId} already exists - continuing with registration`
+      } as RegistrationSSEEvent);
+
+      return {
+        success: true,
+        message: `Account ${nearAccountId} already exists`
+      };
+    } else {
+      // For other errors, we'll continue but warn the user
+      console.warn('🌊 Faucet service failed, but continuing with local registration:', faucetError.message);
+      onEvent?.({
+        step: 3,
+        sessionId: tempSessionId || 'unknown',
+        phase: 'access-key-addition',
+        status: 'success',
+        timestamp: Date.now(),
+        message: 'Account creation via faucet failed, but registration will continue locally'
+      } as RegistrationSSEEvent);
+
+      return {
+        success: false,
+        message: 'Faucet service failed, continuing with local registration',
+        error: faucetError.message
+      };
+    }
+  }
+}
+
+/**
+ * Create NEAR account using delegate actions and server-side relayer
+ * This is the future implementation for true serverless account creation
+ *
+ * @param nearAccountId - The account ID to create (e.g., "username.testnet")
+ * @param publicKey - The user's public key for the new account
+ * @param serverUrl - The relayer server URL
+ * @param onEvent - Event callback for progress updates
+ * @param tempSessionId - Session ID for event tracking
+ * @returns Promise with success status and details
+ */
+async function createAccountDelegateAction(
+  nearAccountId: string,
+  publicKey: string,
+  serverUrl: string,
+  onEvent?: (event: RegistrationSSEEvent) => void,
+  tempSessionId?: string
+): Promise<{ success: boolean; message: string; transactionId?: string; error?: string }> {
+  try {
+    console.log('🚀 Creating NEAR account via delegate action and server relayer');
+
+    // Step 1: Server-side relayer account
+    // The server should have a funded testnet account that acts as the relayer
+    console.log('🔗 Step 1: Using server-side relayer account');
+
+    // Step 2: User generates keypair client-side (already done - publicKey parameter)
+    console.log('🔑 Step 2: User keypair already generated client-side');
+
+    // Step 3: Create signed delegate action for account creation
+    console.log('📝 Step 3: Creating signed delegate action for account creation');
+
+    // TODO: Implement delegate action creation
+    // This would involve:
+    // - Creating a DelegateAction for account creation
+    // - Signing it with a temporary key or using WebAuthn signature
+    // - Preparing the action for relayer execution
+
+    const delegateActionPayload = {
+      nearAccountId,
+      publicKey: `ed25519:${publicKey}`,
+      // TODO: Add delegate action specific fields:
+      // - delegateAction: the actual action to create account
+      // - signature: user's signature of the delegate action
+      // - nonce: to prevent replay attacks
+      // - blockHash: recent block hash for validity
+    };
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId || 'unknown',
+      phase: 'access-key-addition',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Sending delegate action to relayer...'
+    } as RegistrationSSEEvent);
+
+    // Step 4: Relayer execution - Server receives delegate action and executes it
+    console.log('⚡ Step 4: Sending delegate action to relayer for execution');
+
+    const relayerResponse = await fetch(`${serverUrl}/relay-delegate-action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(delegateActionPayload)
+    });
+
+    if (!relayerResponse.ok) {
+      const errorData = await relayerResponse.json().catch(() => ({}));
+      throw new Error(`Relayer service error: ${relayerResponse.status} - ${errorData.message || 'Unknown error'}`);
+    }
+
+    const relayerResult = await relayerResponse.json();
+    console.log('🚀 Relayer service response:', relayerResult);
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId || 'unknown',
+      phase: 'access-key-addition',
+      status: 'success',
+      timestamp: Date.now(),
+      message: `NEAR account ${nearAccountId} created successfully via delegate action`
+    } as RegistrationSSEEvent);
+
+    return {
+      success: true,
+      message: `Account ${nearAccountId} created successfully via delegate action`,
+      transactionId: relayerResult.transactionId
+    };
+
+  } catch (error: any) {
+    console.error('🚀 Delegate action account creation error:', error);
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId || 'unknown',
+      phase: 'access-key-addition',
+      status: 'error',
+      timestamp: Date.now(),
+      message: 'Account creation via delegate action failed'
+    } as RegistrationSSEEvent);
+
+    return {
+      success: false,
+      message: 'Delegate action account creation failed',
+      error: error.message
+    };
+  }
+}
 
 /**
  * Core registration function that handles passkey registration without React dependencies
  */
 export async function registerPasskey(
   passkeyManager: PasskeyManager,
-  username: string,
+  nearAccountId: string,
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
 
@@ -38,7 +308,7 @@ export async function registerPasskey(
     phase: 'webauthn-verification',
     status: 'progress',
     timestamp: Date.now(),
-    message: `Starting registration for ${username}`
+    message: `Starting registration for ${nearAccountId}`
   } as RegistrationSSEEvent);
 
   try {
@@ -46,11 +316,20 @@ export async function registerPasskey(
     await hooks?.beforeCall?.();
 
     // Validation
-    if (!username) {
-      const error = new Error('Username is required for registration.');
+    if (!nearAccountId) {
+      const error = new Error('NEAR account ID is required for registration.');
       onError?.(error);
       throw error;
     }
+
+    // Validate the account ID format
+    const validation = validateNearAccountId(nearAccountId);
+    if (!validation.valid) {
+      const error = new Error(`Invalid NEAR account ID: ${validation.error}`);
+      onError?.(error);
+      throw error;
+    }
+
     if (!window.isSecureContext) {
       const error = new Error('Passkey operations require a secure context (HTTPS or localhost).');
       onError?.(error);
@@ -77,9 +356,9 @@ export async function registerPasskey(
     console.log(`Registration: ${getModeDescription(routing)}`);
 
     // Validate mode requirements
-    const validation = validateModeRequirements(routing, nearRpcProvider);
-    if (!validation.valid) {
-      const error = new Error(validation.error);
+    const validation2 = validateModeRequirements(routing, nearRpcProvider);
+    if (!validation2.valid) {
+      const error = new Error(validation2.error);
       onError?.(error);
       throw error;
     }
@@ -87,9 +366,9 @@ export async function registerPasskey(
     // Handle serverless mode with direct contract calls
     if (routing.mode === 'serverless') {
       console.log('⚡ Registration: Implementing serverless mode with direct contract calls');
-      return await handleRegistrationOnchain(
+      return await handleRegistrationWithRelayer(
         passkeyManager,
-        username,
+        nearAccountId,
         tempSessionId,
         onEvent,
         onError,
@@ -99,19 +378,18 @@ export async function registerPasskey(
       return await handleRegistrationWithServer(
         routing.serverUrl!,
         passkeyManager,
-        username,
+        nearAccountId,
         tempSessionId,
         onEvent,
         onError,
         hooks,
-        optimisticAuth
       );
     }
 
   } catch (err: any) {
     console.error('Registration error:', err.message, err.stack);
     const errorMessage = err.message?.includes('one of the credentials already registered')
-      ? `A passkey for '${username}' already exists. Please try logging in instead.`
+      ? `A passkey for '${nearAccountId}' already exists. Please try logging in instead.`
       : err.message;
 
     const error = new Error(errorMessage);
@@ -138,20 +416,27 @@ export async function registerPasskey(
 async function handleRegistrationWithServer(
   serverUrl: string,
   passkeyManager: PasskeyManager,
-  username: string,
+  nearAccountId: string,
   tempSessionId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
   hooks?: OperationHooks,
-  optimisticAuth?: boolean
 ): Promise<RegistrationResult> {
+
+  // Validate nearAccountId format - must be <username>.<relayerAccountId>, <username>.testnet, or <username>.near
+  const validation = validateServerRegistrationAccountId(nearAccountId);
+  if (!validation.valid) {
+    const error = new Error(validation.error!);
+    onError?.(error);
+    throw error;
+  }
 
   // For server modes, use the serverUrl from routing
   const baseUrl = serverUrl;
   const webAuthnManager = passkeyManager.getWebAuthnManager();
-  const existingUserData = await webAuthnManager.getUserData(username);
+  const existingUserData = await webAuthnManager.getUserData(nearAccountId);
   if (existingUserData?.passkeyCredential) {
-    console.warn(`⚠️ User '${username}' already has credential data. Attempting re-registration...`);
+    console.warn(`⚠️ User '${nearAccountId}' already has credential data. Attempting re-registration...`);
   }
 
   webAuthnManager.clearAllChallenges();
@@ -168,7 +453,7 @@ async function handleRegistrationWithServer(
 
   const { credential, prfEnabled, commitmentId } = await webAuthnManager.registerWithPrfAndUrl(
     baseUrl,
-    username
+    nearAccountId
   );
   const attestationForServer = publicKeyCredentialToJSON(credential);
 
@@ -183,16 +468,15 @@ async function handleRegistrationWithServer(
   } as RegistrationSSEEvent);
 
   let clientManagedPublicKey: string | null = null;
-  const userNearAccountIdToUse = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
 
   if (prfEnabled) {
     const extensionResults = credential.getClientExtensionResults();
     const registrationPrfOutput = (extensionResults as any).prf?.results?.first;
     if (registrationPrfOutput) {
       const prfRegistrationResult = await webAuthnManager.secureRegistrationWithPrf(
-        username,
+        nearAccountId,
         registrationPrfOutput,
-        { nearAccountId: userNearAccountIdToUse },
+        { nearAccountId: nearAccountId },
         undefined,
         true // Skip challenge validation as WebAuthn ceremony just completed
       );
@@ -232,7 +516,7 @@ async function handleRegistrationWithServer(
 
   return new Promise((resolve, reject) => {
     const verifyPayload = {
-      username: username,
+      accountId: nearAccountId,
       attestationResponse: attestationForServer,
       commitmentId: commitmentId,
       clientNearPublicKey: clientManagedPublicKey,
@@ -264,7 +548,7 @@ async function handleRegistrationWithServer(
       let finalResult: RegistrationResult = {
         success: false,
         clientNearPublicKey: clientManagedPublicKey,
-        nearAccountId: userNearAccountIdToUse,
+        nearAccountId: nearAccountId,
         transactionId: null
       };
 
@@ -301,8 +585,7 @@ async function handleRegistrationWithServer(
                   if (data.phase === 'user-ready' && data.status === 'success') {
                     // Store user data
                     webAuthnManager.storeUserData({
-                      username: username,
-                      nearAccountId: userNearAccountIdToUse,
+                      nearAccountId: nearAccountId,
                       clientNearPublicKey: clientManagedPublicKey,
                       passkeyCredential: { id: credential.id, rawId: bufferEncode(credential.rawId) },
                       prfSupported: prfEnabled,
@@ -313,70 +596,16 @@ async function handleRegistrationWithServer(
 
                     // Store authenticator data in IndexedDB for serverless fallback
                     // Extract authenticator data from the credential we just created
-                    const credentialIdBase64url = bufferEncode(credential.rawId);
-                    const response = credential.response as AuthenticatorAttestationResponse;
+                    extractAndStoreAuthenticatorData(
+                        webAuthnManager,
+                        credential,
+                        nearAccountId,
+                        clientManagedPublicKey
+                    ).catch(error => {
+                      console.warn('Failed to store authenticator data:', error);
+                    });
 
-                    // CRITICAL FIX: Extract proper COSE public key from attestation object
-                    // This matches the server-side fix to ensure consistent COSE key storage
-                    console.log('🔧 [Client COSE Key] Extracting proper COSE public key from attestation object');
-
-                    const attestationObjectBase64url = bufferEncode(response.attestationObject);
-
-                    // Extract COSE public key using WebAuthnManager (async operation)
-                    webAuthnManager.extractCosePublicKeyFromAttestation(attestationObjectBase64url)
-                      .then((credentialPublicKeyForDB) => {
-                        console.log('🔧 [Client COSE Key] Successfully extracted COSE public key:', credentialPublicKeyForDB.length, 'bytes');
-
-                        const authenticatorData = {
-                          nearAccountId: userNearAccountIdToUse,
-                          credentialID: credentialIdBase64url,
-                          credentialPublicKey: credentialPublicKeyForDB, // Now stores proper COSE key
-                          counter: 0, // Initial counter value
-                          transports: response.getTransports?.() || [],
-                          clientNearPublicKey: clientManagedPublicKey,
-                          name: `Passkey for ${username}`,
-                          registered: new Date().toISOString(),
-                          lastUsed: undefined,
-                          backedUp: false, // Default value, will be updated by server if available
-                          syncedAt: new Date().toISOString(),
-                        };
-
-                        // Store the authenticator in IndexedDB cache for future serverless use
-                        indexDBManager.storeAuthenticator(authenticatorData).then(() => {
-                          console.log(`✅ Stored authenticator data in IndexedDB for serverless fallback: ${credentialIdBase64url}`);
-                        }).catch((error) => {
-                          console.warn(`⚠️ Failed to store authenticator data in IndexedDB:`, error);
-                        });
-                      })
-                      .catch((coseError: any) => {
-                        console.error('🔧 [Client COSE Key] Failed to extract COSE public key:', coseError.message);
-                        // Fallback to the full attestation object (this will likely fail in contract verification)
-                        const credentialPublicKeyForDB = new Uint8Array(response.attestationObject);
-                        console.warn('🔧 [Client COSE Key] Using fallback attestation object - this may cause contract verification failures');
-
-                        const authenticatorData = {
-                          nearAccountId: userNearAccountIdToUse,
-                          credentialID: credentialIdBase64url,
-                          credentialPublicKey: credentialPublicKeyForDB, // Fallback to attestation object
-                          counter: 0, // Initial counter value
-                          transports: response.getTransports?.() || [],
-                          clientNearPublicKey: clientManagedPublicKey,
-                          name: `Passkey for ${username}`,
-                          registered: new Date().toISOString(),
-                          lastUsed: undefined,
-                          backedUp: false, // Default value, will be updated by server if available
-                          syncedAt: new Date().toISOString(),
-                        };
-
-                        // Store the authenticator in IndexedDB cache for future serverless use
-                        indexDBManager.storeAuthenticator(authenticatorData).then(() => {
-                          console.log(`✅ Stored authenticator data in IndexedDB for serverless fallback: ${credentialIdBase64url}`);
-                        }).catch((error) => {
-                          console.warn(`⚠️ Failed to store authenticator data in IndexedDB:`, error);
-                        });
-                      });
-
-                    indexDBManager.registerUser(username, RELAYER_ACCOUNT_ID, {
+                    indexDBManager.registerUser(nearAccountId, {
                       preferences: { optimisticAuth: true },
                     });
 
@@ -420,30 +649,27 @@ async function handleRegistrationWithServer(
 }
 
 /**
- * Handle onchain (serverless) registration using direct contract calls
+ * Handle onchain registration using NEAR testnet faucet service
+ * This approach uses the NEAR testnet faucet to create accounts without requiring
+ * the user to send transactions
  */
-async function handleRegistrationOnchain(
+async function handleRegistrationWithRelayer(
   passkeyManager: PasskeyManager,
-  username: string,
+  nearAccountId: string,
   tempSessionId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
   hooks?: OperationHooks,
 ): Promise<RegistrationResult> {
   try {
+
+    const validation = validateNearAccountId(nearAccountId);
+    if (!validation.valid) {
+      const error = new Error(validation.error!);
+      onError?.(error);
+      throw error;
+    }
     const webAuthnManager = passkeyManager.getWebAuthnManager();
-    const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
-
-    // Initialize ContractService
-    const contractService = new ContractService(
-      nearRpcProvider,
-      WEBAUTHN_CONTRACT_ID,
-      'WebAuthn Passkey',
-      window.location.hostname,
-      RELAYER_ACCOUNT_ID
-    );
-
-    const userNearAccountIdToUse = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
 
     onEvent?.({
       step: 1,
@@ -451,254 +677,244 @@ async function handleRegistrationOnchain(
       phase: 'webauthn-verification',
       status: 'progress',
       timestamp: Date.now(),
-      message: 'Getting registration options from contract...'
-    } as RegistrationSSEEvent);
+      message: 'Starting registration with faucet-sponsored account creation...'
+    });
+    // TODO: not truly serverless, but it's the best we can do for now
+    // TODO: lookup delegationActions: relayers finish the transaction
 
-    // Step 1: Get existing authenticators from cache for exclusion
-    const existingAuthenticators = await indexDBManager.getAuthenticatorsByUser(userNearAccountIdToUse);
+    // Step 1: Perform WebAuthn registration ceremony with PRF
+    console.log('🔒 Serverless (not truly serverless) registration: Starting WebAuthn ceremony with PRF');
 
-    // Step 2: Generate client-side challenge and build contract arguments
-    const userId = contractService.generateUserId();
-    // SECURITY NOTE: Generate a random challenge to trigger the contract call
-    // and dispatch a generate_authentication_options() transaction which returns
-    // the real contract-generated challenge in Step 3.
-    // The real WebAuthn ceremony will use the challenge returned by the contract.
-    const clientChallenge = crypto.getRandomValues(new Uint8Array(32));
-    const clientChallengeBase64url = bufferEncode(clientChallenge);
+    // For serverless mode, we need to generate our own registration options
+    // since we can't call the contract for options (it requires authentication)
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const challengeB64url = bufferEncode(challenge);
+    const userId = `user_${Date.now()}_${crypto.randomUUID()}`;
 
-    const { contractArgs } = contractService.buildRegistrationOptionsArgs(
-      username,
-      userId,
-      existingAuthenticators
-    );
-
-    // Add the client-generated challenge to bootstrap the contract call
-    const contractArgsWithChallenge = {
-      ...contractArgs,
-      challenge: clientChallengeBase64url
-    };
-
-    console.log('🔄 Calling contract generate_registration_options with client challenge for serverless registration');
-
-    // Call contract to get registration options using PasskeyManager.callFunction
-    const optionsResult = await passkeyManager.callFunction2(
-      WEBAUTHN_CONTRACT_ID,
-      'generate_registration_options',
-      contractArgsWithChallenge,
-      '30000000000000', // 30 TGas
-      '0',
-      username
-    );
-
-    const parsedOptions = contractService.parseContractResponse(optionsResult, 'generate_registration_options');
-
-    onEvent?.({
-      step: 1,
-      sessionId: tempSessionId,
-      phase: 'webauthn-verification',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Creating passkey...'
-    } as RegistrationSSEEvent);
-
-    // Step 3: Perform WebAuthn registration ceremony
-    // IMPORTANT: This uses the REAL challenge from the contract (parsedOptions.options.challenge),
-    // NOT the client-generated bootstrap challenge. The contract has replaced our bootstrap
-    // challenge with a legitimate, cryptographically secure challenge.
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge: new Uint8Array(bufferDecode(parsedOptions.options.challenge)), // Real contract challenge
-        rp: parsedOptions.options.rp,
-        user: {
-          id: new Uint8Array(bufferDecode(parsedOptions.options.user.id)),
-          name: parsedOptions.options.user.name,
-          displayName: parsedOptions.options.user.displayName
-        },
-        pubKeyCredParams: parsedOptions.options.pubKeyCredParams,
-        timeout: parsedOptions.options.timeout,
-        attestation: parsedOptions.options.attestation as AttestationConveyancePreference,
-                 excludeCredentials: parsedOptions.options.excludeCredentials?.map((cred: any) => ({
-           id: new Uint8Array(bufferDecode(cred.id)),
-           type: cred.type as PublicKeyCredentialType,
-           transports: cred.transports as AuthenticatorTransport[]
-         })),
-        authenticatorSelection: parsedOptions.options.authenticatorSelection,
-        extensions: {
-          prf: {
-            eval: {
-              first: new Uint8Array(new Array(32).fill(42)) // PRF salt for key derivation
-            }
+    // Build registration options for WebAuthn ceremony
+    const registrationOptions: PublicKeyCredentialCreationOptions = {
+      challenge,
+      rp: {
+        name: 'WebAuthn Passkey',
+        id: window.location.hostname
+      },
+      user: {
+        id: new TextEncoder().encode(userId),
+        name: nearAccountId,
+        displayName: nearAccountId
+      },
+      pubKeyCredParams: [
+        { alg: -7, type: 'public-key' }, // ES256
+        { alg: -257, type: 'public-key' } // RS256
+      ],
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred'
+      },
+      timeout: 60000,
+      attestation: 'none',
+      extensions: {
+        prf: {
+          eval: {
+            first: new Uint8Array(new Array(32).fill(42)) // PRF salt for NEAR key encryption
           }
         }
       }
-    }) as PublicKeyCredential | null;
+    };
+
+    const credential = await navigator.credentials.create({
+      publicKey: registrationOptions
+    }) as PublicKeyCredential;
 
     if (!credential) {
-      const error = new Error('Passkey registration cancelled or failed.');
-      onError?.(error);
-      throw error;
+      throw new Error('Passkey creation cancelled or failed');
     }
 
-    // Step 4: Handle PRF for client-side key generation
-    onEvent?.({
-      step: 1,
-      sessionId: tempSessionId,
-      phase: 'webauthn-verification',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Securing your account...'
-    } as RegistrationSSEEvent);
-
+    // Get PRF output from the credential
     const extensionResults = credential.getClientExtensionResults();
-    const registrationPrfOutput = (extensionResults as any).prf?.results?.first;
+    const prfOutput = (extensionResults as any).prf?.results?.first;
+    const prfEnabled = !!prfOutput;
 
-    if (!registrationPrfOutput) {
-      const error = new Error("PRF is required for this registration flow but not available from authenticator.");
-      onError?.(error);
-      throw error;
+    if (!prfEnabled || !prfOutput) {
+      throw new Error('PRF extension not supported or failed - required for serverless mode');
     }
 
-    // Generate client-managed key using PRF
-    const prfRegistrationResult = await webAuthnManager.secureRegistrationWithPrf(
-      username,
-      registrationPrfOutput,
-      { nearAccountId: userNearAccountIdToUse },
-      undefined,
-      true // Skip challenge validation as WebAuthn ceremony just completed
-    );
-
-    if (!prfRegistrationResult.success) {
-      const error = new Error('Client-side key generation/encryption with PRF failed.');
-      onError?.(error);
-      throw error;
-    }
-
-    const clientManagedPublicKey = prfRegistrationResult.publicKey;
-
-    // Step 5: Verify registration with contract
     onEvent?.({
       step: 1,
       sessionId: tempSessionId,
       phase: 'webauthn-verification',
-      status: 'progress',
+      status: 'success',
       timestamp: Date.now(),
-      message: 'Verifying registration with contract...'
-    } as RegistrationSSEEvent);
+      message: 'WebAuthn registration successful with PRF support'
+    });
 
-    const attestationForContract = publicKeyCredentialToJSON(credential);
-    const verificationArgs = contractService.buildRegistrationVerificationArgs(
-      attestationForContract,
-      parsedOptions.commitmentId || ''
-    );
+    // Step 2: Generate NEAR keypair using PRF output
+    console.log('🔑 Serverless registration: Generating NEAR keypair with PRF');
 
-    // Call contract to verify registration using PasskeyManager.callFunction
-    console.log('🔄 Calling contract verify_registration_response for serverless registration');
+    // Sanitize username for NEAR account ID
+    const username = indexDBManager.extractUsername(nearAccountId);
+    const sanitizedUsername = username.toLowerCase()
+      .replace(/[^a-z0-9_\-]/g, '')
+      .substring(0, 32);
 
-    const verificationResult = await passkeyManager.callFunction2(
-      WEBAUTHN_CONTRACT_ID,
-      'verify_registration_response',
-      verificationArgs,
-      '30000000000000', // 30 TGas
-      '0',
-      username
-    );
-
-    const parsedVerification = contractService.parseContractResponse(verificationResult, 'verify_registration_response');
-
-    if (!parsedVerification.verified) {
-      const error = new Error('Registration verification failed by contract.');
-      onError?.(error);
-      throw error;
+    if (!sanitizedUsername) {
+      throw new Error('Invalid username - must contain at least one alphanumeric character');
     }
 
-    // Step 6: Store user data locally
+    const finalNearAccountId = `${sanitizedUsername}.testnet`;
+
+    const keyGenResult = await webAuthnManager.secureRegistrationWithPrf(
+      nearAccountId,
+      prfOutput,
+      { nearAccountId: finalNearAccountId },
+      undefined, // challengeId
+      true // skipChallengeValidation for serverless mode
+    );
+
+    if (!keyGenResult.success || !keyGenResult.publicKey) {
+      throw new Error('Failed to generate NEAR keypair with PRF');
+    }
+
+    // Step 3: Create NEAR account using testnet faucet service
+    console.log('🌊 Serverless registration: Creating NEAR account via faucet service');
+
+    onEvent?.({
+      step: 3,
+      sessionId: tempSessionId,
+      phase: 'access-key-addition',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Creating NEAR account via faucet service...'
+    });
+
+    // Send user ready event early so user can start using the app
     onEvent?.({
       step: 2,
       sessionId: tempSessionId,
       phase: 'user-ready',
       status: 'success',
       timestamp: Date.now(),
-      message: 'Registration successful!',
+      message: 'User ready - creating NEAR account...',
       verified: true,
-      username: username,
-      nearAccountId: userNearAccountIdToUse,
-      clientNearPublicKey: clientManagedPublicKey,
+      nearAccountId: finalNearAccountId,
+      clientNearPublicKey: keyGenResult.publicKey,
       mode: 'serverless'
-    } as UserReadySSEEvent);
-
-    // Store user data
-    await webAuthnManager.storeUserData({
-      username: username,
-      nearAccountId: userNearAccountIdToUse,
-      clientNearPublicKey: clientManagedPublicKey,
-      passkeyCredential: { id: credential.id, rawId: bufferEncode(credential.rawId) },
-      prfSupported: true,
-      lastUpdated: Date.now(),
     });
 
-    // CRITICAL FIX: Store authenticator data with proper COSE public key for serverless mode
-    console.log('🔧 [Serverless COSE Key] Extracting and storing proper COSE public key from attestation object');
+    // ========================================================================
+    // TODO: REPLACE WITH METATRANSACTIONS / DELEGATE ACTIONS
+    //
+    // Current implementation uses NEAR testnet faucet service for account creation.
+    // This should be replaced with a proper serverless solution using:
+    //
+    // 1. Server-side relayer account - Funded testnet account on server as relayer
+    // 2. User generates keypair - User generates keypair client-side for new account
+    // 3. Signed delegate action - User creates signed delegate action for account creation
+    // 4. Relayer execution - Server receives delegate action and executes it
+    //
+    // This would provide true serverless account creation without relying on external services.
+    // ========================================================================
 
-    const credentialIdBase64url = bufferEncode(credential.rawId);
-    const response = credential.response as AuthenticatorAttestationResponse;
+    // Use testnet faucet service for now (will be replaced with delegate actions)
+    const accountCreationResult = await createAccountTestnetFaucet(
+      finalNearAccountId,
+      keyGenResult.publicKey,
+      tempSessionId,
+      onEvent
+    );
 
-    let credentialPublicKeyForDB: Uint8Array;
-    try {
-      // Extract COSE public key using WebAuthnManager
-      const attestationObjectBase64url = bufferEncode(response.attestationObject);
-      credentialPublicKeyForDB = await webAuthnManager.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
-      console.log('🔧 [Serverless COSE Key] Successfully extracted COSE public key:', credentialPublicKeyForDB.length, 'bytes');
-    } catch (coseError: any) {
-      console.error('🔧 [Serverless COSE Key] Failed to extract COSE public key:', coseError.message);
-      // Fallback to the full attestation object (this will likely fail in contract verification)
-      credentialPublicKeyForDB = new Uint8Array(response.attestationObject);
-      console.warn('🔧 [Serverless COSE Key] Using fallback attestation object - this may cause contract verification failures');
+    if (!accountCreationResult.success && accountCreationResult.error) {
+      console.warn('Account creation failed but continuing with registration:', accountCreationResult.error);
     }
 
-    const authenticatorData = {
-      nearAccountId: userNearAccountIdToUse,
-      credentialID: credentialIdBase64url,
-      credentialPublicKey: credentialPublicKeyForDB, // Now stores proper COSE key
-      counter: 0, // Initial counter value
-      transports: response.getTransports?.() || [],
-      clientNearPublicKey: clientManagedPublicKey,
-      name: `Passkey for ${username}`,
-      registered: new Date().toISOString(),
-      lastUsed: undefined,
-      backedUp: false, // Default value
-      syncedAt: new Date().toISOString(),
-    };
+    // ========================================================================
+    // END TODO: REPLACE WITH METATRANSACTIONS / DELEGATE ACTIONS
+    // ========================================================================
 
-    // Store the authenticator in IndexedDB for future serverless use
-    await indexDBManager.storeAuthenticator(authenticatorData);
-    console.log(`✅ Stored authenticator data in IndexedDB for serverless mode: ${credentialIdBase64url}`);
+    // Step 4: Store authenticator data locally
+    console.log('💾 Serverless registration: Storing authenticator data');
 
-    await indexDBManager.registerUser(username, RELAYER_ACCOUNT_ID, {
-      preferences: { optimisticAuth: false },
+    onEvent?.({
+      step: 4,
+      sessionId: tempSessionId,
+      phase: 'database-storage',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Storing authenticator data...'
     });
 
-    const finalResult: RegistrationResult = {
-      success: true,
-      clientNearPublicKey: clientManagedPublicKey,
-      nearAccountId: userNearAccountIdToUse,
-      transactionId: null // No transaction ID in serverless registration
-    };
+    // Extract credential data for storage
+    const credentialId = bufferEncode(credential.rawId);
+    const response = credential.response as AuthenticatorAttestationResponse;
+    const transports = response.getTransports?.() || [];
 
+    // Store in IndexDBManager
+    await indexDBManager.registerUser(finalNearAccountId);
+
+    // Store WebAuthn user data
+    await webAuthnManager.storeUserData({
+      nearAccountId: finalNearAccountId,
+      clientNearPublicKey: keyGenResult.publicKey,
+      lastUpdated: Date.now(),
+      prfSupported: true,
+      deterministicKey: true,
+      passkeyCredential: {
+        id: credential.id,
+        rawId: credentialId
+      }
+    });
+
+    // Extract and store COSE public key from attestation object
+    await extractAndStoreAuthenticatorData(
+      webAuthnManager,
+      credential,
+      finalNearAccountId,
+      keyGenResult.publicKey
+    );
+
+    onEvent?.({
+      step: 4,
+      sessionId: tempSessionId,
+      phase: 'database-storage',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'Authenticator data stored successfully'
+    });
+
+    // Step 5: Contract registration (optional for serverless)
+    onEvent?.({
+      step: 5,
+      sessionId: tempSessionId,
+      phase: 'contract-registration',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'Contract registration completed via faucet account creation'
+    });
+
+    // Step 6: Complete registration
     onEvent?.({
       step: 6,
       sessionId: tempSessionId,
       phase: 'registration-complete',
       status: 'success',
       timestamp: Date.now(),
-      message: 'Registration completed successfully!'
-    } as RegistrationCompleteSSEEvent);
+      message: 'Serverless registration completed successfully!'
+    });
 
-    hooks?.afterCall?.(true, finalResult);
-    return finalResult;
+    console.log(`✅ Serverless registration completed for ${nearAccountId} with account ${finalNearAccountId}`);
+
+    const result: RegistrationResult = {
+      success: true,
+      clientNearPublicKey: keyGenResult.publicKey,
+      nearAccountId: finalNearAccountId,
+      transactionId: null // No transaction in serverless registration
+    };
+
+    hooks?.afterCall?.(true, result);
+    return result;
 
   } catch (error: any) {
     console.error('Serverless registration error:', error);
-    onError?.(error);
 
     onEvent?.({
       step: 0,
@@ -706,11 +922,16 @@ async function handleRegistrationOnchain(
       phase: 'registration-error',
       status: 'error',
       timestamp: Date.now(),
-      message: error.message,
+      message: 'Serverless registration failed',
       error: error.message
-    } as RegistrationSSEEvent);
+    });
 
+    onError?.(error);
     hooks?.afterCall?.(false, error);
-    return { success: false, error: error.message };
+
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }

@@ -19,7 +19,7 @@ export interface BaseRequest {}
 // ===== GENERATE REGISTRATION OPTIONS ENDPOINT =====
 
 export interface GenerateRegistrationOptionsRequest {
-  username: string;
+  accountId: string;
 }
 
 export interface GenerateRegistrationOptionsResponse extends BaseResponse {
@@ -31,7 +31,7 @@ export interface GenerateRegistrationOptionsResponse extends BaseResponse {
 // ===== VERIFY REGISTRATION RESPONSE ENDPOINT =====
 
 export interface VerifyRegistrationRequest {
-  username: string;
+  accountId: string;
   attestationResponse: RegistrationResponseJSON;
   commitmentId: string | null;
   clientNearPublicKey: string | null;
@@ -40,7 +40,7 @@ export interface VerifyRegistrationRequest {
 // ===== GENERATE AUTHENTICATION OPTIONS ENDPOINT =====
 
 export interface GenerateAuthenticationOptionsRequest {
-  username?: string;
+  accountId?: string;
 }
 
 export interface GenerateAuthenticationOptionsResponse extends BaseResponse {
@@ -82,14 +82,13 @@ export interface VerifyAuthenticationRequest {
 
 export interface VerifyAuthenticationResponse extends BaseResponse {
   verified: boolean;
-  username?: string;
   nearAccountId?: string;
 }
 
 // ===== ACTION CHALLENGE ENDPOINT =====
 
 export interface ActionChallengeRequest {
-  username: string;
+  accountId: string;
   actionDetails: SerializableActionArgs;
 }
 
@@ -174,7 +173,7 @@ export interface ContractVerifyAuthenticationArgs {
 // Contract response types
 export interface ContractRegistrationOptionsResponse {
   options: PublicKeyCredentialCreationOptionsJSON;
-  nearAccountId?: string;
+  nearAccountId: string;
   commitmentId?: string | null;
 }
 

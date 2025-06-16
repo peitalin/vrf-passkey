@@ -31,8 +31,7 @@ export interface UserReadySSEEvent extends BaseSSERegistrationEvent {
   phase: 'user-ready';
   status: 'success';
   verified: boolean;
-  username: string;
-  nearAccountId: string | undefined;
+  nearAccountId: string;
   clientNearPublicKey: string | null | undefined;
   mode: string;
 }
@@ -80,7 +79,7 @@ export type RegistrationSSEEvent =
 
 // Login Events
 export interface LoginStartedEvent {
-  username?: string;
+  nearAccountId?: string;
 }
 
 export interface LoginProgressEvent {
@@ -89,14 +88,13 @@ export interface LoginProgressEvent {
 }
 
 export interface LoginCompletedEvent {
-  username: string;
-  nearAccountId?: string;
-  publicKey?: string;
+  nearAccountId: string;
+  publicKey: string;
 }
 
 export interface LoginFailedEvent {
   error: string;
-  username?: string;
+  nearAccountId?: string;
 }
 
 export type LoginEvent =
@@ -166,7 +164,7 @@ export interface RegistrationResult {
 export interface LoginResult {
   success: boolean;
   error?: string;
-  loggedInUsername?: string;
+  loggedInNearAccountId?: string;
   clientNearPublicKey?: string | null;
   nearAccountId?: string;
 }
@@ -183,5 +181,4 @@ export interface PasskeyManagerConfig {
   serverUrl?: string; // Optional - enables serverless mode when not provided
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
-  optimisticAuth: boolean;
 }

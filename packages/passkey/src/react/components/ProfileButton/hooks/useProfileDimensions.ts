@@ -12,7 +12,7 @@ const PROFILE_CONSTANTS = {
 
 export const useProfileDimensions = (params: ProfileCalculationParams) => {
   const {
-    username,
+    accountName,
     numMenuItems,
     profileButtonHeight,
     menuItemHeight,
@@ -22,16 +22,15 @@ export const useProfileDimensions = (params: ProfileCalculationParams) => {
   } = params;
 
   const closedDimensions = useMemo((): ProfileDimensions => {
-    const usernameText = username || 'User';
     const width = PROFILE_CONSTANTS.BASE_WIDTH +
-                  (usernameText.length * PROFILE_CONSTANTS.CHAR_WIDTH) +
+                  (accountName.length * PROFILE_CONSTANTS.CHAR_WIDTH) +
                   PROFILE_CONSTANTS.REM_BUFFER;
 
     return {
       width,
       height: PROFILE_CONSTANTS.CLOSED_HEIGHT,
     };
-  }, [username]);
+  }, [accountName]);
 
   const openDimensions = useMemo((): ProfileDimensions => {
     const height = profileButtonHeight +

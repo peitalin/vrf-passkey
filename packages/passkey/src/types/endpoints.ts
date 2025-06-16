@@ -15,7 +15,7 @@ export interface BaseRequest {}
 // ===== GENERATE REGISTRATION OPTIONS ENDPOINT =====
 
 export interface GenerateRegistrationOptionsRequest extends BaseRequest {
-  username: string;
+  accountId: string;
 }
 
 export interface GenerateRegistrationOptionsResponse extends BaseResponse {
@@ -27,7 +27,7 @@ export interface GenerateRegistrationOptionsResponse extends BaseResponse {
 // ===== VERIFY REGISTRATION RESPONSE ENDPOINT =====
 
 export interface VerifyRegistrationRequest {
-  username: string;
+  accountId: string;
   attestationResponse: RegistrationResponseJSON;
   commitmentId?: string;
   clientNearPublicKey?: string;
@@ -54,8 +54,7 @@ export interface UserReadySSEEvent extends BaseSSEEvent {
   phase: 'user-ready';
   status: 'success';
   verified: boolean;
-  username: string;
-  nearAccountId?: string;
+  nearAccountId: string;
   clientNearPublicKey?: string;
   mode: string;
 }
@@ -104,7 +103,7 @@ export type RegistrationSSEEvent =
 // ===== GENERATE AUTHENTICATION OPTIONS ENDPOINT =====
 
 export interface GenerateAuthenticationOptionsRequest extends BaseRequest {
-  username?: string;
+  accountId?: string;
 }
 
 export interface GenerateAuthenticationOptionsResponse extends BaseResponse {
@@ -146,14 +145,13 @@ export interface VerifyAuthenticationRequest {
 
 export interface VerifyAuthenticationResponse extends BaseResponse {
   verified: boolean;
-  username?: string;
-  nearAccountId?: string;
+  nearAccountId: string;
 }
 
 // ===== ACTION CHALLENGE ENDPOINT =====
 
 export interface ActionChallengeRequest {
-  username: string;
+  accountId: string;
   actionDetails: SerializableActionArgs;
 }
 

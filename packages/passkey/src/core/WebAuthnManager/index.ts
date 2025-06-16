@@ -31,8 +31,7 @@ const USER_DATA_STORE_NAME = 'userData';
 // === TYPE DEFINITIONS ===
 
 interface UserData {
-  username: string;
-  nearAccountId?: string;
+  nearAccountId: string;
   clientNearPublicKey?: string;
   lastUpdated: number;
   prfSupported?: boolean;
@@ -128,8 +127,8 @@ export class WebAuthnManager {
   /**
    * Retrieve user data using unified IndexDBManager
    */
-  async getUserData(username: string): Promise<UserData | null> {
-    return await indexDBManager.getWebAuthnUserData(username);
+  async getUserData(nearAccountId: string): Promise<UserData | null> {
+    return await indexDBManager.getWebAuthnUserData(nearAccountId);
   }
 
   /**
@@ -138,7 +137,6 @@ export class WebAuthnManager {
   async getAllUserData(): Promise<UserData[]> {
     const allUsers = await indexDBManager.getAllUsers();
     return allUsers.map(user => ({
-      username: user.username,
       nearAccountId: user.nearAccountId,
       clientNearPublicKey: user.clientNearPublicKey,
       lastUpdated: user.lastUpdated,
@@ -150,17 +148,17 @@ export class WebAuthnManager {
   // === CONVENIENCE METHODS ===
 
   /**
-   * Check if a passkey credential exists for a username
+   * Check if a passkey credential exists for a NEAR account ID
    */
-  async hasPasskeyCredential(username: string): Promise<boolean> {
-    return await indexDBManager.hasPasskeyCredential(username);
+  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
+    return await indexDBManager.hasPasskeyCredential(nearAccountId);
   }
 
   /**
-   * Get the last used username from stored user data
+   * Get the last used NEAR account ID from stored user data
    */
-  async getLastUsedUsername(): Promise<string | null> {
-    return await indexDBManager.getLastUsedUsername();
+  async getLastUsedNearAccountId(): Promise<string | null> {
+    return await indexDBManager.getLastUser().then(user => user?.nearAccountId || null);
   }
 
   // === CHALLENGE MANAGEMENT ===
@@ -350,11 +348,11 @@ export class WebAuthnManager {
    */
   async getRegistrationOptionsFromServer(
     serverUrl: string,
-    username: string
+    nearAccountId: string
   ): Promise<RegistrationOptions> {
     try {
       const requestData: GenerateRegistrationOptionsRequest = {
-        username
+        accountId: nearAccountId
       };
 
       const response = await fetch(`${serverUrl}/generate-registration-options`, {
@@ -423,14 +421,11 @@ export class WebAuthnManager {
    */
   async getRegistrationOptionsFromContract(
     nearRpcProvider: any,
-    username: string
+    nearAccountId: string
   ): Promise<RegistrationOptions> {
     const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
     const { ContractService } = await import('../ContractService');
     const { indexDBManager } = await import('../IndexDBManager');
-
-    // Generate NEAR account ID
-    const nearAccountId = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
 
     // Create contract service instance
     const contractService = new ContractService(
@@ -446,7 +441,7 @@ export class WebAuthnManager {
 
     const userId = contractService.generateUserId();
     const { contractArgs } = contractService.buildRegistrationOptionsArgs(
-      username,
+      indexDBManager.extractUsername(nearAccountId),
       userId,
       existingAuthenticators
     );
@@ -474,11 +469,11 @@ export class WebAuthnManager {
    */
   async getAuthenticationOptionsFromServer(
     serverUrl: string,
-    username?: string
+    nearAccountId?: string
   ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     try {
       const requestData: GenerateAuthenticationOptionsRequest = {
-        username
+        accountId: nearAccountId ? indexDBManager.extractUsername(nearAccountId) : undefined
       };
 
       const response = await fetch(`${serverUrl}/generate-authentication-options`, {
@@ -509,14 +504,11 @@ export class WebAuthnManager {
    */
   async getAuthenticationOptionsFromContract(
     nearRpcProvider: any,
-    username: string
+    nearAccountId: string
   ): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }> {
     const { WEBAUTHN_CONTRACT_ID, RELAYER_ACCOUNT_ID } = await import('../../config');
     const { ContractService } = await import('../ContractService');
     const { indexDBManager } = await import('../IndexDBManager');
-
-    // Generate NEAR account ID
-    const nearAccountId = indexDBManager.generateNearAccountId(username, RELAYER_ACCOUNT_ID);
 
     // Get user's authenticators to find one for authentication
     const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
@@ -586,32 +578,23 @@ export class WebAuthnManager {
 
   // === WEBAUTHN OPERATIONS ===
 
-  /**
-   * Register with PRF extension support
-   */
-  async registerWithPrf(
-    username: string,
-    useOptimistic?: boolean
-  ): Promise<WebAuthnRegistrationWithPrf> {
-    return this.registerWithPrfAndUrl(undefined, username, useOptimistic);
-  }
 
   /**
    * Register with PRF extension support with custom server URL
    */
   async registerWithPrfAndUrl(
     serverUrl: string | undefined,
-    username: string,
+    nearAccountId: string,
     useOptimistic?: boolean
   ): Promise<WebAuthnRegistrationWithPrf> {
-    console.log('🔒 WebAuthnManager.registerWithPrf called for:', username, 'useOptimistic:', useOptimistic);
+    console.log('🔒 WebAuthnManager.registerWithPrf called for:', nearAccountId, 'useOptimistic:', useOptimistic);
     console.log('🔒 Active challenges before registration:', this.activeChallenges.size);
 
     if (!serverUrl) {
       throw new Error('serverUrl is required for registration. Use getRegistrationOptionsFromServer() with explicit serverUrl.');
     }
 
-    const { options, challengeId, commitmentId } = await this.getRegistrationOptionsFromServer(serverUrl, username);
+    const { options, challengeId, commitmentId } = await this.getRegistrationOptionsFromServer(serverUrl, nearAccountId);
 
     // Options are already converted to the proper format by getRegistrationOptionsFromServer
     const extendedOptions: PublicKeyCredentialCreationOptions = {
@@ -636,7 +619,8 @@ export class WebAuthnManager {
 
     const extensionResults = credential.getClientExtensionResults();
     const prfResults = (extensionResults as any).prf;
-    const prfEnabled = prfResults?.enabled === true;
+    const prfOutput = prfResults?.results?.first;
+    const prfEnabled = !!prfOutput;
 
     console.log('WebAuthnManager: Registration completed, PRF enabled:', prfEnabled, 'PRF eval results:', prfResults);
 
@@ -647,24 +631,24 @@ export class WebAuthnManager {
    * Authenticate with PRF extension support (serverless mode)
    */
   async authenticateWithPrf(
-    username?: string,
+    nearAccountId?: string,
     purpose: 'encryption' | 'signing' = 'signing',
     useOptimistic: boolean = true
   ): Promise<WebAuthnAuthenticationWithPrf> {
     // For serverless mode, we need to get authentication options from stored user data
     // since we can't call the contract for authentication options (it's not a view function)
 
-    if (!username) {
-      const lastUsedUsername = await this.getLastUsedUsername();
-      if (!lastUsedUsername) {
-        throw new Error('No username provided and no last used username found');
+    if (!nearAccountId) {
+      const lastUsedNearAccountId = await this.getLastUsedNearAccountId();
+      if (!lastUsedNearAccountId) {
+        throw new Error('No NEAR account ID provided and no last used account found');
       }
-      username = lastUsedUsername;
+      nearAccountId = lastUsedNearAccountId;
     }
 
-    const userData = await this.getUserData(username);
+    const userData = await this.getUserData(nearAccountId);
     if (!userData?.passkeyCredential) {
-      throw new Error(`No passkey credential found for user ${username}`);
+      throw new Error(`No passkey credential found for account ${nearAccountId}`);
     }
 
     // Create a simple challenge for serverless authentication
@@ -712,7 +696,7 @@ export class WebAuthnManager {
    */
   async authenticateWithPrfAndUrl(
     serverUrl: string | undefined,
-    username?: string,
+    nearAccountId?: string,
     purpose: 'encryption' | 'signing' = 'signing',
     useOptimistic: boolean = true
   ): Promise<WebAuthnAuthenticationWithPrf> {
@@ -720,7 +704,7 @@ export class WebAuthnManager {
       throw new Error('serverUrl is required for authentication. Use getAuthenticationOptionsFromServer() with explicit serverUrl.');
     }
 
-    const { options, challengeId } = await this.getAuthenticationOptionsFromServer(serverUrl, username);
+    const { options, challengeId } = await this.getAuthenticationOptionsFromServer(serverUrl, nearAccountId);
 
     const extendedOptions: PublicKeyCredentialRequestOptions = {
       ...this.convertAuthenticationOptions(options),
@@ -756,7 +740,7 @@ export class WebAuthnManager {
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
   async secureRegistrationWithPrf(
-    username: string,
+    nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: RegistrationPayload,
     challengeId?: string,
@@ -808,7 +792,7 @@ export class WebAuthnManager {
    * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
    */
   async secureTransactionSigningWithPrf(
-    username: string,
+    nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: SigningPayload,
     challengeId: string
@@ -817,7 +801,7 @@ export class WebAuthnManager {
       // Skip challenge validation for serverless mode (challengeId starts with 'serverless-')
       // SECURITY NOTE: the contract will replace it with a proper challenge after
       if (!challengeId.startsWith('serverless-')) {
-        this.validateAndConsumeChallenge(challengeId, 'authentication');
+      this.validateAndConsumeChallenge(challengeId, 'authentication');
         console.log('WebAuthnManager: Challenge validated for PRF signing');
       } else {
         console.log('WebAuthnManager: Skipping challenge validation for serverless mode');
@@ -861,7 +845,7 @@ export class WebAuthnManager {
    * Secure private key decryption with PRF
    */
   async securePrivateKeyDecryptionWithPrf(
-    username: string,
+    nearAccountId: string,
     prfOutput: ArrayBuffer,
     challengeId: string
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
@@ -869,7 +853,7 @@ export class WebAuthnManager {
       this.validateAndConsumeChallenge(challengeId, 'authentication');
       console.log('WebAuthnManager: Challenge validated for PRF decryption');
 
-      const userData = await this.getUserData(username);
+      const userData = await this.getUserData(nearAccountId);
       if (!userData?.nearAccountId) {
         throw new Error('User data not found or missing NEAR account ID');
       }

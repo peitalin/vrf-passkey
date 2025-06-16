@@ -4,9 +4,7 @@ import type { AuthenticatorTransport } from '@simplewebauthn/types';
  * Represents a user in the system.
  */
 export interface User {
-  id: string; // Unique identifier for the user (e.g., a UUID or derived from first passkey rawId)
-  username: string;
-  nearAccountId?: string;
+  nearAccountId: string;
   currentChallenge?: string;
   currentCommitmentId?: string;
 }
@@ -23,7 +21,6 @@ export interface StoredAuthenticator {
 
   // Application-specific fields:
   userId: string; // Link back to the user this authenticator belongs to
-  name?: string; // A user-friendly name for the authenticator
   registered: Date;
   lastUsed?: Date;
   // BackedUp is an important property for passkeys to indicate if they are synced across devices.

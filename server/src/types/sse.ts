@@ -20,8 +20,7 @@ export interface UserReadySSEEvent extends BaseSSEEvent {
   phase: 'user-ready';
   status: 'success';
   verified: boolean;
-  username: string;
-  nearAccountId: string | null;
+  nearAccountId: string;
   clientNearPublicKey: string | null;
   mode: string;
 }
@@ -70,7 +69,6 @@ export type RegistrationSSEEvent =
 // Session management types
 export interface RegistrationSession {
   id: string;
-  username: string;
   nearAccountId: string;
   status: 'pending' | 'contract_dispatched' | 'contract_confirmed' | 'error';
   result?: any;

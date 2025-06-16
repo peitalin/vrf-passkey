@@ -12,7 +12,7 @@ import config, { DEFAULT_GAS_STRING, VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING, 
 import { userOperations } from '../database';
 import { actionChallengeStore } from '../challengeStore';
 import { nearClient } from '../nearService';
-import type { User, StoredAuthenticator, SerializableActionArgs } from '../types';
+import type { User, StoredAuthenticator, SerializableActionArgs, GenerateAuthenticationOptionsRequest, ActionChallengeRequest } from '../types';
 import { ActionType } from '../types'
 import { authenticatorService } from '../authenticatorService';
 
@@ -211,18 +211,18 @@ interface ContractAuthenticationOptionsResponse {
 
 // Generate authentication options
 router.post('/generate-authentication-options', async (req: Request, res: Response) => {
-  const { username } = req.body;
+  const { accountId } = req.body as GenerateAuthenticationOptionsRequest;
 
   try {
     let allowCredentialsList: { id: Uint8Array; type: 'public-key'; transports?: AuthenticatorTransport[] }[] | undefined = undefined;
     let userForChallengeStorageInDB: User | undefined;
     let firstAuthenticator: StoredAuthenticator | undefined;
 
-    if (username) {
-      const userRec = userOperations.findByUsername(username);
+    if (accountId) {
+      const userRec = userOperations.findByNearAccountId(accountId);
       if (userRec) {
         userForChallengeStorageInDB = userRec;
-        console.log(`🔍 Found user record for ${username}, nearAccountId: ${userRec.nearAccountId}`);
+        console.log(`🔍 Found user record for ${accountId}, nearAccountId: ${userRec.nearAccountId}`);
 
         const userAuthenticators: StoredAuthenticator[] = userRec.nearAccountId ?
           await authenticatorService.findByUserId(userRec.nearAccountId) : [];
@@ -238,10 +238,10 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
             transports: auth.transports as AuthenticatorTransport[],
           }));
         } else {
-          console.warn(`🔍 No authenticators found for user ${username} with nearAccountId ${userRec.nearAccountId}`);
+          console.warn(`🔍 No authenticators found for user ${accountId} with nearAccountId ${userRec.nearAccountId}`);
         }
       } else {
-        console.warn(`Username '${username}' provided for auth options but not found. Treating as discoverable.`);
+        console.warn(`accountId '${accountId}' provided for auth options but not found. Treating as discoverable.`);
       }
     }
 
@@ -273,8 +273,8 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
       };
 
     if (userForChallengeStorageInDB) {
-      userOperations.updateAuthChallengeAndCommitmentId(userForChallengeStorageInDB.id, response.options.challenge, response.commitmentId || null);
-      console.log(`Stored challenge and commitmentId for user ${userForChallengeStorageInDB.username} in DB.`);
+      userOperations.updateAuthChallengeAndCommitmentId(userForChallengeStorageInDB.nearAccountId, response.options.challenge, response.commitmentId || null);
+      console.log(`Stored challenge and commitmentId for user ${userForChallengeStorageInDB.nearAccountId} in DB.`);
     } else {
       await actionChallengeStore.storeActionChallenge(
         response.options.challenge,
@@ -289,7 +289,7 @@ router.post('/generate-authentication-options', async (req: Request, res: Respon
     // The contract response for options is now nested.
     // The top-level response has `options` and `commitmentId`.
     // The response to the client should be a flat object.
-    const userForNearId = username ? userOperations.findByUsername(username) : undefined;
+    const userForNearId = accountId ? userOperations.findByNearAccountId(accountId) : undefined;
     const finalResponse = {
       ...response.options, // Spread the nested options
       nearAccountId: userForNearId?.nearAccountId,
@@ -454,17 +454,16 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
 
     if (verification.verified && verification.authenticationInfo) {
       // Clear the challenge and commitment from user record
-      userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
+      userOperations.updateAuthChallengeAndCommitmentId(user.nearAccountId, null, null);
 
-      console.log(`User '${user.username}' authenticated with '${authenticator.name || authenticator.credentialID}'.`);
+      console.log(`User '${user.nearAccountId}' authenticated with '${authenticator.credentialPublicKey || authenticator.credentialID}'.`);
 
       return res.json({
         verified: true,
-        username: user.username,
         nearAccountId: user.nearAccountId,
       });
     } else {
-      userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
+      userOperations.updateAuthChallengeAndCommitmentId(user.nearAccountId, null, null);
       const errorMessage = (verification as any).error?.message || 'Authentication failed verification';
       return res.status(400).json({ verified: false, error: errorMessage });
     }
@@ -472,7 +471,7 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
     // Add logging for any error caught by the route handler
     console.error('Error in /verify-authentication route handler:', e.message, e.stack);
     if (user) {
-      userOperations.updateAuthChallengeAndCommitmentId(user.id, null, null);
+      userOperations.updateAuthChallengeAndCommitmentId(user.nearAccountId, null, null);
     }
     return res.status(500).json({
       verified: false,
@@ -483,17 +482,14 @@ router.post('/verify-authentication', async (req: Request, res: Response) => {
 
 // Generate a challenge for signing an action
 router.post('/api/action-challenge', async (req: Request, res: Response) => {
-  const { username, actionDetails } = req.body as {
-    username: string,
-    actionDetails: SerializableActionArgs
-  };
+  const { accountId, actionDetails } = req.body as ActionChallengeRequest;
 
-  if (!username || !actionDetails) {
-    return res.status(400).json({ error: 'Username and actionDetails are required.' });
+  if (!accountId || !actionDetails) {
+    return res.status(400).json({ error: 'accountId and actionDetails are required.' });
   }
 
   try {
-    const userRecord = userOperations.findByUsername(username);
+    const userRecord = userOperations.findByNearAccountId(accountId);
     if (!userRecord) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -539,7 +535,7 @@ router.post('/api/action-challenge', async (req: Request, res: Response) => {
       timeout: 60000,
     };
 
-    console.log(`Generated action-challenge for user ${username}, action: ${actionDetails.action_type}, challenge: ${challengeForClient}`);
+    console.log(`Generated action-challenge for user ${accountId}, action: ${actionDetails.action_type}, challenge: ${challengeForClient}`);
     return res.json(options);
 
   } catch (error: any) {

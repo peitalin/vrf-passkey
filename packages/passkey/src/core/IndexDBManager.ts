@@ -1,10 +1,15 @@
 import { openDB, type IDBPDatabase } from 'idb';
+import {
+  validateNearAccountId,
+  extractUsername,
+  generateNearAccountId,
+  type ValidationResult
+} from './utils/validation';
 
 // === UNIFIED TYPE DEFINITIONS ===
 export interface ClientUserData {
-  // Primary keys
+  // Primary key
   nearAccountId: string;
-  username: string;
 
   // User metadata
   registeredAt: number;
@@ -121,21 +126,42 @@ class IndexDBManager {
     await db.put(DB_CONFIG.appStateStore, entry);
   }
 
+  // === ACCOUNT ID VALIDATION AND UTILITIES ===
+
+  /**
+   * Validate that a NEAR account ID is in the expected format
+   * Supports both <username>.<relayerAccountId> and <username>.testnet formats
+   */
+  validateNearAccountId(nearAccountId: string): ValidationResult {
+    return validateNearAccountId(nearAccountId);
+  }
+
+  /**
+   * Extract username from NEAR account ID
+   */
+  extractUsername(nearAccountId: string): string {
+    return extractUsername(nearAccountId);
+  }
+
+  /**
+   * Generate a NEAR account ID from a username and domain
+   * @param username - The username to use for the account ID
+   * @param domain - The domain to use for the account ID
+   * e.g. 'webauthn-contract.testnet', or 'testnet' or 'near' for top-level accounts
+   * @returns The generated NEAR account ID
+   */
+  generateNearAccountId(username: string, domain: string): string {
+    return generateNearAccountId(username, domain);
+  }
+
   // === USER MANAGEMENT METHODS ===
 
-  deriveUsername(nearAccountId: string): string {
-    return nearAccountId.split('.')[0];
-  }
-
-  generateNearAccountId(username: string, relayerAccountId: string): string {
-    const sanitized = username
-      .toLowerCase()
-      .replace(/[^a-z0-9_\\-]/g, '')
-      .substring(0, 32);
-    return `${sanitized}.${relayerAccountId}`;
-  }
-
   async storeUser(userData: ClientUserData): Promise<void> {
+    const validation = this.validateNearAccountId(userData.nearAccountId);
+    if (!validation.valid) {
+      throw new Error(`Cannot store user with invalid account ID: ${validation.error}`);
+    }
+
     const db = await this.getDB();
     await db.put(DB_CONFIG.userStore, userData);
     await this.setAppState('lastUserAccountId', userData.nearAccountId);
@@ -144,17 +170,21 @@ class IndexDBManager {
   async getUser(nearAccountId: string): Promise<ClientUserData | null> {
     if (!nearAccountId) return null;
 
+    const validation = this.validateNearAccountId(nearAccountId);
+    if (!validation.valid) {
+      console.warn(`Invalid account ID format: ${nearAccountId}`);
+      return null;
+    }
+
     const db = await this.getDB();
     const result = await db.get(DB_CONFIG.userStore, nearAccountId);
     return result || null;
   }
 
-  async getUserByUsername(username: string): Promise<ClientUserData | null> {
-    const db = await this.getDB();
-    const allUsers = await db.getAll(DB_CONFIG.userStore);
-    return allUsers.find(user => user.username === username) || null;
-  }
-
+  /**
+   * Get the current/last user
+   * This is maintained via app state and updated whenever a user is stored or updated
+   */
   async getLastUser(): Promise<ClientUserData | null> {
     const lastUserAccount = await this.getAppState<string>('lastUserAccountId');
     if (!lastUserAccount) return null;
@@ -162,23 +192,9 @@ class IndexDBManager {
     return this.getUser(lastUserAccount);
   }
 
-  async getLastUsedUsername(): Promise<string | null> {
+  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
     try {
-      const allUsers = await this.getAllUsers();
-      if (allUsers.length === 0) return null;
-
-      // Sort by lastUpdated timestamp and return the most recent
-      const sortedUsers = allUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
-      return sortedUsers[0].username;
-    } catch (error) {
-      console.warn('Error getting last used username:', error);
-      return null;
-    }
-  }
-
-  async hasPasskeyCredential(username: string): Promise<boolean> {
-    try {
-      const userData = await this.getUserByUsername(username);
+      const userData = await this.getUser(nearAccountId);
       return !!userData && !!userData.clientNearPublicKey;
     } catch (error) {
       console.warn('Error checking passkey credential:', error);
@@ -186,17 +202,24 @@ class IndexDBManager {
     }
   }
 
+  /**
+   * Register a new user with the given NEAR account ID
+   * @param nearAccountId - Full NEAR account ID (e.g., "username.testnet" or "username.relayer.testnet")
+   * @param additionalData - Additional user data to store
+   */
   async registerUser(
-    username: string,
-    relayerAccountId: string,
+    nearAccountId: string,
     additionalData?: Partial<ClientUserData>
   ): Promise<ClientUserData> {
-    const nearAccountId = this.generateNearAccountId(username, relayerAccountId);
+    const validation = this.validateNearAccountId(nearAccountId);
+    if (!validation.valid) {
+      throw new Error(`Cannot register user with invalid account ID: ${validation.error}`);
+    }
+
     const now = Date.now();
 
     const userData: ClientUserData = {
       nearAccountId,
-      username: this.deriveUsername(nearAccountId),
       registeredAt: now,
       lastLogin: now,
       lastUpdated: now,
@@ -218,7 +241,7 @@ class IndexDBManager {
         ...updates,
         lastUpdated: Date.now()
       };
-      await this.storeUser(updatedUser);
+      await this.storeUser(updatedUser); // This will update the app state lastUserAccountId
     }
   }
 
@@ -244,10 +267,10 @@ class IndexDBManager {
 
   /**
    * Store WebAuthn user data (compatibility with WebAuthnManager)
+   * @param userData - User data with nearAccountId as primary identifier
    */
   async storeWebAuthnUserData(userData: {
-    username: string;
-    nearAccountId?: string;
+    nearAccountId: string;
     clientNearPublicKey?: string;
     lastUpdated?: number;
     prfSupported?: boolean;
@@ -256,16 +279,19 @@ class IndexDBManager {
       rawId: string;
     };
   }): Promise<void> {
-    const nearAccountId = userData.nearAccountId || this.generateNearAccountId(userData.username, 'webauthn-contract.testnet');
+    const validation = this.validateNearAccountId(userData.nearAccountId);
+    if (!validation.valid) {
+      throw new Error(`Cannot store WebAuthn data for invalid account ID: ${validation.error}`);
+    }
 
     // Get existing user data or create new
-    let existingUser = await this.getUser(nearAccountId);
+    let existingUser = await this.getUser(userData.nearAccountId);
     if (!existingUser) {
-      existingUser = await this.registerUser(userData.username, 'webauthn-contract.testnet');
+      existingUser = await this.registerUser(userData.nearAccountId);
     }
 
     // Update with WebAuthn-specific data
-    await this.updateUser(nearAccountId, {
+    await this.updateUser(userData.nearAccountId, {
       clientNearPublicKey: userData.clientNearPublicKey,
       prfSupported: userData.prfSupported,
       passkeyCredential: userData.passkeyCredential,
@@ -275,10 +301,10 @@ class IndexDBManager {
 
   /**
    * Get WebAuthn user data (compatibility with WebAuthnManager)
+   * @param nearAccountId - Full NEAR account ID
    */
-  async getWebAuthnUserData(username: string): Promise<{
-    username: string;
-    nearAccountId?: string;
+  async getWebAuthnUserData(nearAccountId: string): Promise<{
+    nearAccountId: string;
     clientNearPublicKey?: string;
     lastUpdated: number;
     prfSupported?: boolean;
@@ -287,11 +313,10 @@ class IndexDBManager {
       rawId: string;
     };
   } | null> {
-    const user = await this.getUserByUsername(username);
+    const user = await this.getUser(nearAccountId);
     if (!user) return null;
 
     return {
-      username: user.username,
       nearAccountId: user.nearAccountId,
       clientNearPublicKey: user.clientNearPublicKey,
       lastUpdated: user.lastUpdated,

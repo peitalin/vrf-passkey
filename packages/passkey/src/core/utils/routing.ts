@@ -17,21 +17,21 @@ export interface RoutingOptions {
 /**
  * Determine the operation mode based on configuration
  * - optimisticAuth = true: Use web2 mode (server endpoints)
- * - optimisticAuth = false: Use serverless mode (direct contract calls)
+ * - optimisticAuth = false: Use serverless mode (direct contract calls or implicit accounts)
  */
 export function determineOperationMode(options: RoutingOptions): RoutingResult {
   const { optimisticAuth, config } = options;
   const serverUrl = config?.serverUrl;
 
   if (optimisticAuth) {
-    // Optimistic mode: use server endpoints (web2 mode)
+    // use server endpoints (web2 mode)
     return {
       mode: 'web2',
       serverUrl,
       requiresServer: true
     };
   } else {
-    // Non-optimistic mode: use direct contract calls (serverless mode)
+    // use direct contract calls or implicit accounts (serverless mode)
     return {
       mode: 'serverless',
       requiresServer: false
@@ -44,7 +44,8 @@ export function determineOperationMode(options: RoutingOptions): RoutingResult {
  */
 export function validateModeRequirements(
   routing: RoutingResult,
-  nearRpcProvider?: any
+  nearRpcProvider?: any,
+  operation?: 'registration' | 'login' | 'action'
 ): { valid: boolean; error?: string } {
   // Check if server is required but not provided
   if (routing.requiresServer && !routing.serverUrl) {
@@ -80,7 +81,7 @@ export function getModeDescription(routing: RoutingResult): string {
     case 'web2':
       return `🚀 Using Web2 mode (optimistic) with server: ${routing.serverUrl}`;
     case 'serverless':
-      return '⚡ Using serverless mode - direct contract calls';
+      return '⚡ Using serverless mode - direct contract calls and implicit accounts';
     default:
       return 'Unknown mode';
   }

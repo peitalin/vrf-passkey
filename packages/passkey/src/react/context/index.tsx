@@ -23,7 +23,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const [loginState, setLoginState] = useState<LoginState>({
     isLoggedIn: false,
-    username: null,
     nearAccountId: null,
     nearPublicKey: null,
   });
@@ -57,20 +56,18 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const logout = useCallback(() => {
     setLoginState({
       isLoggedIn: false,
-      username: null,
       nearAccountId: null,
       nearPublicKey: null,
     });
   }, [loginState]);
 
-  const loginPasskey = async (username: string, options: LoginOptions) => {
-    const result: LoginResult = await passkeyManager.loginPasskey(username, {
+  const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
+    const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
       optimisticAuth: optimisticAuth,
       onEvent: (event) => {
         if (event.type === 'loginCompleted') {
           setLoginState({
             isLoggedIn: true,
-            username: event.data.username,
             nearAccountId: event.data.nearAccountId || null,
             nearPublicKey: event.data.publicKey || null,
           });
@@ -86,14 +83,13 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result
   }
 
-  const registerPasskey = async (username: string, options: RegistrationOptions) => {
-    const result: RegistrationResult = await passkeyManager.registerPasskey(username, {
+  const registerPasskey = async (nearAccountId: string, options: RegistrationOptions) => {
+    const result: RegistrationResult = await passkeyManager.registerPasskey(nearAccountId, {
       optimisticAuth: optimisticAuth,
       onEvent: (event) => {
         if (event.phase === 'user-ready') {
           setLoginState({
             isLoggedIn: true,
-            username: event.username,
             nearAccountId: event.nearAccountId || null,
             nearPublicKey: event.clientNearPublicKey || null,
           });
@@ -117,7 +113,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
         if (lastUser) {
           setLoginState({
             ...loginState,
-            username: lastUser.username,
             nearAccountId: lastUser.nearAccountId,
           });
           await indexDBManager.updateLastLogin(lastUser.nearAccountId);
@@ -125,7 +120,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
           // Load client-managed NEAR public key
           try {
             const webAuthnManager = passkeyManager.getWebAuthnManager();
-            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.username);
+            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.nearAccountId);
             if (webAuthnUserData?.clientNearPublicKey) {
               setLoginState({
                 ...loginState,
@@ -133,7 +128,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
               });
               console.log('Loaded client-managed NEAR public key:', webAuthnUserData.clientNearPublicKey);
             } else {
-              console.log('No client-managed NEAR public key found for:', lastUser.username);
+              console.log('No client-managed NEAR public key found for:', lastUser.nearAccountId);
               setLoginState({ ...loginState, nearPublicKey: null });
             }
           } catch (webAuthnDataError) {
@@ -161,8 +156,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     setOptimisticAuth,
     // Core PasskeyManager instance - provides ALL functionality
     passkeyManager,
-    // Legacy compatibility
-    webAuthnManager: passkeyManager.getWebAuthnManager(),
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;

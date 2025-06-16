@@ -16,11 +16,7 @@ import {
   VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
   GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING
 } from '../../config';
-import bs58 from 'bs58';
-// import { Account } from '@near-js/accounts';
-import { getTestnetRpcProvider } from '@near-js/client';
-import { AccessKeyView, FinalExecutionOutcome } from '@near-js/types';
-import { SignedTransaction } from '@near-js/transactions';
+import { FinalExecutionOutcome } from '@near-js/types';
 
 
 interface ServerAuthOptions extends ServerAuthenticationOptions {
@@ -40,16 +36,16 @@ interface ServerVerificationResponse {
  */
 export async function loginPasskey(
   passkeyManager: PasskeyManager,
-  username?: string,
+  nearAccountId: string,
   options?: LoginOptions
 ): Promise<LoginResult> {
 
-  const { optimisticAuth, onEvent, onError, hooks } = options || { optimisticAuth: true };
+  const { optimisticAuth, onEvent, onError, hooks } = options || { optimisticAuth: false };
   const config = passkeyManager.getConfig();
   const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
 
   // Emit started event
-  onEvent?.({ type: 'loginStarted', data: { username } });
+  onEvent?.({ type: 'loginStarted', data: { nearAccountId } });
 
   try {
     // Run beforeCall hook
@@ -60,7 +56,7 @@ export async function loginPasskey(
       const errorMessage = 'Passkey operations require a secure context (HTTPS or localhost).';
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
@@ -73,11 +69,11 @@ export async function loginPasskey(
     });
 
     // Validate mode requirements
-    const validation = validateModeRequirements(routing, nearRpcProvider);
+    const validation = validateModeRequirements(routing, nearRpcProvider, 'login');
     if (!validation.valid) {
       const error = new Error(validation.error!);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: validation.error!, username } });
+      onEvent?.({ type: 'loginFailed', data: { error: validation.error!, nearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: validation.error! };
     }
@@ -91,7 +87,7 @@ export async function loginPasskey(
 
       return await handleLoginOnchain(
         passkeyManager,
-        username,
+        nearAccountId,
         onEvent,
         onError,
         hooks
@@ -101,7 +97,7 @@ export async function loginPasskey(
       return await handleLoginWithServer(
         routing.serverUrl!,
         passkeyManager,
-        username,
+        nearAccountId,
         onEvent,
         onError,
         hooks
@@ -110,7 +106,7 @@ export async function loginPasskey(
   } catch (err: any) {
     console.error('Login error:', err.message, err.stack);
     onError?.(err);
-    onEvent?.({ type: 'loginFailed', data: { error: err.message, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: err.message, nearAccountId } });
     hooks?.afterCall?.(false, err);
     return { success: false, error: err.message };
   }
@@ -122,7 +118,7 @@ export async function loginPasskey(
 async function handleLoginWithServer(
   serverUrl: string,
   passkeyManager: PasskeyManager,
-  username?: string,
+  nearAccountId: string,
   onEvent?: (event: LoginEvent) => void,
   onError?: (error: Error) => void,
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
@@ -139,12 +135,12 @@ async function handleLoginWithServer(
     }
   });
 
-  const requestBody = username ? { username: username } : {};
-
   const authOptionsResponse = await fetch(`${baseUrl}/generate-authentication-options`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({
+      accountId: nearAccountId
+    }),
   });
 
   if (!authOptionsResponse.ok) {
@@ -154,7 +150,7 @@ async function handleLoginWithServer(
     const errorMessage = errorData.error || `Server error ${authOptionsResponse.status}`;
     const error = new Error(errorMessage);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
     hooks?.afterCall?.(false, error);
     return { success: false, error: errorMessage };
   }
@@ -200,7 +196,7 @@ async function handleLoginWithServer(
     const errorMessage = 'Passkey login cancelled or no assertion.';
     const error = new Error(errorMessage);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
     hooks?.afterCall?.(false, error);
     return { success: false, error: errorMessage };
   }
@@ -213,7 +209,7 @@ async function handleLoginWithServer(
     const errorMessage = 'PRF output not available - required for serverless verification.';
     const error = new Error(errorMessage);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
     hooks?.afterCall?.(false, error);
     return { success: false, error: errorMessage };
   }
@@ -243,27 +239,27 @@ async function handleLoginWithServer(
   const serverVerifyData: ServerVerificationResponse = await verifyResponse.json();
 
   if (verifyResponse.ok && serverVerifyData.verified) {
-    const loggedInUsername = serverVerifyData.username;
-    if (!loggedInUsername) {
-      const errorMessage = "Login successful but server didn't return username.";
+    const loggedInNearAccountId = serverVerifyData.nearAccountId;
+    if (!loggedInNearAccountId) {
+      const errorMessage = "Login successful but server didn't return NEAR account ID.";
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
 
     // Fetch comprehensive user data from local storage
     const webAuthnManager = passkeyManager.getWebAuthnManager();
-    const localUserData = await webAuthnManager.getUserData(loggedInUsername);
+    const localUserData = await webAuthnManager.getUserData(loggedInNearAccountId);
     const finalNearAccountId = serverVerifyData.nearAccountId || localUserData?.nearAccountId;
 
     // Update IndexDBManager with login
     if (finalNearAccountId) {
       let clientUser = await indexDBManager.getUser(finalNearAccountId);
       if (!clientUser) {
-        console.log(`Creating IndexDBManager entry for existing user: ${loggedInUsername}`);
-        clientUser = await indexDBManager.registerUser(loggedInUsername, RELAYER_ACCOUNT_ID);
+        console.log(`Creating IndexDBManager entry for existing user: ${loggedInNearAccountId}`);
+        clientUser = await indexDBManager.registerUser(finalNearAccountId);
       } else {
         await indexDBManager.updateLastLogin(finalNearAccountId);
       }
@@ -271,23 +267,22 @@ async function handleLoginWithServer(
 
     const result: LoginResult = {
       success: true,
-      loggedInUsername,
+      loggedInNearAccountId,
       clientNearPublicKey: localUserData?.clientNearPublicKey || null,
       nearAccountId: finalNearAccountId
     };
 
     if (localUserData?.clientNearPublicKey) {
-      console.log(`Login successful for ${loggedInUsername}. Client-managed PK set from local store: ${localUserData.clientNearPublicKey}`);
+      console.log(`Login successful for ${loggedInNearAccountId}. Client-managed PK set from IndexDBManager: ${localUserData.clientNearPublicKey}`);
     } else {
-      console.warn(`User ${loggedInUsername} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
+      console.warn(`User ${loggedInNearAccountId} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
     }
 
     onEvent?.({
       type: 'loginCompleted',
       data: {
-        username: loggedInUsername,
-        nearAccountId: finalNearAccountId,
-        publicKey: localUserData?.clientNearPublicKey
+        nearAccountId: loggedInNearAccountId,
+        publicKey: localUserData?.clientNearPublicKey || ''
       }
     });
 
@@ -297,7 +292,7 @@ async function handleLoginWithServer(
     const errorMessage = serverVerifyData.error || 'Passkey authentication failed by server.';
     const error = new Error(errorMessage);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
     hooks?.afterCall?.(false, error);
     return { success: false, error: errorMessage };
   }
@@ -307,13 +302,13 @@ async function handleLoginWithServer(
  * Handle onchain (serverless) login using WASM worker to sign contract calls
  *
  * OPTIMIZATION: This flow uses only TWO TouchID prompts instead of three by:
- * 1. First TouchID: callFunction2() for generate_authentication_options (gets contract challenge)
+ * 1. First TouchID: callContract() for generate_authentication_options (gets contract challenge)
  * 2. Second TouchID: WebAuthn assertion ceremony with contract's challenge (gets PRF output)
- * 3. NO TouchID: callFunction2WithPrf() for verify_authentication_response (reuses PRF from step 2)
+ * 3. NO TouchID: callContract() with prfOutput for verify_authentication_response (reuses PRF from step 2)
  */
 async function handleLoginOnchain(
   passkeyManager: PasskeyManager,
-  username?: string,
+  nearAccountId?: string,
   onEvent?: (event: LoginEvent) => void,
   onError?: (error: Error) => void,
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
@@ -323,36 +318,33 @@ async function handleLoginOnchain(
     const nearRpcProvider = passkeyManager['nearRpcProvider'];
 
     // Step 1: Determine which user to authenticate
-    let targetUsername = username;
-    let targetNearAccountId: string;
+    let targetNearAccountId = nearAccountId;
 
-    if (!targetUsername) {
-      // No username provided - try to get the last used username
-      targetUsername = await webAuthnManager.getLastUsedUsername() || undefined;
-      if (!targetUsername) {
-        const errorMessage = 'No username provided and no previous user found. Please provide a username for serverless login.';
+    if (!targetNearAccountId) {
+      // No nearAccountId provided - try to get the last used account
+      targetNearAccountId = await webAuthnManager.getLastUsedNearAccountId() || undefined;
+      if (!targetNearAccountId) {
+        const errorMessage = 'No NEAR account ID provided and no previous user found. Please provide a NEAR account ID for serverless login.';
         const error = new Error(errorMessage);
         onError?.(error);
-        onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username } });
+        onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
         hooks?.afterCall?.(false, error);
         return { success: false, error: errorMessage };
       }
     }
 
-    targetNearAccountId = indexDBManager.generateNearAccountId(targetUsername, RELAYER_ACCOUNT_ID);
-
     // Step 2: Get authenticator data from local cache
     const authenticators = await indexDBManager.getAuthenticatorsByUser(targetNearAccountId);
     if (authenticators.length === 0) {
-      const errorMessage = `No authenticators found for user ${targetUsername}. Please register first.`;
+      const errorMessage = `No authenticators found for account ${targetNearAccountId}. Please register first.`;
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username: targetUsername } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
 
-    // Step 3: Get authentication options from contract using regular callFunction2 (FIRST TOUCHID)
+    // Step 3: Get authentication options from contract using callContract (FIRST TOUCHID)
     onEvent?.({
       type: 'loginProgress',
       data: {
@@ -386,15 +378,17 @@ async function handleLoginOnchain(
       'preferred'
     );
 
-    // Use regular callFunction2 to get authentication options (this will do its own TouchID)
-    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callFunction2(
-      WEBAUTHN_CONTRACT_ID,
-      'generate_authentication_options',
-      contractArgs,
-      GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
-      '0',
-      targetUsername
-    );
+    // Use callContract to get authentication options (this will do its own TouchID)
+    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callContract({
+      contractId: WEBAUTHN_CONTRACT_ID,
+      methodName: 'generate_authentication_options',
+      args: contractArgs,
+      gas: GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
+      attachedDeposit: '0',
+      nearAccountId: targetNearAccountId,
+      requiresAuth: true,
+      optimisticAuth: false
+    });
     console.log("Auth options result:", authOptionsResult);
 
     // Parse the authentication options from the result
@@ -437,7 +431,7 @@ async function handleLoginOnchain(
       const errorMessage = 'Passkey login cancelled or no assertion.';
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username: targetUsername } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
@@ -450,7 +444,7 @@ async function handleLoginOnchain(
       const errorMessage = 'PRF output not available - required for serverless verification.';
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username: targetUsername } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
@@ -470,16 +464,17 @@ async function handleLoginOnchain(
       parsedOptions.commitmentId || ''
     );
 
-    // Use PasskeyManager.callFunction2WithPrf to verify authentication (reusing PRF from verification)
-    const verificationResult: FinalExecutionOutcome = await passkeyManager.callFunction2WithPrf(
-      WEBAUTHN_CONTRACT_ID,
-      'verify_authentication_response',
-      verificationArgs,
-      VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
-      '0',
-      targetUsername,
-      prfOutput
-    );
+    // Use callContract to verify authentication (reusing PRF from verification)
+    const verificationResult: FinalExecutionOutcome = await passkeyManager.callContract({
+      contractId: WEBAUTHN_CONTRACT_ID,
+      methodName: 'verify_authentication_response',
+      args: verificationArgs,
+      gas: VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
+      attachedDeposit: '0',
+      nearAccountId: targetNearAccountId,
+      prfOutput,
+      optimisticAuth: false
+    });
 
     const parsedVerification = contractService.parseContractResponse(
       verificationResult,
@@ -490,42 +485,41 @@ async function handleLoginOnchain(
       const errorMessage = 'Authentication verification failed by contract.';
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, username: targetUsername } });
+      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
 
     // Step 6: Update local data and return success
-    const localUserData = await webAuthnManager.getUserData(targetUsername);
+    const localUserData = await webAuthnManager.getUserData(targetNearAccountId);
 
     // Update IndexDBManager with login
     let clientUser = await indexDBManager.getUser(targetNearAccountId);
     if (!clientUser) {
-      console.log(`Creating IndexDBManager entry for existing user: ${targetUsername}`);
-      clientUser = await indexDBManager.registerUser(targetUsername, RELAYER_ACCOUNT_ID);
+      console.log(`Creating IndexDBManager entry for existing user: ${targetNearAccountId}`);
+      clientUser = await indexDBManager.registerUser(targetNearAccountId);
     } else {
       await indexDBManager.updateLastLogin(targetNearAccountId);
     }
 
     const result: LoginResult = {
       success: true,
-      loggedInUsername: targetUsername,
+      loggedInNearAccountId: targetNearAccountId,
       clientNearPublicKey: localUserData?.clientNearPublicKey || null,
       nearAccountId: targetNearAccountId
     };
 
     if (localUserData?.clientNearPublicKey) {
-      console.log(`Serverless login successful for ${targetUsername}. Client-managed PK: ${localUserData.clientNearPublicKey}`);
+      console.log(`Serverless login successful for ${targetNearAccountId}. Client-managed PK: ${localUserData.clientNearPublicKey}`);
     } else {
-      console.warn(`User ${targetUsername} logged in via serverless mode, but no clientNearPublicKey found in local storage.`);
+      console.warn(`User ${targetNearAccountId} logged in via serverless mode, but no clientNearPublicKey found in local storage.`);
     }
 
     onEvent?.({
       type: 'loginCompleted',
       data: {
-        username: targetUsername,
         nearAccountId: targetNearAccountId,
-        publicKey: localUserData?.clientNearPublicKey
+        publicKey: localUserData?.clientNearPublicKey || ''
       }
     });
 
@@ -535,7 +529,7 @@ async function handleLoginOnchain(
   } catch (error: any) {
     console.error('Serverless login error:', error);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: error.message, username } });
+    onEvent?.({ type: 'loginFailed', data: { error: error.message, nearAccountId } });
     hooks?.afterCall?.(false, error);
     return { success: false, error: error.message };
   }

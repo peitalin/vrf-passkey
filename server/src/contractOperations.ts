@@ -40,7 +40,6 @@ function mapContractAuthenticator(contractAuth: ContractAuthenticator): StoredAu
     counter: contractAuth.counter,
     transports: parseTransports(contractAuth.transports),
     userId: contractAuth.user_id,
-    name: contractAuth.name,
     registered: new Date(contractAuth.registered),
     lastUsed: contractAuth.last_used ? new Date(contractAuth.last_used) : undefined,
     backedUp: contractAuth.backed_up,

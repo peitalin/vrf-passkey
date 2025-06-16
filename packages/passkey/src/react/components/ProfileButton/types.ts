@@ -65,7 +65,7 @@ export interface ProfileStateRefs {
 }
 
 export interface ProfileCalculationParams {
-  username: string;
+  accountName: string;
   numMenuItems: number;
   profileButtonHeight: number;
   menuItemHeight: number;

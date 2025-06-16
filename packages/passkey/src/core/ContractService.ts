@@ -1,6 +1,6 @@
 import type { Provider } from '@near-js/providers';
 import type { FinalExecutionOutcome } from '@near-js/types';
-import { indexDBManager, type ClientAuthenticatorData } from './IndexDBManager';
+import type { ClientAuthenticatorData } from './IndexDBManager';
 import { bufferDecode } from '../utils/encoders';
 
 // Define WebAuthn types locally since we can't import from @simplewebauthn
@@ -164,15 +164,11 @@ export class ContractService {
    * Replicates server/src/routes/registration.ts:getRegistrationOptionsContract()
    */
   buildRegistrationOptionsArgs(
-    username: string,
+    nearAccountId: string,
     userId: string,
     existingAuthenticators: ClientAuthenticatorData[] = []
   ): { contractArgs: ContractGenerateOptionsArgs; nearAccountId: string } {
-    console.log(`🔗 ContractService: Building registration options args for ${username} (serverless mode)`);
-
-    // Build nearAccountId (replicate server logic)
-    const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
-    const nearAccountId = `${sanitizedUsername}.${this.relayerAccountId}`;
+    console.log(`🔗 ContractService: Building registration options args for ${nearAccountId}`);
 
     // Convert existing authenticators to exclusion list
     const excludeCredentials = existingAuthenticators.length > 0
@@ -187,10 +183,10 @@ export class ContractService {
     const contractArgs: ContractGenerateOptionsArgs = {
       rp_name: this.rpName,
       rp_id: this.rpId,
-      user_name: username,
+      user_name: nearAccountId,
       user_id: userId,
       challenge: null, // Let contract generate challenge
-      user_display_name: username,
+      user_display_name: nearAccountId,
       timeout: 60000,
       attestation_type: "none",
       exclude_credentials: excludeCredentials,

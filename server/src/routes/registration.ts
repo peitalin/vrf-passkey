@@ -216,14 +216,14 @@ router.get('/registration-progress/:sessionId', (req: Request, res: Response) =>
 // Generate registration options Endpoint
 router.post('/generate-registration-options', async (req: Request, res: Response) => {
   const requestData = req.body as GenerateRegistrationOptionsRequest;
-  const { username } = requestData;
+  const { accountId } = requestData;
 
-  if (!username) return res.status(400).json({ error: 'Username is required' });
+  if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
   try {
-    const resultFromService = await getRegistrationOptions(username);
+    const resultFromService = await getRegistrationOptions(accountId);
 
-    const userForChallenge = userOperations.findByUsername(username);
+    const userForChallenge = userOperations.findByNearAccountId(resultFromService.nearAccountId);
     if (!userForChallenge) {
       console.error("User disappeared after options generation?");
       return res.status(500).json({ error: 'User context lost after options generation' });
@@ -235,13 +235,13 @@ router.post('/generate-registration-options', async (req: Request, res: Response
     }
 
     userOperations.updateChallengeAndCommitmentId(
-      userForChallenge.id,
+      userForChallenge.nearAccountId,
       resultFromService.options.challenge,
       resultFromService.commitmentId || null
     );
 
     console.log(
-      `Generated registration options for: ${username} using Web2 mode. Sending to client:`,
+      `Generated registration options for: ${accountId} using Web2 mode. Sending to client:`,
       JSON.stringify(resultFromService, null, 2)
     );
 
@@ -269,30 +269,19 @@ router.post('/generate-registration-options', async (req: Request, res: Response
 });
 
 async function getRegistrationOptions(
-  usernameInput: string
+  accountId: string
 ): Promise<ContractRegistrationOptionsResponse> {
-  let user: User | undefined = userOperations.findByUsername(usernameInput);
-  const sanitizedUsername = usernameInput.toLowerCase().replace(/[^a-z0-9_\-]/g, '').substring(0, 32);
-  const potentialNearAccountId = `${sanitizedUsername}.${config.relayerAccountId}`;
+  let user: User | undefined = userOperations.findByNearAccountId(accountId);
 
   if (!user) {
-    // For a new user, their `id` will be used as `user.id` by SimpleWebAuthn
-    // and as `user_id` (base64url) by the contract.
-    const newUserId = `user_${Date.now()}_${isoBase64URL.fromBuffer(crypto.getRandomValues(new Uint8Array(8)))}`;
     const newUser: User = {
-      id: newUserId,
-      username: usernameInput,
-      nearAccountId: potentialNearAccountId,
+      nearAccountId: accountId,
     };
     userOperations.create(newUser);
     user = newUser;
-    console.log(`New user created for registration: ${usernameInput}, assigned ID: ${user.id}`);
+    console.log(`New user created for registration: ${accountId}`);
   } else {
-    if (!user.nearAccountId || !user.nearAccountId.endsWith(`.${config.relayerAccountId}`)) {
-      userOperations.updateNearAccountId(user.id, potentialNearAccountId);
-      user.nearAccountId = potentialNearAccountId;
-    }
-    console.log(`Existing user found for registration: ${usernameInput}, ID: ${user.id}`);
+    console.log(`Existing user found for registration: ${accountId}`);
   }
 
   const rawAuthenticators = user.nearAccountId ?
@@ -307,15 +296,16 @@ async function getRegistrationOptionsSimpleWebAuthn(
   user: User,
   rawAuthenticators: any[]
 ): Promise<ContractRegistrationOptionsResponse> {
-  console.log(`Using SimpleWebAuthn for registration options for user: ${user.username} (Web2 mode)`);
+  const username = user.nearAccountId.split('.')[0];
+  console.log(`Using SimpleWebAuthn for registration options for user: ${username} (Web2 mode)`);
 
   // generate options with SimpleWebAuthn to get a challenge
   const optionsFromSimpleWebAuthn = await simpleWebAuthnGenerateRegistrationOptions({
     rpName: config.rpName,
     rpID: config.rpID,
-    userID: user.id,
-    userName: user.username,
-    userDisplayName: user.username,
+    userID: username, // Use just the username, not the full account ID
+    userName: username,
+    userDisplayName: username,
     excludeCredentials: rawAuthenticators.map(auth => ({
       id: isoBase64URL.toBuffer(auth.credentialID),
       type: 'public-key' as const,
@@ -335,7 +325,7 @@ async function getRegistrationOptionsSimpleWebAuthn(
     options: optionsFromSimpleWebAuthn,
   };
 
-  console.log(`✅ FastAuth registration options generated for ${user.username}`);
+  console.log(`✅ FastAuth registration options generated for ${user.nearAccountId}`);
 
   return response;
 }
@@ -420,8 +410,7 @@ async function handleRegistrationWithSSE(
     sendSSEUpdate(2, 'user-ready', 'success', {
       message: 'Registration verified - you can now log in!',
       verified: true,
-      username: user.username,
-      nearAccountId: user.nearAccountId || undefined,
+      nearAccountId: user.nearAccountId,
       clientNearPublicKey: clientNearPublicKey,
       mode: 'Web2 (Background Contract Sync)'
     });
@@ -515,7 +504,7 @@ async function handleRegistrationWithSSE(
             counter: counterForDB,
             transports: attestationResponse.response.transports || [],
             nearAccountId: user.nearAccountId,
-            name: `Authenticator for ${user.username} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
+            name: `Authenticator for ${user.nearAccountId} (${attestationResponse.response.transports?.join('/') || 'unknown'})`,
             registered: new Date(),
             backedUp: credentialBackedUpForDB,
             clientNearPublicKey: clientNearPublicKey ?? null,
@@ -561,9 +550,9 @@ async function handleRegistrationWithSSE(
 
   } catch (e: any) {
     console.error('Error handling registration:', e.message, e.stack);
-    if (user.username) {
-        const userToClear = userOperations.findByUsername(user.username);
-        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.id, null, null);
+    if (user.nearAccountId) {
+        const userToClear = userOperations.findByNearAccountId(user.nearAccountId);
+        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.nearAccountId, null, null);
     }
     sendSSEUpdate(0, 'registration-error', 'error', {
       message: 'Registration failed due to an unexpected server error.',
@@ -575,21 +564,26 @@ async function handleRegistrationWithSSE(
 
 // Verify registration Endpoint - Modified for SSE
 router.post('/verify-registration', async (req: Request, res: Response) => {
-  const { username, attestationResponse, commitmentId, clientNearPublicKey } = req.body as VerifyRegistrationRequest;
+  const {
+    accountId,
+    attestationResponse,
+    commitmentId,
+    clientNearPublicKey
+  } = req.body as VerifyRegistrationRequest;
 
-  console.log(`🔑 Registration verification for ${username}: clientNearPublicKey = ${clientNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
+  console.log(`🔑 Registration verification for ${accountId}: clientNearPublicKey = ${clientNearPublicKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
   if (clientNearPublicKey) {
     console.log(`🔑 Client-managed NEAR public key: ${clientNearPublicKey}`);
   }
 
-  if (!username || !attestationResponse) {
-    return res.status(400).json({ error: 'Username and attestationResponse are required' });
+  if (!accountId || !attestationResponse) {
+    return res.status(400).json({ error: 'accountId and attestationResponse are required' });
   }
 
   try {
-    const user = userOperations.findByUsername(username);
+    const user = userOperations.findByNearAccountId(accountId);
     if (!user) {
-      return res.status(404).json({ error: `User '${username}' not found or registration not initiated.` });
+      return res.status(404).json({ error: `User '${accountId}' not found or registration not initiated.` });
     }
 
     const expectedChallenge = user.currentChallenge;
@@ -611,9 +605,9 @@ router.post('/verify-registration', async (req: Request, res: Response) => {
 
   } catch (e: any) {
     console.error('Error verifying registration:', e.message, e.stack);
-    if (req.body.username) {
-        const userToClear = userOperations.findByUsername(req.body.username);
-        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.id, null, null);
+    if (req.body.accountId) {
+        const userToClear = userOperations.findByNearAccountId(req.body.accountId);
+        if (userToClear) userOperations.updateChallengeAndCommitmentId(userToClear.nearAccountId, null, null);
     }
     return res.status(500).json({
       verified: false,

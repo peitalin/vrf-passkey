@@ -1,20 +1,15 @@
 import bs58 from 'bs58';
-import { RPC_NODE_URL, DEFAULT_GAS_STRING, WEBAUTHN_CONTRACT_ID } from '../../config';
-import type { SerializableActionArgs } from '../../types';
-import type { PasskeyManager } from './index';
-import type {
-  ActionOptions,
-  ActionResult,
-  ActionEvent,
-  PasskeyManagerConfig
-} from './types';
-import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
-import { ContractService } from '../ContractService';
 import type { AccessKeyView } from '@near-js/types';
 
-interface AccessKeyInfo {
-  nonce: number;
-}
+import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
+import type { SerializableActionArgs } from '../../types';
+import {
+  determineOperationMode,
+  validateModeRequirements,
+  getModeDescription
+} from '../utils/routing';
+import type { PasskeyManager } from './index';
+import type { ActionOptions, ActionResult } from './types';
 
 interface BlockInfo {
   header: {
@@ -42,11 +37,7 @@ interface RpcResponse {
  */
 export async function executeAction(
   passkeyManager: PasskeyManager,
-  currentUser: {
-    isLoggedIn: boolean;
-    username: string | null;
-    nearAccountId: string | null;
-  },
+  nearAccountId: string,
   actionArgs: SerializableActionArgs,
   options?: ActionOptions
 ): Promise<ActionResult> {
@@ -63,7 +54,7 @@ export async function executeAction(
   });
 
   // Validate mode requirements
-  const validation = validateModeRequirements(routing, nearRpcProvider);
+  const validation = validateModeRequirements(routing, nearRpcProvider, 'action');
   if (!validation.valid) {
     const error = new Error(validation.error!);
     onError?.(error);
@@ -95,10 +86,10 @@ export async function executeAction(
     await hooks?.beforeCall?.();
 
     // Validation
-    if (!currentUser.isLoggedIn || !currentUser.username || !currentUser.nearAccountId) {
+    if (!nearAccountId) {
       const errorMsg = 'User not logged in or NEAR account ID not set for direct action.';
       const error = new Error(errorMsg);
-      console.error('[Direct Action] Error:', errorMsg, currentUser);
+      console.error('[Direct Action] Error:', errorMsg, nearAccountId);
       onError?.(error);
       onEvent?.({
         type: 'actionFailed',
@@ -120,7 +111,7 @@ export async function executeAction(
     });
 
     // Check if user has PRF support
-    const userData = await webAuthnManager.getUserData(currentUser.username);
+    const userData = await webAuthnManager.getUserData(nearAccountId);
     const usesPrf = userData?.prfSupported === true;
 
     if (!usesPrf) {
@@ -149,7 +140,7 @@ export async function executeAction(
 
     const { credential: passkeyAssertion, prfOutput } = await webAuthnManager.authenticateWithPrfAndUrl(
       routing.serverUrl,
-      currentUser.username,
+      nearAccountId,
       'signing'
     );
 
@@ -193,7 +184,7 @@ export async function executeAction(
       blockInfo
     ] = await Promise.all([
       nearRpcProvider.viewAccessKey(
-        currentUser.nearAccountId,
+        nearAccountId,
         publicKeyStr,
       ) as Promise<AccessKeyView>,
       nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
@@ -229,7 +220,7 @@ export async function executeAction(
 
     // Use the new WASM worker transaction signing
     const signingPayload = {
-      nearAccountId: currentUser.nearAccountId,
+      nearAccountId: nearAccountId,
       receiverId: actionArgs.receiver_id,
       contractMethodName: actionArgs.method_name,
       contractArgs: JSON.parse(actionArgs.args),
@@ -243,15 +234,21 @@ export async function executeAction(
     let challengeId: string;
     if (routing.mode === 'serverless') {
       // In serverless mode, get authentication options directly from the contract
-      const authOptions = await webAuthnManager.getAuthenticationOptionsFromContract(nearRpcProvider, currentUser.username);
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromContract(
+        nearRpcProvider,
+        nearAccountId
+      );
       challengeId = authOptions.challengeId;
     } else {
-      const authOptions = await webAuthnManager.getAuthenticationOptionsFromServer(routing.serverUrl!, currentUser.username);
+      const authOptions = await webAuthnManager.getAuthenticationOptionsFromServer(
+        routing.serverUrl!,
+        nearAccountId
+      );
       challengeId = authOptions.challengeId;
     }
 
     const signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
-      currentUser.username,
+      nearAccountId,
       prfOutput,
       signingPayload,
       challengeId

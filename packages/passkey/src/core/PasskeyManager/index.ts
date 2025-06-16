@@ -47,34 +47,30 @@ export class PasskeyManager {
   }
 
   /**
-   * Register a new passkey for the given username
+   * Register a new passkey for the given NEAR account ID
    */
   async registerPasskey(
-    username: string,
+    nearAccountId: string,
     options: RegistrationOptions
   ): Promise<RegistrationResult> {
-    return registerPasskey(this, username, options);
+    return registerPasskey(this, nearAccountId, options);
   }
 
   /**
    * Login with an existing passkey
    */
   async loginPasskey(
-    username?: string,
+    nearAccountId: string,
     options?: LoginOptions
   ): Promise<LoginResult> {
-    return loginPasskey(this, username, options);
+    return loginPasskey(this, nearAccountId, options);
   }
 
   /**
    * Execute a blockchain action/transaction
    */
   async executeAction(
-    currentUser: {
-      isLoggedIn: boolean;
-      username: string | null;
-      nearAccountId: string | null;
-    },
+    nearAccountId: string,
     actionArgs: SerializableActionArgs,
     options?: ActionOptions
   ): Promise<ActionResult> {
@@ -82,7 +78,7 @@ export class PasskeyManager {
       throw new Error('NEAR RPC provider is required for action execution');
     }
 
-    return executeAction(this, currentUser, actionArgs, options);
+    return executeAction(this, nearAccountId, actionArgs, options);
   }
 
   /**
@@ -116,27 +112,27 @@ export class PasskeyManager {
   /**
    * Export private key using PRF-based decryption
    */
-  async exportPrivateKey(username?: string): Promise<string> {
-    // If no username provided, try to get the last used username
-    if (!username) {
-      const lastUsedUsername = await this.webAuthnManager.getLastUsedUsername();
-      if (!lastUsedUsername) {
-        throw new Error('No username provided and no last used username found');
+  async exportPrivateKey(nearAccountId?: string): Promise<string> {
+    // If no nearAccountId provided, try to get the last used account
+    if (!nearAccountId) {
+      const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
+      if (!lastUsedNearAccountId) {
+        throw new Error('No NEAR account ID provided and no last used account found');
       }
-      username = lastUsedUsername;
+      nearAccountId = lastUsedNearAccountId;
     }
 
     // Get user data to verify user exists
-    const userData = await this.webAuthnManager.getUserData(username);
+    const userData = await this.webAuthnManager.getUserData(nearAccountId);
     if (!userData) {
-      throw new Error(`No user data found for ${username}`);
+      throw new Error(`No user data found for ${nearAccountId}`);
     }
 
     if (!userData.prfSupported) {
       throw new Error('PRF is required for private key export but not supported by this user\'s authenticator');
     }
 
-    console.log(`🔐 Exporting private key for user: ${username}`);
+    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
 
     // Check if serverUrl is configured for authentication
     if (!this.config.serverUrl) {
@@ -146,7 +142,7 @@ export class PasskeyManager {
     // Authenticate with PRF to get PRF output
     const { credential: passkeyAssertion, prfOutput } = await this.webAuthnManager.authenticateWithPrfAndUrl(
       this.config.serverUrl,
-      username,
+      nearAccountId,
       'encryption'
     );
 
@@ -157,139 +153,235 @@ export class PasskeyManager {
     // Get authentication options for challenge validation
     const { challengeId } = await this.webAuthnManager.getAuthenticationOptionsFromServer(
       this.config.serverUrl,
-      username
+      nearAccountId
     );
 
     // Use WASM worker to decrypt private key
     const decryptionResult = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
-      username,
+      nearAccountId,
         prfOutput,
         challengeId
       );
 
-    console.log(`✅ Private key exported successfully for user: ${username}`);
+    console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);
     return decryptionResult.decryptedPrivateKey;
   }
 
   /**
    * Export key pair (both private and public keys)
    */
-  async exportKeyPair(username?: string): Promise<{
+  async exportKeyPair(nearAccountId?: string): Promise<{
     userAccountId: string;
     privateKey: string;
     publicKey: string
   }> {
-    // If no username provided, try to get the last used username
-    if (!username) {
-      const lastUsedUsername = await this.webAuthnManager.getLastUsedUsername();
-      if (!lastUsedUsername) {
-        throw new Error('No username provided and no last used username found');
+    // If no nearAccountId provided, try to get the last used account
+    if (!nearAccountId) {
+      const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
+      if (!lastUsedNearAccountId) {
+        throw new Error('No NEAR account ID provided and no last used account found');
       }
-      // relayerAccount is the top-level account that creates the account for users,
-      // hence the username is username.relayerAccount
-      username = lastUsedUsername;
+      nearAccountId = lastUsedNearAccountId;
     }
 
     // Get user data to retrieve public key
-    const userData = await this.webAuthnManager.getUserData(username);
+    const userData = await this.webAuthnManager.getUserData(nearAccountId);
     if (!userData) {
-      throw new Error(`No user data found for ${username}`);
+      throw new Error(`No user data found for ${nearAccountId}`);
     }
 
     if (!userData.clientNearPublicKey) {
-      throw new Error(`No NEAR public key found for user ${username}`);
+      throw new Error(`No NEAR public key found for account ${nearAccountId}`);
     }
 
     // Export private key using the method above
-    const privateKey = await this.exportPrivateKey(username);
-    const userAccountId = `${username}.${this.config.relayerAccount}`;
+    const privateKey = await this.exportPrivateKey(nearAccountId);
 
     return {
-      userAccountId,
+      userAccountId: nearAccountId,
       privateKey,
       publicKey: userData.clientNearPublicKey
     };
   }
 
-  /**
-   * Export signer using PRF-based decryption and create a KeyPairEd25519
-   */
-  async exportSigner(username?: string): Promise<{ userAccountId: string, signer: Signer }> {
-    // Export the key pair first
-    const { userAccountId, privateKey, publicKey } = await this.exportKeyPair(username);
-
-    // Extract the private key string (remove "ed25519:" prefix if present)
-    const privateKeyString = privateKey.startsWith('ed25519:')
-      ? privateKey.substring(8)
-      : privateKey;
-
-    // Create KeyPairEd25519 from the private key string
-    const keyPair = new KeyPairEd25519(privateKeyString);
-
-    let keyStore = new BrowserLocalStorageKeyStore();
-    await keyStore.setKey(this.config.nearNetwork, userAccountId, keyPair);
-
-    let signer = await getSignerFromKeystore(userAccountId, this.config.nearNetwork, keyStore);
-    console.log(`✅ Signer created successfully for user account: ${userAccountId}`);
-
-    return {
-      userAccountId,
-      signer,
-    };
-  }
+  // /**
+  //  * Export a NEAR signer instance for the user
+  //  */
+  // async exportSigner(nearAccountId?: string): Promise<{ userAccountId: string, signer: Signer }> {
+  //   // If no nearAccountId provided, try to get the last used account
+  //   if (!nearAccountId) {
+  //     const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
+  //     if (!lastUsedNearAccountId) {
+  //       throw new Error('No NEAR account ID provided and no last used account found');
+  //     }
+  //     nearAccountId = lastUsedNearAccountId;
+  //   }
+  //   const { userAccountId, privateKey } = await this.exportKeyPair(nearAccountId);
+  //   // Extract the private key string (remove "ed25519:" prefix if present)
+  //   const privateKeyString = privateKey.startsWith('ed25519:')
+  //     ? privateKey.substring(8)
+  //     : privateKey;
+  //   const keyPair = new KeyPairEd25519(privateKeyString);
+  //   const keyStore = new BrowserLocalStorageKeyStore();
+  //   await keyStore.setKey(this.config.nearNetwork, userAccountId, keyPair);
+  //   const signer = await getSignerFromKeystore(userAccountId, this.config.nearNetwork, keyStore);
+  //   return { userAccountId, signer };
+  // }
 
   /**
    * Get public key for the current or specified user
    */
-  async getPublicKey(username?: string): Promise<string | null> {
-    // If no username provided, try to get the last used username
-    if (!username) {
-      const lastUsedUsername = await this.webAuthnManager.getLastUsedUsername();
-      if (!lastUsedUsername) {
+  async getPublicKey(nearAccountId?: string): Promise<string | null> {
+    // If no nearAccountId provided, try to get the last used account
+    if (!nearAccountId) {
+      const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
+      if (!lastUsedNearAccountId) {
         return null;
       }
-      username = lastUsedUsername;
+      nearAccountId = lastUsedNearAccountId;
     }
 
     try {
-      const userData = await this.webAuthnManager.getUserData(username);
+      const userData = await this.webAuthnManager.getUserData(nearAccountId);
       return userData?.clientNearPublicKey || null;
     } catch (error) {
-      console.warn(`Error getting public key for user ${username}:`, error);
+      console.warn(`Error getting public key for account ${nearAccountId}:`, error);
       return null;
     }
   }
 
+  /**
+   * Unified contract call function that intelligently handles all scenarios:
+   * - View functions (no auth required)
+   * - State-changing functions (with auth)
+   * - Batch operations (with PRF reuse)
+   *
+   * @param options - All call parameters and options
+   */
+  async callContract(options: {
+    /** Contract to call */
+    contractId: string;
+    /** Method name to call */
+    methodName: string;
+    /** Method arguments */
+    args: any;
+    /** Gas amount for state-changing calls */
+    gas?: string;
+    /** Attached deposit for state-changing calls */
+    attachedDeposit?: string;
+    /** NEAR account ID for authentication (auto-detected if not provided) */
+    nearAccountId?: string;
+    /** Pre-obtained PRF output for batch operations */
+    prfOutput?: ArrayBuffer;
+    /** Force view mode (read-only, no authentication) */
+    viewOnly?: boolean;
+    /** Force state-changing mode (requires authentication) */
+    requiresAuth?: boolean;
+    /** Force server mode (optimisticAuth==true) or serverless mode (optimisticAuth==false) */
+    optimisticAuth?: boolean;
+  }): Promise<any> {
+    const {
+      contractId,
+      methodName,
+      args,
+      gas = '50000000000000',
+      attachedDeposit = '0',
+      nearAccountId,
+      prfOutput,
+      viewOnly = false,
+      requiresAuth = false,
+      optimisticAuth
+    } = options;
+
+    // 1. Handle explicit view-only calls
+    if (viewOnly) {
+      return this._executeViewCall(contractId, methodName, args);
+    }
+
+    // 2. Handle state-changing calls
+    console.log(`Executing state-changing call: ${methodName}`);
+
+    // 2a. Use pre-obtained PRF if available (batch mode)
+    if (prfOutput) {
+      const targetNearAccountId = nearAccountId || await this.webAuthnManager.getLastUsedNearAccountId();
+      if (!targetNearAccountId) {
+        throw new Error('NEAR account ID required for authenticated contract calls');
+      }
+      return this._executeAuthenticatedCallWithPrf(
+        contractId,
+        methodName,
+        args,
+        gas,
+        attachedDeposit,
+        targetNearAccountId,
+        prfOutput
+      );
+    }
+
+    // 2b. Regular authenticated call (triggers TouchID)
+    return this._executeAuthenticatedCall(
+      contractId,
+      methodName,
+      args,
+      gas,
+      attachedDeposit,
+      nearAccountId,
+      optimisticAuth
+    );
+  }
 
   /**
-   * Call a contract function using WASM worker to sign the transaction
-   * This provides the same API as near-js callFunction but uses the WASM worker
+   * Execute a view call (read-only, no authentication)
    */
-  async callFunction2(
+  private async _executeViewCall(
+    contractId: string,
+    methodName: string,
+    args: any
+  ): Promise<any> {
+    console.log(`Calling contract view function: ${methodName}`);
+
+    const result = await this.nearRpcProvider.query({
+      request_type: 'call_function',
+      account_id: contractId,
+      method_name: methodName,
+      args_base64: Buffer.from(JSON.stringify(args)).toString('base64'),
+      finality: 'optimistic'
+    });
+
+    return result;
+  }
+
+  /**
+   * Execute an authenticated call (triggers TouchID)
+   */
+  private async _executeAuthenticatedCall(
     contractId: string,
     methodName: string,
     args: any,
-    gas: string = '50000000000000',
-    attachedDeposit: string = '0',
-    username?: string
+    gas: string,
+    attachedDeposit: string,
+    nearAccountId?: string,
+    optimisticAuth?: boolean
   ): Promise<FinalExecutionOutcome> {
-    // Get the current user if username not provided
-    const targetUsername = username || await this.webAuthnManager.getLastUsedUsername();
-    if (!targetUsername) {
-      throw new Error('No username provided and no previous user found. Username required for contract calls.');
+    // Get the current user if nearAccountId not provided
+    const targetNearAccountId = nearAccountId || await this.webAuthnManager.getLastUsedNearAccountId();
+    if (!targetNearAccountId) {
+      throw new Error('No NEAR account ID provided and no previous user found. NEAR account ID required for contract calls.');
     }
-
-    const targetNearAccountId = indexDBManager.generateNearAccountId(targetUsername, this.config.relayerAccount);
 
     // First authenticate to get PRF output and challenge
     let challengeId: string;
     let prfOutput: ArrayBuffer;
 
-    if (this.config.optimisticAuth && this.config.serverUrl) {
+    if (optimisticAuth) {
       // Server mode: get challenge from server
+      if (!this.config.serverUrl) {
+        throw new Error('Server URL is required for server mode authentication.');
+      }
+
       const { credential, prfOutput: authPrfOutput } = await this.webAuthnManager.authenticateWithPrfAndUrl(
         this.config.serverUrl,
-        targetUsername,
+        targetNearAccountId,
         'signing'
       );
 
@@ -297,13 +389,10 @@ export class PasskeyManager {
         throw new Error('Authentication failed - PRF output required for contract calls.');
       }
 
-      console.log(">>>>>>optimisticAuth: ", this.config.optimisticAuth);
-      console.log("serverUrl: ", this.config.serverUrl);
-
       // Get the challenge from the authentication options
       const { challengeId: authChallengeId } = await this.webAuthnManager.getAuthenticationOptionsFromServer(
         this.config.serverUrl,
-        targetUsername
+        targetNearAccountId
       );
 
       challengeId = authChallengeId;
@@ -316,7 +405,7 @@ export class PasskeyManager {
 
       // Authenticate with PRF (no server URL needed)
       const { credential, prfOutput: authPrfOutput } = await this.webAuthnManager.authenticateWithPrf(
-        targetUsername,
+        targetNearAccountId,
         'signing'
       );
 
@@ -329,87 +418,62 @@ export class PasskeyManager {
       prfOutput = authPrfOutput;
     }
 
-    // Get user data to retrieve public key for nonce lookup
-    const userData = await this.webAuthnManager.getUserData(targetUsername);
-    if (!userData?.clientNearPublicKey) {
-      throw new Error('Client NEAR public key not found in user data');
-    }
-
-    // Get current nonce and block info concurrently
-    const [accessKeyInfo, blockInfo] = await Promise.all([
-      this.nearRpcProvider.viewAccessKey(
-        targetNearAccountId,
-        userData.clientNearPublicKey,
-      ) as Promise<AccessKeyView>,
-      this.nearRpcProvider.viewBlock({ finality: 'final' })
-    ]);
-
-    const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
-
-    console.log("callFunction: secureTransactionSigningWithPrf", challengeId);
-    // Use WASM worker to sign and execute the contract call
-    const signedTxResult = await this.webAuthnManager.secureTransactionSigningWithPrf(
-      targetUsername,
+    return this._signAndSubmitTransaction(
+      targetNearAccountId,
       prfOutput,
-      {
-        nearAccountId: targetNearAccountId,
-        receiverId: contractId,
-        contractMethodName: methodName,
-        contractArgs: args,
-        gasAmount: gas,
-        depositAmount: attachedDeposit,
-        nonce: nonce.toString(),
-        blockHashBytes: Array.from(bs58.decode(blockInfo.header.hash))
-      },
-      challengeId // Use the challenge from server, or the dummy challenge in serverless mode
-      // dummy challenge prompts contract to generate a real challenge
+      challengeId,
+      contractId,
+      methodName,
+      args,
+      gas,
+      attachedDeposit
     );
-
-    // Submit the signed transaction to the network
-    const signedTransactionBorsh = new Uint8Array(signedTxResult.signedTransactionBorsh);
-    console.log("callFunction: sending transaction", signedTransactionBorsh);
-    console.log("Transaction size:", signedTransactionBorsh.length, "bytes");
-    console.log("Transaction base64 preview:", Buffer.from(signedTransactionBorsh).toString('base64').substring(0, 100) + "...");
-
-    try {
-      console.log("Using NEAR JS provider to submit transaction...");
-
-      // Create a SignedTransaction object from the Borsh bytes
-      const signedTransaction = SignedTransaction.decode(Buffer.from(signedTransactionBorsh));
-
-      // Submit the transaction asynchronously to avoid RPC timeouts
-      console.log("Submitting transaction with optimistic execution...");
-      const finalResult = await this.nearRpcProvider.sendTransactionUntil(
-        signedTransaction,
-        DEFAULT_WAIT_STATUS // "INCLUDED_FINAL"
-      );
-
-      console.log("Transaction successful:", finalResult);
-      return finalResult;
-
-    } catch (error: any) {
-      console.error("Transaction failed:", error);
-      throw new Error(`Transaction submission failed: ${error.message}`);
-    }
   }
 
   /**
-   * Call a contract function using WASM worker with pre-obtained PRF output
-   * This avoids additional TouchID prompts when PRF output is already available
+   * Execute an authenticated call with pre-obtained PRF (no additional TouchID)
    */
-  async callFunction2WithPrf(
+  private async _executeAuthenticatedCallWithPrf(
     contractId: string,
     methodName: string,
     args: any,
-    gas: string = '50000000000000',
-    attachedDeposit: string = '0',
-    username: string,
+    gas: string,
+    attachedDeposit: string,
+    nearAccountId: string,
     prfOutput: ArrayBuffer
   ): Promise<FinalExecutionOutcome> {
-    const targetNearAccountId = indexDBManager.generateNearAccountId(username, this.config.relayerAccount);
+    // For serverless mode with pre-obtained PRF, use a dummy challenge ID
+    const challengeId = 'serverless-reused-prf-' + crypto.randomUUID();
 
+    console.log("callContract (with PRF): secureTransactionSigningWithPrf", challengeId);
+
+    return this._signAndSubmitTransaction(
+      nearAccountId,
+      prfOutput,
+      challengeId,
+      contractId,
+      methodName,
+      args,
+      gas,
+      attachedDeposit
+    );
+  }
+
+  /**
+   * Common transaction signing and submission logic
+   */
+  private async _signAndSubmitTransaction(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    challengeId: string,
+    contractId: string,
+    methodName: string,
+    args: any,
+    gas: string,
+    attachedDeposit: string
+  ): Promise<FinalExecutionOutcome> {
     // Get user data to retrieve public key for nonce lookup
-    const userData = await this.webAuthnManager.getUserData(username);
+    const userData = await this.webAuthnManager.getUserData(nearAccountId);
     if (!userData?.clientNearPublicKey) {
       throw new Error('Client NEAR public key not found in user data');
     }
@@ -417,7 +481,7 @@ export class PasskeyManager {
     // Get current nonce and block info concurrently
     const [accessKeyInfo, blockInfo] = await Promise.all([
       this.nearRpcProvider.viewAccessKey(
-        targetNearAccountId,
+        nearAccountId,
         userData.clientNearPublicKey,
       ) as Promise<AccessKeyView>,
       this.nearRpcProvider.viewBlock({ finality: 'final' })
@@ -425,16 +489,13 @@ export class PasskeyManager {
 
     const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
 
-    // For serverless mode with pre-obtained PRF, use a dummy challenge ID
-    const challengeId = 'serverless-reused-prf-' + crypto.randomUUID();
-
-    console.log("callFunction2WithPrf: secureTransactionSigningWithPrf", challengeId);
-    // Use WASM worker to sign and execute the contract call with pre-obtained PRF
+    console.log("callContract: secureTransactionSigningWithPrf", challengeId);
+    // Use WASM worker to sign and execute the contract call
     const signedTxResult = await this.webAuthnManager.secureTransactionSigningWithPrf(
-      username,
+      nearAccountId,
       prfOutput,
       {
-        nearAccountId: targetNearAccountId,
+        nearAccountId,
         receiverId: contractId,
         contractMethodName: methodName,
         contractArgs: args,
@@ -443,20 +504,13 @@ export class PasskeyManager {
         nonce: nonce.toString(),
         blockHashBytes: Array.from(bs58.decode(blockInfo.header.hash))
       },
-      challengeId // Use dummy challenge since we're reusing PRF
+      challengeId
     );
 
-    // Submit the signed transaction to the network
-    const signedTransactionBorsh = new Uint8Array(signedTxResult.signedTransactionBorsh);
-    console.log("callFunction2WithPrf: sending transaction", signedTransactionBorsh);
-    console.log("Transaction size:", signedTransactionBorsh.length, "bytes");
+    // Create a SignedTransaction object from the Borsh bytes
+    const signedTransaction = SignedTransaction.decode(Buffer.from(signedTxResult.signedTransactionBorsh));
 
     try {
-      console.log("Using NEAR JS provider to submit transaction...");
-
-      // Create a SignedTransaction object from the Borsh bytes
-      const signedTransaction = SignedTransaction.decode(Buffer.from(signedTransactionBorsh));
-
       // Submit the transaction asynchronously to avoid RPC timeouts
       console.log("Submitting transaction with optimistic execution...");
       const finalResult = await this.nearRpcProvider.sendTransactionUntil(

@@ -5,7 +5,6 @@ import type { LoginOptions, RegistrationOptions, PasskeyManager} from '../core/P
 // === CORE STATE TYPES ===
 export interface LoginState {
   isLoggedIn: boolean;
-  username: string | null;
   nearPublicKey: string | null;
   nearAccountId: string | null;
 }
@@ -77,19 +76,17 @@ export interface OptimisticAuthHook {
 
 // === SIMPLIFIED CONTEXT TYPES ===
 export interface PasskeyContextType {
-  // User login state
+  // State
   loginState: LoginState;
-  // Core PasskeyManager instance - provides all functionality
-  passkeyManager: PasskeyManager;
   // Simple utility functions
   logout: () => void;
-  loginPasskey: (username: string, options: LoginOptions) => Promise<LoginResult>;
-  registerPasskey: (username: string, options: RegistrationOptions) => Promise<RegistrationResult>;
+  loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
+  registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
   // Settings
   optimisticAuth: boolean;
   setOptimisticAuth: (value: boolean) => void;
-  // Legacy compatibility - direct access to WebAuthnManager
-  webAuthnManager: WebAuthnManager;
+  // Core PasskeyManager instance - provides all functionality
+  passkeyManager: PasskeyManager;
 }
 
 export interface PasskeyContextProviderProps {

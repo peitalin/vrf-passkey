@@ -45,7 +45,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
   } = usePasskeyContext();
 
   // Use props if provided, otherwise fall back to context
-  const username = usernameProp || loginState.username;
+  const accountName = nearAccountIdProp?.split('.')?.[0] || 'User';
   const nearAccountId = nearAccountIdProp || loginState.nearAccountId;
   const optimisticAuth = optimisticAuthProp !== undefined ? optimisticAuthProp : contextOptimisticAuth;
   const onLogout = onLogoutProp || logout;
@@ -99,7 +99,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
 
   // Dimension calculations
   const calculationParams: ProfileCalculationParams = {
-    username: username || 'User',
+    accountName: accountName,
     ...MENU_CONFIG,
   };
 
@@ -130,7 +130,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
         className={`web3authn-profile-button-morphable ${isOpen ? 'open' : 'closed'}`}
       >
         <ProfileTrigger
-          username={username || 'NA'}
+          username={accountName}
           isOpen={isOpen}
           onClick={handleToggle}
         />
