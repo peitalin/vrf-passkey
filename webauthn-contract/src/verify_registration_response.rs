@@ -617,7 +617,6 @@ impl WebAuthnContract {
             auth_data.counter,
             transports,
             None, // client_managed_near_public_key starts as None
-            None, // name starts as None
             current_timestamp,
             backed_up,
         );
@@ -625,9 +624,7 @@ impl WebAuthnContract {
         // Phase 2: Register user in user registry if not already registered
         if !self.registered_users.contains(&user_account_id) {
             log!("Registering new user in user registry: {}", user_account_id);
-            // Use account ID as username for contract-based registrations
-            let username = user_account_id.to_string();
-            self.register_user(user_account_id.clone(), Some(username));
+            self.register_user(user_account_id.clone());
         } else {
             log!("User already registered in user registry: {}", user_account_id);
             // Update user activity

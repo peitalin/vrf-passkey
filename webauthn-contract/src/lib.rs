@@ -20,9 +20,10 @@ pub use verify_registration_response::{
     VerifiedRegistrationResponse,
     AuthenticatorSelectionCriteria,
 };
-use near_sdk::{log, near, CryptoHash, AccountId, PanicOnDefault, BorshStorageKey, env};
+use near_sdk::{log, near, CryptoHash, AccountId, PanicOnDefault, BorshStorageKey, env, NearToken};
 use near_sdk::store::{LookupMap, IterableSet, IterableMap};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
+use std::str::FromStr;
 use crate::generate_registration_options::YieldedRegistrationData;
 
 pub use crate::verify_authentication_response::{
@@ -48,7 +49,6 @@ pub struct StoredAuthenticator {
     pub counter: u32,
     pub transports: Option<Vec<AuthenticatorTransport>>,
     pub client_managed_near_public_key: Option<String>,
-    pub name: Option<String>,
     pub registered: String, // ISO date string
     pub last_used: Option<String>, // ISO date string
     pub backed_up: bool,
@@ -61,7 +61,6 @@ pub struct UserProfile {
     pub registered_at: u64, // Block timestamp
     pub last_activity: u64, // Block timestamp
     pub authenticator_count: u32,
-    pub username: Option<String>, // Optional display name
 }
 
 #[near(contract_state)]
@@ -145,7 +144,7 @@ impl WebAuthnContract {
     }
 
         /// Register a new user in the contract
-    pub fn register_user(&mut self, user_id: AccountId, username: Option<String>) -> bool {
+    pub fn register_user(&mut self, user_id: AccountId) -> bool {
         // Allow the user themselves, contract owner, or any admin to register
         let predecessor = env::predecessor_account_id();
         let contract_account = env::current_account_id();
@@ -171,7 +170,6 @@ impl WebAuthnContract {
             registered_at: current_timestamp,
             last_activity: current_timestamp,
             authenticator_count: 0,
-            username,
         };
 
         self.user_profiles.insert(user_id.clone(), profile);
@@ -224,23 +222,6 @@ impl WebAuthnContract {
         self.registered_users.len() as u32
     }
 
-    /// Update user's display name
-    pub fn update_username(&mut self, user_id: AccountId, username: Option<String>) -> bool {
-        // Only allow the user themselves to update their username
-        if env::predecessor_account_id() != user_id {
-            env::panic_str("Only the user can update their own username");
-        }
-
-        if let Some(mut profile) = self.user_profiles.get(&user_id).cloned() {
-            profile.username = username;
-            profile.last_activity = env::block_timestamp_ms();
-            self.user_profiles.insert(user_id, profile);
-            true
-        } else {
-            false
-        }
-    }
-
     /// Get all authenticators for a specific user
     pub fn get_authenticators_by_user(&self, user_id: AccountId) -> Vec<(String, StoredAuthenticator)> {
         let mut result = Vec::new();
@@ -266,7 +247,6 @@ impl WebAuthnContract {
         counter: u32,
         transports: Option<Vec<AuthenticatorTransport>>,
         client_managed_near_public_key: Option<String>,
-        name: Option<String>,
         registered: String,
         backed_up: bool,
     ) -> bool {
@@ -275,7 +255,6 @@ impl WebAuthnContract {
             counter,
             transports,
             client_managed_near_public_key,
-            name,
             registered,
             last_used: None,
             backed_up,
@@ -401,6 +380,53 @@ impl WebAuthnContract {
     /// Get all admins
     pub fn get_admins(&self) -> Vec<AccountId> {
         self.admins.iter().cloned().collect()
+    }
+
+    /// Create a user account as a subaccount of this contract
+    /// This allows for serverless registration by using the contract's funds
+    #[payable]
+    pub fn create_user_account(
+        &mut self,
+        username: String,
+        public_key: String,
+        initial_balance: Option<String>
+    ) -> bool {
+        // Sanitize username
+        let sanitized_username = username.to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .take(32)
+            .collect::<String>();
+
+        if sanitized_username.is_empty() {
+            return false;
+        }
+
+        // Create account ID as subaccount of this contract
+        let account_id = format!("{}.{}", sanitized_username, env::current_account_id());
+
+        // Parse the initial balance (default to 0.02 NEAR)
+        let balance = if let Some(balance_str) = initial_balance {
+            balance_str.parse::<u128>().unwrap_or(20_000_000_000_000_000_000_000) // 0.02 NEAR
+        } else {
+            20_000_000_000_000_000_000_000 // 0.02 NEAR
+        };
+
+        // Parse the public key
+        let public_key_parsed = match near_sdk::PublicKey::from_str(&public_key) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+
+        // Create the account using a promise
+        let promise = near_sdk::Promise::new(account_id.parse().unwrap())
+            .create_account()
+            .add_full_access_key(public_key_parsed)
+            .transfer(NearToken::from_yoctonear(balance));
+
+        // The promise will execute and we return true to indicate the call was made
+        // The actual success/failure will be determined by the promise execution
+        true
     }
 
     // pub fn generate_registration_options(
