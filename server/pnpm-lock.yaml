@@ -8,9 +8,24 @@ importers:
 
   .:
     dependencies:
+      '@near-js/accounts':
+        specifier: ^2.0.1
+        version: 2.0.1(x3xwgfoeieoiwqwx5l3nol3npm)
+      '@near-js/client':
+        specifier: ^2.0.1
+        version: 2.1.0(n6i3er5cwaibmuy33fms6oggnm)
       '@near-js/crypto':
         specifier: ^2.0.1
         version: 2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))
+      '@near-js/keystores':
+        specifier: ^2.0.1
+        version: 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)
+      '@near-js/providers':
+        specifier: ^2.0.1
+        version: 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/transactions@2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))
+      '@near-js/types':
+        specifier: ^2.0.1
+        version: 2.0.1
       '@simplewebauthn/server':
         specifier: ^9.0.3
         version: 9.0.3
@@ -81,6 +96,18 @@ packages:
     resolution: {integrity: sha512-RLkE4Fta5ip0IXcr0fQEBir5pZN+yInAqetDvW1XEjxMeW14WvCGYNouuhOQq13jvUmSsWG95PEke6zUsUswLg==}
     peerDependencies:
       '@near-js/crypto': ^2.0.1
+      '@near-js/providers': ^2.0.1
+      '@near-js/signers': ^2.0.1
+      '@near-js/transactions': ^2.0.1
+      '@near-js/types': ^2.0.1
+      '@near-js/utils': ^2.0.1
+
+  '@near-js/client@2.1.0':
+    resolution: {integrity: sha512-qQyPNjK9d6cUNEjYGDg9rB1NyeiUDhJJwXQKRyU7Bc8vFqv2ZShI4Ay9qKl4Hr0irJNB/1XQ9ZTi5GTrylRjwA==}
+    peerDependencies:
+      '@near-js/accounts': ^2.0.1
+      '@near-js/crypto': ^2.0.1
+      '@near-js/keystores': ^2.0.1
       '@near-js/providers': ^2.0.1
       '@near-js/signers': ^2.0.1
       '@near-js/transactions': ^2.0.1
@@ -987,6 +1014,18 @@ snapshots:
       is-my-json-valid: 2.20.6
       lru_map: 0.4.1
       near-abi: 0.2.0
+
+  '@near-js/client@2.1.0(n6i3er5cwaibmuy33fms6oggnm)':
+    dependencies:
+      '@near-js/accounts': 2.0.1(x3xwgfoeieoiwqwx5l3nol3npm)
+      '@near-js/crypto': 2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))
+      '@near-js/keystores': 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)
+      '@near-js/providers': 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/transactions@2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))
+      '@near-js/signers': 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/keystores@2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1))(@near-js/transactions@2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))
+      '@near-js/transactions': 2.0.1(@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1)))(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))
+      '@near-js/types': 2.0.1
+      '@near-js/utils': 2.0.1(@near-js/types@2.0.1)
+      '@noble/hashes': 1.7.1
 
   '@near-js/crypto@2.0.1(@near-js/types@2.0.1)(@near-js/utils@2.0.1(@near-js/types@2.0.1))':
     dependencies:
