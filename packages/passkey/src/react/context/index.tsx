@@ -3,10 +3,12 @@ import { indexDBManager } from '../../core/IndexDBManager';
 import { PasskeyManager } from '../../core/PasskeyManager';
 import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
 import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
+import { useAccountInput } from '../hooks/useAccountInput';
 import type {
   PasskeyContextType,
   PasskeyContextProviderProps,
   LoginState,
+  AccountInputState,
   RegistrationResult,
   LoginOptions,
   LoginResult,
@@ -21,21 +23,36 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   config: userConfig
 }) => {
 
+  // Authentication state (actual login status)
   const [loginState, setLoginState] = useState<LoginState>({
     isLoggedIn: false,
     nearAccountId: null,
     nearPublicKey: null,
   });
 
+  // UI input state (separate from authentication state)
+  const [accountInputState, setAccountInputState] = useState<AccountInputState>({
+    inputUsername: '',
+    lastLoggedInUsername: '',
+    lastLoggedInDomain: '',
+    targetAccountId: '',
+    displayPostfix: '',
+    isUsingExistingAccount: false,
+    accountExists: false,
+    indexDBAccounts: []
+  });
+
   // Get NEAR RPC provider
   const { getNearRpcProvider } = useNearRpcProvider();
+
+  // Store the initial optimisticAuth value from config
+  const [initialOptimisticAuth] = useState(() => userConfig?.optimisticAuth ?? false);
 
   // Initialize PasskeyManager with configuration
   const [passkeyManager] = useState(() => {
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
       relayerAccount: 'webauthn-contract.testnet',
-      optimisticAuth: userConfig?.optimisticAuth ?? false,
     };
 
     // Only add serverUrl if explicitly provided
@@ -49,28 +66,63 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   // Use optimistic auth hook
   const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
-    currentUser: loginState.nearAccountId
+    currentUser: loginState.nearAccountId,
+    initialValue: initialOptimisticAuth
   });
+
+  // Use account input hook
+  const accountInputHook = useAccountInput({
+    passkeyManager,
+    relayerAccount: passkeyManager.getConfig().relayerAccount,
+    optimisticAuth,
+    currentNearAccountId: loginState.nearAccountId,
+    isLoggedIn: loginState.isLoggedIn
+  });
+
+  // Sync account input hook state with account input state
+  useEffect(() => {
+    setAccountInputState({
+      inputUsername: accountInputHook.inputUsername,
+      lastLoggedInUsername: accountInputHook.lastLoggedInUsername,
+      lastLoggedInDomain: accountInputHook.lastLoggedInDomain,
+      targetAccountId: accountInputHook.targetAccountId,
+      displayPostfix: accountInputHook.displayPostfix,
+      isUsingExistingAccount: accountInputHook.isUsingExistingAccount,
+      accountExists: accountInputHook.accountExists,
+      indexDBAccounts: accountInputHook.indexDBAccounts
+    });
+  }, [
+    accountInputHook.inputUsername,
+    accountInputHook.lastLoggedInUsername,
+    accountInputHook.lastLoggedInDomain,
+    accountInputHook.targetAccountId,
+    accountInputHook.displayPostfix,
+    accountInputHook.isUsingExistingAccount,
+    accountInputHook.accountExists,
+    accountInputHook.indexDBAccounts
+  ]);
 
   // Simple logout that only manages React state
   const logout = useCallback(() => {
-    setLoginState({
+    setLoginState(prevState => ({
+      ...prevState,
       isLoggedIn: false,
       nearAccountId: null,
       nearPublicKey: null,
-    });
-  }, [loginState]);
+    }));
+  }, []);
 
   const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
       optimisticAuth: optimisticAuth,
       onEvent: (event) => {
         if (event.type === 'loginCompleted') {
-          setLoginState({
+          setLoginState(prevState => ({
+            ...prevState,
             isLoggedIn: true,
             nearAccountId: event.data.nearAccountId || null,
             nearPublicKey: event.data.publicKey || null,
-          });
+          }));
         }
         options.onEvent?.(event);
       },
@@ -88,11 +140,12 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
       optimisticAuth: optimisticAuth,
       onEvent: (event) => {
         if (event.phase === 'user-ready') {
-          setLoginState({
+          setLoginState(prevState => ({
+            ...prevState,
             isLoggedIn: true,
             nearAccountId: event.nearAccountId || null,
             nearPublicKey: event.clientNearPublicKey || null,
-          });
+          }));
         }
         options.onEvent?.(event);
       },
@@ -111,10 +164,10 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
       try {
         const lastUser = await indexDBManager.getLastUser();
         if (lastUser) {
-          setLoginState({
-            ...loginState,
+          setLoginState(prevState => ({
+            ...prevState,
             nearAccountId: lastUser.nearAccountId,
-          });
+          }));
           await indexDBManager.updateLastLogin(lastUser.nearAccountId);
 
           // Load client-managed NEAR public key
@@ -122,18 +175,18 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
             const webAuthnManager = passkeyManager.getWebAuthnManager();
             const webAuthnUserData = await webAuthnManager.getUserData(lastUser.nearAccountId);
             if (webAuthnUserData?.clientNearPublicKey) {
-              setLoginState({
-                ...loginState,
-                nearPublicKey: webAuthnUserData.clientNearPublicKey,
-              });
+              setLoginState(prevState => ({
+                ...prevState,
+                nearPublicKey: webAuthnUserData.clientNearPublicKey || null,
+              }));
               console.log('Loaded client-managed NEAR public key:', webAuthnUserData.clientNearPublicKey);
             } else {
               console.log('No client-managed NEAR public key found for:', lastUser.nearAccountId);
-              setLoginState({ ...loginState, nearPublicKey: null });
+              setLoginState(prevState => ({ ...prevState, nearPublicKey: null }));
             }
           } catch (webAuthnDataError) {
             console.warn('Failed to load WebAuthn user data:', webAuthnDataError);
-            setLoginState({ ...loginState, nearPublicKey: null });
+            setLoginState(prevState => ({ ...prevState, nearPublicKey: null }));
           }
         }
       } catch (error) {
@@ -145,8 +198,10 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   }, [passkeyManager]);
 
   const value: PasskeyContextType = {
-    // State
+    // Authentication state (actual state from contract/backend)
     loginState,
+    // UI input state (form/input tracking)
+    accountInputState,
     // Simple utility functions
     logout,
     loginPasskey,
@@ -154,6 +209,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     // Settings
     optimisticAuth,
     setOptimisticAuth,
+    // Account input management
+    setInputUsername: accountInputHook.setInputUsername,
+    refreshAccountData: accountInputHook.refreshAccountData,
     // Core PasskeyManager instance - provides ALL functionality
     passkeyManager,
   };

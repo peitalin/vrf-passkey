@@ -15,10 +15,10 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Color constants */
-  --muted-green: #8db58e;
+  --muted-green: #79af82;
   --muted-blue: #6a9bcc;
-  --muted-orange: #FF8C42;
-  --muted-orange-hover: #FF6B00;
+  --muted-green-primary: #62a57e;
+  --muted-green-hover: #49966b;
   --toast-text-color: #fefefe;
   --muted-off-white: #fafafa;
   --light-grey: #e5e7eb;
@@ -80,7 +80,7 @@ button:hover {
 }
 button:focus,
 button:focus-visible {
-  outline: 2px solid #ff6b35;
+  outline: 2px solid #22c55e;
   outline-offset: 2px;
 }
 
@@ -241,13 +241,13 @@ button {
 }
 
 .sign-button {
-  background-color: #ff9800;
+  background-color: var(--muted-green-primary);
   color: white;
   margin: 1rem 0;
 }
 
 .sign-button:hover {
-  background-color: #e68a00;
+  background-color: var(--muted-green-hover);
 }
 
 .account-info {
@@ -271,7 +271,7 @@ button {
   background-color: #f5f5f5;
   padding: 1rem;
   border-radius: 4px;
-  border-left: 4px solid #ff9800;
+  border-left: 4px solid var(--muted-green-primary);
 }
 
 .hash-value, .signature-value {
@@ -391,9 +391,9 @@ header { /* Duplicate definition */
 
 /* Styles from the end of App.css that were not fully captured in the initial read */
 .action-button {
-    background-color: var(--muted-orange);
+    background-color: var(--muted-green-primary);
     color: white;
-    border: 1px solid var(--muted-orange);
+    border: 1px solid var(--muted-green-primary);
     padding: 0.75rem 1.5rem;
     text-align: center;
     text-decoration: none;
@@ -408,20 +408,20 @@ header { /* Duplicate definition */
 }
 
 .action-button:hover {
-    background-color: var(--muted-orange-hover);
-    border-color: var(--muted-orange-hover);
+    background-color: var(--muted-green-hover);
+    border-color: var(--muted-green-hover);
     color: white;
 }
 
 .action-button.primary {
-    background-color: #ff6b35;
+    background-color: var(--muted-green-primary);
     color: white;
-    border-color: #ff6b35;
+    border-color: var(--muted-green-primary);
 }
 
 .action-button.primary:hover {
-    background-color: #e55a2b;
-    border-color: #e55a2b;
+    background-color: var(--muted-green-hover);
+    border-color: var(--muted-green-hover);
     color: white;
 }
 
@@ -446,9 +446,9 @@ header { /* Duplicate definition */
 }
 
 .input-field:focus {
-    border-color: #ff6b35;
+    border-color: var(--muted-green-primary);
     outline: none;
-    box-shadow: 0 0 0 0.2rem rgba(255, 107, 53, 0.15);
+    box-shadow: 0 0 0 0.2rem rgba(34, 197, 94, 0.15);
 }
 
 .error-message {
@@ -462,9 +462,9 @@ header { /* Duplicate definition */
 }
 
 .info-message {
-    color: #8b4513;
-    background-color: #fef3e8;
-    border: 1px solid #f4d5a8;
+    color: #166534;
+    background-color: #f0fdf4;
+    border: 1px solid #bbf7d0;
     padding: 1rem 1.25rem;
     margin-top: 1rem;
     border-radius: 8px;
@@ -515,7 +515,7 @@ header { /* Duplicate definition */
 }
 
 .navbar-links a:hover {
-  color: #ff6b35;
+  color: var(--muted-green-primary);
 }
 
 .navbar-user-info {
@@ -534,7 +534,7 @@ header { /* Duplicate definition */
 }
 
 .navbar-logout-button {
-  background: var(--muted-orange);
+  background: var(--muted-green-primary);
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -544,7 +544,7 @@ header { /* Duplicate definition */
 }
 
 .navbar-logout-button:hover {
-  background: var(--muted-orange-hover);
+  background: var(--muted-green-hover);
 }
 
 /* PasskeyLogin Component Styles */
@@ -755,7 +755,7 @@ header { /* Duplicate definition */
 }
 
 .toggle-checkbox:checked + .toggle-slider {
-  background-color: #ff6b35;
+  background-color: var(--muted-green-primary);
 }
 
 .toggle-checkbox:checked + .toggle-slider:before {

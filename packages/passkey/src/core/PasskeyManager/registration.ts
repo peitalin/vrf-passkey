@@ -1,3 +1,4 @@
+import { WEBAUTHN_CONTRACT_ID } from '../../config';
 import { bufferEncode, publicKeyCredentialToJSON } from '../../utils/encoders';
 import { indexDBManager } from '../IndexDBManager';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
@@ -687,11 +688,6 @@ async function handleRegistrationWithRelayer(
     // For serverless mode, we need to generate our own registration options
     // since we can't call the contract for options (it requires authentication)
     const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const challengeB64url = bufferEncode(challenge);
-    const userId = `user_${Date.now()}_${crypto.randomUUID()}`;
-
-    // Extract username for WebAuthn user entity (displayed in passkey UI)
-    const username = indexDBManager.extractUsername(nearAccountId);
 
     // Build registration options for WebAuthn ceremony
     const registrationOptions: PublicKeyCredentialCreationOptions = {
@@ -701,9 +697,9 @@ async function handleRegistrationWithRelayer(
         id: window.location.hostname
       },
       user: {
-        id: new TextEncoder().encode(userId),
-        name: username, // Use username for WebAuthn display
-        displayName: username // Use username for WebAuthn display
+        id: new TextEncoder().encode(nearAccountId),
+        name: nearAccountId, // use full account ID for WebAuthn user entity
+        displayName: nearAccountId
       },
       pubKeyCredParams: [
         { alg: -7, type: 'public-key' }, // ES256
@@ -823,11 +819,95 @@ async function handleRegistrationWithRelayer(
     // END TODO: REPLACE WITH METATRANSACTIONS / DELEGATE ACTIONS
     // ========================================================================
 
-    // Step 4: Store authenticator data locally
-    console.log('💾 Serverless registration: Storing authenticator data');
+    // Step 4: Wait for account to be available before proceeding
+    console.log('⏳ Serverless registration: Waiting for account to be available...');
 
     onEvent?.({
       step: 4,
+      sessionId: tempSessionId,
+      phase: 'account-verification',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Waiting for account to be available on network...'
+    });
+
+    // Only wait for account verification if account creation was successful
+    if (accountCreationResult.success) {
+      // Check account balance to verify successful creation
+      console.log('⏳ Verifying account creation by checking balance...');
+
+      const maxRetries = 10;
+      const retryDelay = 2000; // 2 seconds
+      let accountVerified = false;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          // Query account state to check if it exists and has balance
+          const nearRpcProvider = passkeyManager['nearRpcProvider'];
+          const accountState = await nearRpcProvider.query({
+            request_type: 'view_account',
+            finality: 'final',
+            account_id: finalNearAccountId,
+          }) as any; // Cast to any since the NEAR RPC types are complex
+
+          // Check if account has a balance (indicating successful creation)
+          const balance = accountState?.amount || '0';
+          const balanceNum = BigInt(balance);
+
+          if (balanceNum > 0n) {
+            console.log(`✅ Account ${finalNearAccountId} verified with balance: ${balance} yoctoNEAR`);
+            accountVerified = true;
+            break;
+          } else {
+            console.log(`⏳ Account ${finalNearAccountId} exists but has no balance yet, attempt ${attempt}/${maxRetries}`);
+          }
+        } catch (error: any) {
+          if (error.type === 'AccountDoesNotExist' ||
+              (error.cause && error.cause.name === 'UNKNOWN_ACCOUNT')) {
+            console.log(`⏳ Account ${finalNearAccountId} not yet created, attempt ${attempt}/${maxRetries}`);
+          } else {
+            console.warn(`Unexpected error checking account ${finalNearAccountId}:`, error);
+            // For unexpected errors, assume account exists and continue
+            accountVerified = true;
+            break;
+          }
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+
+      if (!accountVerified) {
+        console.warn(`⚠️ Account ${finalNearAccountId} verification failed after ${maxRetries} attempts, continuing anyway...`);
+      }
+
+      onEvent?.({
+        step: 4,
+        sessionId: tempSessionId,
+        phase: 'account-verification',
+        status: 'success',
+        timestamp: Date.now(),
+        message: accountVerified
+          ? 'Account verified with balance - ready for use'
+          : 'Proceeding despite account verification timeout'
+      });
+    } else {
+      onEvent?.({
+        step: 4,
+        sessionId: tempSessionId,
+        phase: 'account-verification',
+        status: 'success',
+        timestamp: Date.now(),
+        message: 'Skipping account verification (creation failed but continuing)'
+      });
+    }
+
+    // Step 5: Store authenticator data locally
+    console.log('💾 Serverless registration: Storing authenticator data');
+
+    onEvent?.({
+      step: 5,
       sessionId: tempSessionId,
       phase: 'database-storage',
       status: 'progress',
@@ -865,7 +945,7 @@ async function handleRegistrationWithRelayer(
     );
 
     onEvent?.({
-      step: 4,
+      step: 5,
       sessionId: tempSessionId,
       phase: 'database-storage',
       status: 'success',
@@ -873,75 +953,21 @@ async function handleRegistrationWithRelayer(
       message: 'Authenticator data stored successfully'
     });
 
-    // Step 5: Contract registration - ACTUALLY store authenticator in contract for recovery
-    console.log('📜 Serverless registration: Storing authenticator in contract for recovery');
+    // Step 6: Contract registration - Skip for serverless mode
+    console.log('📜 Serverless registration: Skipping contract storage (local-only mode)');
 
-    onEvent?.({
-      step: 5,
-      sessionId: tempSessionId,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Storing authenticator in contract for account recovery...'
-    });
-
-    try {
-      // Store authenticator in contract for recovery purposes
-      const { WEBAUTHN_CONTRACT_ID } = await import('../../config');
-
-      // Extract COSE public key from the credential
-      const attestationObjectBase64url = bufferEncode(response.attestationObject);
-      const cosePublicKey = await webAuthnManager.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
-
-      // Use the user's own account to store the authenticator (they pay gas)
-      const contractResult = await passkeyManager.callContract({
-        contractId: WEBAUTHN_CONTRACT_ID,
-        methodName: 'store_authenticator',
-        args: {
-          user_id: finalNearAccountId,
-          credential_id: credentialId,
-          credential_public_key: Array.from(cosePublicKey),
-          counter: 0,
-          transports: transports,
-          client_managed_near_public_key: keyGenResult.publicKey,
-          name: `Passkey for ${finalNearAccountId}`,
-          registered: new Date().toISOString(),
-          backed_up: false
-        },
-        gas: '50000000000000', // 50 TGas
-        attachedDeposit: '0',
-        nearAccountId: finalNearAccountId,
-        requiresAuth: true,
-        optimisticAuth: false
-      });
-
-      console.log('📜 Contract storage result:', contractResult);
-
-      onEvent?.({
-        step: 5,
-        sessionId: tempSessionId,
-        phase: 'contract-registration',
-        status: 'success',
-        timestamp: Date.now(),
-        message: 'Authenticator stored in contract successfully - can be recovered if local data is lost'
-      });
-
-    } catch (contractError: any) {
-      console.warn('📜 Failed to store authenticator in contract (continuing anyway):', contractError.message);
-
-      onEvent?.({
-        step: 5,
-        sessionId: tempSessionId,
-        phase: 'contract-registration',
-        status: 'success', // Don't fail registration over this
-        timestamp: Date.now(),
-        message: 'Local registration completed - contract storage failed but account is functional'
-      });
-    }
-
-    // Step 6: Complete registration
     onEvent?.({
       step: 6,
+      sessionId: tempSessionId,
+      phase: 'contract-registration',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'Serverless mode: Authenticator stored locally only - no contract storage needed'
+    });
+
+    // Step 7: Complete registration
+    onEvent?.({
+      step: 7,
       sessionId: tempSessionId,
       phase: 'registration-complete',
       status: 'success',

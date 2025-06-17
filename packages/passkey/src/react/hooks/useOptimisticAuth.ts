@@ -4,11 +4,10 @@ import type { OptimisticAuthOptions, OptimisticAuthHook } from '../types';
 
 const OPTIMISTIC_AUTH_KEY = 'optimisticAuth';
 
-export const useOptimisticAuth = (
-  options: OptimisticAuthOptions = {}
-): OptimisticAuthHook => {
-  const { currentUser } = options;
-  const [optimisticAuth, setOptimisticAuthState] = useState<boolean>(true);
+export const useOptimisticAuth = (options: OptimisticAuthOptions = {}): OptimisticAuthHook => {
+
+  const { currentUser, initialValue = false } = options;
+  const [optimisticAuth, setOptimisticAuthState] = useState<boolean>(initialValue);
 
   // Load initial setting
   useEffect(() => {
@@ -16,16 +15,16 @@ export const useOptimisticAuth = (
       if (currentUser) {
         // Load from user preferences if logged in
         const user = await indexDBManager.getUser(currentUser);
-        setOptimisticAuthState(user?.preferences?.optimisticAuth ?? true);
+        setOptimisticAuthState(user?.preferences?.optimisticAuth ?? initialValue);
       } else {
         // Load from app state if not logged in
         const saved = await indexDBManager.getAppState<boolean>(OPTIMISTIC_AUTH_KEY);
-        setOptimisticAuthState(saved ?? true);
+        setOptimisticAuthState(saved ?? initialValue);
       }
     };
 
     loadOptimisticAuth();
-  }, [currentUser]);
+  }, [currentUser, initialValue]);
 
   // Sync when currentUser changes
   useEffect(() => {
@@ -34,11 +33,14 @@ export const useOptimisticAuth = (
         const user = await indexDBManager.getUser(currentUser);
         if (user?.preferences?.optimisticAuth !== undefined) {
           setOptimisticAuthState(user.preferences.optimisticAuth);
+        } else {
+          // If user has no saved preference, use the initial value
+          setOptimisticAuthState(initialValue);
         }
       };
       syncFromUser();
     }
-  }, [currentUser]);
+  }, [currentUser, initialValue]);
 
   const setOptimisticAuth = (value: boolean): void => {
     setOptimisticAuthState(value);

@@ -3,10 +3,35 @@ import type { WebAuthnManager } from '../core/WebAuthnManager';
 import type { LoginOptions, RegistrationOptions, PasskeyManager} from '../core/PasskeyManager';
 
 // === CORE STATE TYPES ===
+
+/** Actual authentication state - represents what's currently authenticated/registered */
 export interface LoginState {
+  /** Whether a user is currently authenticated */
   isLoggedIn: boolean;
+  /** The public key of the currently authenticated user (if available) */
   nearPublicKey: string | null;
+  /** The NEAR account ID of the currently authenticated user (e.g., "alice.testnet") */
   nearAccountId: string | null;
+}
+
+/** UI input state - tracks user input and form state */
+export interface AccountInputState {
+  /** The username portion being typed by the user (e.g., "alice") */
+  inputUsername: string;
+  /** The username from the last logged-in account */
+  lastLoggedInUsername: string;
+  /** The domain from the last logged-in account (e.g., ".testnet") */
+  lastLoggedInDomain: string;
+  /** The complete account ID for input operations (e.g., "alice.testnet") */
+  targetAccountId: string;
+  /** The domain postfix to display in the UI (e.g., ".testnet") */
+  displayPostfix: string;
+  /** Whether the current input matches an existing account in IndexDB */
+  isUsingExistingAccount: boolean;
+  /** Whether the target account has passkey credentials */
+  accountExists: boolean;
+  /** All account IDs stored in IndexDB */
+  indexDBAccounts: string[];
 }
 
 // === RESULT TYPES ===
@@ -67,6 +92,7 @@ export interface NearRpcProviderHook {
 
 export interface OptimisticAuthOptions {
   currentUser?: string | null;
+  initialValue?: boolean;
 }
 
 export interface OptimisticAuthHook {
@@ -74,10 +100,18 @@ export interface OptimisticAuthHook {
   setOptimisticAuth: (value: boolean) => void;
 }
 
+// Account input hook types
+export interface UseAccountInputReturn extends AccountInputState {
+  setInputUsername: (username: string) => void;
+  refreshAccountData: () => Promise<void>;
+}
+
 // === SIMPLIFIED CONTEXT TYPES ===
 export interface PasskeyContextType {
-  // State
+  // Authentication state (actual state from contract/backend)
   loginState: LoginState;
+  // UI input state (form/input tracking)
+  accountInputState: AccountInputState;
   // Simple utility functions
   logout: () => void;
   loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
@@ -85,6 +119,9 @@ export interface PasskeyContextType {
   // Settings
   optimisticAuth: boolean;
   setOptimisticAuth: (value: boolean) => void;
+  // Account input management
+  setInputUsername: (username: string) => void;
+  refreshAccountData: () => Promise<void>;
   // Core PasskeyManager instance - provides all functionality
   passkeyManager: PasskeyManager;
 }

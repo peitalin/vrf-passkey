@@ -4,6 +4,7 @@ export { PasskeyProvider, usePasskeyContext } from './context/index';
 // === REACT HOOKS ===
 export { useOptimisticAuth } from './hooks/useOptimisticAuth';
 export { useNearRpcProvider } from './hooks/useNearRpcProvider';
+export { useAccountInput } from './hooks/useAccountInput';
 
 // === REACT COMPONENTS ===
 export { ProfileButton } from './components/ProfileButton';
@@ -23,6 +24,8 @@ export type {
   NearRpcProviderHook,
   OptimisticAuthOptions,
   OptimisticAuthHook,
+  AccountInputState,
+  UseAccountInputReturn,
   // Re-exported from PasskeyManager types
   RegistrationOptions,
   LoginOptions,

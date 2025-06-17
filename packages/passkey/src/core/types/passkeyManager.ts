@@ -42,20 +42,26 @@ export interface AccessKeyAdditionSSEEvent extends BaseSSERegistrationEvent {
   error?: string;
 }
 
-export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
+export interface AccountVerificationSSEEvent extends BaseSSERegistrationEvent {
   step: 4;
+  phase: 'account-verification';
+  error?: string;
+}
+
+export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
+  step: 4 | 5;
   phase: 'database-storage';
   error?: string;
 }
 
 export interface ContractRegistrationSSEEvent extends BaseSSERegistrationEvent {
-  step: 5;
+  step: 5 | 6;
   phase: 'contract-registration';
   error?: string;
 }
 
 export interface RegistrationCompleteSSEEvent extends BaseSSERegistrationEvent {
-  step: 6;
+  step: 6 | 7;
   phase: 'registration-complete';
   status: 'success';
   sessionId: string;
@@ -72,6 +78,7 @@ export type RegistrationSSEEvent =
   | WebAuthnVerificationSSEEvent
   | UserReadySSEEvent
   | AccessKeyAdditionSSEEvent
+  | AccountVerificationSSEEvent
   | DatabaseStorageSSEEvent
   | ContractRegistrationSSEEvent
   | RegistrationCompleteSSEEvent
