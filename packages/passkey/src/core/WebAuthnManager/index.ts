@@ -4,49 +4,17 @@ import { WebAuthnNetworkCalls } from './network-calls';
 import { WebAuthnContractCalls } from './contract-calls';
 import { indexDBManager } from '../IndexDBManager';
 import { bufferEncode, bufferDecode } from '../../utils/encoders';
+import type { UserData } from '../types/worker';
 import type {
+  WebAuthnRegistrationWithPrf,
+  WebAuthnAuthenticationWithPrf,
+  RegistrationOptions,
   GenerateRegistrationOptionsRequest,
   GenerateRegistrationOptionsResponse,
   GenerateAuthenticationOptionsRequest,
   GenerateAuthenticationOptionsResponse,
   PublicKeyCredentialRequestOptionsJSON
-} from '../../types/endpoints';
-
-// === TYPE DEFINITIONS ===
-
-interface UserData {
-  nearAccountId: string;
-  clientNearPublicKey?: string;
-  lastUpdated: number;
-  prfSupported?: boolean;
-  deterministicKey?: boolean;
-  passkeyCredential?: {
-    id: string;
-    rawId: string;
-  };
-}
-
-interface WebAuthnRegistrationWithPrf {
-  credential: PublicKeyCredential;
-  prfEnabled: boolean;
-  commitmentId?: string;
-}
-
-interface WebAuthnAuthenticationWithPrf {
-  credential: PublicKeyCredential;
-  prfOutput?: ArrayBuffer;
-}
-
-interface RegistrationOptions {
-  options: PublicKeyCredentialCreationOptions;
-  challengeId: string;
-  commitmentId?: string;
-}
-
-interface AuthenticationOptions {
-  options: PublicKeyCredentialRequestOptions;
-  challengeId: string;
-}
+} from '../types/webauthn';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -332,7 +300,6 @@ export class WebAuthnManager {
   ): Promise<WebAuthnAuthenticationWithPrf> {
     // For serverless mode, create local challenge
     const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const challengeB64 = bufferEncode(challenge);
 
     const authenticationOptions: PublicKeyCredentialRequestOptions = {
       challenge,
@@ -474,13 +441,6 @@ export class WebAuthnManager {
    */
   async extractCosePublicKeyFromAttestation(attestationObjectBase64url: string): Promise<Uint8Array> {
     return await this.webauthnWorkers.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
-  }
-
-  /**
-   * Validate COSE key format using WASM worker
-   */
-  async validateCoseKeyFormat(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
-    return await this.webauthnWorkers.validateCoseKeyFormat(coseKeyBytes);
   }
 
   // === CONTRACT OPERATIONS (Delegated to WebAuthnContractCalls) ===

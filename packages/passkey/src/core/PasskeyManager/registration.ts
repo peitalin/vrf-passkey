@@ -8,7 +8,7 @@ import type {
   RegistrationResult,
   RegistrationSSEEvent,
   OperationHooks,
-} from './types';
+} from '../types/passkeyManager';
 
 /**
  * Extract COSE public key from WebAuthn credential and create authenticator data

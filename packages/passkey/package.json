@@ -36,15 +36,15 @@
     "build:bundle": "rollup -c rollup.config.js",
     "build:all": "npm run build && npm run copy-assets",
     "dev": "rollup -c rollup.config.js -w",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "type-check": "tsc --noEmit",
     "dev:link": "npm run build:all && pnpm link --dir ../../frontend",
     "dev:unlink": "pnpm unlink --dir ../../frontend",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:core": "jest src/core/__tests__",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
     "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
-    "prepublishOnly": "npm run build && npm test"
+    "type-check": "tsc --noEmit"
   },
   "keywords": [
     "NEAR",

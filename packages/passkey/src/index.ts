@@ -3,28 +3,29 @@ export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { indexDBManager } from './core/IndexDBManager';
 
-// === TYPES ===
+// === Re-exported from various type definition files ===
 export type {
-  PasskeyConfig,
-  RegisterResult,
+  PasskeyManagerConfig as PasskeyConfig,
+  RegistrationResult,
   LoginResult,
-  SignTransactionResult,
-  TransactionParams,
-  SignedTransaction,
-  UserData,
-  ClientUserData,
-  UserPreferences,
+  ActionResult as SignTransactionResult,
+  TransactionParams
+} from './core/types/passkeyManager';
+
+export type {
   WebAuthnChallenge,
   WebAuthnRegistrationWithPrf,
   WebAuthnAuthenticationWithPrf,
   RegistrationOptions,
   AuthenticationOptions,
-  WorkerResponse,
-  RegistrationPayload,
-  SigningPayload,
   PrfSaltConfig,
-  ServerAuthenticationOptions
-} from './core/types';
+  ServerAuthenticationOptions,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+} from './core/types/webauthn';
+
+export type { UserData } from './core/types/worker';
 
 // === WORKER TYPES ===
 export {
@@ -54,29 +55,9 @@ export {
   isWorkerError
 } from './core/types/worker';
 
-// === ERROR CLASSES ===
-export {
-  PasskeyError,
-  AuthenticationError,
-  RegistrationError,
-  TransactionError
-} from './core/types';
-
 // === UTILITIES ===
 export * from './utils/encoders';
 export * from './config';
 
 // === CONTRACT SERVICE (SERVERLESS MODE) ===
-export { ContractService } from './core/ContractService';
-export type {
-  ContractGenerateOptionsArgs,
-  ContractCompleteRegistrationArgs,
-  ContractGenerateAuthOptionsArgs,
-  ContractVerifyAuthArgs,
-  ContractRegistrationOptionsResponse,
-  ContractAuthenticationOptionsResponse,
-  ContractVerificationResult,
-  RegistrationResponseJSON,
-  AuthenticationResponseJSON,
-  PublicKeyCredentialCreationOptionsJSON,
-} from './core/ContractService';
+export { AuthenticatorSyncer } from './core/AuthenticatorSyncer';

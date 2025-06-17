@@ -1,66 +1,21 @@
 import { bufferEncode } from '../../utils/encoders';
-import type { WorkerResponse } from '../types/worker';
-
-// === INTERFACES ===
-
-export interface WebAuthnChallenge {
-  id: string;
-  challenge: string; // Base64url encoded challenge from server
-  timestamp: number;
-  used: boolean;
-  operation: 'registration' | 'authentication';
-  timeout: number;
-}
-
-export interface PrfSaltConfig {
-  nearKeyEncryption: Uint8Array;
-}
-
-export interface RegistrationPayload {
-  nearAccountId: string;
-}
-
-export interface SigningPayload {
-  nearAccountId: string;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-  nonce: string;
-  blockHashBytes: number[];
-}
-
-// === WORKER TYPES ===
-
-export enum WorkerRequestType {
-  ENCRYPT_PRIVATE_KEY_WITH_PRF = 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
-  DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
-  DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF = 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
-  EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
-  VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY'
-}
-
-// Type guards for worker responses
-export function isEncryptionSuccess(response: WorkerResponse): response is WorkerResponse & { payload: { publicKey: string } } {
-  return response.type === 'ENCRYPTION_SUCCESS';
-}
-
-export function isSignatureSuccess(response: WorkerResponse): response is WorkerResponse & { payload: { signedTransactionBorsh: number[] } } {
-  return response.type === 'SIGNATURE_SUCCESS';
-}
-
-export function isDecryptionSuccess(response: WorkerResponse): response is WorkerResponse & { payload: { decryptedPrivateKey: string } } {
-  return response.type === 'DECRYPTION_SUCCESS';
-}
-
-export function isCoseKeySuccess(response: WorkerResponse): response is WorkerResponse & { payload: { cosePublicKeyBytes: number[] } } {
-  return response.type === 'COSE_KEY_SUCCESS';
-}
-
-export function isCoseValidationSuccess(response: WorkerResponse): response is WorkerResponse & { payload: { valid: boolean; info: any } } {
-  return response.type === 'COSE_VALIDATION_SUCCESS';
-}
+import type {
+  WorkerResponse,
+  RegistrationPayload,
+  SigningPayload
+} from '../types/worker';
+import {
+  WorkerRequestType,
+  isEncryptionSuccess,
+  isSignatureSuccess,
+  isDecryptionSuccess,
+  isCoseKeySuccess,
+  isCoseValidationSuccess
+} from '../types/worker';
+import type {
+  WebAuthnChallenge,
+  PrfSaltConfig
+} from '../types/webauthn';
 
 /**
  * WebAuthnWorkers handles PRF, challenges, workers, and COSE operations

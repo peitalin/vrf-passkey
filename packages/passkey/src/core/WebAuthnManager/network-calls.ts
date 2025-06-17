@@ -1,18 +1,8 @@
-import type { PublicKeyCredentialRequestOptionsJSON } from '../../types/endpoints';
-import { bufferDecode, publicKeyCredentialToJSON } from '../../utils/encoders';
-import { WebAuthnWorkers } from './webauthn-workers';
 import type { Provider } from '@near-js/providers';
-
-// === INTERFACES ===
-
-export interface AuthenticationOptions {
-  nearAccountId: string;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-}
+import type { PublicKeyCredentialRequestOptionsJSON } from '../types/webauthn';
+import { publicKeyCredentialToJSON } from '../../utils/encoders';
+import { WebAuthnWorkers } from './webauthn-workers';
+import type { NetworkAuthenticationOptions } from '../types/worker';
 
 /**
  * WebAuthnNetworkCalls handles server/contract communication
@@ -69,7 +59,7 @@ export class WebAuthnNetworkCalls {
    */
   async getAuthenticationOptionsFromServer(
     serverUrl: string,
-    options: AuthenticationOptions
+    options: NetworkAuthenticationOptions
   ): Promise<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }> {
     console.log('WebAuthnManager: Getting authentication options from server for contract call');
 
@@ -149,7 +139,7 @@ export class WebAuthnNetworkCalls {
   async getAuthenticationOptionsFromContract(
     nearRpcProvider: Provider,
     contractId: string,
-    options: AuthenticationOptions
+    options: NetworkAuthenticationOptions
   ): Promise<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }> {
     console.log('WebAuthnManager: Getting authentication options from contract for serverless mode');
 

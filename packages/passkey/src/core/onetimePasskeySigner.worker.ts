@@ -8,13 +8,10 @@ import {
   Signature
 } from '@near-js/transactions';
 import { sha256 } from 'js-sha256';
-import { KeyPairEd25519 } from '@near-js/crypto';
 
 // Import WASM binary directly
-// @ts-ignore - WASM module types
 import init, * as wasmModule from '../wasm-worker/passkey_crypto_worker.js';
 
-// Import worker types
 import {
   WorkerRequestType,
   WorkerResponseType,
@@ -26,16 +23,6 @@ import {
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest
 } from './types/worker';
-
-/**
- * Strips the ed25519: prefix from a NEAR key string
- */
-function stripKeyPrefix(key: string): string {
-  if (key.startsWith('ed25519:')) {
-    return key.substring(8);
-  }
-  return key;
-}
 
 // Buffer polyfill for Web Workers
 // Workers don't inherit main thread polyfills - they run in an isolated environment
@@ -173,6 +160,8 @@ interface WasmResult {
 
 // === INDEXEDDB OPERATIONS ===
 
+const KEY_PATH = 'nearAccountId';
+
 /**
  * Open IndexedDB connection
  */
@@ -186,7 +175,7 @@ async function openDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'nearAccountId' });
+        db.createObjectStore(STORE_NAME, { keyPath: KEY_PATH });
       }
     };
   });

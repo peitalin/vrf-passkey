@@ -1,15 +1,15 @@
 import { bufferDecode, publicKeyCredentialToJSON, bufferEncode } from '../../utils/encoders';
 import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
 import { indexDBManager } from '../IndexDBManager';
-import { ContractService } from '../ContractService';
+import { AuthenticatorSyncer  } from '../AuthenticatorSyncer';
 import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
 import type { PasskeyManager } from '../PasskeyManager';
-import type { ServerAuthenticationOptions } from '../../types';
+import type { ServerAuthenticationOptions } from '../types/webauthn';
 import type {
   LoginOptions,
   LoginResult,
   LoginEvent,
-} from './types';
+} from '../types/passkeyManager';
 import {
   VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
   GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING
@@ -351,8 +351,8 @@ async function handleLoginOnchain(
       }
     });
 
-    // Initialize ContractService to build arguments
-    const contractService = new ContractService(
+    // Initialize AuthenticatorSyncer  to build arguments
+    const authenticatorSyncer = new AuthenticatorSyncer (
       nearRpcProvider,
       WEBAUTHN_CONTRACT_ID,
       'WebAuthn Passkey',
@@ -370,7 +370,7 @@ async function handleLoginOnchain(
       transports: auth.transports || undefined,
     }));
 
-    const contractArgs = contractService.buildAuthenticationOptionsArgs(
+    const contractArgs = authenticatorSyncer.buildAuthenticationOptionsArgs(
       primaryAuthenticator,
       allowCredentials,
       'preferred'
@@ -390,7 +390,7 @@ async function handleLoginOnchain(
     console.log("Auth options result:", authOptionsResult);
 
     // Parse the authentication options from the result
-    const parsedOptions = contractService.parseContractResponse(authOptionsResult, 'generate_authentication_options');
+    const parsedOptions = authenticatorSyncer.parseContractResponse(authOptionsResult, 'generate_authentication_options');
 
     // Step 4: Perform WebAuthn assertion ceremony with CONTRACT'S challenge (SECOND TOUCHID)
     onEvent?.({
@@ -457,7 +457,7 @@ async function handleLoginOnchain(
     });
 
     const assertionJSON = publicKeyCredentialToJSON(assertion);
-    const verificationArgs = contractService.buildAuthenticationVerificationArgs(
+    const verificationArgs = authenticatorSyncer.buildAuthenticationVerificationArgs(
       assertionJSON,
       parsedOptions.commitmentId || ''
     );
@@ -474,7 +474,7 @@ async function handleLoginOnchain(
       optimisticAuth: false
     });
 
-    const parsedVerification = contractService.parseContractResponse(
+    const parsedVerification = authenticatorSyncer.parseContractResponse(
       verificationResult,
       'verify_authentication_response'
     );

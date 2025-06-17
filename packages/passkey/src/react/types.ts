@@ -110,4 +110,4 @@ export type {
   RegistrationSSEEvent,
   LoginEvent,
   ActionEvent
-} from '../core/PasskeyManager/types';
+} from '../core/types/passkeyManager';

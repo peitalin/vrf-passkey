@@ -1,4 +1,4 @@
-import type { PasskeyManagerConfig } from '../PasskeyManager/types';
+import type { PasskeyManagerConfig } from '../types/passkeyManager';
 
 export type OperationMode = 'web2' | 'serverless';
 

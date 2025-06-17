@@ -6,36 +6,10 @@ import { WebAuthnNetworkCalls } from './network-calls';
 import { indexDBManager } from '../IndexDBManager';
 import { bufferDecode } from '../../utils/encoders';
 import bs58 from 'bs58';
-
-// === INTERFACES ===
-
-export interface ContractCallOptions {
-  contractId: string;
-  methodName: string;
-  args: any;
-  gas?: string;
-  attachedDeposit?: string;
-  nearAccountId?: string;
-  prfOutput?: ArrayBuffer;
-  viewOnly?: boolean;
-  requiresAuth?: boolean;
-}
-
-export interface SigningPayload {
-  nearAccountId: string;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-  nonce: string;
-  blockHashBytes: number[];
-}
-
-export interface AccessKeyView {
-  nonce: bigint;
-  permission: 'FullAccess' | { FunctionCall: any };
-}
+import type {
+  ContractCallOptions,
+  AccessKeyView
+} from '../types/worker';
 
 /**
  * WebAuthnContractCalls handles blockchain contract interactions

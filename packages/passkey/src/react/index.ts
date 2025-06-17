@@ -48,5 +48,6 @@ export type {
 } from './components/ProfileButton/types';
 
 // === RE-EXPORT CORE ===
-export type { PasskeyConfig, UserData } from '../core/types';
+export type { PasskeyManagerConfig as PasskeyConfig } from '../core/types/passkeyManager';
+export type { UserData } from '../core/types/worker';
 export { PasskeyManager } from '../core/PasskeyManager';

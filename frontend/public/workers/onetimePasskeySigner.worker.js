@@ -17552,6 +17552,7 @@ var wasmModule = /*#__PURE__*/Object.freeze({
   validate_cose_key_format: validate_cose_key_format$1
 });
 
+// === USER DATA TYPES ===
 // === WORKER MESSAGE TYPE ENUMS ===
 var WorkerRequestType;
 (function (WorkerRequestType) {
@@ -17575,6 +17576,18 @@ var WorkerResponseType;
     WorkerResponseType["COSE_VALIDATION_FAILURE"] = "COSE_VALIDATION_FAILURE";
     WorkerResponseType["ERROR"] = "ERROR";
 })(WorkerResponseType || (WorkerResponseType = {}));
+var WorkerErrorCode;
+(function (WorkerErrorCode) {
+    WorkerErrorCode["WASM_INIT_FAILED"] = "WASM_INIT_FAILED";
+    WorkerErrorCode["INVALID_REQUEST"] = "INVALID_REQUEST";
+    WorkerErrorCode["TIMEOUT"] = "TIMEOUT";
+    WorkerErrorCode["ENCRYPTION_FAILED"] = "ENCRYPTION_FAILED";
+    WorkerErrorCode["DECRYPTION_FAILED"] = "DECRYPTION_FAILED";
+    WorkerErrorCode["SIGNING_FAILED"] = "SIGNING_FAILED";
+    WorkerErrorCode["COSE_EXTRACTION_FAILED"] = "COSE_EXTRACTION_FAILED";
+    WorkerErrorCode["STORAGE_FAILED"] = "STORAGE_FAILED";
+    WorkerErrorCode["UNKNOWN_ERROR"] = "UNKNOWN_ERROR";
+})(WorkerErrorCode || (WorkerErrorCode = {}));
 
 // @ts-ignore
 globalThis.Buffer = buffer.Buffer;
@@ -17669,6 +17682,7 @@ function parseWasmResult(resultJson) {
     };
 }
 // === INDEXEDDB OPERATIONS ===
+const KEY_PATH = 'nearAccountId';
 /**
  * Open IndexedDB connection
  */
@@ -17680,7 +17694,7 @@ async function openDB() {
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'nearAccountId' });
+                db.createObjectStore(STORE_NAME, { keyPath: KEY_PATH });
             }
         };
     });

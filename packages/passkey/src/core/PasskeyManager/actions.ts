@@ -2,14 +2,14 @@ import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
-import type { SerializableActionArgs } from '../../types';
+import type { SerializableActionArgs } from '../types';
 import {
   determineOperationMode,
   validateModeRequirements,
   getModeDescription
 } from '../utils/routing';
 import type { PasskeyManager } from './index';
-import type { ActionOptions, ActionResult } from './types';
+import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import { indexDBManager } from '../IndexDBManager';
 
 interface BlockInfo {

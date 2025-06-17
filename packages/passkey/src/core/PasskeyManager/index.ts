@@ -1,12 +1,11 @@
 import { WebAuthnManager } from '../WebAuthnManager';
 import { indexDBManager } from '../IndexDBManager';
 import { WEBAUTHN_CONTRACT_ID } from '../../config';
-import { ClientContractService } from '../ClientContractService';
+import { AuthenticatorSyncer  } from '../AuthenticatorSyncer';
 
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
-import bs58 from 'bs58';
 import type {
   PasskeyManagerConfig,
   RegistrationOptions,
@@ -15,9 +14,8 @@ import type {
   LoginResult,
   ActionOptions,
   ActionResult
-} from './types';
-import type { SerializableActionArgs } from '../../types';
-
+} from '../types/passkeyManager';
+import type { SerializableActionArgs } from '../types';
 import type { Provider } from '@near-js/providers';
 import { TxExecutionStatus } from '@near-js/types';
 
@@ -259,7 +257,7 @@ export class PasskeyManager {
         throw new Error('NEAR RPC provider is required for contract recovery');
       }
 
-      console.log(`🔄 Starting authenticator recovery for account: ${nearAccountId}`);
+      console.log(`Starting authenticator recovery for account: ${nearAccountId}`);
 
       // Check if account exists
       const userData = await this.webAuthnManager.getUserData(nearAccountId);
@@ -271,10 +269,16 @@ export class PasskeyManager {
       }
 
       // Try to recover authenticators from contract
-      const contractService = new ClientContractService(WEBAUTHN_CONTRACT_ID, this.nearRpcProvider);
+      const authenticatorSyncer = new AuthenticatorSyncer (
+        this.nearRpcProvider,
+        WEBAUTHN_CONTRACT_ID,
+        'WebAuthn Passkeys', // rpName - default RP name
+        window.location.hostname, // rpId - use current domain
+        WEBAUTHN_CONTRACT_ID // relayerAccountId - use contract ID as relayer
+      );
 
       // Fetch authenticators from contract
-      const contractAuthenticators = await contractService.findByUserId(nearAccountId);
+      const contractAuthenticators = await authenticatorSyncer.findAuthenticatorsByUserId(nearAccountId);
 
       if (contractAuthenticators.length === 0) {
         return {
@@ -283,7 +287,7 @@ export class PasskeyManager {
         };
       }
 
-      console.log(`🔄 Found ${contractAuthenticators.length} authenticators in contract`);
+      console.log(`Found ${contractAuthenticators.length} authenticators in contract`);
 
       // Create user entry
       await indexDBManager.registerUser(nearAccountId);
@@ -491,202 +495,6 @@ export class PasskeyManager {
     });
   }
 
-  // /**
-  //  * Execute a view call (read-only, no authentication)
-  //  */
-  // private async _executeViewCall(
-  //   contractId: string,
-  //   methodName: string,
-  //   args: any
-  // ): Promise<any> {
-  //   console.log(`Calling contract view function: ${methodName}`);
-
-  //   const result = await this.nearRpcProvider.query({
-  //     request_type: 'call_function',
-  //     account_id: contractId,
-  //     method_name: methodName,
-  //     args_base64: Buffer.from(JSON.stringify(args)).toString('base64'),
-  //     finality: 'optimistic'
-  //   });
-
-  //   return result;
-  // }
-
-  // /**
-  //  * Execute an authenticated call (triggers TouchID)
-  //  */
-  // private async _executeAuthenticatedCall(
-  //   contractId: string,
-  //   methodName: string,
-  //   args: any,
-  //   gas: string,
-  //   attachedDeposit: string,
-  //   nearAccountId?: string,
-  //   optimisticAuth?: boolean
-  // ): Promise<FinalExecutionOutcome> {
-  //   // Get the current user if nearAccountId not provided
-  //   const targetNearAccountId = nearAccountId || await this.webAuthnManager.getLastUsedNearAccountId();
-  //   if (!targetNearAccountId) {
-  //     throw new Error('No NEAR account ID provided and no previous user found. NEAR account ID required for contract calls.');
-  //   }
-
-  //   // First authenticate to get PRF output and challenge
-  //   let challengeId: string;
-  //   let prfOutput: ArrayBuffer;
-
-  //   if (optimisticAuth) {
-  //     // Server mode: get challenge from server
-  //     if (!this.config.serverUrl) {
-  //       throw new Error('Server URL is required for server mode authentication.');
-  //     }
-
-  //     const { credential, prfOutput: authPrfOutput } = await this.webAuthnManager.authenticateWithPrfAndUrl(
-  //       this.config.serverUrl,
-  //       targetNearAccountId,
-  //       'signing'
-  //     );
-
-  //     if (!credential || !authPrfOutput) {
-  //       throw new Error('Authentication failed - PRF output required for contract calls.');
-  //     }
-
-  //     // Get the challenge from the authentication options
-  //     const { challengeId: authChallengeId } = await this.webAuthnManager.getAuthenticationOptionsFromServer(
-  //       this.config.serverUrl,
-  //       targetNearAccountId
-  //     );
-
-  //     challengeId = authChallengeId;
-  //     prfOutput = authPrfOutput;
-  //   } else {
-  //     // Serverless mode: authenticate directly without contract challenge
-  //     if (!this.nearRpcProvider) {
-  //       throw new Error('NEAR RPC provider is required for serverless contract calls.');
-  //     }
-
-  //     // Authenticate with PRF (no server URL needed)
-  //     const { credential, prfOutput: authPrfOutput } = await this.webAuthnManager.authenticateWithPrf(
-  //       targetNearAccountId,
-  //       'signing'
-  //     );
-
-  //     if (!credential || !authPrfOutput) {
-  //       throw new Error('Authentication failed - PRF output required for contract calls.');
-  //     }
-
-  //     // For serverless mode, we use a dummy challenge ID since we're not using the contract's challenge system
-  //     challengeId = 'serverless-' + crypto.randomUUID();
-  //     prfOutput = authPrfOutput;
-  //   }
-
-  //   return this._signAndSubmitTransaction(
-  //     targetNearAccountId,
-  //     prfOutput,
-  //     challengeId,
-  //     contractId,
-  //     methodName,
-  //     args,
-  //     gas,
-  //     attachedDeposit
-  //   );
-  // }
-
-  // /**
-  //  * Execute an authenticated call with pre-obtained PRF (no additional TouchID)
-  //  */
-  // private async _executeAuthenticatedCallWithPrf(
-  //   contractId: string,
-  //   methodName: string,
-  //   args: any,
-  //   gas: string,
-  //   attachedDeposit: string,
-  //   nearAccountId: string,
-  //   prfOutput: ArrayBuffer
-  // ): Promise<FinalExecutionOutcome> {
-  //   // For serverless mode with pre-obtained PRF, use a dummy challenge ID
-  //   const challengeId = 'serverless-reused-prf-' + crypto.randomUUID();
-
-  //   console.log("callContract (with PRF): secureTransactionSigningWithPrf", challengeId);
-
-  //   return this._signAndSubmitTransaction(
-  //     nearAccountId,
-  //     prfOutput,
-  //     challengeId,
-  //     contractId,
-  //     methodName,
-  //     args,
-  //     gas,
-  //     attachedDeposit
-  //   );
-  // }
-
-  // /**
-  //  * Common transaction signing and submission logic
-  //  */
-  // private async _signAndSubmitTransaction(
-  //   nearAccountId: string,
-  //   prfOutput: ArrayBuffer,
-  //   challengeId: string,
-  //   contractId: string,
-  //   methodName: string,
-  //   args: any,
-  //   gas: string,
-  //   attachedDeposit: string
-  // ): Promise<FinalExecutionOutcome> {
-  //   // Get user data to retrieve public key for nonce lookup
-  //   const userData = await this.webAuthnManager.getUserData(nearAccountId);
-  //   if (!userData?.clientNearPublicKey) {
-  //     throw new Error('Client NEAR public key not found in user data');
-  //   }
-
-  //   // Get current nonce and block info concurrently
-  //   const [accessKeyInfo, blockInfo] = await Promise.all([
-  //     this.nearRpcProvider.viewAccessKey(
-  //       nearAccountId,
-  //       userData.clientNearPublicKey,
-  //     ) as Promise<AccessKeyView>,
-  //     this.nearRpcProvider.viewBlock({ finality: 'final' })
-  //   ]);
-
-  //   const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
-
-  //   console.log("callContract: secureTransactionSigningWithPrf", challengeId);
-  //   // Use WASM worker to sign and execute the contract call
-  //   const signedTxResult = await this.webAuthnManager.secureTransactionSigningWithPrf(
-  //     nearAccountId,
-  //     prfOutput,
-  //     {
-  //       nearAccountId,
-  //       receiverId: contractId,
-  //       contractMethodName: methodName,
-  //       contractArgs: args,
-  //       gasAmount: gas,
-  //       depositAmount: attachedDeposit,
-  //       nonce: nonce.toString(),
-  //       blockHashBytes: Array.from(bs58.decode(blockInfo.header.hash))
-  //     },
-  //     challengeId
-  //   );
-
-  //   // Create a SignedTransaction object from the Borsh bytes
-  //   const signedTransaction = SignedTransaction.decode(Buffer.from(signedTxResult.signedTransactionBorsh));
-
-  //   try {
-  //     // Submit the transaction asynchronously to avoid RPC timeouts
-  //     console.log("Submitting transaction with optimistic execution...");
-  //     const finalResult = await this.nearRpcProvider.sendTransactionUntil(
-  //       signedTransaction,
-  //       DEFAULT_WAIT_STATUS // "INCLUDED_FINAL"
-  //     );
-
-  //     console.log("Transaction successful:", finalResult);
-  //     return finalResult;
-
-  //   } catch (error: any) {
-  //     console.error("Transaction failed:", error);
-  //     throw new Error(`Transaction submission failed: ${error.message}`);
-  //   }
-  // }
 }
 
 
@@ -704,4 +512,4 @@ export type {
   ActionEvent,
   EventCallback,
   OperationHooks
-} from './types';
+} from '../types/passkeyManager';
