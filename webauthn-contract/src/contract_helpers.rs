@@ -2,8 +2,7 @@ use super::{WebAuthnContract, WebAuthnContractExt};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{env, log, near, FunctionError};
-use near_sdk::{AccountId, Promise, PromiseError};
+use near_sdk::{env, log, near};
 
 pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
 pub const DEFAULT_USER_ID_SIZE: usize = 16;

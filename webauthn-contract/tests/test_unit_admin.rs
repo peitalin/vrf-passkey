@@ -8,7 +8,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     let contract = sandbox.dev_deploy(&contract_wasm).await?;
     let admin1_account = sandbox.dev_create_account().await?;
     let admin2_account = sandbox.dev_create_account().await?;
-    let user_account = sandbox.dev_create_account().await?;
+    let user_account  = sandbox.dev_create_account().await?;
     let non_admin_account = sandbox.dev_create_account().await?;
 
     // Initialize the contract
@@ -130,8 +130,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     let admin_register_outcome = admin1_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": user_account.id(),
-            "username": "test_user"
+            "user_id": user_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -155,8 +154,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     let non_admin_register = non_admin_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": admin2_account.id(),
-            "username": "should_fail"
+            "user_id": admin2_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -231,8 +229,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     let ex_admin_register = admin2_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": non_admin_account.id(),
-            "username": "should_fail"
+            "user_id": non_admin_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -246,8 +243,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     let remaining_admin_register = admin1_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": non_admin_account.id(),
-            "username": "remaining_admin_test"
+            "user_id": non_admin_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -297,8 +293,7 @@ async fn test_admin_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
     let self_register_outcome = user1_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": user1_account.id(),
-            "username": "self_registered"
+            "user_id": user1_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -326,8 +321,7 @@ async fn test_admin_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
     let admin_register_outcome = admin_account
         .call(contract.id(), "register_user")
         .args_json(json!({
-            "user_id": user2_account.id(),
-            "username": "admin_registered"
+            "user_id": user2_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()
@@ -367,8 +361,7 @@ async fn test_admin_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
     let owner_register_outcome = contract
         .call("register_user")
         .args_json(json!({
-            "user_id": owner_user_account.id(),
-            "username": "owner_registered"
+            "user_id": owner_user_account.id()
         }))
         .gas(Gas::from_tgas(30))
         .transact()

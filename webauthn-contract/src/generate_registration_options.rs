@@ -1,3 +1,5 @@
+//! DEPRECATED: we are moving from a commit-reveal mechanic to VRF based challenges
+//!
 use crate::generate_authentication_options::DATA_REGISTER_ID;
 
 use super::{WebAuthnContract, WebAuthnContractExt};
