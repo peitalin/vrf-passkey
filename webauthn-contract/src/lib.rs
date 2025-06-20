@@ -8,10 +8,7 @@ mod verify_authentication_response;
 mod verify_registration_response;
 
 // Choose one of the VRF verification methods
-use crate::utils::vrf_verifier::{
-    verify_vrf_1 as vrf_verifier_1, // vrf-contract-verifier (lighter, but custom)
-    verify_vrf_2 as vrf_verifier_2, // vrf-wasm (heavier fork of established fastcrypto crate)
-};
+use crate::utils::vrf_verifier;
 
 pub use types::{
     AuthenticationOptionsJSON,
@@ -130,7 +127,7 @@ impl WebAuthnContract {
         public_key_bytes: Vec<u8>,
         input: Vec<u8>,
     ) -> VerifiedVRFAuthenticationResponse {
-        match vrf_verifier_1(&proof_bytes, &public_key_bytes, &input) {
+        match vrf_verifier::verify_vrf_1(&proof_bytes, &public_key_bytes, &input) {
             Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
                 verified: true,
                 vrf_output: Some(vrf_output.to_vec()),
@@ -151,7 +148,7 @@ impl WebAuthnContract {
         public_key_bytes: Vec<u8>,
         input: Vec<u8>,
     ) -> VerifiedVRFAuthenticationResponse {
-        match vrf_verifier_2(&proof_bytes, &public_key_bytes, &input) {
+        match vrf_verifier::verify_vrf_2(&proof_bytes, &public_key_bytes, &input) {
             Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
                 verified: true,
                 vrf_output: Some(vrf_output.to_vec()),

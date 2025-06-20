@@ -21,7 +21,9 @@ use crate::utils::verifiers::verify_attestation_signature;
 #[near_sdk::near(serializers = [json, borsh])]
 #[derive(Debug, Clone)]
 pub struct VRFVerificationData {
-    /// Contains session info, block height/hash, domain separator, etc.
+    /// SHA256 hash of concatenated VRF input components:
+    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash + timestamp
+    /// This hashed data is used for VRF proof verification
     pub vrf_input_data: Vec<u8>,
     /// Used as the WebAuthn challenge (VRF output)
     pub vrf_output: Vec<u8>,
@@ -31,6 +33,12 @@ pub struct VRFVerificationData {
     pub public_key: Vec<u8>,
     /// Relying Party ID (domain) used in VRF input construction
     pub rp_id: String,
+    /// Block height for freshness validation (must be recent)
+    pub block_height: u64,
+    /// Block hash included in VRF input (for entropy only, not validated on-chain)
+    /// NOTE: NEAR contracts cannot access historical block hashes, so this is used
+    /// purely for additional entropy in the VRF input construction
+    pub block_hash: Vec<u8>,
 }
 
 // WebAuthn Registration Data Structure
@@ -131,15 +139,30 @@ impl WebAuthnContract {
         vrf_data: VRFVerificationData,
         webauthn_data: WebAuthnRegistrationData, // RegistrationResponse
     ) -> VerifiedRegistrationResponse {
-        log!("🔧 VRF Registration: Verifying VRF proof + WebAuthn registration");
+        log!("VRF Registration: Verifying VRF proof + WebAuthn registration");
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
 
-        // 1. Verify the VRF proof and validate VRF output
-        log!("📋 VRF Verification:");
+        // 1. Validate block height freshness
+        let current_height = env::block_index();
+        if current_height < vrf_data.block_height || current_height > vrf_data.block_height + self.vrf_settings.max_block_age {
+            log!("VRF challenge is stale or invalid: current_height={}, vrf_height={}",
+                 current_height, vrf_data.block_height);
+            return VerifiedRegistrationResponse {
+                verified: false,
+                registration_info: None,
+            };
+        }
+
+        log!("VRF block height validation passed: current={}, vrf={}, window={} blocks",
+             current_height, vrf_data.block_height, self.vrf_settings.max_block_age);
+
+        // 2. Verify the VRF proof and validate VRF output
+        log!("VRF Verification:");
         log!("  - Input data: {} bytes", vrf_data.vrf_input_data.len());
         log!("  - Expected output: {} bytes", vrf_data.vrf_output.len());
         log!("  - Proof: {} bytes", vrf_data.vrf_proof.len());
         log!("  - Public key: {} bytes", vrf_data.public_key.len());
+        log!("  - Block hash: {} bytes (entropy only, not validated)", vrf_data.block_hash.len());
 
         let vrf_verification = self.verify_vrf_2( // Using vrf-wasm integration
             vrf_data.vrf_proof.clone(),
@@ -148,33 +171,33 @@ impl WebAuthnContract {
         );
 
         if !vrf_verification.verified {
-            log!("❌ VRF proof verification failed");
+            log!("VRF proof verification failed");
             return VerifiedRegistrationResponse {
                 verified: false,
                 registration_info: None,
             };
         }
 
-        // 2. Validate that the claimed VRF output matches the verified output
+        // 3. Validate that the claimed VRF output matches the verified output
         let verified_vrf_output = vrf_verification.vrf_output.expect("VRF output should be present");
         if verified_vrf_output != vrf_data.vrf_output {
-            log!("❌ VRF output mismatch: client claimed output doesn't match verified output");
+            log!("VRF output mismatch: client claimed output doesn't match verified output");
             return VerifiedRegistrationResponse {
                 verified: false,
                 registration_info: None,
             };
         }
 
-        // 3. Extract WebAuthn challenge from VRF output
+        // 4. Extract WebAuthn challenge from VRF output
         let webauthn_challenge = &vrf_data.vrf_output[0..32]; // First 32 bytes as challenge
         let challenge_b64url = BASE64_URL_ENGINE.encode(webauthn_challenge);
 
-        log!("✅ VRF proof verified, extracted challenge: {} bytes", webauthn_challenge.len());
+        log!("VRF proof verified, extracted challenge: {} bytes", webauthn_challenge.len());
 
-        // 4. Use RP ID from VRF data and require user verification for VRF mode
+        // 5. Use RP ID from VRF data and require user verification for VRF mode
         let require_user_verification = true; // Always require UV for VRF registration
 
-        // 5. Process WebAuthn registration with VRF-generated challenge
+        // 6. Process WebAuthn registration with VRF-generated challenge
         let webauthn_result = self.internal_process_registration(
             challenge_b64url,
             webauthn_data.registration_response,
@@ -184,9 +207,9 @@ impl WebAuthnContract {
         );
 
         if webauthn_result.verified {
-            log!("🎉 VRF Registration completed successfully - user can now authenticate statelessly");
+            log!("VRF Registration completed successfully - user can now authenticate statelessly");
         } else {
-            log!("❌ WebAuthn registration verification failed");
+            log!("WebAuthn registration verification failed");
         }
 
         webauthn_result
@@ -201,7 +224,7 @@ impl WebAuthnContract {
         require_user_verification: bool,
         vrf_public_key: Option<Vec<u8>>, // Optional VRF public key for storage
     ) -> VerifiedRegistrationResponse {
-        log!("🔍 Internal: Processing WebAuthn registration with VRF challenge");
+        log!("Internal: Processing WebAuthn registration with VRF challenge");
 
         // 1. Derive expected origin from rp_id
         let expected_origin = format!("https://{}", rp_id);
@@ -246,7 +269,7 @@ impl WebAuthnContract {
                     self.user_profiles.insert(user_account_id, profile);
                 }
 
-                log!("💾 Stored VRF public key with authenticator for future stateless authentication");
+                log!("Stored VRF public key with authenticator for future stateless authentication");
             }
         }
 
@@ -692,6 +715,8 @@ mod tests {
             vrf_proof: mock_vrf.proof,
             public_key: mock_vrf.public_key,
             rp_id: "example.com".to_string(),
+            block_height: 1234567890u64,
+            block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
         };
 
         // Create WebAuthn registration data using VRF output as challenge
@@ -700,7 +725,7 @@ mod tests {
             registration_response,
         };
 
-        println!("🧪 Testing VRF Registration with mock data:");
+        println!("Testing VRF Registration with mock data:");
         println!("  - VRF input: {} bytes", vrf_data.vrf_input_data.len());
         println!("  - VRF output: {} bytes", vrf_data.vrf_output.len());
         println!("  - VRF proof: {} bytes", vrf_data.vrf_proof.len());
@@ -734,6 +759,8 @@ mod tests {
             vrf_proof: mock_vrf.proof,
             public_key: mock_vrf.public_key,
             rp_id: "example.com".to_string(),
+            block_height: 1234567890u64,
+            block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
         };
 
         // Test JSON serialization
@@ -745,6 +772,8 @@ mod tests {
         assert_eq!(vrf_data.vrf_proof, deserialized.vrf_proof);
         assert_eq!(vrf_data.public_key, deserialized.public_key);
         assert_eq!(vrf_data.rp_id, deserialized.rp_id);
+        assert_eq!(vrf_data.block_height, deserialized.block_height);
+        assert_eq!(vrf_data.block_hash, deserialized.block_hash);
 
         println!("✅ VRFVerificationData serialization test passed");
     }
@@ -790,7 +819,7 @@ mod tests {
 
         let vrf_input = Sha256::digest(&input_data);
 
-        println!("🔧 VRF Input Construction Test:");
+        println!("VRF Input Construction Test:");
         println!("  - Domain: {:?}", std::str::from_utf8(domain).unwrap());
         println!("  - User ID: {:?}", std::str::from_utf8(user_id).unwrap());
         println!("  - RP ID: {:?}", std::str::from_utf8(rp_id).unwrap());
