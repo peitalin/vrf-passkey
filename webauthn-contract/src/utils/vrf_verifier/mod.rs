@@ -1,4 +1,3 @@
-
 //! VRF Verification Library for NEAR Contracts
 //!
 //! This module provides verification functions for VRF outputs and proofs generated
@@ -21,7 +20,7 @@ mod vrf_contract_verifier_wrapper;
 mod vrf_wasm_verifier_wrapper;
 
 pub use vrf_contract_verifier_wrapper::verify_vrf_1;
-pub use vrf_wasm_verifier_wrapper::verify_vrf_2;
+// pub use vrf_wasm_verifier_wrapper::verify_vrf_2;
 
 use vrf_contract_verifier::VerificationError;
 use near_sdk::{env, log};

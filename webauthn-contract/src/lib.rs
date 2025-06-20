@@ -141,26 +141,26 @@ impl WebAuthnContract {
         }
     }
 
-    // vrf-wasm
-    pub fn verify_vrf_2(
-        &mut self,
-        proof_bytes: Vec<u8>,
-        public_key_bytes: Vec<u8>,
-        input: Vec<u8>,
-    ) -> VerifiedVRFAuthenticationResponse {
-        match vrf_verifier::verify_vrf_2(&proof_bytes, &public_key_bytes, &input) {
-            Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
-                verified: true,
-                vrf_output: Some(vrf_output.to_vec()),
-                authentication_info: Some("VRF-WASM verification successful".to_string()),
-            },
-            Err(_) => VerifiedVRFAuthenticationResponse {
-                verified: false,
-                vrf_output: None,
-                authentication_info: Some("VRF-WASM verification failed".to_string()),
-            }
-        }
-    }
+    // // vrf-wasm
+    // pub fn verify_vrf_2(
+    //     &mut self,
+    //     proof_bytes: Vec<u8>,
+    //     public_key_bytes: Vec<u8>,
+    //     input: Vec<u8>,
+    // ) -> VerifiedVRFAuthenticationResponse {
+    //     match vrf_verifier::verify_vrf_2(&proof_bytes, &public_key_bytes, &input) {
+    //         Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
+    //             verified: true,
+    //             vrf_output: Some(vrf_output.to_vec()),
+    //             authentication_info: Some("VRF-WASM verification successful".to_string()),
+    //         },
+    //         Err(_) => VerifiedVRFAuthenticationResponse {
+    //             verified: false,
+    //             vrf_output: None,
+    //             authentication_info: Some("VRF-WASM verification failed".to_string()),
+    //         }
+    //     }
+    // }
 
 
     // === VRF SETTINGS MANAGEMENT ===

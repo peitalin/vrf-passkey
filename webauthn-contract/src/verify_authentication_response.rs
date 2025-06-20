@@ -173,7 +173,7 @@ impl WebAuthnContract {
         log!("  - Public key: {} bytes", vrf_data.public_key.len());
         log!("  - Block hash: {} bytes (entropy only, not validated)", vrf_data.block_hash.len());
 
-        let vrf_verification = self.verify_vrf_2( // Using vrf-wasm integration
+        let vrf_verification = self.verify_vrf_1( // Using vrf-contract-verifier integration
             vrf_data.vrf_proof.clone(),
             vrf_data.public_key.clone(),
             vrf_data.vrf_input_data.clone()

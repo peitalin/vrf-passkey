@@ -197,6 +197,8 @@ async fn generate_vrf_authentication_data(
         proof,
         public_key: keypair.pk,
         rp_id: rp_id.to_string(),
+        block_height: block_height,
+        block_hash: block_hash.to_vec(),
     })
 }
 
@@ -251,6 +253,8 @@ async fn generate_vrf_registration_data(
         proof,
         public_key: keypair.pk,
         rp_id: rp_id.to_string(),
+        block_height: block_height,
+        block_hash: block_hash.to_vec(),
     })
 }
 
@@ -278,13 +282,7 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
     let reg_result = contract
         .call("verify_registration_response_vrf")
         .args_json(json!({
-            "vrf_data": {
-                "vrf_input_data": reg_vrf_data.input_data,
-                "vrf_output": reg_vrf_data.output,
-                "vrf_proof": reg_vrf_data.proof_bytes(),
-                "public_key": reg_vrf_data.pubkey_bytes(),
-                "rp_id": reg_vrf_data.rp_id
-            },
+            "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
             "webauthn_data": reg_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
@@ -498,13 +496,7 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
     let reg_result = contract
         .call("verify_registration_response_vrf")
         .args_json(json!({
-            "vrf_data": {
-                "vrf_input_data": reg_vrf_data.input_data,
-                "vrf_output": reg_vrf_data.output,
-                "vrf_proof": reg_vrf_data.proof_bytes(),
-                "public_key": reg_vrf_data.pubkey_bytes(),
-                "rp_id": reg_vrf_data.rp_id
-            },
+            "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
             "webauthn_data": reg_webauthn_data
         }))
         .gas(Gas::from_tgas(200))

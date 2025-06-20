@@ -154,6 +154,8 @@ async fn generate_vrf_registration_data(
         proof,
         public_key: keypair.pk,
         rp_id: rp_id.to_string(),
+        block_height: block_height,
+        block_hash: block_hash.to_vec(),
     })
 }
 
