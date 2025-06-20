@@ -50,11 +50,13 @@ bincode = "1.3.3"
 # VRF with WASM support (based on fastcrypto)
 # with curve25519-dalek-ng with default-features=false, using "u32_backend"
 # and using NEAR based RNG for contract compatibility
-vrf-wasm = { version = "0.7", features = ["near"], default-features = false }
-vrf-contract-verifier = { version = "0.7.2", features = ["near"] }
+vrf-wasm = { version = "0.8", features = ["near"], default-features = false }
+vrf-contract-verifier = { version = "0.8", features = ["near"], default-features = false }
 
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Dev dependencies for native testing environment only.
+# These will NOT be included in the wasm32 contract build.
 near-sdk = { version = "=5.13.0", features = ["unit-testing"] }
 near-workspaces = { version = "0.18", features = ["unstable", "experimental"] }
 near-jsonrpc-primitives = { version = "0.29.2" }
@@ -67,5 +69,5 @@ sha2 = "0.10"
 # VRF generation for testing, uses getrandom lib for browser WASM compatibility
 # (this library is not included in contract binary,
 # vrf-wasm in the contract is compiled with 'near' feature flag)
-vrf-wasm = { version = "0.7", features = ["browser"] }
+vrf-wasm = { version = "0.8", features = ["browser"] }
 
