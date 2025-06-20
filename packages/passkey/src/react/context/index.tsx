@@ -52,7 +52,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const [passkeyManager] = useState(() => {
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
-      relayerAccount: 'webauthn-contract.testnet',
+      relayerAccount: 'web3-authn.testnet',
     };
 
     // Only add serverUrl if explicitly provided

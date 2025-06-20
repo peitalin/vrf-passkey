@@ -147,7 +147,7 @@ class IndexDBManager {
    * Generate a NEAR account ID from a username and domain
    * @param username - The username to use for the account ID
    * @param domain - The domain to use for the account ID
-   * e.g. 'webauthn-contract.testnet', or 'testnet' or 'near' for top-level accounts
+   * e.g. 'web3-authn.testnet', or 'testnet' or 'near' for top-level accounts
    * @returns The generated NEAR account ID
    */
   generateNearAccountId(username: string, domain: string): string {

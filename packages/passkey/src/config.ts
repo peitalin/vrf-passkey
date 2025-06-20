@@ -1,7 +1,7 @@
 export const WASM_WORKER_FILENAME = '../../onetimePasskeySigner.worker.js';
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
-export const WEBAUTHN_CONTRACT_ID = 'webauthn-contract.testnet';
-export const RELAYER_ACCOUNT_ID = 'webauthn-contract.testnet';
+export const WEBAUTHN_CONTRACT_ID = 'web3-authn.testnet';
+export const RELAYER_ACCOUNT_ID = 'web3-authn.testnet';
 export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
 
 // Gas constants as strings

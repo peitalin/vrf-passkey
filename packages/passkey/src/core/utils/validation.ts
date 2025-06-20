@@ -91,7 +91,7 @@ export function validateServerRegistrationAccountId(nearAccountId: string): Vali
   const validSuffixes = [RELAYER_ACCOUNT_ID, 'testnet', 'near'];
   return validateNearAccountId(nearAccountId, {
     allowedSuffixes: validSuffixes,
-    requireTopLevelDomain: false // Allow subdomain suffixes like '.webauthn-contract.testnet'
+    requireTopLevelDomain: false // Allow subdomain suffixes like '.web3-authn.testnet'
   });
 }
 
