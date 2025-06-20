@@ -10,6 +10,10 @@ export interface UserData {
     id: string;
     rawId: string;
   };
+  vrfCredentials?: {
+    encrypted_vrf_data_b64u: string;
+    aes_gcm_nonce_b64u: string;
+  };
 }
 
 // === CONTRACT & NETWORK CALL TYPES ===
@@ -65,6 +69,8 @@ export enum WorkerRequestType {
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
   EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
   VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY',
+  GENERATE_VRF_KEYPAIR_WITH_PRF = 'GENERATE_VRF_KEYPAIR_WITH_PRF',
+  GENERATE_VRF_CHALLENGE_WITH_PRF = 'GENERATE_VRF_CHALLENGE_WITH_PRF',
 }
 
 export enum WorkerResponseType {
@@ -78,6 +84,10 @@ export enum WorkerResponseType {
   COSE_KEY_FAILURE = 'COSE_KEY_FAILURE',
   COSE_VALIDATION_SUCCESS = 'COSE_VALIDATION_SUCCESS',
   COSE_VALIDATION_FAILURE = 'COSE_VALIDATION_FAILURE',
+  VRF_KEYPAIR_SUCCESS = 'VRF_KEYPAIR_SUCCESS',
+  VRF_KEYPAIR_FAILURE = 'VRF_KEYPAIR_FAILURE',
+  VRF_CHALLENGE_SUCCESS = 'VRF_CHALLENGE_SUCCESS',
+  VRF_CHALLENGE_FAILURE = 'VRF_CHALLENGE_FAILURE',
   ERROR = 'ERROR',
 }
 
@@ -104,6 +114,10 @@ export enum WorkerErrorCode {
   SIGNING_FAILED = 'SIGNING_FAILED',
   COSE_EXTRACTION_FAILED = 'COSE_EXTRACTION_FAILED',
   STORAGE_FAILED = 'STORAGE_FAILED',
+  VRF_KEYPAIR_GENERATION_FAILED = 'VRF_KEYPAIR_GENERATION_FAILED',
+  VRF_CHALLENGE_GENERATION_FAILED = 'VRF_CHALLENGE_GENERATION_FAILED',
+  VRF_ENCRYPTION_FAILED = 'VRF_ENCRYPTION_FAILED',
+  VRF_DECRYPTION_FAILED = 'VRF_DECRYPTION_FAILED',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
@@ -175,12 +189,46 @@ export interface ValidateCoseKeyRequest extends BaseWorkerRequest {
   };
 }
 
+export interface GenerateVrfKeypairWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF;
+  payload: {
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+  };
+}
+
+export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF;
+  payload: {
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Base64url-encoded encrypted VRF data */
+    encryptedVrfData: string;
+    /** Base64url-encoded AES-GCM nonce for VRF decryption */
+    encryptedVrfNonce: string;
+    /** User ID for VRF input construction */
+    userId: string;
+    /** Relying Party ID for VRF input construction */
+    rpId: string;
+    /** Session ID for VRF input construction */
+    sessionId: string;
+    /** Block height from NEAR blockchain */
+    blockHeight: number;
+    /** Block hash bytes from NEAR blockchain */
+    blockHashBytes: number[];
+    /** Timestamp for VRF input construction */
+    timestamp: number;
+  };
+}
+
 export type WorkerRequest =
   | EncryptPrivateKeyWithPrfRequest
   | DecryptAndSignTransactionWithPrfRequest
   | DecryptPrivateKeyWithPrfRequest
   | ExtractCosePublicKeyRequest
-  | ValidateCoseKeyRequest;
+  | ValidateCoseKeyRequest
+  | GenerateVrfKeypairWithPrfRequest
+  | GenerateVrfChallengeWithPrfRequest;
 
 // === RESPONSE MESSAGE INTERFACES ===
 
@@ -307,6 +355,59 @@ export interface CoseValidationFailureResponse extends BaseWorkerResponse {
   };
 }
 
+export interface VRFKeyPairSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.VRF_KEYPAIR_SUCCESS;
+  payload: {
+    /** VRF public key (base64url encoded) */
+    vrfPublicKey: string;
+    /** Encrypted VRF keypair data */
+    encryptedVrfKeypair: {
+      encrypted_vrf_data_b64u: string;
+      aes_gcm_nonce_b64u: string;
+    };
+  };
+}
+
+export interface VRFKeyPairFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.VRF_KEYPAIR_FAILURE;
+  payload: {
+    /** Error message describing the failure */
+    error: string;
+    /** Error code for programmatic handling */
+    errorCode?: WorkerErrorCode;
+    /** Additional error context */
+    context?: Record<string, any>;
+  };
+}
+
+export interface VRFChallengeSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.VRF_CHALLENGE_SUCCESS;
+  payload: {
+    /** VRF input data (base64url encoded) */
+    vrfInput: string;
+    /** VRF output (base64url encoded) - used as WebAuthn challenge */
+    vrfOutput: string;
+    /** VRF proof (base64url encoded) */
+    vrfProof: string;
+    /** VRF public key (base64url encoded) */
+    vrfPublicKey: string;
+    /** Relying Party ID */
+    rpId: string;
+  };
+}
+
+export interface VRFChallengeFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.VRF_CHALLENGE_FAILURE;
+  payload: {
+    /** Error message describing the failure */
+    error: string;
+    /** Error code for programmatic handling */
+    errorCode?: WorkerErrorCode;
+    /** Additional error context */
+    context?: Record<string, any>;
+  };
+}
+
 export interface ErrorResponse extends BaseWorkerResponse {
   type: WorkerResponseType.ERROR;
   payload: {
@@ -330,6 +431,10 @@ export type WorkerResponse =
   | CoseKeyFailureResponse
   | CoseValidationSuccessResponse
   | CoseValidationFailureResponse
+  | VRFKeyPairSuccessResponse
+  | VRFKeyPairFailureResponse
+  | VRFChallengeSuccessResponse
+  | VRFChallengeFailureResponse
   | ErrorResponse;
 
 // === TYPE GUARDS ===
@@ -354,24 +459,36 @@ export function isCoseValidationSuccess(response: WorkerResponse): response is C
   return response.type === WorkerResponseType.COSE_VALIDATION_SUCCESS;
 }
 
-export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse {
+export function isVRFKeyPairSuccess(response: WorkerResponse): response is VRFKeyPairSuccessResponse {
+  return response.type === WorkerResponseType.VRF_KEYPAIR_SUCCESS;
+}
+
+export function isVRFChallengeSuccess(response: WorkerResponse): response is VRFChallengeSuccessResponse {
+  return response.type === WorkerResponseType.VRF_CHALLENGE_SUCCESS;
+}
+
+export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
   return [
     WorkerResponseType.ERROR,
     WorkerResponseType.ENCRYPTION_FAILURE,
     WorkerResponseType.SIGNATURE_FAILURE,
     WorkerResponseType.DECRYPTION_FAILURE,
     WorkerResponseType.COSE_KEY_FAILURE,
-    WorkerResponseType.COSE_VALIDATION_FAILURE
+    WorkerResponseType.COSE_VALIDATION_FAILURE,
+    WorkerResponseType.VRF_KEYPAIR_FAILURE,
+    WorkerResponseType.VRF_CHALLENGE_FAILURE
   ].includes(response.type);
 }
 
-export function isWorkerSuccess(response: WorkerResponse): response is EncryptionSuccessResponse | SignatureSuccessResponse | DecryptionSuccessResponse | CoseKeySuccessResponse | CoseValidationSuccessResponse {
+export function isWorkerSuccess(response: WorkerResponse): response is EncryptionSuccessResponse | SignatureSuccessResponse | DecryptionSuccessResponse | CoseKeySuccessResponse | CoseValidationSuccessResponse | VRFKeyPairSuccessResponse | VRFChallengeSuccessResponse {
   return [
     WorkerResponseType.ENCRYPTION_SUCCESS,
     WorkerResponseType.SIGNATURE_SUCCESS,
     WorkerResponseType.DECRYPTION_SUCCESS,
     WorkerResponseType.COSE_KEY_SUCCESS,
-    WorkerResponseType.COSE_VALIDATION_SUCCESS
+    WorkerResponseType.COSE_VALIDATION_SUCCESS,
+    WorkerResponseType.VRF_KEYPAIR_SUCCESS,
+    WorkerResponseType.VRF_CHALLENGE_SUCCESS
   ].includes(response.type);
 }
 
@@ -424,6 +541,12 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
       break;
     case WorkerResponseType.COSE_VALIDATION_FAILURE:
       operation = WorkerRequestType.VALIDATE_COSE_KEY;
+      break;
+    case WorkerResponseType.VRF_KEYPAIR_FAILURE:
+      operation = WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF;
+      break;
+    case WorkerResponseType.VRF_CHALLENGE_FAILURE:
+      operation = WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF;
       break;
     default:
       operation = WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF; // fallback

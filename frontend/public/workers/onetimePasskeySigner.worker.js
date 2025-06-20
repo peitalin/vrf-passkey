@@ -16996,17 +16996,17 @@ function encrypt_data_aes_gcm(plain_text_data_str, key_bytes) {
 
 /**
  * @param {string} encrypted_data_b64u
- * @param {string} iv_b64u
+ * @param {string} aes_gcm_nonce_b64u
  * @param {Uint8Array} key_bytes
  * @returns {string}
  */
-function decrypt_data_aes_gcm$1(encrypted_data_b64u, iv_b64u, key_bytes) {
+function decrypt_data_aes_gcm$1(encrypted_data_b64u, aes_gcm_nonce_b64u, key_bytes) {
     let deferred5_0;
     let deferred5_1;
     try {
         const ptr0 = passStringToWasm0(encrypted_data_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(iv_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(aes_gcm_nonce_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         const ptr2 = passArray8ToWasm0(key_bytes, wasm.__wbindgen_malloc);
         const len2 = WASM_VECTOR_LEN;
@@ -17293,6 +17293,80 @@ function validate_cose_key_format$1(cose_key_bytes) {
     }
 }
 
+/**
+ * Generate VRF keypair and encrypt it using PRF output
+ * This is used during registration to create and store VRF credentials
+ * @param {string} prf_output_base64
+ * @returns {string}
+ */
+function generate_and_encrypt_vrf_keypair_with_prf$1(prf_output_base64) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.generate_and_encrypt_vrf_keypair_with_prf(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Generate VRF challenge and proof using encrypted VRF keypair
+ * This is used during authentication to create WebAuthn challenges
+ * @param {string} prf_output_base64
+ * @param {string} encrypted_vrf_data
+ * @param {string} encrypted_vrf_iv
+ * @param {string} user_id
+ * @param {string} rp_id
+ * @param {string} session_id
+ * @param {bigint} block_height
+ * @param {Uint8Array} block_hash_bytes
+ * @param {bigint} timestamp
+ * @returns {string}
+ */
+function generate_vrf_challenge_with_prf$1(prf_output_base64, encrypted_vrf_data, encrypted_vrf_iv, user_id, rp_id, session_id, block_height, block_hash_bytes, timestamp) {
+    let deferred9_0;
+    let deferred9_1;
+    try {
+        const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(encrypted_vrf_data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(encrypted_vrf_iv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(user_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(rp_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len4 = WASM_VECTOR_LEN;
+        const ptr5 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len5 = WASM_VECTOR_LEN;
+        const ptr6 = passArray8ToWasm0(block_hash_bytes, wasm.__wbindgen_malloc);
+        const len6 = WASM_VECTOR_LEN;
+        const ret = wasm.generate_vrf_challenge_with_prf(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, block_height, ptr6, len6, timestamp);
+        var ptr8 = ret[0];
+        var len8 = ret[1];
+        if (ret[3]) {
+            ptr8 = 0; len8 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred9_0 = ptr8;
+        deferred9_1 = len8;
+        return getStringFromWasm0(ptr8, len8);
+    } finally {
+        wasm.__wbindgen_free(deferred9_0, deferred9_1, 1);
+    }
+}
+
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
         if (typeof WebAssembly.instantiateStreaming === 'function') {
@@ -17357,7 +17431,7 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
         arg0.getRandomValues(arg1);
     }, arguments) };
-    imports.wbg.__wbg_log_4caee689d5123dc1 = function(arg0, arg1) {
+    imports.wbg.__wbg_log_aeb0d47390d0b8bf = function(arg0, arg1) {
         console.log(getStringFromWasm0(arg0, arg1));
     };
     imports.wbg.__wbg_msCrypto_a61aeb35a24c1329 = function(arg0) {
@@ -17521,7 +17595,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (typeof module_or_path === 'undefined') {
-        module_or_path = new URL('passkey_crypto_worker_bg.wasm', import.meta.url);
+        module_or_path = new URL('web3authn_passkey_worker_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 
@@ -17544,7 +17618,9 @@ var wasmModule = /*#__PURE__*/Object.freeze({
   encrypt_data_aes_gcm: encrypt_data_aes_gcm,
   extract_cose_public_key_from_attestation: extract_cose_public_key_from_attestation$1,
   generate_and_encrypt_near_keypair_with_prf: generate_and_encrypt_near_keypair_with_prf$1,
+  generate_and_encrypt_vrf_keypair_with_prf: generate_and_encrypt_vrf_keypair_with_prf$1,
   generate_near_keypair: generate_near_keypair,
+  generate_vrf_challenge_with_prf: generate_vrf_challenge_with_prf$1,
   initSync: initSync,
   init_panic_hook: init_panic_hook,
   sign_near_transaction_with_prf: sign_near_transaction_with_prf,
@@ -17561,6 +17637,8 @@ var WorkerRequestType;
     WorkerRequestType["DECRYPT_PRIVATE_KEY_WITH_PRF"] = "DECRYPT_PRIVATE_KEY_WITH_PRF";
     WorkerRequestType["EXTRACT_COSE_PUBLIC_KEY"] = "EXTRACT_COSE_PUBLIC_KEY";
     WorkerRequestType["VALIDATE_COSE_KEY"] = "VALIDATE_COSE_KEY";
+    WorkerRequestType["GENERATE_VRF_KEYPAIR_WITH_PRF"] = "GENERATE_VRF_KEYPAIR_WITH_PRF";
+    WorkerRequestType["GENERATE_VRF_CHALLENGE_WITH_PRF"] = "GENERATE_VRF_CHALLENGE_WITH_PRF";
 })(WorkerRequestType || (WorkerRequestType = {}));
 var WorkerResponseType;
 (function (WorkerResponseType) {
@@ -17574,6 +17652,10 @@ var WorkerResponseType;
     WorkerResponseType["COSE_KEY_FAILURE"] = "COSE_KEY_FAILURE";
     WorkerResponseType["COSE_VALIDATION_SUCCESS"] = "COSE_VALIDATION_SUCCESS";
     WorkerResponseType["COSE_VALIDATION_FAILURE"] = "COSE_VALIDATION_FAILURE";
+    WorkerResponseType["VRF_KEYPAIR_SUCCESS"] = "VRF_KEYPAIR_SUCCESS";
+    WorkerResponseType["VRF_KEYPAIR_FAILURE"] = "VRF_KEYPAIR_FAILURE";
+    WorkerResponseType["VRF_CHALLENGE_SUCCESS"] = "VRF_CHALLENGE_SUCCESS";
+    WorkerResponseType["VRF_CHALLENGE_FAILURE"] = "VRF_CHALLENGE_FAILURE";
     WorkerResponseType["ERROR"] = "ERROR";
 })(WorkerResponseType || (WorkerResponseType = {}));
 var WorkerErrorCode;
@@ -17586,13 +17668,17 @@ var WorkerErrorCode;
     WorkerErrorCode["SIGNING_FAILED"] = "SIGNING_FAILED";
     WorkerErrorCode["COSE_EXTRACTION_FAILED"] = "COSE_EXTRACTION_FAILED";
     WorkerErrorCode["STORAGE_FAILED"] = "STORAGE_FAILED";
+    WorkerErrorCode["VRF_KEYPAIR_GENERATION_FAILED"] = "VRF_KEYPAIR_GENERATION_FAILED";
+    WorkerErrorCode["VRF_CHALLENGE_GENERATION_FAILED"] = "VRF_CHALLENGE_GENERATION_FAILED";
+    WorkerErrorCode["VRF_ENCRYPTION_FAILED"] = "VRF_ENCRYPTION_FAILED";
+    WorkerErrorCode["VRF_DECRYPTION_FAILED"] = "VRF_DECRYPTION_FAILED";
     WorkerErrorCode["UNKNOWN_ERROR"] = "UNKNOWN_ERROR";
 })(WorkerErrorCode || (WorkerErrorCode = {}));
 
 // @ts-ignore
 globalThis.Buffer = buffer.Buffer;
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./passkey_crypto_worker_bg.wasm', import.meta.url);
+const wasmUrl = new URL('./web3authn_passkey_worker_bg.wasm', import.meta.url);
 // === CONSTANTS ===
 const WASM_CACHE_NAME = 'passkey-wasm-v1';
 const DB_NAME = 'PasskeyNearKeys';
@@ -17601,7 +17687,7 @@ const STORE_NAME = 'encryptedKeys';
 const HKDF_INFO = 'near-key-encryption';
 const HKDF_SALT = '';
 // === WASM MODULE FUNCTIONS ===
-const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf, extract_cose_public_key_from_attestation, validate_cose_key_format } = wasmModule;
+const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf, extract_cose_public_key_from_attestation, validate_cose_key_format, generate_and_encrypt_vrf_keypair_with_prf, generate_vrf_challenge_with_prf } = wasmModule;
 // === UTILITY FUNCTIONS ===
 /**
  * Initialize WASM module with caching support
@@ -17779,6 +17865,12 @@ self.onmessage = async (event) => {
             case WorkerRequestType.VALIDATE_COSE_KEY:
                 await handleValidateCoseKey(payload);
                 break;
+            case WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF:
+                await handleGenerateVrfKeypairWithPrf(payload);
+                break;
+            case WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF:
+                await handleGenerateVrfChallengeWithPrf(payload);
+                break;
             default:
                 sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
         }
@@ -17803,8 +17895,8 @@ async function generateAndEncryptKeypair(prfOutput, nearAccountId) {
     const { publicKey, encryptedPrivateKey } = parseWasmResult(resultJson);
     const keyData = {
         nearAccountId,
-        encryptedData: encryptedPrivateKey.encrypted_data_b64u,
-        iv: encryptedPrivateKey.iv_b64u,
+        encryptedData: encryptedPrivateKey.encrypted_vrf_data_b64u,
+        iv: encryptedPrivateKey.aes_gcm_nonce_b64u,
         timestamp: Date.now()
     };
     return { publicKey, keyData };
@@ -18001,6 +18093,64 @@ async function handleValidateCoseKey(payload) {
         sendResponseAndTerminate({
             type: WorkerResponseType.COSE_VALIDATION_FAILURE,
             payload: { error: error.message || 'COSE key validation failed' }
+        });
+    }
+}
+// === VRF OPERATIONS WORKFLOW ===
+/**
+ * Handle VRF keypair generation and encryption with PRF
+ */
+async function handleGenerateVrfKeypairWithPrf(payload) {
+    try {
+        const { prfOutput } = payload;
+        console.log('WORKER: Generating VRF keypair with PRF');
+        // Call the WASM function to generate and encrypt VRF keypair
+        const result = generate_and_encrypt_vrf_keypair_with_prf(prfOutput);
+        const vrfResult = JSON.parse(result);
+        console.log('WORKER: Successfully generated VRF keypair');
+        sendResponseAndTerminate({
+            type: WorkerResponseType.VRF_KEYPAIR_SUCCESS,
+            payload: {
+                vrfPublicKey: vrfResult.vrfPublicKey,
+                encryptedVrfKeypair: vrfResult.encryptedVrfKeypair
+            }
+        });
+    }
+    catch (error) {
+        console.error('WORKER: VRF keypair generation failed:', error.message);
+        sendResponseAndTerminate({
+            type: WorkerResponseType.VRF_KEYPAIR_FAILURE,
+            payload: { error: error.message || 'VRF keypair generation failed' }
+        });
+    }
+}
+/**
+ * Handle VRF challenge generation with PRF
+ */
+async function handleGenerateVrfChallengeWithPrf(payload) {
+    try {
+        const { prfOutput, encryptedVrfData, encryptedVrfNonce, userId, rpId, sessionId, blockHeight, blockHashBytes, timestamp } = payload;
+        console.log('WORKER: Generating VRF challenge with PRF');
+        // Call the WASM function to generate VRF challenge
+        const result = generate_vrf_challenge_with_prf(prfOutput, encryptedVrfData, encryptedVrfNonce, userId, rpId, sessionId, BigInt(blockHeight), new Uint8Array(blockHashBytes), BigInt(timestamp));
+        const challengeResult = JSON.parse(result);
+        console.log('WORKER: Successfully generated VRF challenge');
+        sendResponseAndTerminate({
+            type: WorkerResponseType.VRF_CHALLENGE_SUCCESS,
+            payload: {
+                vrfInput: challengeResult.vrfInput,
+                vrfOutput: challengeResult.vrfOutput,
+                vrfProof: challengeResult.vrfProof,
+                vrfPublicKey: challengeResult.vrfPublicKey,
+                rpId: challengeResult.rpId
+            }
+        });
+    }
+    catch (error) {
+        console.error('WORKER: VRF challenge generation failed:', error.message);
+        sendResponseAndTerminate({
+            type: WorkerResponseType.VRF_CHALLENGE_FAILURE,
+            payload: { error: error.message || 'VRF challenge generation failed' }
         });
     }
 }

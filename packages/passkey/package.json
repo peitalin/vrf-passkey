@@ -19,8 +19,8 @@
     },
     "./react/styles": "./dist/esm/react/index.css",
     "./worker": "./dist/onetimePasskeySigner.worker.js",
-    "./wasm": "./dist/passkey_crypto_worker_bg.wasm",
-    "./wasm-js": "./dist/passkey_crypto_worker.js"
+    "./wasm": "./dist/web3authn_passkey_worker_bg.wasm",
+    "./wasm-js": "./dist/web3authn_passkey_worker.js"
   },
   "files": [
     "dist/",
@@ -43,7 +43,7 @@
     "test:core": "jest src/core/__tests__",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker.js ../../frontend/public/workers/ && cp dist/passkey_crypto_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
+    "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/web3authn_passkey_worker.js ../../frontend/public/workers/ && cp dist/web3authn_passkey_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

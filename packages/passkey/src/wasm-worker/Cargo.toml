@@ -1,5 +1,5 @@
 [package]
-name = "passkey-crypto-worker"
+name = "web3authn-passkey-worker"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,27 +10,28 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-getrandom = { version = "0.2", features = ["js"] }
 aes-gcm = "0.10"
-hkdf = "0.12"
-sha2 = "0.10"
+bs58 = "0.5"
 base64 = "0.21"
 base64ct = { version = "1.6", features = ["alloc"] }
+bincode = "1.3"
+borsh = { version = "1.3", features = ["derive"] }
+ciborium = "0.2" # CBOR parsing for WebAuthn COSE keys
+console_error_panic_hook = { version = "0.1.7", optional = true }
+# For NEAR key generation and transaction signing
+ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
+getrandom = { version = "0.2.15", features = ["js"] }
+hkdf = "0.12"
+sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = "1.0"
-# For NEAR key generation and transaction signing
-ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
-bs58 = "0.5"
-# Add CBOR parsing for WebAuthn attestationObject and COSE keys
-ciborium = "0.2"
 serde_bytes = "0.11"
-# Serialization for transaction data
-borsh = { version = "1.3", features = ["derive"] }
+wasm-bindgen = "0.2"
+vrf-wasm = { version = "0.7", features = ["browser"] }
+rand_core = "0.6"
+rand_chacha = "0.3"
 
-# Optional: for better panic messages in browser console
-console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [features]
 default = ["console_error_panic_hook"]

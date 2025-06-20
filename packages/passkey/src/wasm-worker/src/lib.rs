@@ -5,17 +5,23 @@ use wasm_bindgen::prelude::*;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::aead::generic_array::GenericArray;
-use hkdf::Hkdf;
-use sha2::{Sha256, Digest};
 use base64ct::{Base64UrlUnpadded, Encoding};
+use borsh::{BorshSerialize, BorshDeserialize};
+use bs58;
+use ciborium::Value as CborValue; // CBOR parsing for WebAuthn attestationObject
 use ed25519_dalek::{SigningKey};
 use getrandom::getrandom;
-use bs58;
-// Add CBOR parsing for WebAuthn attestationObject
-use ciborium::Value as CborValue;
+use hkdf::Hkdf;
+use rand_core::SeedableRng;
+use rand_chacha::ChaCha20Rng;
+use serde::Serialize;
+use sha2::{Sha256, Digest};
+
 // Transaction signing and serialization
 use ed25519_dalek::Signer;
-use borsh::{BorshSerialize, BorshDeserialize};
+// Add VRF-specific imports after existing imports
+use vrf_wasm::ecvrf::ECVRFKeyPair;
+use vrf_wasm::{VRFKeyPair, VRFProof}; // Import traits
 
 // NEAR Transaction Types (WASM-compatible structs that mirror near-primitives)
 
@@ -204,35 +210,35 @@ pub fn encrypt_data_aes_gcm(plain_text_data_str: &str, key_bytes: &[u8]) -> Resu
     let key_ga = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key_ga);
 
-    let mut iv_bytes = [0u8; 12];
-    getrandom::getrandom(&mut iv_bytes).map_err(|e| JsValue::from_str(&format!("Failed to generate IV: {}", e)))?;
-    let nonce = GenericArray::from_slice(&iv_bytes);
+    let mut aes_gcm_nonce_bytes = [0u8; 12];
+    getrandom::getrandom(&mut aes_gcm_nonce_bytes).map_err(|e| JsValue::from_str(&format!("Failed to generate IV: {}", e)))?;
+    let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
 
     let ciphertext = cipher.encrypt(nonce, plain_text_data_str.as_bytes())
         .map_err(|e| JsValue::from_str(&format!("Encryption error: {}", e)))?;
 
     let result = format!(
-        r#"{{"encrypted_data_b64u": "{}", "iv_b64u": "{}"}}"#,
+        r#"{{"encrypted_data_b64u": "{}", "aes_gcm_nonce_b64u": "{}"}}"#,
         Base64UrlUnpadded::encode_string(&ciphertext),
-        Base64UrlUnpadded::encode_string(&iv_bytes)
+        Base64UrlUnpadded::encode_string(&aes_gcm_nonce_bytes)
     );
     Ok(result)
 }
 
 #[wasm_bindgen]
-pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, iv_b64u: &str, key_bytes: &[u8]) -> Result<String, JsValue> {
+pub fn decrypt_data_aes_gcm(encrypted_data_b64u: &str, aes_gcm_nonce_b64u: &str, key_bytes: &[u8]) -> Result<String, JsValue> {
     if key_bytes.len() != 32 {
         return Err(JsValue::from_str("Decryption key must be 32 bytes for AES-256-GCM."));
     }
     let key_ga = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key_ga);
 
-    let iv_bytes = Base64UrlUnpadded::decode_vec(iv_b64u)
-        .map_err(|e| JsValue::from_str(&format!("Base64UrlUnpadded decode error for IV: {}", e)))?;
-    if iv_bytes.len() != 12 {
-        return Err(JsValue::from_str("Decryption IV must be 12 bytes."));
+    let aes_gcm_nonce_bytes = Base64UrlUnpadded::decode_vec(aes_gcm_nonce_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Base64UrlUnpadded decode error for AES-GCM nonce: {}", e)))?;
+    if aes_gcm_nonce_bytes.len() != 12 {
+        return Err(JsValue::from_str("Decryption AES-GCM nonce must be 12 bytes."));
     }
-    let nonce = GenericArray::from_slice(&iv_bytes);
+    let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
 
     let encrypted_data = Base64UrlUnpadded::decode_vec(encrypted_data_b64u)
         .map_err(|e| JsValue::from_str(&format!("Base64UrlUnpadded decode error for encrypted data: {}", e)))?;
@@ -634,7 +640,7 @@ fn decrypt_private_key_with_prf_internal(
 pub fn decrypt_and_sign_transaction_with_prf(
     // Authentication and storage
     prf_output_base64: &str,
-    encrypted_private_key_json: &str, // JSON with encrypted_data_b64u and iv_b64u
+    encrypted_private_key_json: &str, // JSON with encrypted_data_b64u and aes_gcm_nonce_b64u
 
     // Transaction details
     signer_account_id: &str,
@@ -655,8 +661,8 @@ pub fn decrypt_and_sign_transaction_with_prf(
     let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing encrypted_data_b64u in encrypted key data"))?;
 
-    let iv = encrypted_key_data["iv_b64u"].as_str()
-        .ok_or_else(|| JsValue::from_str("Missing iv_b64u in encrypted key data"))?;
+    let iv = encrypted_key_data["aes_gcm_nonce_b64u"].as_str()
+        .ok_or_else(|| JsValue::from_str("Missing aes_gcm_nonce_b64u in encrypted key data"))?;
 
     // Call the main signing function - returns Borsh-serialized SignedTransaction
     sign_near_transaction_with_prf(
@@ -862,6 +868,225 @@ pub fn validate_cose_key_format(cose_key_bytes: &[u8]) -> Result<String, JsValue
     }
 }
 
+// Add VRF data structures after existing type definitions
+
+/// VRF keypair data for secure storage
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct VrfKeypairData {
+    pub serialized_keypair: Vec<u8>, // JSON-serialized ECVRFKeyPair
+    pub public_key_bytes: [u8; 32],  // Public key bytes for quick access
+}
+
+/// VRF input construction parameters
+#[derive(Debug, Clone)]
+pub struct VrfInputParams {
+    pub user_id: String,
+    pub rp_id: String,
+    pub session_id: String,
+    pub block_height: u64,
+    pub block_hash: Vec<u8>,
+    pub timestamp: u64,
+}
+
+/// VRF challenge response for serialization to JSON
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VrfChallengeResponse {
+    pub vrf_input: String,       // base64url encoded VRF input
+    pub vrf_output: String,      // base64url encoded VRF output
+    pub vrf_proof: String,       // base64url encoded VRF proof
+    pub vrf_public_key: String,  // base64url encoded VRF public key
+    pub rp_id: String,           // Relying Party ID
+    pub block_height: u64,       // Block height for on-chain freshness validation
+    pub block_hash: String,      // base64url encoded block hash (for entropy only)
+}
+
+/// VRF keypair generation response for serialization to JSON
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VrfKeypairResponse {
+    pub vrf_public_key: String,      // base64url encoded VRF public key
+    pub encrypted_vrf_keypair: serde_json::Value, // Encrypted keypair JSON object
+}
+
+// === VRF OPERATIONS ===
+
+/// Generate VRF keypair and encrypt it using PRF output
+/// This is used during registration to create and store VRF credentials
+#[wasm_bindgen]
+pub fn generate_and_encrypt_vrf_keypair_with_prf(prf_output_base64: &str) -> Result<String, JsValue> {
+    console_log!("RUST: Generating and encrypting VRF keypair with PRF-derived key");
+
+    // Fixed parameters for consistency with NEAR key encryption
+    const INFO: &str = "vrf-key-encryption";
+    const HKDF_SALT: &str = "";
+
+    // Generate VRF keypair using vrf-wasm
+    let mut rng = ChaCha20Rng::from_entropy();
+    let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
+
+    // Get public key as bytes (32 bytes)
+    let vrf_public_key_point = vrf_keypair.public_key();
+
+    // Use compression to get bytes for the public key
+    let vrf_public_key_bytes = vrf_public_key_point.compress();
+
+    // Serialize the entire keypair for storage (includes both private and public parts)
+    let vrf_keypair_json = serde_json::to_string(&vrf_keypair)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF keypair: {:?}", e)))?;
+    let vrf_keypair_bytes = vrf_keypair_json.as_bytes();
+
+    console_log!("RUST: Generated VRF keypair with {} byte public key", vrf_public_key_bytes.len());
+
+    // Serialize VRF keypair data for local storage (using serde_json for internal storage)
+    let vrf_keypair_data = VrfKeypairData {
+        serialized_keypair: vrf_keypair_bytes.to_vec(),
+        public_key_bytes: vrf_public_key_bytes,
+    };
+
+    let vrf_keypair_serialized = borsh::to_vec(&vrf_keypair_data)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF keypair: {}", e)))?;
+
+    // Convert to base64 for encryption
+    let vrf_keypair_b64 = Base64UrlUnpadded::encode_string(&vrf_keypair_serialized);
+
+    // Derive encryption key from PRF output
+    let encryption_key = derive_encryption_key_from_prf_core(prf_output_base64, INFO, HKDF_SALT)
+        .map_err(|e| JsValue::from(e))?;
+
+    // Encrypt the VRF keypair
+    let encrypted_result = encrypt_data_aes_gcm(&vrf_keypair_b64, &encryption_key)?;
+
+    // Serialize VRF public key using bincode (matching contract expectations)
+    let vrf_public_key_bincode = bincode::serialize(&vrf_keypair.public_key())
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF public key: {:?}", e)))?;
+
+    // Parse encrypted result to include in structured response
+    let encrypted_vrf_keypair: serde_json::Value = serde_json::from_str(&encrypted_result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse encrypted VRF keypair JSON: {:?}", e)))?;
+
+    // Create structured response using serde serialization
+    let response = VrfKeypairResponse {
+        vrf_public_key: Base64UrlUnpadded::encode_string(&vrf_public_key_bincode), // Use bincode-serialized public key
+        encrypted_vrf_keypair,
+    };
+
+    console_log!("RUST: Successfully generated and encrypted VRF keypair with PRF");
+    serde_json::to_string(&response)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF keypair response: {:?}", e)))
+}
+
+/// Construct VRF input according to the specification
+fn construct_vrf_input(params: &VrfInputParams) -> Vec<u8> {
+    let domain_separator = b"web_authn_challenge_v1";
+
+    // Construct input data according to specification
+    // NOTE: block_hash is included for additional entropy only - it cannot be validated
+    // on-chain since NEAR contracts cannot access historical block hashes. Only block_height
+    // is validated on-chain for freshness (must be within last 30 blocks).
+    let mut input_data = Vec::new();
+    input_data.extend_from_slice(domain_separator);
+    input_data.extend_from_slice(params.user_id.as_bytes());
+    input_data.extend_from_slice(params.rp_id.as_bytes());
+    input_data.extend_from_slice(params.session_id.as_bytes());
+    input_data.extend_from_slice(&params.block_height.to_le_bytes());
+    input_data.extend_from_slice(&params.block_hash); // For entropy only, not validated on-chain
+    input_data.extend_from_slice(&params.timestamp.to_le_bytes());
+
+    // Hash the input data (VRF input should be hashed)
+    let mut hasher = Sha256::new();
+    hasher.update(&input_data);
+    hasher.finalize().to_vec()
+}
+
+/// Generate VRF challenge and proof using encrypted VRF keypair
+/// This is used during authentication to create WebAuthn challenges
+#[wasm_bindgen]
+pub fn generate_vrf_challenge_with_prf(
+    prf_output_base64: &str,
+    encrypted_vrf_data: &str,
+    encrypted_vrf_iv: &str,
+    user_id: &str,
+    rp_id: &str,
+    session_id: &str,
+    block_height: u64,
+    block_hash_bytes: &[u8],
+    timestamp: u64,
+) -> Result<String, JsValue> {
+    console_log!("RUST: Generating VRF challenge and proof with PRF");
+
+    // Fixed parameters for consistency
+    const INFO: &str = "vrf-key-encryption";
+    const HKDF_SALT: &str = "";
+
+    // Derive decryption key from PRF output
+    let decryption_key = derive_encryption_key_from_prf_core(prf_output_base64, INFO, HKDF_SALT)
+        .map_err(|e| JsValue::from(e))?;
+
+    // Decrypt VRF keypair
+    let decrypted_vrf_b64 = decrypt_data_aes_gcm(encrypted_vrf_data, encrypted_vrf_iv, &decryption_key)?;
+    let vrf_keypair_bytes = Base64UrlUnpadded::decode_vec(&decrypted_vrf_b64)
+        .map_err(|e| JsValue::from_str(&format!("Failed to decode VRF keypair: {:?}", e)))?;
+
+    // Deserialize VRF keypair
+    let vrf_keypair_data: VrfKeypairData = borsh::from_slice(&vrf_keypair_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize VRF keypair: {}", e)))?;
+
+    console_log!("RUST: Successfully decrypted VRF keypair");
+
+    // Reconstruct VRF keypair from serialized JSON
+    let vrf_keypair: ECVRFKeyPair = serde_json::from_slice(&vrf_keypair_data.serialized_keypair)
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize VRF keypair: {:?}", e)))?;
+
+    // Construct VRF input
+    let vrf_input_params = VrfInputParams {
+        user_id: user_id.to_string(),
+        rp_id: rp_id.to_string(),
+        session_id: session_id.to_string(),
+        block_height,
+        block_hash: block_hash_bytes.to_vec(),
+        timestamp,
+    };
+
+    let vrf_input = construct_vrf_input(&vrf_input_params);
+
+    console_log!("RUST: Constructed VRF input: {} bytes", vrf_input.len());
+
+    // Generate VRF proof and output
+    console_log!("RUST: Generating VRF proof for input: {:?}", vrf_input);
+
+    let vrf_proof = vrf_keypair.prove(&vrf_input);
+    let vrf_output = vrf_proof.to_hash();
+
+    console_log!("RUST: Generated VRF proof and output successfully");
+
+    // Serialize the proof using bincode (matching contract expectations)
+    let vrf_proof_bincode = bincode::serialize(&vrf_proof)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF proof: {:?}", e)))?;
+
+    // Serialize the VRF public key using bincode (matching contract expectations)
+    let vrf_public_key_bincode = bincode::serialize(&vrf_keypair.public_key())
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF public key: {:?}", e)))?;
+
+    console_log!("RUST: Generated VRF proof: {} bytes, output: {} bytes",
+                 vrf_proof_bincode.len(), vrf_output.len());
+
+    // Create result using structured response with serde serialization
+    let response = VrfChallengeResponse {
+        vrf_input: Base64UrlUnpadded::encode_string(&vrf_input),
+        vrf_output: Base64UrlUnpadded::encode_string(&vrf_output),
+        vrf_proof: Base64UrlUnpadded::encode_string(&vrf_proof_bincode),
+        vrf_public_key: Base64UrlUnpadded::encode_string(&vrf_public_key_bincode),
+        rp_id: rp_id.to_string(),
+        block_height,
+        block_hash: Base64UrlUnpadded::encode_string(block_hash_bytes),
+    };
+
+    console_log!("RUST: Successfully generated VRF challenge and proof");
+    serde_json::to_string(&response)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize VRF challenge response: {:?}", e)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,7 +1113,7 @@ mod tests {
         // Parse the JSON result
         let encrypted_obj: serde_json::Value = serde_json::from_str(&encrypted).unwrap();
         let encrypted_data = encrypted_obj["encrypted_data_b64u"].as_str().unwrap();
-        let iv = encrypted_obj["iv_b64u"].as_str().unwrap();
+        let iv = encrypted_obj["aes_gcm_nonce_b64u"].as_str().unwrap();
 
         let decrypted = decrypt_data_aes_gcm(encrypted_data, iv, &key).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -1015,7 +1240,7 @@ mod tests {
 
         let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
         let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
-        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["aes_gcm_nonce_b64u"].as_str().unwrap();
 
         // Test decryption
         let decrypted_key = decrypt_private_key_with_prf_internal(
@@ -1040,7 +1265,7 @@ mod tests {
 
         let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
         let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
-        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["aes_gcm_nonce_b64u"].as_str().unwrap();
 
         // Decrypt and verify it works
         let decrypted_key = decrypt_private_key_with_prf_internal(
@@ -1068,7 +1293,7 @@ mod tests {
         let legacy_encrypted = encrypt_data_aes_gcm(&legacy_private_key_near_format, &encryption_key).unwrap();
         let legacy_encrypted_obj: serde_json::Value = serde_json::from_str(&legacy_encrypted).unwrap();
         let legacy_encrypted_data = legacy_encrypted_obj["encrypted_data_b64u"].as_str().unwrap();
-        let legacy_iv = legacy_encrypted_obj["iv_b64u"].as_str().unwrap();
+        let legacy_iv = legacy_encrypted_obj["aes_gcm_nonce_b64u"].as_str().unwrap();
 
         // Decrypt the legacy format
         let decrypted_legacy_key = decrypt_private_key_with_prf_internal(
@@ -1153,7 +1378,7 @@ mod tests {
 
         let encrypted_key_data = keypair_data["encryptedPrivateKey"].clone();
         let encrypted_data = encrypted_key_data["encrypted_data_b64u"].as_str().unwrap();
-        let iv = encrypted_key_data["iv_b64u"].as_str().unwrap();
+        let iv = encrypted_key_data["aes_gcm_nonce_b64u"].as_str().unwrap();
 
         // Create a valid block hash (32 bytes of 1s)
         let block_hash_bytes = [1u8; 32];
@@ -1275,5 +1500,212 @@ mod tests {
         let deserialized1: SignedTransaction = borsh::from_slice(&signed_tx_bytes1).unwrap();
         let deserialized2: SignedTransaction = borsh::from_slice(&signed_tx_bytes2).unwrap();
         assert_eq!(deserialized1, deserialized2);
+    }
+
+    #[test]
+    fn test_vrf_keypair_generation_and_encryption() {
+        // Test VRF keypair generation and encryption
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
+
+        let result = generate_and_encrypt_vrf_keypair_with_prf(prf_output_b64).unwrap();
+        let result_data: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        // Verify structure
+        assert!(result_data["vrfPublicKey"].is_string(), "Should have VRF public key");
+        assert!(result_data["encryptedVrfKeypair"].is_object(), "Should have encrypted VRF keypair");
+
+        let encrypted_keypair = &result_data["encryptedVrfKeypair"];
+        assert!(encrypted_keypair["encrypted_data_b64u"].is_string(), "Should have encrypted data");
+        assert!(encrypted_keypair["aes_gcm_nonce_b64u"].is_string(), "Should have IV");
+
+        // Verify VRF public key is base64url encoded and contains bincode-serialized data
+        let vrf_public_key_b64 = result_data["vrfPublicKey"].as_str().unwrap();
+        let vrf_public_key_bytes = Base64UrlUnpadded::decode_vec(vrf_public_key_b64).unwrap();
+
+        // The public key is now bincode-serialized, so we can't just check length == 32
+        // Instead, verify it can be deserialized
+        let _: vrf_wasm::ecvrf::ECVRFPublicKey = bincode::deserialize(&vrf_public_key_bytes)
+            .expect("Should be able to deserialize bincode VRF public key");
+
+        println!("✅ VRF keypair generation and encryption test passed");
+        println!("   VRF public key: {} bytes (bincode-serialized)", vrf_public_key_bytes.len());
+        println!("   Encrypted data present: ✓");
+        println!("   IV present: ✓");
+    }
+
+    #[test]
+    fn test_vrf_challenge_generation() {
+        // Test VRF challenge generation
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // First generate and encrypt a VRF keypair
+        let keypair_result = generate_and_encrypt_vrf_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let encrypted_vrf_data = keypair_data["encryptedVrfKeypair"]["encrypted_data_b64u"].as_str().unwrap();
+        let encrypted_vrf_iv = keypair_data["encryptedVrfKeypair"]["aes_gcm_nonce_b64u"].as_str().unwrap();
+
+        // Generate VRF challenge
+        let user_id = "alice.testnet";
+        let rp_id = "example.com";
+        let session_id = "test_session_12345";
+        let block_height = 123456789u64;
+        let block_hash = vec![1u8; 32]; // Mock block hash
+        let timestamp = 1700000000u64;
+
+        let challenge_result = generate_vrf_challenge_with_prf(
+            prf_output_b64,
+            encrypted_vrf_data,
+            encrypted_vrf_iv,
+            user_id,
+            rp_id,
+            session_id,
+            block_height,
+            &block_hash,
+            timestamp,
+        ).unwrap();
+
+        let challenge_data: serde_json::Value = serde_json::from_str(&challenge_result).unwrap();
+
+        // Verify structure
+        assert!(challenge_data["vrfInput"].is_string(), "Should have VRF input");
+        assert!(challenge_data["vrfOutput"].is_string(), "Should have VRF output");
+        assert!(challenge_data["vrfProof"].is_string(), "Should have VRF proof");
+        assert!(challenge_data["vrfPublicKey"].is_string(), "Should have VRF public key");
+        assert_eq!(challenge_data["rpId"].as_str().unwrap(), rp_id, "Should have correct RP ID");
+
+        // Verify data lengths and formats
+        let vrf_input = Base64UrlUnpadded::decode_vec(challenge_data["vrfInput"].as_str().unwrap()).unwrap();
+        let vrf_output = Base64UrlUnpadded::decode_vec(challenge_data["vrfOutput"].as_str().unwrap()).unwrap();
+        let vrf_proof_bytes = Base64UrlUnpadded::decode_vec(challenge_data["vrfProof"].as_str().unwrap()).unwrap();
+        let vrf_public_key_bytes = Base64UrlUnpadded::decode_vec(challenge_data["vrfPublicKey"].as_str().unwrap()).unwrap();
+
+        assert_eq!(vrf_input.len(), 32, "VRF input should be 32 bytes (SHA256)");
+        assert_eq!(vrf_output.len(), 64, "VRF output should be 64 bytes");
+
+        // Verify that proof and public key are valid bincode-serialized data
+        let _: vrf_wasm::ecvrf::ECVRFProof = bincode::deserialize(&vrf_proof_bytes)
+            .expect("Should be able to deserialize bincode VRF proof");
+        let _: vrf_wasm::ecvrf::ECVRFPublicKey = bincode::deserialize(&vrf_public_key_bytes)
+            .expect("Should be able to deserialize bincode VRF public key");
+
+        println!("✅ VRF challenge generation test passed");
+        println!("   VRF input: {} bytes", vrf_input.len());
+        println!("   VRF output: {} bytes", vrf_output.len());
+        println!("   VRF proof: {} bytes (bincode-serialized)", vrf_proof_bytes.len());
+        println!("   VRF public key: {} bytes (bincode-serialized)", vrf_public_key_bytes.len());
+        println!("   RP ID: {}", rp_id);
+    }
+
+    #[test]
+    fn test_vrf_deterministic_generation() {
+        // Test that VRF generation is deterministic for same inputs
+        let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+        // Generate VRF keypair
+        let keypair_result = generate_and_encrypt_vrf_keypair_with_prf(prf_output_b64).unwrap();
+        let keypair_data: serde_json::Value = serde_json::from_str(&keypair_result).unwrap();
+
+        let encrypted_vrf_data = keypair_data["encryptedVrfKeypair"]["encrypted_data_b64u"].as_str().unwrap();
+        let encrypted_vrf_iv = keypair_data["encryptedVrfKeypair"]["aes_gcm_nonce_b64u"].as_str().unwrap();
+
+        // Same challenge parameters
+        let user_id = "bob.testnet";
+        let rp_id = "app.example.com";
+        let session_id = "session_67890";
+        let block_height = 987654321u64;
+        let block_hash = vec![42u8; 32];
+        let timestamp = 1700123456u64;
+
+        // Generate challenge twice with same parameters
+        let challenge1 = generate_vrf_challenge_with_prf(
+            prf_output_b64,
+            encrypted_vrf_data,
+            encrypted_vrf_iv,
+            user_id,
+            rp_id,
+            session_id,
+            block_height,
+            &block_hash,
+            timestamp,
+        ).unwrap();
+
+        let challenge2 = generate_vrf_challenge_with_prf(
+            prf_output_b64,
+            encrypted_vrf_data,
+            encrypted_vrf_iv,
+            user_id,
+            rp_id,
+            session_id,
+            block_height,
+            &block_hash,
+            timestamp,
+        ).unwrap();
+
+        // Should be identical (deterministic)
+        assert_eq!(challenge1, challenge2, "VRF challenges should be deterministic for same inputs");
+
+        // Verify different inputs produce different outputs
+        let challenge3 = generate_vrf_challenge_with_prf(
+            prf_output_b64,
+            encrypted_vrf_data,
+            encrypted_vrf_iv,
+            "different_user.testnet", // Different user
+            rp_id,
+            session_id,
+            block_height,
+            &block_hash,
+            timestamp,
+        ).unwrap();
+
+        assert_ne!(challenge1, challenge3, "Different inputs should produce different VRF challenges");
+
+        println!("✅ VRF deterministic generation test passed");
+        println!("   Same inputs produce identical outputs: ✓");
+        println!("   Different inputs produce different outputs: ✓");
+    }
+
+    #[test]
+    fn test_vrf_input_construction_specification() {
+        // Test that VRF input construction follows the specification
+        let params = VrfInputParams {
+            user_id: "test.testnet".to_string(),
+            rp_id: "example.com".to_string(),
+            session_id: "session_123".to_string(),
+            block_height: 12345u64,
+            block_hash: vec![0xabu8; 32],
+            timestamp: 1600000000u64,
+        };
+
+        let vrf_input = construct_vrf_input(&params);
+
+        // Verify it's a 32-byte SHA256 hash
+        assert_eq!(vrf_input.len(), 32, "VRF input should be 32 bytes (SHA256 hash)");
+
+        // Verify deterministic - same inputs should produce same hash
+        let vrf_input2 = construct_vrf_input(&params);
+        assert_eq!(vrf_input, vrf_input2, "VRF input construction should be deterministic");
+
+        // Verify different block heights produce different hashes
+        let params2 = VrfInputParams {
+            block_height: 54321u64, // Different block height
+            ..params.clone()
+        };
+        let vrf_input3 = construct_vrf_input(&params2);
+        assert_ne!(vrf_input, vrf_input3, "Different block height should produce different VRF inputs");
+
+        // Verify different block hashes produce different hashes
+        let params4 = VrfInputParams {
+            block_hash: vec![0xcdu8; 32], // Different block hash
+            ..params.clone()
+        };
+        let vrf_input4 = construct_vrf_input(&params4);
+        assert_ne!(vrf_input, vrf_input4, "Different block hash should produce different VRF inputs");
+
+        println!("✅ VRF input construction specification test passed");
+        println!("   Input length: {} bytes", vrf_input.len());
+        println!("   Deterministic construction: ✓");
+        println!("   Different block height produces different hashes: ✓");
+        println!("   Different block hash produces different hashes: ✓");
     }
 }

@@ -10,7 +10,7 @@ import {
 import { sha256 } from 'js-sha256';
 
 // Import WASM binary directly
-import init, * as wasmModule from '../wasm-worker/passkey_crypto_worker.js';
+import init, * as wasmModule from '../wasm-worker/web3authn_passkey_worker.js';
 
 import {
   WorkerRequestType,
@@ -21,7 +21,9 @@ import {
   type DecryptAndSignTransactionWithPrfRequest,
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
-  type ValidateCoseKeyRequest
+  type ValidateCoseKeyRequest,
+  type GenerateVrfKeypairWithPrfRequest,
+  type GenerateVrfChallengeWithPrfRequest
 } from './types/worker';
 
 // Buffer polyfill for Web Workers
@@ -33,7 +35,7 @@ import { Buffer } from 'buffer';
 globalThis.Buffer = Buffer;
 
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./passkey_crypto_worker_bg.wasm', import.meta.url);
+const wasmUrl = new URL('./web3authn_passkey_worker_bg.wasm', import.meta.url);
 
 // === CONSTANTS ===
 const WASM_CACHE_NAME = 'passkey-wasm-v1';
@@ -50,7 +52,9 @@ const {
   derive_encryption_key_from_prf,
   generate_and_encrypt_near_keypair_with_prf,
   extract_cose_public_key_from_attestation,
-  validate_cose_key_format
+  validate_cose_key_format,
+  generate_and_encrypt_vrf_keypair_with_prf,
+  generate_vrf_challenge_with_prf
 } = wasmModule;
 
 // === UTILITY FUNCTIONS ===
@@ -282,6 +286,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
         await handleValidateCoseKey(payload);
         break;
 
+      case WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF:
+        await handleGenerateVrfKeypairWithPrf(payload);
+        break;
+
+      case WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF:
+        await handleGenerateVrfChallengeWithPrf(payload);
+        break;
+
       default:
         sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
     }
@@ -311,8 +323,8 @@ async function generateAndEncryptKeypair(
 
   const keyData: EncryptedKeyData = {
     nearAccountId,
-    encryptedData: encryptedPrivateKey.encrypted_data_b64u,
-    iv: encryptedPrivateKey.iv_b64u,
+    encryptedData: encryptedPrivateKey.encrypted_vrf_data_b64u,
+    iv: encryptedPrivateKey.aes_gcm_nonce_b64u,
     timestamp: Date.now()
   };
 
@@ -573,6 +585,98 @@ async function handleValidateCoseKey(
   }
 }
 
+// === VRF OPERATIONS WORKFLOW ===
+
+/**
+ * Handle VRF keypair generation and encryption with PRF
+ */
+async function handleGenerateVrfKeypairWithPrf(
+  payload: GenerateVrfKeypairWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    const { prfOutput } = payload;
+
+    console.log('WORKER: Generating VRF keypair with PRF');
+
+    // Call the WASM function to generate and encrypt VRF keypair
+    const result = generate_and_encrypt_vrf_keypair_with_prf(prfOutput);
+    const vrfResult = JSON.parse(result);
+
+    console.log('WORKER: Successfully generated VRF keypair');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.VRF_KEYPAIR_SUCCESS,
+      payload: {
+        vrfPublicKey: vrfResult.vrfPublicKey,
+        encryptedVrfKeypair: vrfResult.encryptedVrfKeypair
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: VRF keypair generation failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.VRF_KEYPAIR_FAILURE,
+      payload: { error: error.message || 'VRF keypair generation failed' }
+    });
+  }
+}
+
+/**
+ * Handle VRF challenge generation with PRF
+ */
+async function handleGenerateVrfChallengeWithPrf(
+  payload: GenerateVrfChallengeWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      prfOutput,
+      encryptedVrfData,
+      encryptedVrfNonce,
+      userId,
+      rpId,
+      sessionId,
+      blockHeight,
+      blockHashBytes,
+      timestamp
+    } = payload;
+
+    console.log('WORKER: Generating VRF challenge with PRF');
+
+    // Call the WASM function to generate VRF challenge
+    const result = generate_vrf_challenge_with_prf(
+      prfOutput,
+      encryptedVrfData,
+      encryptedVrfNonce,
+      userId,
+      rpId,
+      sessionId,
+      BigInt(blockHeight),
+      new Uint8Array(blockHashBytes),
+      BigInt(timestamp)
+    );
+
+    const challengeResult = JSON.parse(result);
+
+    console.log('WORKER: Successfully generated VRF challenge');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.VRF_CHALLENGE_SUCCESS,
+      payload: {
+        vrfInput: challengeResult.vrfInput,
+        vrfOutput: challengeResult.vrfOutput,
+        vrfProof: challengeResult.vrfProof,
+        vrfPublicKey: challengeResult.vrfPublicKey,
+        rpId: challengeResult.rpId
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: VRF challenge generation failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.VRF_CHALLENGE_FAILURE,
+      payload: { error: error.message || 'VRF challenge generation failed' }
+    });
+  }
+}
+
 // === EXPORTS ===
 export type {
   WorkerRequest,
@@ -581,5 +685,7 @@ export type {
   DecryptAndSignTransactionWithPrfRequest,
   DecryptPrivateKeyWithPrfRequest,
   ExtractCosePublicKeyRequest,
-  ValidateCoseKeyRequest
+  ValidateCoseKeyRequest,
+  GenerateVrfKeypairWithPrfRequest,
+  GenerateVrfChallengeWithPrfRequest
 };

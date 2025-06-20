@@ -30,14 +30,14 @@ frontend/
 ├── public/
 │   └── workers/           # 🛠️ Development worker files
 │       ├── onetimePasskeySigner.worker.js
-│       ├── passkey_crypto_worker.js
-│       └── passkey_crypto_worker_bg.wasm
+│       ├── web3authn_passkey_worker.js
+│       └── web3authn_passkey_worker_bg.wasm
 └── src/
 
 packages/passkey/
 ├── dist/
 │   ├── onetimePasskeySigner.worker.js  # 🚀 Production worker
-│   ├── passkey_crypto_worker.js
-│   └── passkey_crypto_worker_bg.wasm
+│   ├── web3authn_passkey_worker.js
+│   └── web3authn_passkey_worker_bg.wasm
 └── src/
 ```

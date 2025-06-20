@@ -10,7 +10,9 @@ import {
   isSignatureSuccess,
   isDecryptionSuccess,
   isCoseKeySuccess,
-  isCoseValidationSuccess
+  isCoseValidationSuccess,
+  isVRFKeyPairSuccess,
+  isVRFChallengeSuccess
 } from '../types/worker';
 import type {
   WebAuthnChallenge,
@@ -361,6 +363,91 @@ export class WebAuthnWorkers {
     } catch (error: any) {
       console.error('WebAuthnManager: PRF private key decryption error:', error);
       throw error;
+    }
+  }
+
+  // === VRF OPERATIONS ===
+
+  /**
+   * Generate VRF keypair and encrypt it using PRF output
+   * This is used during registration to create and store VRF credentials
+   */
+  async generateVrfKeypairWithPrf(
+    prfOutput: ArrayBuffer
+  ): Promise<{ vrfPublicKey: string; encryptedVrfKeypair: any }> {
+    console.log('WebAuthnWorkers: Generating VRF keypair with PRF');
+
+    const worker = this.createSecureWorker();
+    const response = await this.executeWorkerOperation(worker, {
+      type: WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF,
+      payload: {
+        prfOutput: bufferEncode(prfOutput)
+      }
+    });
+
+    if (isVRFKeyPairSuccess(response)) {
+      console.log('WebAuthnWorkers: VRF keypair generation successful');
+      return {
+        vrfPublicKey: response.payload.vrfPublicKey,
+        encryptedVrfKeypair: response.payload.encryptedVrfKeypair
+      };
+    } else {
+      console.error('WebAuthnWorkers: VRF keypair generation failed:', response);
+      throw new Error('Failed to generate VRF keypair');
+    }
+  }
+
+  /**
+   * Generate VRF challenge and proof using encrypted VRF keypair
+   * This is used during authentication to create WebAuthn challenges
+   */
+  async generateVrfChallengeWithPrf(
+    prfOutput: ArrayBuffer,
+    encryptedVrfData: string,
+    encryptedVrfNonce: string,
+    userId: string,
+    rpId: string,
+    sessionId: string,
+    blockHeight: number,
+    blockHashBytes: number[],
+    timestamp: number
+  ): Promise<{
+    vrfInput: string;
+    vrfOutput: string;
+    vrfProof: string;
+    vrfPublicKey: string;
+    rpId: string;
+  }> {
+    console.log('WebAuthnWorkers: Generating VRF challenge with PRF');
+
+    const worker = this.createSecureWorker();
+    const response = await this.executeWorkerOperation(worker, {
+      type: WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF,
+      payload: {
+        prfOutput: bufferEncode(prfOutput),
+        encryptedVrfData,
+        encryptedVrfNonce,
+        userId,
+        rpId,
+        sessionId,
+        blockHeight,
+        blockHashBytes,
+        timestamp
+      }
+    });
+
+    if (isVRFChallengeSuccess(response)) {
+      console.log('WebAuthnWorkers: VRF challenge generation successful');
+      return {
+        vrfInput: response.payload.vrfInput,
+        vrfOutput: response.payload.vrfOutput,
+        vrfProof: response.payload.vrfProof,
+        vrfPublicKey: response.payload.vrfPublicKey,
+        rpId: response.payload.rpId
+      };
+    } else {
+      console.error('WebAuthnWorkers: VRF challenge generation failed:', response);
+      throw new Error('Failed to generate VRF challenge');
     }
   }
 

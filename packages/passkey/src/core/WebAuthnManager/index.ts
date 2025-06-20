@@ -443,6 +443,52 @@ export class WebAuthnManager {
     return await this.webauthnWorkers.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
   }
 
+  // === VRF OPERATIONS (Delegated to WebAuthnWorkers) ===
+
+  /**
+   * Generate VRF keypair and encrypt it using PRF output
+   * This is used during registration to create and store VRF credentials
+   */
+  async generateVrfKeypairWithPrf(
+    prfOutput: ArrayBuffer
+  ): Promise<{ vrfPublicKey: string; encryptedVrfKeypair: any }> {
+    return await this.webauthnWorkers.generateVrfKeypairWithPrf(prfOutput);
+  }
+
+  /**
+   * Generate VRF challenge and proof using encrypted VRF keypair
+   * This is used during authentication to create WebAuthn challenges
+   */
+  async generateVrfChallengeWithPrf(
+    prfOutput: ArrayBuffer,
+    encryptedVrfData: string,
+    encryptedVrfNonce: string,
+    userId: string,
+    rpId: string,
+    sessionId: string,
+    blockHeight: number,
+    blockHashBytes: number[],
+    timestamp: number
+  ): Promise<{
+    vrfInput: string;
+    vrfOutput: string;
+    vrfProof: string;
+    vrfPublicKey: string;
+    rpId: string;
+  }> {
+    return await this.webauthnWorkers.generateVrfChallengeWithPrf(
+      prfOutput,
+      encryptedVrfData,
+      encryptedVrfNonce,
+      userId,
+      rpId,
+      sessionId,
+      blockHeight,
+      blockHashBytes,
+      timestamp
+    );
+  }
+
   // === CONTRACT OPERATIONS (Delegated to WebAuthnContractCalls) ===
 
   /**

@@ -1,14 +1,14 @@
 {
-  "name": "passkey-crypto-worker",
+  "name": "web3authn-passkey-worker",
   "type": "module",
   "version": "0.1.0",
   "files": [
-    "passkey_crypto_worker_bg.wasm",
-    "passkey_crypto_worker.js",
-    "passkey_crypto_worker.d.ts"
+    "web3authn_passkey_worker_bg.wasm",
+    "web3authn_passkey_worker.js",
+    "web3authn_passkey_worker.d.ts"
   ],
-  "main": "passkey_crypto_worker.js",
-  "types": "passkey_crypto_worker.d.ts",
+  "main": "web3authn_passkey_worker.js",
+  "types": "web3authn_passkey_worker.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

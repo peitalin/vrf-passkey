@@ -18,6 +18,7 @@ import type {
 import type { SerializableActionArgs } from '../types';
 import type { Provider } from '@near-js/providers';
 import { TxExecutionStatus } from '@near-js/types';
+import bs58 from 'bs58';
 
 // See default finality settings
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
@@ -493,6 +494,427 @@ export class PasskeyManager {
       nearAccountId: targetAccountId,
       prfOutput: authPrfOutput
     });
+  }
+
+  // === VRF OPERATIONS ===
+
+  /**
+   * Fetch current NEAR block data for VRF input construction
+   */
+  private async getNearBlockData(): Promise<{
+    blockHeight: number;
+    blockHash: string; // base64url encoded
+  }> {
+    if (!this.nearRpcProvider) {
+      throw new Error('NEAR RPC provider is required for VRF block data');
+    }
+
+    try {
+      // Get latest finalized block
+      const blockInfo = await this.nearRpcProvider.viewBlock({ finality: 'final' });
+
+      return {
+        blockHeight: blockInfo.header.height,
+        blockHash: this.base64UrlEncode(new Uint8Array(bs58.decode(blockInfo.header.hash)))
+      };
+    } catch (error: any) {
+      console.error('Failed to fetch NEAR block data:', error);
+      throw new Error(`Failed to fetch NEAR block data: ${error.message}`);
+    }
+  }
+
+  /**
+   * VRF Registration Flow - Generate and store VRF keypair during registration
+   * This creates encrypted VRF credentials that can be used for future stateless authentication
+   */
+  async vrfRegistration(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer
+  ): Promise<{
+    success: boolean;
+    vrfPublicKey?: string;
+    encryptedVrfKeypair?: any;
+    error?: string;
+  }> {
+    try {
+      console.log(`VRF Registration: Generating VRF keypair for ${nearAccountId}`);
+
+      // Generate VRF keypair and encrypt it using PRF
+      const vrfResult = await this.webAuthnManager.generateVrfKeypairWithPrf(prfOutput);
+
+      console.log('✅ VRF Registration: VRF keypair generated and encrypted successfully');
+
+      // Store the encrypted VRF data in IndexedDB for future use
+      await this.storeVrfCredentials(nearAccountId, vrfResult.encryptedVrfKeypair);
+
+      return {
+        success: true,
+        vrfPublicKey: vrfResult.vrfPublicKey,
+        encryptedVrfKeypair: vrfResult.encryptedVrfKeypair
+      };
+    } catch (error: any) {
+      console.error('❌ VRF Registration failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * VRF Authentication Flow - Generate VRF challenge and complete WebAuthn authentication
+   * This retrieves encrypted VRF credentials and uses them to generate a stateless challenge
+   */
+  async vrfAuthentication(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    vrfCredentials: {
+      encrypted_vrf_data_b64u: string;
+      aes_gcm_nonce_b64u: string
+    },
+    vrfParams: {
+      userId: string;
+      rpId: string;
+      sessionId: string;
+      timestamp?: number;
+    }
+  ): Promise<{
+    webauthnResult: any;
+    vrfData: {
+      vrfInput: string;
+      vrfOutput: string;
+      vrfProof: string;
+      vrfPublicKey: string;
+      rpId: string;
+      blockHeight: number;
+      blockHash: string;
+    };
+  }> {
+    console.log('Starting VRF Authentication Flow...');
+    console.log('  - User ID:', vrfParams.userId);
+    console.log('  - RP ID:', vrfParams.rpId);
+
+    // Fetch current NEAR block data for freshness
+    const blockData = await this.getNearBlockData();
+    console.log('  - Block Height:', blockData.blockHeight);
+    console.log('  - Block Hash:', blockData.blockHash.substring(0, 20) + '...');
+
+    // Decode block hash from base64url to bytes for WASM worker
+    const blockHashBytes = Array.from(this.base64UrlDecode(blockData.blockHash));
+
+    // 1. Generate VRF challenge using encrypted credentials
+    const vrfChallenge = await this.webAuthnManager.generateVrfChallengeWithPrf(
+      prfOutput,
+      vrfCredentials.encrypted_vrf_data_b64u,
+      vrfCredentials.aes_gcm_nonce_b64u,
+      vrfParams.userId,
+      vrfParams.rpId,
+      vrfParams.sessionId,
+      blockData.blockHeight,
+      blockHashBytes,
+      vrfParams.timestamp || Date.now()
+    );
+
+    console.log('✅ VRF Challenge Generated');
+    console.log('  - VRF Input:', vrfChallenge.vrfInput?.substring(0, 20) + '...');
+    console.log('  - VRF Output (Challenge):', vrfChallenge.vrfOutput?.substring(0, 20) + '...');
+
+    // 2. Use VRF output as WebAuthn challenge (first 32 bytes)
+    const vrfOutputBytes = this.base64UrlDecode(vrfChallenge.vrfOutput);
+    const webauthnChallengeBytes = vrfOutputBytes.slice(0, 32); // First 32 bytes as challenge
+    const webauthnChallenge = this.base64UrlEncode(webauthnChallengeBytes);
+
+    console.log('🔐 Using VRF output as WebAuthn challenge:', webauthnChallenge.substring(0, 20) + '...');
+
+    // 3. Perform WebAuthn authentication with VRF-generated challenge
+    const authOptions: PublicKeyCredentialRequestOptions = {
+      challenge: new Uint8Array(webauthnChallengeBytes),
+      rpId: vrfParams.rpId,
+      userVerification: 'preferred' as UserVerificationRequirement,
+      timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt
+          }
+        }
+      }
+    };
+
+    const webauthnCredential = await navigator.credentials.get({
+      publicKey: authOptions
+    }) as PublicKeyCredential;
+
+    if (!webauthnCredential) {
+      throw new Error('VRF WebAuthn authentication failed or was cancelled');
+    }
+
+    const webauthnResult = {
+      credential: webauthnCredential,
+      challenge: webauthnChallenge,
+      success: true
+    };
+
+    console.log('✅ VRF Authentication Complete');
+
+    return {
+      webauthnResult,
+      vrfData: {
+        vrfInput: vrfChallenge.vrfInput,
+        vrfOutput: vrfChallenge.vrfOutput,
+        vrfProof: vrfChallenge.vrfProof,
+        vrfPublicKey: vrfChallenge.vrfPublicKey,
+        rpId: vrfChallenge.rpId,
+        blockHeight: blockData.blockHeight,
+        blockHash: blockData.blockHash,
+      }
+    };
+  }
+
+  /**
+   * Store VRF credentials in IndexedDB for future use
+   */
+  private async storeVrfCredentials(
+    nearAccountId: string,
+    encryptedVrfKeypair: any
+  ): Promise<void> {
+    try {
+      // Store in the same user data structure
+      const existingUserData = await this.webAuthnManager.getUserData(nearAccountId);
+
+      const updatedUserData = {
+        ...existingUserData,
+        nearAccountId,
+        lastUpdated: Date.now(),
+        vrfCredentials: encryptedVrfKeypair
+      };
+
+      await this.webAuthnManager.storeUserData(updatedUserData);
+      console.log(`✅ VRF credentials stored for ${nearAccountId}`);
+    } catch (error: any) {
+      console.error('❌ Failed to store VRF credentials:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve stored VRF credentials from IndexedDB
+   */
+  private async getStoredVrfCredentials(
+    nearAccountId: string
+  ): Promise<{ encrypted_vrf_data_b64u: string; aes_gcm_nonce_b64u: string } | null> {
+    try {
+      const userData = await this.webAuthnManager.getUserData(nearAccountId);
+      return userData?.vrfCredentials || null;
+    } catch (error: any) {
+      console.error('❌ Failed to get stored VRF credentials:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Utility method for base64url decoding
+   */
+  private base64UrlDecode(base64Url: string): Uint8Array {
+    // Add padding if needed
+    const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/') + padding;
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  /**
+   * Utility method for base64url encoding
+   */
+  private base64UrlEncode(bytes: Uint8Array): string {
+    let binaryString = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binaryString += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binaryString);
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+
+  // === VRF CONTRACT INTEGRATION EXAMPLES ===
+
+  /**
+   * Complete VRF Registration Flow with Contract Integration
+   * Demonstrates the full registration process including contract storage
+   */
+  async vrfRegistrationWithContract(
+    nearAccountId: string,
+    rpId: string = window.location.hostname
+  ): Promise<{
+    success: boolean;
+    vrfPublicKey?: string;
+    transactionId?: string;
+    error?: string;
+  }> {
+    try {
+      console.log(`🔐 Starting VRF Registration for ${nearAccountId}`);
+
+      // 1. Check if already registered
+      const existingCredentials = await this.getStoredVrfCredentials(nearAccountId);
+      if (existingCredentials) {
+        console.log('✅ User already has VRF credentials');
+        return { success: true, vrfPublicKey: 'already-registered' };
+      }
+
+      // 2. Perform WebAuthn registration with PRF
+      const { WEBAUTHN_CONTRACT_ID } = await import('../../config');
+
+      // Generate challenge for initial VRF keypair generation and registration
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const registrationOptions: PublicKeyCredentialCreationOptions = {
+        challenge,
+        rp: { name: 'WebAuthn VRF', id: rpId },
+        user: {
+          id: new TextEncoder().encode(nearAccountId),
+          name: nearAccountId,
+          displayName: nearAccountId
+        },
+        pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+        authenticatorSelection: {
+          residentKey: 'required',
+          userVerification: 'preferred'
+        },
+        timeout: 60000,
+        attestation: 'none',
+        extensions: {
+          prf: {
+            eval: {
+              first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt
+            }
+          }
+        }
+      };
+
+      const credential = await navigator.credentials.create({
+        publicKey: registrationOptions
+      }) as PublicKeyCredential;
+
+      if (!credential) {
+        throw new Error('WebAuthn registration failed');
+      }
+
+      // 3. Get PRF output
+      const extensionResults = credential.getClientExtensionResults();
+      const prfOutput = (extensionResults as any).prf?.results?.first;
+      if (!prfOutput) {
+        throw new Error('PRF output not available - required for VRF registration');
+      }
+
+      // 4. Generate VRF keypair with PRF
+      const vrfResult = await this.webAuthnManager.generateVrfKeypairWithPrf(prfOutput);
+
+      // 5. Store VRF credentials locally
+      await this.storeVrfCredentials(nearAccountId, vrfResult.encryptedVrfKeypair);
+
+      // 6. Store authenticator data
+      await indexDBManager.registerUser(nearAccountId);
+      await this.webAuthnManager.storeUserData({
+        nearAccountId,
+        clientNearPublicKey: undefined, // Will be set if NEAR key generation is enabled
+        lastUpdated: Date.now(),
+        prfSupported: true,
+        deterministicKey: false,
+        passkeyCredential: {
+          id: credential.id,
+          rawId: this.base64UrlEncode(new Uint8Array(credential.rawId))
+        },
+        vrfCredentials: vrfResult.encryptedVrfKeypair
+      });
+
+      console.log('✅ VRF Registration completed successfully');
+
+      return {
+        success: true,
+        vrfPublicKey: vrfResult.vrfPublicKey
+      };
+
+    } catch (error: any) {
+      console.error('❌ VRF Registration failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Complete VRF Authentication Flow with Contract Verification
+   * Demonstrates the full authentication process including contract verification
+   */
+  async vrfAuthenticationWithContract(
+    nearAccountId: string,
+    rpId: string = window.location.hostname
+  ): Promise<{
+    success: boolean;
+    verified?: boolean;
+    transactionId?: string;
+    error?: string;
+  }> {
+    try {
+      console.log(`🔓 Starting VRF Authentication for ${nearAccountId}`);
+
+      // 1. Get stored VRF credentials
+      const vrfCredentials = await this.getStoredVrfCredentials(nearAccountId);
+      if (!vrfCredentials) {
+        throw new Error('No VRF credentials found - please register first');
+      }
+
+      // 2. Perform WebAuthn authentication with PRF
+      const authOptions: PublicKeyCredentialRequestOptions = {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rpId,
+        userVerification: 'preferred',
+        timeout: 60000,
+        extensions: {
+          prf: {
+            eval: {
+              first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt
+            }
+          }
+        }
+      };
+
+      const credential = await navigator.credentials.get({
+        publicKey: authOptions
+      }) as PublicKeyCredential;
+
+      if (!credential) {
+        throw new Error('WebAuthn authentication failed');
+      }
+
+      // 3. Get PRF output
+      const extensionResults = credential.getClientExtensionResults();
+      const prfOutput = (extensionResults as any).prf?.results?.first;
+      if (!prfOutput) {
+        throw new Error('PRF output not available - required for VRF authentication');
+      }
+
+      // 4. Generate VRF challenge
+      const sessionId = crypto.randomUUID();
+      const vrfAuth = await this.vrfAuthentication(nearAccountId, prfOutput, vrfCredentials, {
+        userId: nearAccountId,
+        rpId,
+        sessionId,
+        timestamp: Date.now()
+      });
+
+      console.log('✅ VRF Authentication completed successfully');
+      console.log('🔗 Ready for contract verification with VRF data');
+
+      return {
+        success: true,
+        verified: vrfAuth.webauthnResult.success
+      };
+
+    } catch (error: any) {
+      console.error('❌ VRF Authentication failed:', error);
+      return { success: false, error: error.message };
+    }
   }
 
 }

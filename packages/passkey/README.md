@@ -373,8 +373,8 @@ The package includes WebAssembly (WASM) workers for secure cryptographic operati
 
 ### Files Included
 - `dist/onetimePasskeySigner.worker.js` - The worker script
-- `dist/passkey_crypto_worker_bg.wasm` - WASM binary
-- `dist/passkey_crypto_worker.js` - WASM JavaScript bindings
+- `dist/web3authn_passkey_worker_bg.wasm` - WASM binary
+- `dist/web3authn_passkey_worker.js` - WASM JavaScript bindings
 
 ### Setup Instructions
 
@@ -383,8 +383,8 @@ When using this package in a web application, you need to ensure the worker and 
 1. **Copy the worker files to your public directory:**
    ```bash
    cp node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js public/
-   cp node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm public/
-   cp node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js public/
+   cp node_modules/@web3authn/passkey/dist/web3authn_passkey_worker_bg.wasm public/
+   cp node_modules/@web3authn/passkey/dist/web3authn_passkey_worker.js public/
    ```
 
 2. **Or use a build tool to copy them automatically** (e.g., in webpack):
@@ -401,11 +401,11 @@ When using this package in a web application, you need to ensure the worker and 
              to: 'public/'
            },
            {
-             from: 'node_modules/@web3authn/passkey/dist/passkey_crypto_worker_bg.wasm',
+             from: 'node_modules/@web3authn/passkey/dist/web3authn_passkey_worker_bg.wasm',
              to: 'public/'
            },
            {
-             from: 'node_modules/@web3authn/passkey/dist/passkey_crypto_worker.js',
+             from: 'node_modules/@web3authn/passkey/dist/web3authn_passkey_worker.js',
              to: 'public/'
            }
          ]

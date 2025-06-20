@@ -345,48 +345,4 @@ export class WebAuthnContractCalls {
     return await this.networkCalls.getNetworkInfo(nearRpcProvider);
   }
 
-  /**
-   * Refill account balance using NEAR testnet faucet service
-   */
-  private async refillAccountBalance(nearAccountId: string, publicKey: string): Promise<void> {
-    console.log(`🌊 Refilling account balance for ${nearAccountId} via testnet faucet`);
-
-    try {
-      // Call NEAR testnet faucet service to add more funds
-      const faucetResponse = await fetch('https://helper.nearprotocol.com/account', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          newAccountId: nearAccountId,
-          newAccountPublicKey: publicKey
-        })
-      });
-
-      if (!faucetResponse.ok) {
-        const errorData = await faucetResponse.json().catch(() => ({}));
-        throw new Error(`Faucet service error: ${faucetResponse.status} - ${errorData.message || 'Unknown error'}`);
-      }
-
-      const faucetResult = await faucetResponse.json();
-      console.log('🌊 Faucet refill response:', faucetResult);
-
-      // Wait a moment for the transaction to be processed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-    } catch (faucetError: any) {
-      console.error('🌊 Faucet refill error:', faucetError);
-
-      // Check if account already exists (which is expected)
-      if (faucetError.message?.includes('already exists') || faucetError.message?.includes('AccountAlreadyExists')) {
-        console.log('🌊 Account already exists, faucet may have still added funds');
-        // Wait a moment for potential balance update
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return;
-      } else {
-        throw new Error(`Failed to refill account balance: ${faucetError.message}`);
-      }
-    }
-  }
 }

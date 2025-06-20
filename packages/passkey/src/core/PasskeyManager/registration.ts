@@ -958,15 +958,15 @@ async function handleRegistrationWithRelayer(
 
     onEvent?.({
       step: 6,
-      sessionId: tempSessionId,
-      phase: 'contract-registration',
-      status: 'success',
-      timestamp: Date.now(),
+        sessionId: tempSessionId,
+        phase: 'contract-registration',
+        status: 'success',
+        timestamp: Date.now(),
       message: 'Serverless mode: Authenticator stored locally only - no contract storage needed'
-    });
+      });
 
     // Step 7: Complete registration
-    onEvent?.({
+      onEvent?.({
       step: 7,
       sessionId: tempSessionId,
       phase: 'registration-complete',
