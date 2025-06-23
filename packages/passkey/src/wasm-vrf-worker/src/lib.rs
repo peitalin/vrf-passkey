@@ -129,6 +129,96 @@ impl VRFKeyManager {
         }
     }
 
+    pub fn generate_vrf_keypair_bootstrap(
+        &mut self,
+        vrf_input_params: Option<VRFInputData>,
+    ) -> Result<VrfKeypairBootstrapResponse, String> {
+        console::log_1(&"VRF WASM Web Worker: Generating VRF keypair for bootstrapping".into());
+        console::log_1(&"📝 VRF keypair will be stored in memory unencrypted until PRF encryption".into());
+
+        // Clear any existing keypair (automatic zeroization via ZeroizeOnDrop)
+        self.vrf_keypair.take();
+
+        // Generate VRF keypair with cryptographically secure randomness
+        let vrf_keypair = self.generate_vrf_keypair()?;
+
+        // Get public key bytes for response
+        let vrf_public_key_bytes = bincode::serialize(&vrf_keypair.pk)
+            .map_err(|e| format!("Failed to serialize VRF public key: {:?}", e))?;
+        let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
+
+        // Store VRF keypair in memory (unencrypted)
+        self.vrf_keypair = Some(SecureVRFKeyPair::new(vrf_keypair));
+        self.session_active = true;
+        self.session_start_time = Date::now();
+
+        console::log_1(&"✅ VRF WASM Web Worker: VRF keypair generated and stored in memory".into());
+        console::log_1(&format!("📝 VRF Public Key: {}...", &vrf_public_key_b64[..20.min(vrf_public_key_b64.len())]).into());
+
+        let mut result = VrfKeypairBootstrapResponse {
+            vrf_public_key: vrf_public_key_b64,
+            vrf_challenge_data: None,
+        };
+
+        // Generate VRF challenge if input parameters provided
+        if let Some(vrf_input) = vrf_input_params {
+            console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using bootstrapped keypair".into());
+
+            let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
+            let challenge_result = self.generate_vrf_challenge_with_keypair(vrf_keypair, vrf_input)?;
+            result.vrf_challenge_data = Some(challenge_result);
+
+            console::log_1(&"✅ VRF WASM Web Worker: VRF challenge generated successfully".into());
+        }
+
+        console::log_1(&"✅ VRF WASM Web Worker: VRF keypair bootstrap completed".into());
+        Ok(result)
+    }
+
+    /// Encrypt VRF keypair with PRF output - looks up in-memory keypair and encrypts it
+    /// This is called after WebAuthn ceremony to encrypt the same VRF keypair with real PRF
+    pub fn encrypt_vrf_keypair_with_prf(
+        &mut self,
+        expected_public_key: String,
+        prf_key: Vec<u8>,
+    ) -> Result<EncryptedVrfKeypairResponse, String> {
+        console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair with PRF output".into());
+        console::log_1(&format!("📝 Expected public key: {}...", &expected_public_key[..20.min(expected_public_key.len())]).into());
+
+        // Verify we have an active VRF keypair in memory
+        if !self.session_active || self.vrf_keypair.is_none() {
+            return Err("No VRF keypair in memory - please generate keypair first".to_string());
+        }
+
+        // Get the VRF keypair from memory and extract its public key
+        let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
+        let stored_public_key_bytes = bincode::serialize(&vrf_keypair.pk)
+            .map_err(|e| format!("Failed to serialize stored VRF public key: {:?}", e))?;
+        let stored_public_key = base64_url_encode(&stored_public_key_bytes);
+
+        // Verify the public key matches what's expected
+        if stored_public_key != expected_public_key {
+            return Err(format!(
+                "VRF public key mismatch - expected: {}..., stored: {}...",
+                &expected_public_key[..20.min(expected_public_key.len())],
+                &stored_public_key[..20.min(stored_public_key.len())]
+            ));
+        }
+
+        console::log_1(&"✅ VRF WASM Web Worker: Public key verification successful".into());
+
+        // Encrypt the VRF keypair
+        let (vrf_public_key, encrypted_vrf_keypair) = self.encrypt_vrf_keypair_data(vrf_keypair, &prf_key)?;
+
+        console::log_1(&"✅ VRF WASM Web Worker: VRF keypair encrypted with PRF output".into());
+        console::log_1(&"📝 VRF keypair ready for persistent storage".into());
+
+        Ok(EncryptedVrfKeypairResponse {
+            vrf_public_key,
+            encrypted_vrf_keypair,
+        })
+    }
+
     pub fn unlock_vrf_keypair(
         &mut self,
         near_account_id: String,
@@ -481,6 +571,18 @@ pub struct VrfKeypairWithChallengeResponse {
     pub vrf_challenge_data: Option<VRFChallengeData>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct VrfKeypairBootstrapResponse {
+    pub vrf_public_key: String,
+    pub vrf_challenge_data: Option<VRFChallengeData>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EncryptedVrfKeypairResponse {
+    pub vrf_public_key: String,
+    pub encrypted_vrf_keypair: serde_json::Value,
+}
+
 // === UTILITY FUNCTIONS ===
 
 fn base64_url_encode(bytes: &[u8]) -> String {
@@ -690,6 +792,119 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                         success: false,
                         data: None,
                         error: Some("Missing VRF keypair generation data".to_string()),
+                    }
+                }
+            })
+        }
+
+        "GENERATE_VRF_KEYPAIR_BOOTSTRAP" => {
+            VRF_MANAGER.with(|manager| {
+                match message.data {
+                    Some(data) => {
+                        // Check if VRF input parameters are provided for challenge generation
+                        let vrf_input_params = data.get("vrfInputParams")
+                            .and_then(|params| serde_json::from_value::<VRFInputData>(params.clone()).ok());
+
+                        let mut manager = manager.borrow_mut();
+
+                        console::log_1(&format!("VRF WASM Web Worker: Generating bootstrap VRF keypair - withChallenge: {}",
+                            vrf_input_params.is_some()).into());
+
+                        match manager.generate_vrf_keypair_bootstrap(vrf_input_params) {
+                            Ok(bootstrap_data) => {
+                                // Structure response to match expected format
+                                let response_data = serde_json::json!({
+                                    "vrf_public_key": bootstrap_data.vrf_public_key,
+                                    "vrf_challenge_data": bootstrap_data.vrf_challenge_data
+                                });
+
+                                VRFWorkerResponse {
+                                    id: message.id,
+                                    success: true,
+                                    data: Some(response_data),
+                                    error: None,
+                                }
+                            },
+                            Err(e) => VRFWorkerResponse {
+                                id: message.id,
+                                success: false,
+                                data: None,
+                                error: Some(e),
+                            }
+                        }
+                    }
+                    None => VRFWorkerResponse {
+                        id: message.id,
+                        success: false,
+                        data: None,
+                        error: Some("Missing VRF bootstrap generation data".to_string()),
+                    }
+                }
+            })
+        }
+
+        "ENCRYPT_VRF_KEYPAIR_WITH_PRF" => {
+            VRF_MANAGER.with(|manager| {
+                match message.data {
+                    Some(data) => {
+                        let expected_public_key = data["expectedPublicKey"].as_str()
+                            .unwrap_or("")
+                            .to_string();
+
+                        let prf_key: Vec<u8> = data["prfKey"].as_array()
+                            .unwrap_or(&vec![])
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as u8))
+                            .collect();
+
+                        if expected_public_key.is_empty() {
+                            VRFWorkerResponse {
+                                id: message.id,
+                                success: false,
+                                data: None,
+                                error: Some("Missing expected public key".to_string()),
+                            }
+                        } else if prf_key.is_empty() {
+                            VRFWorkerResponse {
+                                id: message.id,
+                                success: false,
+                                data: None,
+                                error: Some("Missing or invalid PRF key".to_string()),
+                            }
+                        } else {
+                            let mut manager = manager.borrow_mut();
+
+                            console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair with PRF output".into());
+
+                            match manager.encrypt_vrf_keypair_with_prf(expected_public_key, prf_key) {
+                                Ok(encrypted_data) => {
+                                    // Structure response to match expected format
+                                    let response_data = serde_json::json!({
+                                        "vrf_public_key": encrypted_data.vrf_public_key,
+                                        "encrypted_vrf_keypair": encrypted_data.encrypted_vrf_keypair
+                                    });
+
+                                    VRFWorkerResponse {
+                                        id: message.id,
+                                        success: true,
+                                        data: Some(response_data),
+                                        error: None,
+                                    }
+                                },
+                                Err(e) => VRFWorkerResponse {
+                                    id: message.id,
+                                    success: false,
+                                    data: None,
+                                    error: Some(e),
+                                }
+                            }
+                        }
+                    }
+                    None => VRFWorkerResponse {
+                        id: message.id,
+                        success: false,
+                        data: None,
+                        error: Some("Missing VRF encryption data".to_string()),
                     }
                 }
             })

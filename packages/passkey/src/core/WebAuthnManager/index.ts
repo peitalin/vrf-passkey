@@ -85,12 +85,6 @@ export class WebAuthnManager {
     return await indexDBManager.getLastUser().then(user => user?.nearAccountId || null);
   }
 
-  // === CHALLENGE MANAGEMENT (Delegated to WebAuthnWorkers) ===
-
-  clearAllChallenges(): void {
-    this.webauthnWorkers.clearAllChallenges();
-  }
-
   // === WEBAUTHN AUTHENTICATION & REGISTRATION ===
 
   /**
@@ -163,15 +157,11 @@ export class WebAuthnManager {
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: { nearAccountId: string },
-    challengeId?: string,
-    skipChallengeValidation: boolean = false
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     return await this.webauthnWorkers.secureRegistrationWithPrf(
       nearAccountId,
       prfOutput,
       payload,
-      challengeId,
-      skipChallengeValidation
     );
   }
 
@@ -190,14 +180,12 @@ export class WebAuthnManager {
       depositAmount: string;
       nonce: string;
       blockHashBytes: number[];
-    },
-    challengeId: string
+    }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     return await this.webauthnWorkers.secureTransactionSigningWithPrf(
       nearAccountId,
       prfOutput,
-      payload,
-      challengeId
+      payload
     );
   }
 
@@ -206,13 +194,11 @@ export class WebAuthnManager {
    */
   async securePrivateKeyDecryptionWithPrf(
     nearAccountId: string,
-    prfOutput: ArrayBuffer,
-    challengeId: string
+    prfOutput: ArrayBuffer
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     return await this.webauthnWorkers.securePrivateKeyDecryptionWithPrf(
       nearAccountId,
-      prfOutput,
-      challengeId
+      prfOutput
     );
   }
 
@@ -226,6 +212,57 @@ export class WebAuthnManager {
   }
 
   // === VRF OPERATIONS (Delegated to WebAuthnWorkers) ===
+
+  /**
+   * Generate VRF keypair for bootstrapping - stores in memory unencrypted temporarily
+   * This is used during registration to generate a VRF keypair that will be used for
+   * WebAuthn ceremony and later encrypted with the real PRF output
+   *
+   * @param saveInMemory - Whether to persist the generated VRF keypair in WASM worker memory
+   * @param vrfInputParams - Optional parameters to generate VRF challenge/proof in same call
+   * @returns VRF public key and optionally VRF challenge data
+   */
+  async generateVrfKeypair(
+    saveInMemory: boolean,
+    vrfInputParams?: {
+      userId: string;
+      rpId: string;
+      sessionId: string;
+      blockHeight: number;
+      blockHashBytes: number[];
+      timestamp: number;
+    }
+  ): Promise<{
+    vrfPublicKey: string;
+    // Optional VRF challenge data (only if vrfInputParams provided)
+    vrfChallengeData?: {
+      vrfInput: string;
+      vrfOutput: string;
+      vrfProof: string;
+      vrfPublicKey: string;
+      rpId: string;
+    };
+  }> {
+    return await this.vrfManager.generateVrfKeypair(saveInMemory, vrfInputParams);
+  }
+
+  /**
+   * Encrypt VRF keypair with PRF output - looks up in-memory keypair and encrypts it
+   * This is called after WebAuthn ceremony to encrypt the same VRF keypair with real PRF
+   *
+   * @param expectedPublicKey - Expected VRF public key to verify we're encrypting the right keypair
+   * @param prfOutput - PRF output from WebAuthn ceremony for encryption
+   * @returns Encrypted VRF keypair data ready for storage
+   */
+  async encryptVrfKeypairWithPrf(
+    expectedPublicKey: string,
+    prfOutput: ArrayBuffer
+  ): Promise<{
+    vrfPublicKey: string;
+    encryptedVrfKeypair: any;
+  }> {
+    return await this.vrfManager.encryptVrfKeypairWithPrf(expectedPublicKey, prfOutput);
+  }
 
   /**
    * Generate VRF keypair and encrypt it using PRF output

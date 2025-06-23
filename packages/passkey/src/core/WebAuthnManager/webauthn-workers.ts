@@ -15,99 +15,22 @@ import {
   isVRFChallengeSuccess
 } from '../types/worker';
 import type {
-  WebAuthnChallenge,
   PrfSaltConfig
 } from '../types/webauthn';
 
 /**
- * WebAuthnWorkers handles PRF, challenges, workers, and COSE operations
+ * WebAuthnWorkers handles PRF, workers, and COSE operations
+ *
+ * Note: Challenge store removed as VRF provides cryptographic freshness
+ * without needing centralized challenge management
  */
 export class WebAuthnWorkers {
-  private readonly activeChallenges = new Map<string, WebAuthnChallenge>();
-  private readonly CHALLENGE_TIMEOUT = 30000; // 30 seconds
-  private readonly CLEANUP_INTERVAL = 60000; // 1 minute
   private readonly PRF_SALTS: PrfSaltConfig = {
     nearKeyEncryption: new Uint8Array(new Array(32).fill(42))
   };
 
   constructor() {
-    // Start cleanup interval for expired challenges
-    setInterval(() => this.cleanupExpiredChallenges(), this.CLEANUP_INTERVAL);
-  }
-
-  // === CHALLENGE MANAGEMENT ===
-
-  registerServerChallenge(
-    serverChallenge: string,
-    operation: 'registration' | 'authentication'
-  ): string {
-    const challengeId = `${operation}_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-
-    const challenge: WebAuthnChallenge = {
-      id: challengeId,
-      challenge: serverChallenge,
-      timestamp: Date.now(),
-      used: false,
-      operation,
-      timeout: this.CHALLENGE_TIMEOUT
-    };
-
-    this.activeChallenges.set(challengeId, challenge);
-    console.log(`Registered ${operation} challenge: ${challengeId}`);
-    return challengeId;
-  }
-
-  validateAndConsumeChallenge(
-    challengeId: string,
-    operation: 'registration' | 'authentication'
-  ): WebAuthnChallenge {
-    const challenge = this.activeChallenges.get(challengeId);
-
-    if (!challenge) {
-      throw new Error(`Challenge ${challengeId} not found`);
-    }
-
-    if (challenge.used) {
-      throw new Error(`Challenge ${challengeId} has already been used`);
-    }
-
-    if (challenge.operation !== operation) {
-      throw new Error(`Challenge ${challengeId} is for ${challenge.operation}, not ${operation}`);
-    }
-
-    const now = Date.now();
-    if (now - challenge.timestamp > challenge.timeout) {
-      this.activeChallenges.delete(challengeId);
-      throw new Error(`Challenge ${challengeId} has expired`);
-    }
-
-    // Mark as used and remove from active challenges
-    challenge.used = true;
-    this.activeChallenges.delete(challengeId);
-
-    console.log(`Validated and consumed ${operation} challenge: ${challengeId}`);
-    return challenge;
-  }
-
-  private cleanupExpiredChallenges(): void {
-    const now = Date.now();
-    let cleaned = 0;
-
-    for (const [challengeId, challenge] of this.activeChallenges.entries()) {
-      if (now - challenge.timestamp > challenge.timeout) {
-        this.activeChallenges.delete(challengeId);
-        cleaned++;
-      }
-    }
-
-    if (cleaned > 0) {
-      console.log(`Cleaned up ${cleaned} expired challenges`);
-    }
-  }
-
-  clearAllChallenges(): void {
-    this.activeChallenges.clear();
-    console.log('Cleared all WebAuthn challenges');
+    // No challenge cleanup needed - VRF provides cryptographic freshness
   }
 
   // === WORKER MANAGEMENT ===
@@ -177,15 +100,8 @@ export class WebAuthnWorkers {
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: RegistrationPayload,
-    challengeId?: string,
-    skipChallengeValidation: boolean = false
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
-      if (!skipChallengeValidation && challengeId) {
-        this.validateAndConsumeChallenge(challengeId, 'registration');
-        console.log('WebAuthnManager: Challenge validated for PRF registration');
-      }
-
       console.log('WebAuthnManager: Starting secure registration with PRF');
 
       const worker = this.createSecureWorker();
@@ -224,23 +140,14 @@ export class WebAuthnWorkers {
 
   /**
    * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
+   * Note: No challenge validation needed - VRF provides cryptographic freshness
    */
   async secureTransactionSigningWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
-    payload: SigningPayload,
-    challengeId: string
+    payload: SigningPayload
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      // Skip challenge validation for serverless mode (challengeId starts with 'serverless-')
-      // SECURITY NOTE: the contract will replace it with a proper challenge after
-      if (!challengeId.startsWith('serverless-')) {
-        this.validateAndConsumeChallenge(challengeId, 'authentication');
-        console.log('WebAuthnManager: Challenge validated for PRF signing');
-      } else {
-        console.log('WebAuthnManager: Skipping challenge validation for serverless mode');
-      }
-
       console.log('WebAuthnManager: Starting secure transaction signing with PRF');
 
       const worker = this.createSecureWorker();
@@ -331,15 +238,11 @@ export class WebAuthnWorkers {
    */
   async securePrivateKeyDecryptionWithPrf(
     nearAccountId: string,
-    prfOutput: ArrayBuffer,
-    challengeId: string // Parameter kept for API compatibility, but not used for validation
+    prfOutput: ArrayBuffer
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
-      // For local private key decryption, we don't need challenge validation
-      // The security comes from device possession + biometric verification + PRF cryptography
-      // See additional security notes in the comments above
       console.log('WebAuthnManager: Starting secure private key decryption with PRF (local operation)');
-      console.log('WebAuthnManager: Skipping challenge validation - security enforced by device possession + biometrics');
+      console.log('WebAuthnManager: Security enforced by device possession + biometrics + PRF cryptography');
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {

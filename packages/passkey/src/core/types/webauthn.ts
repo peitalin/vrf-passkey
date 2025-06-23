@@ -91,16 +91,12 @@ export interface AuthenticationResponseJSON {
 /** Options for a WebAuthn registration ceremony */
 export interface RegistrationOptions {
   options: PublicKeyCredentialCreationOptions;
-  challengeId: string;
-  commitmentId?: string;
   expiresAt?: number;
 }
 
 /** Options for a WebAuthn authentication ceremony */
 export interface AuthenticationOptions {
   options: PublicKeyCredentialRequestOptions;
-  challengeId: string;
-  commitmentId?: string;
   expiresAt?: number;
 }
 
@@ -117,34 +113,14 @@ export interface WebAuthnRegistrationWithPrf {
 export interface WebAuthnAuthenticationWithPrf {
   credential: PublicKeyCredential;
   prfOutput?: ArrayBuffer;
-  challengeId?: string;
   extensionResults?: AuthenticationExtensionsClientOutputs;
 }
 
 
 // =================================================================
-// 2. CHALLENGE & PRF MANAGEMENT
+// 2. PRF MANAGEMENT
 // =================================================================
-
-/** Represents a WebAuthn challenge for a specific operation */
-export interface WebAuthnChallenge {
-  id: string;
-  challenge: string;
-  timestamp: number;
-  used: boolean;
-  operation: 'registration' | 'authentication';
-  timeout: number;
-  source?: 'server' | 'local' | 'contract';
-  metadata?: Record<string, any>;
-}
-
-/** The result of validating a WebAuthn challenge */
-export interface ChallengeValidationResult {
-  valid: boolean;
-  challenge?: WebAuthnChallenge;
-  error?: string;
-  consumed?: boolean;
-}
+// Note: Challenge management removed - VRF provides cryptographic freshness
 
 /** Configuration for PRF salts used in deterministic key derivation */
 export interface PrfSaltConfig {
@@ -399,7 +375,6 @@ export interface ContractCallPreparation {
 export interface PrfRegistrationPayload {
   nearAccountId: string;
   prfOutput: ArrayBuffer;
-  challengeId?: string;
   skipChallengeValidation?: boolean;
 }
 /** Payload for a PRF-based transaction signing in the WASM worker */
@@ -413,13 +388,11 @@ export interface PrfSigningPayload {
   depositAmount: string;
   nonce: string;
   blockHashBytes: number[];
-  challengeId: string;
 }
 /** Payload for a PRF-based key decryption in the WASM worker */
 export interface PrfDecryptionPayload {
   nearAccountId: string;
   prfOutput: ArrayBuffer;
-  challengeId: string;
 }
 
 
@@ -449,26 +422,6 @@ export interface WebAuthnValidationResult {
     signatureValid: boolean;
     userVerificationValid: boolean;
     counterValid: boolean;
-  };
-}
-
-/** Creates a new WebAuthn challenge object */
-export function createWebAuthnChallenge(
-  operation: 'registration' | 'authentication',
-  source: 'server' | 'local' | 'contract' = 'local',
-  timeout: number = 300000
-): WebAuthnChallenge {
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const challengeB64 = btoa(String.fromCharCode(...challenge));
-
-  return {
-    id: `${operation}_${Date.now()}_${Math.random().toString(36).substring(2)}`,
-    challenge: challengeB64,
-    timestamp: Date.now(),
-    used: false,
-    operation,
-    timeout,
-    source
   };
 }
 

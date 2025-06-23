@@ -280,6 +280,166 @@ export class VRFManager {
   // === VRF OPERATIONS ===
 
   /**
+   * Generate VRF keypair for bootstrapping - stores in memory unencrypted temporarily
+   * This is used during registration to generate a VRF keypair that will be used for
+   * WebAuthn ceremony and later encrypted with the real PRF output
+   *
+   * @param saveInMemory - Always true for bootstrap (VRF keypair stored in memory)
+   * @param vrfInputParams - Optional parameters to generate VRF challenge/proof in same call
+   * @returns VRF public key and optionally VRF challenge data
+   */
+  async generateVrfKeypair(
+    saveInMemory: boolean,
+    vrfInputParams?: {
+      userId: string;
+      rpId: string;
+      sessionId: string;
+      blockHeight: number;
+      blockHashBytes: number[];
+      timestamp: number;
+    }
+  ): Promise<{
+    vrfPublicKey: string;
+    // Optional VRF challenge data (only if vrfInputParams provided)
+    vrfChallengeData?: {
+      vrfInput: string;
+      vrfOutput: string;
+      vrfProof: string;
+      vrfPublicKey: string;
+      rpId: string;
+    };
+  }> {
+    console.log('VRF Manager: Generating bootstrap VRF keypair', {
+      saveInMemory,
+      withChallenge: !!vrfInputParams
+    });
+
+    if (!this.vrfWorker) {
+      await this.initialize();
+    }
+
+    if (!this.vrfWorker) {
+      throw new Error('VRF Web Worker not initialized after initialization attempt');
+    }
+
+    try {
+      const message: VRFWorkerMessage = {
+        type: 'GENERATE_VRF_KEYPAIR_BOOTSTRAP',
+        id: this.generateMessageId(),
+        data: {
+          // Include VRF input parameters if provided for challenge generation
+          vrfInputParams: vrfInputParams ? {
+            user_id: vrfInputParams.userId,
+            rp_id: vrfInputParams.rpId,
+            session_id: vrfInputParams.sessionId,
+            block_height: vrfInputParams.blockHeight,
+            block_hash: vrfInputParams.blockHashBytes,
+            timestamp: vrfInputParams.timestamp
+          } : undefined
+        }
+      };
+
+      const response = await this.sendMessage(message);
+
+      if (!response.success || !response.data) {
+        throw new Error(`VRF bootstrap keypair generation failed: ${response.error}`);
+      }
+
+      const result: {
+        vrfPublicKey: string;
+        vrfChallengeData?: {
+          vrfInput: string;
+          vrfOutput: string;
+          vrfProof: string;
+          vrfPublicKey: string;
+          rpId: string;
+        };
+      } = {
+        vrfPublicKey: response.data.vrf_public_key
+      };
+
+      // If VRF challenge data was also generated, include it in the result
+      if (response.data.vrf_challenge_data) {
+        // Track the account ID for this VRF session if saving in memory
+        if (vrfInputParams && saveInMemory) {
+          this.currentVrfAccountId = vrfInputParams.userId;
+        }
+
+        result.vrfChallengeData = {
+          vrfInput: response.data.vrf_challenge_data.vrfInput,
+          vrfOutput: response.data.vrf_challenge_data.vrfOutput,
+          vrfProof: response.data.vrf_challenge_data.vrfProof,
+          vrfPublicKey: response.data.vrf_challenge_data.vrfPublicKey,
+          rpId: response.data.vrf_challenge_data.rpId
+        };
+        console.log('✅ VRF Manager: Bootstrap VRF keypair + challenge generation successful', {
+          saveInMemory,
+          accountTracked: saveInMemory ? vrfInputParams?.userId : undefined
+        });
+      } else {
+        console.log('✅ VRF Manager: Bootstrap VRF keypair generation successful', {
+          saveInMemory
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error('❌ VRF Manager: Bootstrap VRF keypair generation failed:', error);
+      throw new Error(`Failed to generate bootstrap VRF keypair: ${error.message}`);
+    }
+  }
+
+  /**
+   * Encrypt VRF keypair with PRF output - looks up in-memory keypair and encrypts it
+   * This is called after WebAuthn ceremony to encrypt the same VRF keypair with real PRF
+   *
+   * @param expectedPublicKey - Expected VRF public key to verify we're encrypting the right keypair
+   * @param prfOutput - PRF output from WebAuthn ceremony for encryption
+   * @returns Encrypted VRF keypair data ready for storage
+   */
+  async encryptVrfKeypairWithPrf(
+    expectedPublicKey: string,
+    prfOutput: ArrayBuffer
+  ): Promise<{
+    vrfPublicKey: string;
+    encryptedVrfKeypair: any;
+  }> {
+    console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
+
+    if (!this.vrfWorker) {
+      throw new Error('VRF Web Worker not initialized');
+    }
+
+    try {
+      const message: VRFWorkerMessage = {
+        type: 'ENCRYPT_VRF_KEYPAIR_WITH_PRF',
+        id: this.generateMessageId(),
+        data: {
+          expectedPublicKey: expectedPublicKey,
+          prfKey: Array.from(new Uint8Array(prfOutput))
+        }
+      };
+
+      const response = await this.sendMessage(message);
+
+      if (!response.success || !response.data) {
+        throw new Error(`VRF keypair encryption failed: ${response.error}`);
+      }
+
+      const result = {
+        vrfPublicKey: response.data.vrf_public_key,
+        encryptedVrfKeypair: response.data.encrypted_vrf_keypair
+      };
+
+      console.log('✅ VRF Manager: VRF keypair encryption successful');
+      return result;
+    } catch (error: any) {
+      console.error('❌ VRF Manager: VRF keypair encryption failed:', error);
+      throw new Error(`Failed to encrypt VRF keypair: ${error.message}`);
+    }
+  }
+
+  /**
    * Generate VRF keypair and encrypt it using PRF output
    *
    * @param prfOutput - PRF output from WebAuthn ceremony for encryption

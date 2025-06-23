@@ -119,10 +119,6 @@ describe('WebAuthnManager', () => {
     it('should create a WebAuthnManager instance', () => {
       expect(webAuthnManager).toBeInstanceOf(WebAuthnManager);
     });
-
-    it('should clear all challenges', () => {
-      expect(() => webAuthnManager.clearAllChallenges()).not.toThrow();
-    });
   });
 
   describe('User Data Operations', () => {

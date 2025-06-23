@@ -89,6 +89,14 @@ export async function executeAction(
     const userData = await webAuthnManager.getUserData(nearAccountId);
     const usesPrf = userData?.prfSupported === true;
 
+    console.log('🔍 DEBUG: User Data from IndexDB:');
+    console.log(`  - Account ID: ${nearAccountId}`);
+    console.log(`  - Has user data: ${!!userData}`);
+    console.log(`  - PRF supported: ${userData?.prfSupported}`);
+    console.log(`  - Client NEAR public key: ${userData?.clientNearPublicKey}`);
+    console.log(`  - Has VRF credentials: ${!!userData?.vrfCredentials}`);
+    console.log(`  - Passkey credential ID: ${userData?.passkeyCredential?.id}`);
+
     if (!usesPrf) {
       const errorMsg = 'This application requires PRF support. Please use a PRF-capable authenticator.';
       const error = new Error(errorMsg);
@@ -153,6 +161,11 @@ export async function executeAction(
     console.log('🎯 Generating VRF challenge in Service Worker (no TouchID needed)');
     const vrfChallengeData = await vrfManager.generateVRFChallenge(vrfInputData);
 
+    console.log('🔍 DEBUG: VRF Authentication Data:');
+    console.log(`  - VRF Public Key: ${vrfChallengeData.vrfPublicKey.substring(0, 40)}...`);
+    console.log(`  - RP ID: ${vrfChallengeData.rpId}`);
+    console.log(`  - User ID: ${nearAccountId}`);
+
     onEvent?.({
       type: 'actionProgress',
       data: {
@@ -167,6 +180,13 @@ export async function executeAction(
 
     // Get stored authenticator data for this user
     const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    console.log(`🔍 DEBUG: Found ${authenticators.length} authenticators for ${nearAccountId}:`);
+    authenticators.forEach((auth, index) => {
+      console.log(`  [${index}] Credential ID: ${auth.credentialID}`);
+      console.log(`  [${index}] Name: ${auth.name}`);
+      console.log(`  [${index}] Registered: ${auth.registered}`);
+    });
+
     if (authenticators.length === 0) {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
@@ -330,15 +350,11 @@ export async function executeAction(
       blockHashBytes: transactionBlockHashBytes,
     };
 
-    // Get authentication options for challenge validation from VRF signer
-    let challengeId: string = "";
-    // TODO: VRF generates authenticationOptions and challengeId
-
+    // No challenge validation needed - VRF provides cryptographic freshness
     const signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
       nearAccountId,
       prfOutput,
-      signingPayload,
-      challengeId
+      signingPayload
     );
 
     // Broadcast transaction

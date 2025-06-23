@@ -13,7 +13,6 @@ export type {
 } from './core/types/passkeyManager';
 
 export type {
-  WebAuthnChallenge,
   WebAuthnRegistrationWithPrf,
   WebAuthnAuthenticationWithPrf,
   RegistrationOptions,

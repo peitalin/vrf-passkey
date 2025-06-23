@@ -10,6 +10,61 @@ import type {
   OperationHooks,
 } from '../types/passkeyManager';
 
+/**
+ * Generate a VRF keypair + challenge in VRF wasm worker for WebAuthn registration ceremony bootstrapping
+ *
+ * ARCHITECTURE: This function solves the chicken-and-egg problem with a single VRF keypair:
+ * 1. Generate VRF keypair + challenge (no PRF needed)
+ * 2. Persist VRF keypair in worker memory (NOT encrypted yet)
+ * 3. Use VRF challenge for WebAuthn ceremony → get PRF output
+ * 4. Encrypt the SAME VRF keypair (still in memory) with PRF
+ *
+ * @param webAuthnManager - WebAuthn manager instance
+ * @param nearAccountId - NEAR account ID for VRF input
+ * @param blockHeight - Current NEAR block height for freshness
+ * @param blockHashBytes - Current NEAR block hash bytes for entropy
+ * @returns VRF challenge data (VRF keypair persisted in worker memory)
+ */
+async function generateBootstrapVrfChallenge(
+  webAuthnManager: any,
+  nearAccountId: string,
+  blockHeight: number,
+  blockHashBytes: Uint8Array
+): Promise<{
+  vrfInput: string;
+  vrfOutput: string;
+  vrfProof: string;
+  vrfPublicKey: string;
+  rpId: string;
+}> {
+  console.log('🔄 Generating VRF keypair for registration');
+  console.log('📝 NOTE: VRF keypair will be persisted in worker memory until PRF encryption');
+
+  const sessionId = crypto.randomUUID();
+
+  // Generate VRF keypair and persist in worker memory
+  const vrfResult = await webAuthnManager.generateVrfKeypair(
+    true, // saveInMemory: true - this VRF keypair is persisted in worker memory until PRF encryption
+    {
+      userId: nearAccountId,
+      rpId: window.location.hostname,
+      sessionId: sessionId,
+      blockHeight: blockHeight,
+      blockHashBytes: Array.from(blockHashBytes),
+      timestamp: Date.now()
+    }
+  );
+
+  if (!vrfResult.vrfChallengeData) {
+    throw new Error('Registration VRF keypair generation failed');
+  }
+
+  console.log('✅ Single VRF keypair generated and persisted in worker memory');
+  console.log('📝 This VRF keypair will be used for both WebAuthn and contract verification');
+
+  return vrfResult.vrfChallengeData;
+}
+
 
 /**
  * Create NEAR account using testnet faucet service
@@ -359,8 +414,8 @@ async function handleRegistration(
     const vrfManager = passkeyManager.getVRFManager();
     await vrfManager.initialize();
 
-    // Step 2: Generate VRF keypair with deterministic entropy for consistency
-    console.log('VRF Registration Step 2: Generate VRF keypair with deterministic entropy');
+    // Step 2: Prepare for VRF challenge generation
+    console.log('VRF Registration Step 2: Preparing for VRF challenge generation');
 
     onEvent?.({
       step: 1,
@@ -371,10 +426,6 @@ async function handleRegistration(
       message: 'Generating VRF credentials...'
     });
 
-    // FIXED: Use random seed for VRF keypair generation AND challenge generation in one call
-    // This ensures a truly random VRF keypair is generated once and used consistently
-    const randomSeed = crypto.getRandomValues(new Uint8Array(32));
-
     // Step 3-4: Get latest NEAR block for VRF input construction
     console.log('VRF Registration Step 3-4: Get NEAR block data');
 
@@ -384,41 +435,25 @@ async function handleRegistration(
 
     console.log(`📊 Using NEAR block ${blockHeight} for VRF input construction`);
 
-    const sessionId = crypto.randomUUID();
+    // Step 3-4: Generate bootstrap VRF keypair + challenge for registration
+    console.log('VRF Registration Step 3-4: Generating VRF keypair + challenge for registration ceremony');
 
-    // ENHANCED: Generate VRF keypair AND challenge data in one efficient call
-    console.log('VRF Registration Step 3-4: Generating VRF keypair + challenge in one call');
-
-    const tempVrfResult = await webAuthnManager.generateVrfKeypairWithPrf(
-      randomSeed.buffer,
-      false, // saveInMemory: false - this is a throwaway VRF keypair for challenge generation only
-      {
-        userId: nearAccountId,
-        rpId: window.location.hostname,
-        sessionId: sessionId,
-        blockHeight: blockHeight,
-        blockHashBytes: Array.from(blockHashBytes),
-        timestamp: Date.now()
-      }
+    const vrfChallengeData = await generateBootstrapVrfChallenge(
+      webAuthnManager,
+      nearAccountId,
+      blockHeight,
+      blockHashBytes
     );
-
-    console.log('✅ VRF keypair + challenge generated in one call');
-
-    if (!tempVrfResult.vrfChallengeData) {
-      throw new Error('VRF challenge data not generated - this should not happen');
-    }
-
-    const tempVrfChallengeData = tempVrfResult.vrfChallengeData;
 
     // Step 5: Use VRF output as WebAuthn challenge
     console.log('VRF Registration Step 5: Use VRF output as WebAuthn challenge');
 
     // Decode VRF output and use first 32 bytes as WebAuthn challenge
-    const vrfOutputBytes = base64UrlDecode(tempVrfChallengeData.vrfOutput);
+    const vrfOutputBytes = base64UrlDecode(vrfChallengeData.vrfOutput);
     const webAuthnChallengeBytes = vrfOutputBytes.slice(0, 32); // First 32 bytes as challenge
 
     console.log(`🔑 Using VRF output as WebAuthn challenge: ${webAuthnChallengeBytes.length} bytes`);
-    console.log(`🔍 VRF output (base64url): ${tempVrfChallengeData .vrfOutput.substring(0, 40)}...`);
+    console.log(`🔍 VRF output (base64url): ${vrfChallengeData.vrfOutput.substring(0, 40)}...`);
     console.log(`🔍 WebAuthn challenge (base64url): ${base64UrlEncode(webAuthnChallengeBytes)}`);
 
     // Step 6: WebAuthn registration ceremony with PRF (using VRF challenge)
@@ -492,40 +527,18 @@ async function handleRegistration(
       message: 'WebAuthn ceremony successful, PRF output obtained'
     });
 
-    // Step 8: Generate FINAL VRF keypair with real PRF for storage and future authentication
-    console.log('VRF Registration Step 8: Generating final VRF keypair with real PRF for storage and future authentication');
+    // Step 8: Encrypt the existing VRF keypair with real PRF for storage and future authentication
+    console.log('VRF Registration Step 8: Encrypting existing VRF keypair with real PRF for storage');
 
-    // Generate the FINAL VRF keypair using the real PRF output from WebAuthn
-    // This VRF keypair will be stored encrypted and used for all future authentications
-    const finalVrfResult = await webAuthnManager.generateVrfKeypairWithPrf(
-      prfOutput,
-      true, // saveInMemory: true - this is the final VRF keypair for storage and future authentication
-      {
-        userId: nearAccountId,
-        rpId: window.location.hostname,
-        sessionId: sessionId,
-        blockHeight: blockHeight,
-        blockHashBytes: Array.from(blockHashBytes),
-        timestamp: Date.now()
-      }
+    // Encrypt the SAME VRF keypair that generated the WebAuthn challenge using dedicated method
+    // This ensures perfect consistency between WebAuthn ceremony and contract verification
+    const encryptedVrfResult = await webAuthnManager.encryptVrfKeypairWithPrf(
+      vrfChallengeData.vrfPublicKey,
+      prfOutput
     );
 
-    if (!finalVrfResult.vrfChallengeData) {
-      throw new Error('VRF challenge data not generated from final VRF keypair');
-    }
-
-    const finalVrfChallengeData = finalVrfResult.vrfChallengeData;
-
-    console.log('✅ Final VRF keypair generated with real PRF - encrypted for storage AND stored in memory for immediate login');
-
-    // Verify the VRF challenge matches the WebAuthn challenge used in registration
-    const finalVrfOutputBytes = base64UrlDecode(finalVrfChallengeData.vrfOutput);
-    const finalWebAuthnChallengeBytes = finalVrfOutputBytes.slice(0, 32);
-
-    if (!finalWebAuthnChallengeBytes.every((byte, index) => byte === webAuthnChallengeBytes[index])) {
-      console.warn('⚠️ VRF challenge mismatch between temp and final VRF keypairs - this is expected due to different keypairs');
-      console.log('📝 Contract verification will use temp VRF data, storage will use final VRF data');
-    }
+    console.log('✅ VRF keypair encrypted with real PRF using dedicated method');
+    console.log('📝 Same VRF public key will be used for contract verification and future authentication');
 
     // Step 9: Generate NEAR keypair using PRF (for traditional NEAR transactions)
     console.log('VRF Registration Step 9: Generating NEAR keypair with PRF');
@@ -534,8 +547,6 @@ async function handleRegistration(
       nearAccountId,
       prfOutput,
       { nearAccountId },
-      undefined,
-      true // skipChallengeValidation for VRF mode
     );
 
     if (!keyGenResult.success || !keyGenResult.publicKey) {
@@ -565,14 +576,14 @@ async function handleRegistration(
     // This ensures consistency between the WebAuthn challenge and the contract verification
 
     console.log('🔍 VRF challenge verification:');
-    console.log('  - VRF output used for WebAuthn:', tempVrfChallengeData .vrfOutput.substring(0, 40) + '...');
+    console.log('  - VRF output used for WebAuthn:', vrfChallengeData.vrfOutput.substring(0, 40) + '...');
     console.log('  - WebAuthn challenge length:', webAuthnChallengeBytes.length);
     console.log('  - WebAuthn challenge (base64url):', base64UrlEncode(webAuthnChallengeBytes));
-    console.log('  - VRF Input for contract:', tempVrfChallengeData .vrfInput.substring(0, 40) + '...');
-    console.log('  - VRF Proof for contract:', tempVrfChallengeData .vrfProof.substring(0, 40) + '...');
-    console.log('  - VRF Public Key:', tempVrfChallengeData .vrfPublicKey.substring(0, 40) + '...');
-    console.log('✅ VRF challenge and WebAuthn challenge are consistent');
-    console.log('📝 NOTE: Using random VRF challenge for contract verification');
+    console.log('  - VRF Input for contract:', vrfChallengeData.vrfInput.substring(0, 40) + '...');
+    console.log('  - VRF Proof for contract:', vrfChallengeData.vrfProof.substring(0, 40) + '...');
+    console.log('  - VRF Public Key for contract:', vrfChallengeData.vrfPublicKey.substring(0, 40) + '...');
+    console.log('✅ Using single VRF keypair for both WebAuthn ceremony and contract verification');
+    console.log('📝 NOTE: No architectural mismatch - same VRF keypair throughout entire flow');
 
     onEvent?.({
       step: 1,
@@ -616,6 +627,9 @@ async function handleRegistration(
       tempSessionId,
       onEvent
     );
+
+    // Brief delay to allow account creation to propagate
+    await new Promise(resolve => setTimeout(resolve, 800));
 
     if (!accountCreationResult.success) {
       console.error('❌ Account creation failed, initiating complete rollback');
@@ -678,25 +692,25 @@ async function handleRegistration(
 
     try {
       console.log('Calling verify_registration_response on contract...');
-      console.log('🔍 Contract call details:');
+      console.log('🔍 Contract call details (using single VRF keypair for perfect consistency):');
       console.log('  - Contract ID:', WEBAUTHN_CONTRACT_ID);
       console.log('  - Block Height:', blockHeight);
-      console.log('  - VRF Input:', tempVrfChallengeData .vrfInput.substring(0, 40) + '...');
-      console.log('  - VRF Output:', tempVrfChallengeData .vrfOutput.substring(0, 40) + '...');
-      console.log('  - VRF Proof:', tempVrfChallengeData .vrfProof.substring(0, 40) + '...');
-      console.log('  - VRF Public Key:', tempVrfChallengeData .vrfPublicKey.substring(0, 40) + '...');
-      console.log('  - RP ID:', tempVrfChallengeData .rpId);
+      console.log('  - VRF Input:', vrfChallengeData.vrfInput.substring(0, 40) + '...');
+      console.log('  - VRF Output (WebAuthn challenge):', vrfChallengeData.vrfOutput.substring(0, 40) + '...');
+      console.log('  - VRF Proof:', vrfChallengeData.vrfProof.substring(0, 40) + '...');
+      console.log('  - VRF Public Key:', vrfChallengeData.vrfPublicKey.substring(0, 40) + '...');
+      console.log('  - RP ID:', vrfChallengeData.rpId);
 
       const contractVerificationResult = await webAuthnManager.verifyVrfRegistration(
         nearRpcProvider,
         WEBAUTHN_CONTRACT_ID,
         {
-          vrfInput: tempVrfChallengeData .vrfInput,
-          vrfOutput: tempVrfChallengeData .vrfOutput,
-          vrfProof: tempVrfChallengeData .vrfProof,
-          vrfPublicKey: tempVrfChallengeData .vrfPublicKey,
+          vrfInput: vrfChallengeData.vrfInput,
+          vrfOutput: vrfChallengeData.vrfOutput,
+          vrfProof: vrfChallengeData.vrfProof,
+          vrfPublicKey: vrfChallengeData.vrfPublicKey,
           userId: nearAccountId,
-          rpId: tempVrfChallengeData .rpId,
+          rpId: vrfChallengeData.rpId,
           blockHeight: blockHeight,
           blockHash: bufferEncode(blockHashBytes),
         },
@@ -787,20 +801,20 @@ async function handleRegistration(
           syncedAt: new Date().toISOString(),
         });
 
-        // Store WebAuthn user data with final VRF credentials
-        // Note: We store the final VRF keypair encrypted with real PRF
-        // to ensure proper decryption during future authentication
+        // Store WebAuthn user data with encrypted VRF credentials
+        // Note: We store the same VRF keypair that generated the WebAuthn challenge
+        // to ensure perfect consistency between registration and authentication
         await webAuthnManager.storeUserData({
           nearAccountId,
           clientNearPublicKey: keyGenResult.publicKey,
           lastUpdated: Date.now(),
           prfSupported: true,
-          deterministicKey: false, // Using final VRF keypair encrypted with real PRF
+          deterministicKey: false, // Using single VRF keypair encrypted with real PRF
           passkeyCredential: {
             id: credential.id,
             rawId: credentialId
           },
-          vrfCredentials: finalVrfResult.encryptedVrfKeypair
+          vrfCredentials: encryptedVrfResult.encryptedVrfKeypair
         });
 
         console.log('✅ All registration data stored atomically');
@@ -838,8 +852,8 @@ async function handleRegistration(
       const unlockResult = await vrfManager.unlockVRFKeypair(
         nearAccountId,
         {
-          encrypted_vrf_data_b64u: finalVrfResult.encryptedVrfKeypair.encrypted_vrf_data_b64u,
-          aes_gcm_nonce_b64u: finalVrfResult.encryptedVrfKeypair.aes_gcm_nonce_b64u
+          encrypted_vrf_data_b64u: encryptedVrfResult.encryptedVrfKeypair.encrypted_vrf_data_b64u,
+          aes_gcm_nonce_b64u: encryptedVrfResult.encryptedVrfKeypair.aes_gcm_nonce_b64u
         },
         prfOutput
       );
@@ -874,8 +888,8 @@ async function handleRegistration(
       transactionId: contractTransactionId,
       vrfRegistration: {
         success: true,
-        vrfPublicKey: finalVrfResult.vrfPublicKey,
-        encryptedVrfKeypair: finalVrfResult.encryptedVrfKeypair,
+        vrfPublicKey: vrfChallengeData.vrfPublicKey,
+        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
         contractVerified
       }
     };

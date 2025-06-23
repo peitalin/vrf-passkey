@@ -296,12 +296,9 @@ export class PasskeyManager {
     }
 
     // Use WASM worker to decrypt private key
-    // challengeId parameter is kept for API compatibility but not used for validation
-    const localChallengeId = `local-export-${Date.now()}`;
     const decryptionResult = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
       nearAccountId,
-      prfOutput as ArrayBuffer,
-      localChallengeId
+      prfOutput as ArrayBuffer
     );
 
     console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);

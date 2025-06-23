@@ -34,14 +34,24 @@ export interface VRFChallengeData {
 }
 
 export interface VRFWorkerMessage {
-  type: 'PING' | 'UNLOCK_VRF_KEYPAIR' | 'GENERATE_VRF_CHALLENGE' | 'GENERATE_VRF_KEYPAIR' | 'CHECK_VRF_STATUS' | 'LOGOUT';
-  id: string;
+  type: 'PING' | 'UNLOCK_VRF_KEYPAIR' | 'GENERATE_VRF_CHALLENGE' | 'GENERATE_VRF_KEYPAIR' | 'GENERATE_VRF_KEYPAIR_BOOTSTRAP' | 'ENCRYPT_VRF_KEYPAIR_WITH_PRF' | 'CHECK_VRF_STATUS' | 'LOGOUT';
+  id?: string;
   data?: any;
 }
 
 export interface VRFWorkerResponse {
-  success: boolean;
   id?: string;
+  success: boolean;
   data?: any;
   error?: string;
+}
+
+export interface VRFKeypairBootstrapResponse {
+  vrfPublicKey: string;
+  vrfChallengeData?: VRFChallengeData;
+}
+
+export interface EncryptedVRFKeypairResponse {
+  vrfPublicKey: string;
+  encryptedVrfKeypair: EncryptedVRFData;
 }

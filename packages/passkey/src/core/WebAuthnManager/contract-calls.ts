@@ -255,16 +255,13 @@ export class WebAuthnContractCalls {
     nearAccountId: string,
     prfOutput: ArrayBuffer
   ): Promise<FinalExecutionOutcome> {
-    // For serverless mode with pre-obtained PRF, use a dummy challenge ID
-    const challengeId = 'serverless-reused-prf-' + crypto.randomUUID();
-
-    console.log("Contract call (with PRF): secureTransactionSigningWithPrf", challengeId);
+    // No challenge validation needed - VRF provides cryptographic freshness
+    console.log("Contract call (with PRF): secureTransactionSigningWithPrf");
 
     return this.signAndSubmitTransaction(
       nearRpcProvider,
       nearAccountId,
       prfOutput,
-      challengeId,
       contractId,
       methodName,
       args,
@@ -311,10 +308,8 @@ export class WebAuthnContractCalls {
 
     const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
 
-    // Use serverless-style challenge ID to bypass challenge validation
-    const challengeId = 'serverless-registration-' + crypto.randomUUID();
-
-    console.log("Registration contract call: secureTransactionSigningWithPrf", challengeId);
+    // No challenge validation needed - VRF provides cryptographic freshness
+    console.log("Registration contract call: secureTransactionSigningWithPrf");
 
     let blockHashBytes: number[];
     try {
@@ -346,8 +341,7 @@ export class WebAuthnContractCalls {
         depositAmount: attachedDeposit,
         nonce: nonce.toString(),
         blockHashBytes: blockHashBytes
-      },
-      challengeId
+      }
     );
 
     // Create a SignedTransaction object from the Borsh bytes
@@ -417,7 +411,6 @@ export class WebAuthnContractCalls {
     nearRpcProvider: Provider,
     nearAccountId: string,
     prfOutput: ArrayBuffer,
-    challengeId: string,
     contractId: string,
     methodName: string,
     args: any,
@@ -456,7 +449,7 @@ export class WebAuthnContractCalls {
 
     const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
 
-    console.log("Contract call: secureTransactionSigningWithPrf", challengeId);
+    console.log("Contract call: secureTransactionSigningWithPrf");
 
     let blockHashBytes: number[];
     try {
@@ -481,8 +474,7 @@ export class WebAuthnContractCalls {
         depositAmount: attachedDeposit,
         nonce: nonce.toString(),
         blockHashBytes: blockHashBytes
-      },
-      challengeId
+      }
     );
 
     // Create a SignedTransaction object from the Borsh bytes
@@ -620,17 +612,32 @@ export class WebAuthnContractCalls {
       console.log('  - Contract ID:', contractId);
       console.log('  - VRF Block Height:', vrfChallengeData.blockHeight);
       console.log('  - RP ID:', vrfChallengeData.rpId);
+      console.log('  - User ID from VRF data:', vrfChallengeData.userId);
+      console.log('  - Credential ID being sent:', webauthnCredential.id);
+      console.log('  - Credential rawId (base64url):', base64UrlEncode(new Uint8Array(webauthnCredential.rawId)));
       console.log('🔍 Contract args structure:', JSON.stringify(contractArgs, null, 2));
 
-      // Call verify_authentication_response as a view function (no gas required)
-      // Since verify_authentication_response is now a view function, we can call it directly
-      console.log('Calling verify_authentication_response as view function (no gas required)');
+      // Call contract as view function (gas-free, read-only)
       const result = await this.executeViewCall(
         nearRpcProvider,
         contractId,
         'verify_authentication_response',
         contractArgs
       );
+
+      // NOTE: view vs non-view function calls
+      //
+      // DEBUG VERSION: Uncomment below to call as authenticated function for debugging contract logs
+      // console.log('🔧 DEBUG: Calling verify_authentication_response as authenticated function to see logs');
+      // const result = await this.executeAuthenticatedCall(
+      //   nearRpcProvider,
+      //   contractId,
+      //   'verify_authentication_response',
+      //   contractArgs,
+      //   '100000000000000', // 100 TGas for debugging
+      //   '0', // no deposit
+      //   vrfChallengeData.userId // use the userId from VRF data as nearAccountId
+      // );
 
       // Parse contract response
       const contractResponse = this.parseContractVerificationResponse(result);
