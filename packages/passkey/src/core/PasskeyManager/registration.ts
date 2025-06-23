@@ -695,6 +695,7 @@ async function handleRegistration(
           vrfOutput: tempVrfChallengeData .vrfOutput,
           vrfProof: tempVrfChallengeData .vrfProof,
           vrfPublicKey: tempVrfChallengeData .vrfPublicKey,
+          userId: nearAccountId,
           rpId: tempVrfChallengeData .rpId,
           blockHeight: blockHeight,
           blockHash: bufferEncode(blockHashBytes),

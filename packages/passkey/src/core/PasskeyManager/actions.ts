@@ -228,13 +228,12 @@ export async function executeAction(
         vrfOutput: vrfChallengeData.vrfOutput,
         vrfProof: vrfChallengeData.vrfProof,
         vrfPublicKey: vrfChallengeData.vrfPublicKey,
+        userId: nearAccountId,
         rpId: vrfChallengeData.rpId,
         blockHeight: vrfChallengeData.blockHeight,
         blockHash: vrfChallengeData.blockHash,
       },
-      credential,
-      nearAccountId,
-      prfOutput  // Use PRF to unlock NEAR private key to sign specific contract call
+      credential
     );
 
     if (!contractVerificationResult.success || !contractVerificationResult.verified) {
@@ -253,7 +252,6 @@ export async function executeAction(
     }
 
     console.log('✅ VRF authentication verified by contract - proceeding with transaction signing');
-    console.log('  - Transaction ID:', contractVerificationResult.transactionId);
 
     onEvent?.({
       type: 'actionProgress',
@@ -561,19 +559,18 @@ export async function authenticateWithVRF(
             vrfOutput: vrfChallengeData.vrfOutput,
             vrfProof: vrfChallengeData.vrfProof,
             vrfPublicKey: vrfChallengeData.vrfPublicKey,
+            userId: nearAccountId,
             rpId: vrfChallengeData.rpId,
             blockHeight: vrfChallengeData.blockHeight,
             blockHash: vrfChallengeData.blockHash,
           },
-          credential,
-          nearAccountId
+          credential
         );
 
         if (verificationResult.success && verificationResult.verified) {
           console.log('✅ Contract verification successful');
           contractVerification = {
-            verified: true,
-            transactionId: verificationResult.transactionId
+            verified: true
           };
         } else {
           console.warn('⚠️ Contract verification failed:', verificationResult.error);

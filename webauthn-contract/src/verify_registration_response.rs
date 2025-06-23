@@ -28,6 +28,8 @@ pub struct VRFVerificationData {
     pub vrf_proof: Vec<u8>,
     /// VRF public key used to verify the proof
     pub public_key: Vec<u8>,
+    /// User ID (account_id in NEAR protocol) - cryptographically bound in VRF input
+    pub user_id: String,
     /// Relying Party ID (domain) used in VRF input construction
     pub rp_id: String,
     /// Block height for freshness validation (must be recent)
@@ -684,6 +686,7 @@ mod tests {
             vrf_output: mock_vrf.output.clone(),
             vrf_proof: mock_vrf.proof,
             public_key: mock_vrf.public_key,
+            user_id: "test_user_123".to_string(),
             rp_id: "example.com".to_string(),
             block_height: 1234567890u64,
             block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
@@ -725,6 +728,7 @@ mod tests {
             vrf_output: mock_vrf.output,
             vrf_proof: mock_vrf.proof,
             public_key: mock_vrf.public_key,
+            user_id: "test_user_123".to_string(),
             rp_id: "example.com".to_string(),
             block_height: 1234567890u64,
             block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
@@ -738,6 +742,7 @@ mod tests {
         assert_eq!(vrf_data.vrf_output, deserialized.vrf_output);
         assert_eq!(vrf_data.vrf_proof, deserialized.vrf_proof);
         assert_eq!(vrf_data.public_key, deserialized.public_key);
+        assert_eq!(vrf_data.user_id, deserialized.user_id);
         assert_eq!(vrf_data.rp_id, deserialized.rp_id);
         assert_eq!(vrf_data.block_height, deserialized.block_height);
         assert_eq!(vrf_data.block_hash, deserialized.block_hash);

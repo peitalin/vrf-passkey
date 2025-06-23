@@ -551,8 +551,8 @@ export class WebAuthnContractCalls {
   // === VRF CONTRACT INTEGRATION ===
 
   /**
-   * Verify VRF authentication with the contract
-   * Calls verify_authentication_response on the WebAuthn contract
+   * Verify VRF authentication with the contract (gas-free view call)
+   * Calls verify_authentication_response as a view function on the WebAuthn contract
    */
   async verifyVrfAuthentication(
     nearRpcProvider: Provider,
@@ -562,17 +562,15 @@ export class WebAuthnContractCalls {
       vrfOutput: string;
       vrfProof: string;
       vrfPublicKey: string;
+      userId: string;
       rpId: string;
       blockHeight: number;
       blockHash: string;
     },
     webauthnCredential: PublicKeyCredential,
-    nearAccountId: string,
-    prfOutput?: ArrayBuffer
   ): Promise<{
     success: boolean;
     verified?: boolean;
-    transactionId?: string;
     error?: string;
   }> {
     try {
@@ -590,7 +588,7 @@ export class WebAuthnContractCalls {
         vrf_output: Array.from(base64UrlDecode(vrfChallengeData.vrfOutput)),
         vrf_proof: Array.from(base64UrlDecode(vrfChallengeData.vrfProof)),
         public_key: Array.from(base64UrlDecode(vrfChallengeData.vrfPublicKey)),
-        user_id: nearAccountId, // NEAR account_id - cryptographically bound in VRF input
+        user_id: vrfChallengeData.userId, // NEAR account_id - cryptographically bound in VRF input
         rp_id: vrfChallengeData.rpId, // Relying Party ID - cryptographically binds VRF to specific website
         block_height: vrfChallengeData.blockHeight,
         block_hash: Array.from(base64UrlDecode(vrfChallengeData.blockHash)), // Block hash for additional entropy and blockchain state binding
@@ -624,35 +622,15 @@ export class WebAuthnContractCalls {
       console.log('  - RP ID:', vrfChallengeData.rpId);
       console.log('🔍 Contract args structure:', JSON.stringify(contractArgs, null, 2));
 
-      // Call verify_authentication_response (step 1 of VRF flow)
-      // Contract needs predecessor_account_id to lookup stored authenticator data
-      let result;
-      if (prfOutput) {
-        // Use PRF output for signing this verification transaction
-        console.log('Using PRF to sign VRF verification transaction');
-        result = await this.executeAuthenticatedCallWithPrf(
-          nearRpcProvider,
-          contractId,
-          'verify_authentication_response',
-          contractArgs,
-          '100000000000000', // 100 TGas for VRF verification
-          '0', // no deposit
-          nearAccountId,
-          prfOutput
-        );
-      } else {
-        // Fallback: request separate authentication for verification transaction
-        console.log('Requesting separate authentication for VRF verification transaction');
-        result = await this.executeAuthenticatedCall(
-          nearRpcProvider,
-          contractId,
-          'verify_authentication_response',
-          contractArgs,
-          '100000000000000', // 100 TGas for VRF verification
-          '0', // no deposit
-          nearAccountId
-        );
-      }
+      // Call verify_authentication_response as a view function (no gas required)
+      // Since verify_authentication_response is now a view function, we can call it directly
+      console.log('Calling verify_authentication_response as view function (no gas required)');
+      const result = await this.executeViewCall(
+        nearRpcProvider,
+        contractId,
+        'verify_authentication_response',
+        contractArgs
+      );
 
       // Parse contract response
       const contractResponse = this.parseContractVerificationResponse(result);
@@ -662,7 +640,6 @@ export class WebAuthnContractCalls {
         return {
           success: true,
           verified: true,
-          transactionId: contractResponse.transaction_id,
         };
       } else {
         console.warn('❌ VRF authentication verification failed');
@@ -758,6 +735,7 @@ export class WebAuthnContractCalls {
       vrfOutput: string;
       vrfProof: string;
       vrfPublicKey: string;
+      userId: string;
       rpId: string;
       blockHeight: number;
       blockHash: string;
@@ -795,7 +773,7 @@ export class WebAuthnContractCalls {
         vrf_output: Array.from(vrfOutput),
         vrf_proof: Array.from(vrfProof),
         public_key: Array.from(vrfPublicKey),
-        user_id: nearAccountId, // NEAR account_id - cryptographically bound in VRF input
+        user_id: vrfChallengeData.userId, // NEAR account_id - cryptographically bound in VRF input
         rp_id: vrfChallengeData.rpId, // Relying Party ID - cryptographically binds VRF to specific website
         block_height: vrfChallengeData.blockHeight,
         block_hash: Array.from(base64UrlDecode(vrfChallengeData.blockHash)), // Block hash for additional entropy and blockchain state binding

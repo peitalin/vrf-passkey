@@ -318,13 +318,13 @@ export class WebAuthnManager {
   }
 
   /**
-   * Verify VRF authentication with the WebAuthn contract
+   * Verify VRF authentication with the WebAuthn contract (gas-free view call)
    *
    * This calls verify_authentication_response to perform:
    * 1. VRF proof verification (proves fresh challenge + user has VRF private key)
    * 2. WebAuthn response verification (proves user authenticated with VRF challenge)
    *
-   * Note: This is step 1 of the grouped VRF flow, followed by NEAR key decryption + signing
+   * Note: This is now a view function that doesn't require gas or PRF output
    */
   async verifyVrfAuthentication(
     nearRpcProvider: Provider,
@@ -334,17 +334,15 @@ export class WebAuthnManager {
       vrfOutput: string;
       vrfProof: string;
       vrfPublicKey: string;
+      userId: string;
       rpId: string;
       blockHeight: number;
       blockHash: string;
     },
     webauthnCredential: PublicKeyCredential,
-    nearAccountId: string,
-    prfOutput?: ArrayBuffer
   ): Promise<{
     success: boolean;
     verified?: boolean;
-    transactionId?: string;
     error?: string;
   }> {
     return await this.contractCalls.verifyVrfAuthentication(
@@ -352,8 +350,6 @@ export class WebAuthnManager {
       contractId,
       vrfChallengeData,
       webauthnCredential,
-      nearAccountId,
-      prfOutput
     );
   }
 
@@ -369,6 +365,7 @@ export class WebAuthnManager {
       vrfOutput: string;
       vrfProof: string;
       vrfPublicKey: string;
+      userId: string;
       rpId: string;
       blockHeight: number;
       blockHash: string;

@@ -346,6 +346,7 @@ describe('WebAuthnManager', () => {
         vrfOutput: 'test-vrf-output',
         vrfProof: 'test-vrf-proof',
         vrfPublicKey: 'test-vrf-public-key',
+        userId: 'test.testnet',
         rpId: 'localhost',
         blockHeight: 1000,
         blockHash: 'test-hash'
@@ -365,8 +366,7 @@ describe('WebAuthnManager', () => {
         mockNearRpcProvider as any,
         'test-contract.testnet',
         mockVrfChallengeData,
-        mockCredential as any,
-        'test.testnet'
+        mockCredential as any
       );
 
       expect(result).toEqual(mockVerificationResult);
@@ -374,9 +374,7 @@ describe('WebAuthnManager', () => {
         mockNearRpcProvider,
         'test-contract.testnet',
         mockVrfChallengeData,
-        mockCredential,
-        'test.testnet',
-        undefined  // PRF output parameter (optional)
+        mockCredential
       );
     });
 
@@ -392,6 +390,7 @@ describe('WebAuthnManager', () => {
         vrfOutput: 'test-vrf-output',
         vrfProof: 'test-vrf-proof',
         vrfPublicKey: 'test-vrf-public-key',
+        userId: 'test.testnet',
         rpId: 'localhost',
         blockHeight: 1000,
         blockHash: 'test-hash'
