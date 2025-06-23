@@ -1,5 +1,9 @@
 import type { Provider } from '@near-js/providers';
-import type { FinalExecutionOutcome } from '@near-js/types';
+import type {
+  FinalExecutionOutcome,
+  QueryResponseKind,
+  CallContractViewFunctionResultRaw,
+} from '@near-js/types';
 import { SignedTransaction } from '@near-js/transactions';
 import { WebAuthnWorkers } from './webauthn-workers';
 import { WebAuthnNetworkCalls } from './network-calls';
@@ -18,15 +22,16 @@ import type {
   VrfAuthenticationResult,
   VrfRegistrationResult,
   CallPermissionsResult,
-  NetworkInfo,
-  WebAuthnAuthenticationData,
-  WebAuthnRegistrationData,
-  ContractVrfData,
   AuthenticatorTransport,
   UserVerificationRequirement
 } from '../types/webauthn';
 
-const CONTRACT_FUNCTIONS = {
+// Type for contract verification response parsing - handles multiple NEAR RPC response formats
+export type ContractResponse =
+  | CallContractViewFunctionResultRaw  // View call responses
+  | FinalExecutionOutcome              // Transaction responses
+
+export const CONTRACT_FUNCTIONS = {
   VERIFY_AUTHENTICATION_RESPONSE: 'verify_authentication_response',
   VERIFY_REGISTRATION_RESPONSE: 'verify_registration_response',
 }
@@ -116,7 +121,7 @@ export class WebAuthnContractCalls {
     contractId: string,
     methodName: string,
     args: any
-  ): Promise<any> {
+  ): Promise<CallContractViewFunctionResultRaw> {
     console.debug(`Calling contract view function: ${methodName}`);
 
     const argsJson = JSON.stringify(args);
@@ -128,7 +133,7 @@ export class WebAuthnContractCalls {
     console.debug('  - Args JSON sample:', argsJson.substring(0, 200) + '...');
     console.debug('  - Args Base64 length:', argsBase64.length);
 
-    const result = await nearRpcProvider.query({
+    const result: CallContractViewFunctionResultRaw = await nearRpcProvider.query({
       request_type: 'call_function',
       account_id: contractId,
       method_name: methodName,
@@ -576,6 +581,7 @@ export class WebAuthnContractCalls {
     contractId: string,
     vrfChallengeData: VrfChallengeData,
     webauthnCredential: PublicKeyCredential,
+    debugMode: boolean,
   ): Promise<VrfAuthenticationResult> {
     try {
       console.debug('Verifying VRF authentication with contract...');
@@ -624,26 +630,28 @@ export class WebAuthnContractCalls {
       console.debug('Contract args structure:', JSON.stringify(contractArgs, null, 2));
 
       // Call contract as view function (gas-free, read-only)
-      const result = await this.executeViewCall(
-        nearRpcProvider,
-        contractId,
-        CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
-        contractArgs
-      );
-
-      // NOTE: view vs non-view function calls
-      //
-      // DEBUG VERSION: Uncomment below to call as authenticated function for debugging contract logs
-      // console.debug('🔧 DEBUG: Calling verify_authentication_response as authenticated function to see logs');
-      // const result = await this.executeAuthenticatedCall(
-      //   nearRpcProvider,
-      //   contractId,
-      //   CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
-      //   contractArgs,
-      //   '100000000000000', // 100 TGas for debugging
-      //   '0', // no deposit
-      //   vrfChallengeData.userId // use the userId from VRF data as nearAccountId
-      // );
+      let result: ContractResponse;
+      if (!debugMode) {
+        result = await this.executeViewCall(
+          nearRpcProvider,
+          contractId,
+          CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
+          contractArgs
+        );
+      } else {
+        // NOTE: view vs non-view function calls
+        // DEBUG VERSION: Uncomment below to call as authenticated function for debugging contract logs
+        console.debug('DEBUG: Calling verify_authentication_response as authenticated function to see logs');
+        result = await this.executeAuthenticatedCall(
+          nearRpcProvider,
+          contractId,
+          CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
+          contractArgs,
+          '100000000000000', // 100 TGas for debugging
+          '0', // no deposit
+          vrfChallengeData.userId // use the userId from VRF data as nearAccountId
+        );
+      }
 
       // Parse contract response
       const contractResponse = this.parseContractVerificationResponse(result);
@@ -673,36 +681,46 @@ export class WebAuthnContractCalls {
   }
 
   /**
-   * Parse contract verification response
+   * Parse contract verification response from various NEAR RPC response formats
    */
-  private parseContractVerificationResponse(result: any): ContractVerificationResponse {
+  private parseContractVerificationResponse(
+    result: ContractResponse
+  ): ContractVerificationResponse {
     try {
       // Handle different response formats from NEAR RPC
       let responseData: any;
 
+      // Check for logs if available
+      if (result && typeof result === 'object' && 'logs' in result && Array.isArray(result.logs) && result.logs.length > 0) {
+        console.log('logs:', result.logs);
+      }
+
       if (result && typeof result === 'object') {
-        if (result.result) {
+        if ('result' in result && result.result) {
           // Handle RPC query response format (view calls)
           const resultBytes = new Uint8Array(result.result);
           const resultString = new TextDecoder().decode(resultBytes);
           responseData = JSON.parse(resultString);
-        } else if (result.receipts_outcome) {
+        } else if ('receipts_outcome' in result && result.receipts_outcome) {
           // Handle transaction response format (change calls)
           console.debug('🔍 Parsing transaction response for verification result');
 
           // Look for return value in the transaction outcome
-          const outcome = result.receipts_outcome?.[0]?.outcome;
-          if (outcome?.status?.SuccessValue) {
+          const status = result.status;
+          if (typeof status === 'object' && status?.SuccessValue) {
             const returnValueBytes = new Uint8Array(
-              Buffer.from(outcome.status.SuccessValue, 'base64')
+              Buffer.from(status.SuccessValue, 'base64')
             );
             const returnValueString = new TextDecoder().decode(returnValueBytes);
             responseData = JSON.parse(returnValueString);
           } else {
             // If no return value, assume success based on transaction success
+            const hasSuccessValue = typeof status === 'object' && status?.SuccessValue;
+            const transactionHash = result?.transaction?.hash ?? undefined;
+
             responseData = {
-              verified: result.status?.SuccessValue !== undefined,
-              transaction_id: result.transaction?.hash
+              verified: hasSuccessValue,
+              transaction_id: transactionHash
             };
           }
         } else {
@@ -714,13 +732,27 @@ export class WebAuthnContractCalls {
         responseData = JSON.parse(result);
       } else {
         // Fallback
-        responseData = result;
+        responseData = result || {};
+      }
+
+      // Extract transaction hash safely
+      let transactionId: string | undefined;
+      if (responseData?.transaction_id) {
+        transactionId = responseData.transaction_id;
+      } else if (
+        typeof result === 'object'
+        && 'transaction' in result
+        && result.transaction
+        && typeof result.transaction === 'object'
+        && 'hash' in result.transaction
+      ) {
+        transactionId = result.transaction.hash;
       }
 
       return {
-        verified: responseData.verified || false,
-        transaction_id: responseData.transaction_id || result.transaction?.hash,
-        error: responseData.error,
+        verified: responseData?.verified || false,
+        transaction_id: transactionId,
+        error: responseData?.error,
       };
     } catch (parseError: any) {
       console.error('Failed to parse contract verification response:', parseError);

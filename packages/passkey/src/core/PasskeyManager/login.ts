@@ -168,7 +168,7 @@ async function handleVrfLogin(
       type: 'loginProgress',
       data: {
         step: 'webauthn-assertion',
-        message: 'Authenticating to unlock VRF keypair (TouchID #1)...'
+        message: 'Authenticating to unlock VRF keypair...'
       }
     });
 

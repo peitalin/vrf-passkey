@@ -2,6 +2,18 @@
 // === RESULT TYPES FOR PASSKEY SDK ===
 
 import type { PasskeyErrorDetails } from './errors';
+import { TxExecutionStatus } from '@near-js/types';
+import { CallFunctionRequest, RpcQueryRequest } from '@near-js/types';
+
+export interface NearRpcCallParams {
+  jsonrpc: string;
+  id: string;
+  method: string;
+  params: {
+    signed_tx_base64: string;
+    wait_until: TxExecutionStatus;
+  }
+}
 
 /**
  * Generic Result type for better error handling throughout the SDK

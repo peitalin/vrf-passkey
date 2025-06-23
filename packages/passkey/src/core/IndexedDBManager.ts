@@ -1,10 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import {
-  validateNearAccountId,
-  extractUsername,
-  generateNearAccountId,
-  type ValidationResult
-} from './utils/validation';
+import { type ValidationResult, validateNearAccountId } from './utils/validation';
 
 // === UNIFIED TYPE DEFINITIONS ===
 export interface ClientUserData {
@@ -147,18 +142,25 @@ class IndexedDBManagerClass {
    * Extract username from NEAR account ID
    */
   extractUsername(nearAccountId: string): string {
-    return extractUsername(nearAccountId);
+    const validation = validateNearAccountId(nearAccountId);
+    if (!validation.valid) {
+      throw new Error(`Invalid NEAR account ID: ${validation.error}`);
+    }
+    return nearAccountId.split('.')[0];
   }
 
   /**
    * Generate a NEAR account ID from a username and domain
    * @param username - The username to use for the account ID
    * @param domain - The domain to use for the account ID
-   * e.g. 'web3-authn.testnet', or 'testnet' or 'near' for top-level accounts
    * @returns The generated NEAR account ID
    */
   generateNearAccountId(username: string, domain: string): string {
-    return generateNearAccountId(username, domain);
+    const sanitizedName = username
+      .toLowerCase()
+      .replace(/[^a-z0-9_\\-]/g, '')
+      .substring(0, 32);
+    return `${sanitizedName}.${domain}`;
   }
 
   // === USER MANAGEMENT METHODS ===

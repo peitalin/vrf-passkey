@@ -16,9 +16,9 @@ function App() {
       <BrowserRouter>
         <PasskeyProvider
           config={{
-            // web2authn server for optimistic (fast) auth
-            // otherwise client must use contract auth (slower)
-            serverUrl: 'http://localhost:3001'
+            nearNetwork: 'testnet',
+            relayerAccount: 'web3-authn.testnet',
+            debugMode: false
           }}
         >
           <Toaster

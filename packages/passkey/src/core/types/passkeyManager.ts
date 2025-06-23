@@ -192,6 +192,7 @@ export interface PasskeyManagerConfig {
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
   contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
+  debugMode?: boolean;
 }
 
 // === TRANSACTION TYPES ===

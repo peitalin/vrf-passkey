@@ -1,4 +1,5 @@
 import { RELAYER_ACCOUNT_ID } from '../../config';
+import { ContractResponse } from '../WebAuthnManager/contract-calls';
 
 export interface ValidationResult {
   valid: boolean;
@@ -93,29 +94,4 @@ export function validateServerRegistrationAccountId(nearAccountId: string): Vali
     allowedSuffixes: validSuffixes,
     requireTopLevelDomain: false // Allow subdomain suffixes like '.web3-authn.testnet'
   });
-}
-
-/**
- * Extract username from NEAR account ID
- */
-export function extractUsername(nearAccountId: string): string {
-  const validation = validateNearAccountId(nearAccountId);
-  if (!validation.valid) {
-    throw new Error(`Invalid NEAR account ID: ${validation.error}`);
-  }
-  return nearAccountId.split('.')[0];
-}
-
-/**
- * Generate a NEAR account ID from a username and domain
- * @param username - The username to use for the account ID
- * @param domain - The domain to use for the account ID
- * @returns The generated NEAR account ID
- */
-export function generateNearAccountId(username: string, domain: string): string {
-  const sanitizedName = username
-    .toLowerCase()
-    .replace(/[^a-z0-9_\\-]/g, '')
-    .substring(0, 32);
-  return `${sanitizedName}.${domain}`;
 }

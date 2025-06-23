@@ -12,7 +12,6 @@ import type {
   LoginOptions,
   LoginResult,
   RegistrationOptions,
-  ExecuteActionCallbacks
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
@@ -51,13 +50,11 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
       relayerAccount: 'web3-authn.testnet',
-      contractId: 'web3-authn.testnet'
+      contractId: 'web3-authn.testnet',
+      debugMode: false
     };
 
-    // Only add serverUrl if explicitly provided
     const finalConfig = { ...defaultConfig, ...userConfig };
-
-    // If no serverUrl is provided, enable serverless mode by omitting it
     console.log('PasskeyProvider config: ', finalConfig);
 
     return new PasskeyManager(finalConfig, getNearRpcProvider());

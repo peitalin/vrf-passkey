@@ -2,8 +2,8 @@ export const SERVER_URL = 'http://localhost:3001';
 
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
 export const DEFAULT_GAS_STRING = "30000000000000"; // 30 TGas
-export const WEBAUTHN_CONTRACT_ID = 'webauthn-contract.testnet';
-export const RELAYER_ACCOUNT_ID = 'webauthn-contract.testnet';
+export const WEBAUTHN_CONTRACT_ID = 'web3-authn.testnet';
+export const RELAYER_ACCOUNT_ID = 'web3-authn.testnet';
 export const NEAR_ACCOUNT_POSTFIX = `.${WEBAUTHN_CONTRACT_ID}`;
 export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
 

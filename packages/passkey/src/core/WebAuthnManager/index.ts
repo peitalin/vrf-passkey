@@ -437,6 +437,7 @@ export class WebAuthnManager {
       blockHash: string;
     },
     webauthnCredential: PublicKeyCredential,
+    debugMode: boolean = false,
   ): Promise<{
     success: boolean;
     verified?: boolean;
@@ -447,6 +448,7 @@ export class WebAuthnManager {
       contractId,
       vrfChallengeData,
       webauthnCredential,
+      debugMode
     );
   }
 

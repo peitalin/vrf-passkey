@@ -1,9 +1,11 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
+import { TxExecutionStatus } from '@near-js/types';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
 import { base64UrlDecode } from '../../utils/encoders';
 import type { SerializableActionArgs } from '../types';
+import type { NearRpcCallParams } from '../types';
 
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult, LoginEvent } from '../types/passkeyManager';
@@ -36,8 +38,9 @@ export async function executeAction(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
   actionArgs: SerializableActionArgs,
-  options?: ActionOptions
+  options?: ActionOptions,
 ): Promise<ActionResult> {
+
   const { onEvent, onError, hooks } = options || {};
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
@@ -156,7 +159,7 @@ export async function executeAction(
     console.log('🎯 Generating VRF challenge in Service Worker (no TouchID needed)');
     const vrfChallengeData = await vrfManager.generateVRFChallenge(vrfInputData);
 
-    console.log('🔍 DEBUG: VRF Authentication Data:');
+    console.log('DEBUG: VRF Authentication Data:');
     console.log(`  - VRF Public Key: ${vrfChallengeData.vrfPublicKey.substring(0, 40)}...`);
     console.log(`  - RP ID: ${vrfChallengeData.rpId}`);
     console.log(`  - User ID: ${nearAccountId}`);
@@ -175,7 +178,7 @@ export async function executeAction(
 
     // Get stored authenticator data for this user
     const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
-    console.log(`🔍 DEBUG: Found ${authenticators.length} authenticators for ${nearAccountId}:`);
+    console.log(`DEBUG: Found ${authenticators.length} authenticators for ${nearAccountId}:`);
     authenticators.forEach((auth, index) => {
       console.log(`  [${index}] Credential ID: ${auth.credentialID}`);
       console.log(`  [${index}] Name: ${auth.name}`);
@@ -248,7 +251,8 @@ export async function executeAction(
         blockHeight: vrfChallengeData.blockHeight,
         blockHash: vrfChallengeData.blockHash,
       },
-      credential
+      credential,
+      passkeyManager.getConfig().debugMode ?? false
     );
 
     if (!contractVerificationResult.success || !contractVerificationResult.verified) {
@@ -298,10 +302,7 @@ export async function executeAction(
       accessKeyInfo,
       transactionBlockInfo
     ] = await Promise.all([
-      nearRpcProvider.viewAccessKey(
-        nearAccountId,
-        publicKeyStr,
-      ) as Promise<AccessKeyView>,
+      nearRpcProvider.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
       nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
     ]);
 
@@ -371,9 +372,12 @@ export async function executeAction(
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 'some_id',
-        method: 'broadcast_tx_commit',
-        params: [Buffer.from(signedTransactionBorsh).toString('base64')]
-      })
+        method: 'send_tx',
+        params: {
+          signed_tx_base64: Buffer.from(signedTransactionBorsh).toString('base64'),
+          wait_until: "EXECUTED_OPTIMISTIC"
+        }
+      } as NearRpcCallParams)
     });
 
     const result: RpcResponse = await rpcResponse.json();
@@ -508,7 +512,7 @@ export async function authenticateWithVRF(
       type: 'loginProgress',
       data: {
         step: 'webauthn-assertion',
-        message: 'Authenticating with VRF challenge (TouchID #1)...'
+        message: 'Authenticating with VRF challenge...'
       }
     });
 
@@ -576,7 +580,8 @@ export async function authenticateWithVRF(
             blockHeight: vrfChallengeData.blockHeight,
             blockHash: vrfChallengeData.blockHash,
           },
-          credential
+          credential,
+          passkeyManager.getConfig().debugMode
         );
 
         if (verificationResult.success && verificationResult.verified) {
