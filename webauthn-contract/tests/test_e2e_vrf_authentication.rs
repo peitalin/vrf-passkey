@@ -31,7 +31,7 @@ use utils_mocks::VrfAuthenticationData;
 
 
 /// Create mock WebAuthn authentication response using VRF challenge
-fn create_mock_webauthn_authentication(vrf_output: &[u8], rp_id: &str, counter: u32) -> serde_json::Value {
+fn create_mock_webauthn_authentication(vrf_output: &[u8], rp_id: &str) -> serde_json::Value {
     // Use first 32 bytes of VRF output as WebAuthn challenge
     let webauthn_challenge = &vrf_output[0..32];
     let challenge_b64 = BASE64_URL_ENGINE.encode(webauthn_challenge);
@@ -48,7 +48,7 @@ fn create_mock_webauthn_authentication(vrf_output: &[u8], rp_id: &str, counter: 
     let rp_id_hash = sha2::Sha256::digest(rp_id.as_bytes());
     auth_data.extend_from_slice(&rp_id_hash);
     auth_data.push(0x05); // UP (0x01) + UV (0x04) - no AT flag for authentication
-    auth_data.extend_from_slice(&counter.to_be_bytes()); // Counter (incremented)
+    auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]); // Counter = 2 (not used for VRF)
 
     let auth_data_b64 = BASE64_URL_ENGINE.encode(&auth_data);
 
@@ -305,7 +305,7 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
     let auth1_session_id = "authentication_session_67890";
 
     let auth1_vrf_data = generate_vrf_authentication_data(rp_id, user_id, auth1_session_id, seed).await?;
-    let auth1_webauthn_data = create_mock_webauthn_authentication(&auth1_vrf_data.output, rp_id, 2); // Counter = 2
+    let auth1_webauthn_data = create_mock_webauthn_authentication(&auth1_vrf_data.output, rp_id);
 
     // Perform first authentication
     let auth1_result = contract
@@ -341,7 +341,7 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
     let auth2_session_id = "reauthentication_session_99999";
 
     let auth2_vrf_data = generate_vrf_authentication_data(rp_id, user_id, auth2_session_id, seed).await?;
-    let auth2_webauthn_data = create_mock_webauthn_authentication(&auth2_vrf_data.output, rp_id, 3); // Counter = 3
+    let auth2_webauthn_data = create_mock_webauthn_authentication(&auth2_vrf_data.output, rp_id);
 
     // Perform second authentication
     let auth2_result = contract
@@ -394,7 +394,7 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
     println!("\nCOMPLETE VRF User Journey E2E Test completed successfully!");
     println!("   ✓ Registration with VRF public key storage");
     println!("   ✓ First authentication with stored key retrieval");
-    println!("   ✓ Re-authentication with counter incrementation");
+    println!("   ✓ Re-authentication with VRF stateless verification");
     println!("   ✓ Stateless protocol validation");
     println!("   ✓ Cross-session security properties");
 
@@ -417,7 +417,7 @@ async fn test_vrf_authentication_e2e_success() -> Result<(), Box<dyn std::error:
     let vrf_data = generate_vrf_authentication_data(rp_id, user_id, session_id, seed).await?;
 
     // Create WebAuthn authentication data using VRF output as challenge
-    let webauthn_data = create_mock_webauthn_authentication(&vrf_data.output, rp_id, 5); // Counter = 5
+    let webauthn_data = create_mock_webauthn_authentication(&vrf_data.output, rp_id);
 
     println!("📋 Testing successful VRF authentication flow...");
 
@@ -503,7 +503,7 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
     println!("\nPhase 2: Testing VRF public key retrieval during authentication");
     let auth_session_id = "auth_key_test_session";
     let auth_vrf_data = generate_vrf_authentication_data(rp_id, user_id, auth_session_id, seed).await?;
-    let auth_webauthn_data = create_mock_webauthn_authentication(&auth_vrf_data.output, rp_id, 2);
+    let auth_webauthn_data = create_mock_webauthn_authentication(&auth_vrf_data.output, rp_id);
 
     let _auth_result = contract
         .call("verify_authentication_response")
@@ -541,28 +541,28 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
 }
 
 #[tokio::test]
-async fn test_vrf_authentication_counter_validation() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Testing VRF Authentication Counter Validation...");
+async fn test_vrf_authentication_stateless_validation() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Testing VRF Authentication Stateless Validation...");
 
     let contract = deploy_test_contract().await?;
-    let rp_id = "counter.com";
-    let user_id = "counter.testnet";
+    let rp_id = "stateless.com";
+    let user_id = "stateless.testnet";
     let seed = [77u8; 32];
 
-    // Test different counter scenarios
+    // Test multiple authentication sessions - VRF provides replay protection without counters
     let test_cases = vec![
-        (1, "Initial counter"),
-        (2, "Incremented counter"),
-        (5, "Higher counter"),
-        (10, "Much higher counter"),
+        ("session_1", "First authentication"),
+        ("session_2", "Second authentication"),
+        ("session_3", "Third authentication"),
+        ("session_4", "Fourth authentication"),
     ];
 
-    for (counter, description) in test_cases {
-        println!("\nTesting {}: counter = {}", description, counter);
+    for (session_suffix, description) in test_cases {
+        println!("\nTesting {}", description);
 
-        let session_id = format!("counter_test_session_{}", counter);
+        let session_id = format!("stateless_test_{}", session_suffix);
         let vrf_data = generate_vrf_authentication_data(rp_id, user_id, &session_id, seed).await?;
-        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, rp_id, counter);
+        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, rp_id);
 
         let result = contract
             .call("verify_authentication_response")
@@ -579,7 +579,7 @@ async fn test_vrf_authentication_counter_validation() -> Result<(), Box<dyn std:
         // Verify structure regardless of VRF verification result
         assert!(auth_result.get("verified").is_some(), "Should have verified field");
 
-        println!("  ✓ Counter {} handled correctly", counter);
+        println!("  ✓ Session {} handled correctly", session_suffix);
     }
 
     println!("\n✅ VRF Authentication Counter Validation completed successfully!");
@@ -609,7 +609,7 @@ async fn test_vrf_authentication_cross_domain_security() -> Result<(), Box<dyn s
         println!("\nTesting domain: {}", domain);
 
         let vrf_data = generate_vrf_authentication_data(domain, user_id, session_id, seed).await?;
-        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, domain, 1);
+        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, domain);
 
         // Store VRF output for uniqueness checking
         vrf_outputs.push((domain, vrf_data.output.clone()));

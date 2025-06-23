@@ -1,5 +1,6 @@
 pub mod utils;
 
+mod authenticators;
 mod admin;
 mod contract_helpers;
 mod types;
@@ -17,7 +18,7 @@ pub use types::{
     RegistrationOptionsJSON,
     AuthenticatorTransport,
 };
-pub use admin::{
+pub use authenticators::{
     StoredAuthenticator,
     UserProfile,
 };

@@ -232,7 +232,7 @@ impl WebAuthnContract {
         let authenticator_device = AuthenticatorDevice {
             credential_id: BASE64_URL_ENGINE.decode(&credential_id_b64url).unwrap_or_default(),
             credential_public_key: stored_authenticator.credential_public_key.clone(),
-            counter: stored_authenticator.counter,
+            counter: 0, // VRF uses stateless verification, counter not used for replay protection
             transports: stored_authenticator.transports.clone(),
         };
 
@@ -661,7 +661,6 @@ impl WebAuthnContract {
         self.update_authenticator_usage(
             user_account_id,
             credential_id_b64url,
-            auth_data.counter,
             current_timestamp,
         );
 
@@ -755,7 +754,7 @@ mod tests {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE};
     use std::collections::BTreeMap;
     use sha2::{Sha256, Digest};
-    use crate::admin::StoredAuthenticator;
+    use crate::authenticators::StoredAuthenticator;
 
     // Mock VRF dependencies for testing
     struct MockVRFData {
@@ -869,7 +868,6 @@ mod tests {
 
         StoredAuthenticator {
             credential_public_key,
-            counter: 1,
             transports: Some(vec![crate::types::AuthenticatorTransport::Internal]),
             client_managed_near_public_key: None,
             registered: "1234567890".to_string(),
@@ -1041,7 +1039,6 @@ mod tests {
         );
 
         // Verify other authenticator properties
-        assert_eq!(stored_auth.counter, 1, "Counter should start at 1");
         assert!(!stored_auth.backed_up, "Should not be backed up by default");
         assert!(stored_auth.transports.is_some(), "Transports should be specified");
 

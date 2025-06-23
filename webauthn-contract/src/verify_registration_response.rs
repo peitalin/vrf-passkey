@@ -93,7 +93,6 @@ pub struct VerifiedRegistrationResponse {
 pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
     pub credential_public_key: Vec<u8>,
-    pub counter: u32,
     pub user_id: String,
     pub vrf_public_key: Option<Vec<u8>>, // Added VRF public key to registration info
 }
@@ -490,7 +489,6 @@ impl WebAuthnContract {
             user_account_id.clone(),
             credential_id_b64url.clone(),
             attested_cred_data.credential_public_key.clone(),
-            auth_data.counter,
             transports,
             None, // client_managed_near_public_key starts as None
             current_timestamp,
@@ -519,7 +517,6 @@ impl WebAuthnContract {
             registration_info: Some(RegistrationInfo {
                 credential_id: attested_cred_data.credential_id,
                 credential_public_key: attested_cred_data.credential_public_key,
-                counter: auth_data.counter,
                 user_id: attestation_response.id, // Use the credential ID as user ID
                 vrf_public_key: vrf_public_key.clone(), // Include VRF public key if provided
             }),
