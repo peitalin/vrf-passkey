@@ -96,58 +96,57 @@ sequenceDiagram
     participant NEAR as NEAR RPC
     participant Contract as Web3Authn Contract
 
-    Note over Client: 1. WebAuthn registration ceremony with PRF
-    Note over Client: 2. Derive AES key from PRF output
-    Client->>WASM: 3. Generate VRF keypair (ed25519)
-    WASM->>Client: 4. VRF keypair generated
-    Client->>WASM: 5. Encrypt VRF keypair with AES-GCM
-    WASM->>Client: 6. Encrypted VRF keypair + metadata
-    Client->>Client: 7. Store encrypted VRF keypair in IndexedDB
-    Client->>NEAR: 8. Get latest block (height + hash)
-    Note over Client: 9. Construct VRF input with domain separator
-    Client->>WASM: 10. Generate VRF proof + output (reusing same PRF)
-    WASM->>Client: 11. VRF proof + output (bincode serialized)
-    Client->>Contract: 12. verify_registration_response(registration, vrf_proof, vrf_pubkey, vrf_input)
-    Contract->>Contract: 13. Verify VRF proof ✓
-    Contract->>Contract: 14. Extract challenge from VRF output
-    Contract->>Contract: 15. Verify WebAuthn registration ✓
-    Contract->>Contract: 16. Store VRF pubkey + authenticator on-chain
-    Contract->>Client: 17. Registration complete ✅
+    Note over Client: 1. Get NEAR block data for freshness
+    Client->>NEAR: 2. Get latest block (height + hash)
+    NEAR->>Client: 3. Block height + hash
+    Note over Client: 4. Generate VRF keypair and challenge (bootstrap)
+    Client->>WASM: 5. generateVrfKeypair(saveInMemory=true, vrfInputs)
+    WASM->>WASM: 6. Generate VRF keypair + persist in memory
+    WASM->>WASM: 7. Generate VRF challenge with domain separation
+    WASM->>Client: 8. VRF challenge data (keypair stored in memory)
+    Note over Client: 9. WebAuthn registration ceremony with VRF challenge
+    Client->>Client: 10. WebAuthn registration with PRF (TouchID)
+    Note over Client: 11. Encrypt VRF keypair with PRF output
+    Client->>WASM: 12. encryptVrfKeypairWithPrf(expectedPublicKey, prfOutput)
+    WASM->>WASM: 13. Verify public key matches stored keypair
+    WASM->>WASM: 14. Encrypt VRF keypair with AES-GCM + HKDF
+    WASM->>Client: 15. Encrypted VRF keypair for storage
+    Client->>Client: 16. Store encrypted VRF keypair in IndexedDB
+    Client->>Contract: 17. verify_registration_response(registration, vrf_proof, vrf_pubkey, vrf_input)
+    Contract->>Contract: 18. Verify VRF proof ✓
+    Contract->>Contract: 19. Extract challenge from VRF output
+    Contract->>Contract: 20. Verify WebAuthn registration ✓
+    Contract->>Contract: 21. Store VRF pubkey + authenticator on-chain
+    Contract->>Client: 22. Registration complete ✅
 ```
 
-**Key UX Optimization**: This registration flow requires only **ONE TouchID prompt** during the entire registration process. The PRF output from the single WebAuthn ceremony is reused for both VRF keypair encryption and VRF proof generation, eliminating the need for a second WebAuthn ceremony.
+**Key UX Optimization**: This registration flow requires only **ONE TouchID prompt** during the entire registration process. The single VRF keypair is generated first, used for the WebAuthn challenge, then encrypted with the PRF output from that same ceremony.
 
-**Important Implementation Detail**: The registration process generates TWO VRF keypairs for different purposes:
-1. **`tempVrfResult`** - Throwaway VRF keypair generated with random seed, used only to create the initial WebAuthn challenge for the registration ceremony
-2. **`finalVrfResult`** - The real VRF keypair generated with actual WebAuthn PRF output, encrypted and stored for future authentications
+**Single VRF Keypair Architecture**: The registration process uses a clean two-step approach:
+1. **Bootstrap Generation**: `generateVrfKeypair(saveInMemory=true, vrfInputs)` - generates VRF keypair and challenge, stores keypair in memory temporarily
+2. **PRF Encryption**: `encryptVrfKeypairWithPrf(expectedPublicKey, prfOutput)` - encrypts the same in-memory VRF keypair with real PRF output
 
-This dual-keypair approach ensures both contract verification (VRF challenge matches WebAuthn challenge) and future authentication (VRF keypair can be decrypted with PRF).
 
-**Enhanced Function Interface**: The `generateVrfKeypairWithPrf()` function now uses explicit flags for better clarity:
-- `saveInMemory: boolean` - Whether to persist the generated VRF keypair in WASM worker memory
-- `vrfInputParams?: object` - Optional parameters to generate VRF challenge/proof in same call
-
-This makes the function's behavior explicit and prevents confusion about when VRF keypairs are stored in memory.
 
 ### **Flow 2: VRF Login** (Session initialization - Single TouchID)
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant ServiceWorker as VRF WASM Worker
+    participant WebWorker as VRF Web Worker
 
     Note over Client: 🔐 Login Flow: Unlock VRF Keypair
     Note over Client: 1. User initiates login session
     Note over Client: 2. WebAuthn authentication with PRF (TouchID #1)
     Note over Client: 3. Derive AES key from PRF output
     Client->>Client: 4. Retrieve encrypted VRF keypair from IndexedDB
-    Client->>ServiceWorker: 5. Initialize VRF Service Worker
-    ServiceWorker->>ServiceWorker: 6. Load VRF WASM module
-    Client->>ServiceWorker: 7. Send unlock request with PRF key + encrypted data
-    ServiceWorker->>ServiceWorker: 8. Decrypt VRF keypair with derived AES key
-    ServiceWorker->>ServiceWorker: 9. VRF keypair loaded into WASM memory
-    ServiceWorker->>Client: 10. VRF session active confirmation
-    Note over ServiceWorker: ✅ VRF keypair ready for challenge generation
+    Client->>WebWorker: 5. Initialize VRF Web Worker
+    WebWorker->>WebWorker: 6. Load VRF WASM module
+    Client->>WebWorker: 7. Send unlock request with PRF key + encrypted data
+    WebWorker->>WebWorker: 8. Decrypt VRF keypair with derived AES key
+    WebWorker->>WebWorker: 9. VRF keypair loaded into WASM memory
+    WebWorker->>Client: 10. VRF session active confirmation
+    Note over WebWorker: ✅ VRF keypair ready for challenge generation
     Note over Client: Session active - no more TouchID needed for challenges
 ```
 
@@ -156,16 +155,16 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client
-    participant ServiceWorker as VRF WASM Worker
+    participant WebWorker as VRF Web Worker
     participant NEAR as NEAR RPC
     participant Contract as Web3Authn Contract
 
     Note over Client: 🔁 Authentication Flow (e.g. signing transactions)
     Client->>NEAR: 1. Get latest block (height + hash)
     Note over Client: 2. Construct VRF input with domain separator
-    Client->>ServiceWorker: 3. Send challenge generation request
-    ServiceWorker->>ServiceWorker: 4. Generate VRF proof + output (no TouchID needed)
-    ServiceWorker->>Client: 5. VRF challenge (bincode serialized) + proof
+    Client->>WebWorker: 3. Send challenge generation request
+    WebWorker->>WebWorker: 4. Generate VRF proof + output (no TouchID needed)
+    WebWorker->>Client: 5. VRF challenge (bincode serialized) + proof
     Note over Client: 6. Use VRF output as WebAuthn challenge
     Note over Client: 7. WebAuthn authentication ceremony (TouchID #1)
     Client->>Contract: 8. verify_authentication_response(authentication, vrf_proof, vrf_pubkey, vrf_input)
@@ -178,8 +177,8 @@ sequenceDiagram
 ```
 
 **Key Benefits**:
-- **Registration**: One-time setup with encrypted VRF keypair storage
-- **Login**: Single TouchID to unlock VRF keypair into Service Worker memory (session-based)
+- **Registration**: One-time setup with single VRF keypair generation and encryption
+- **Login**: Single TouchID to unlock VRF keypair into Web Worker memory (session-based)
 - **Authentication**: Single TouchID per operation (VRF challenge generated automatically)
 
 **Security Guarantees**:
@@ -378,13 +377,25 @@ thread_local! {
 }
 
 pub struct VRFKeyManager {
-    vrf_keypair: Option<ECVRFKeyPair>,
+    vrf_keypair: Option<SecureVRFKeyPair>,
     session_active: bool,
     session_start_time: f64,
-    near_account_id: Option<String>,
 }
 
 impl VRFKeyManager {
+    // Generate VRF keypair for bootstrapping (stores in memory temporarily)
+    pub fn generate_vrf_keypair_bootstrap(
+        &mut self,
+        vrf_input_params: Option<VRFInputData>,
+    ) -> Result<VrfKeypairBootstrapResponse, String>
+
+    // Encrypt VRF keypair with PRF output (looks up in-memory keypair)
+    pub fn encrypt_vrf_keypair_with_prf(
+        &mut self,
+        expected_public_key: String,
+        prf_key: Vec<u8>,
+    ) -> Result<EncryptedVrfKeypairResponse, String>
+
     // Unlock VRF keypair using PRF-derived AES key with HKDF
     pub fn unlock_vrf_keypair(
         &mut self,
@@ -399,12 +410,6 @@ impl VRFKeyManager {
         input_data: VRFInputData
     ) -> Result<VRFChallengeData, String>
 
-    // Generate and encrypt new VRF keypair
-    pub fn generate_and_encrypt_vrf_keypair(
-        &mut self,
-        prf_key: Vec<u8>
-    ) -> Result<VrfKeypairResponse, String>
-
     // Get session status with timing
     pub fn get_vrf_status(&self) -> serde_json::Value
 
@@ -413,7 +418,7 @@ impl VRFKeyManager {
 
     // Internal methods for encryption/decryption
     fn decrypt_vrf_keypair(&self, encrypted_vrf_data: EncryptedVRFData, prf_key: Vec<u8>) -> Result<ECVRFKeyPair, String>
-    fn encrypt_vrf_keypair(&self, data: &[u8], key: &[u8]) -> Result<serde_json::Value, String>
+    fn encrypt_vrf_keypair_data(&self, vrf_keypair: &ECVRFKeyPair, prf_key: &[u8]) -> Result<(String, serde_json::Value), String>
 }
 
 // WASM exports with message routing
@@ -421,9 +426,10 @@ impl VRFKeyManager {
 pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
     // Routes messages to appropriate VRF_MANAGER methods:
     // - PING: Health check
-    // - UNLOCK_VRF_KEYPAIR: Load keypair into memory
+    // - GENERATE_VRF_KEYPAIR_BOOTSTRAP: Generate VRF keypair and store in memory
+    // - ENCRYPT_VRF_KEYPAIR_WITH_PRF: Encrypt in-memory VRF keypair with PRF
+    // - UNLOCK_VRF_KEYPAIR: Load keypair into memory (login)
     // - GENERATE_VRF_CHALLENGE: Create VRF challenge
-    // - GENERATE_VRF_KEYPAIR: Generate new keypair
     // - CHECK_VRF_STATUS: Get session status
     // - LOGOUT: Clear session
 }
