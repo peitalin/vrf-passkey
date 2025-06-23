@@ -135,7 +135,7 @@ impl WebAuthnContract {
 
         // 1. Validate block height freshness
         let current_height = env::block_height();
-        if current_height < vrf_data.block_height || current_height > vrf_data.block_height + 30 {
+        if current_height < vrf_data.block_height || current_height > vrf_data.block_height + self.vrf_settings.max_block_age {
             log!("VRF challenge is stale or invalid: current_height={}, vrf_height={}",
                  current_height, vrf_data.block_height);
             return VerifiedAuthenticationResponse {
@@ -144,8 +144,8 @@ impl WebAuthnContract {
             };
         }
 
-        log!("VRF block height validation passed: current={}, vrf={}, window=30 blocks",
-             current_height, vrf_data.block_height);
+        log!("VRF block height validation passed: current={}, vrf={}, window={} blocks",
+             current_height, vrf_data.block_height, self.vrf_settings.max_block_age);
 
         // 2. Verify the VRF proof and extract challenge
         log!("VRF Verification:");
