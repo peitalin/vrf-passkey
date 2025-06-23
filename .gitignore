@@ -8,9 +8,13 @@ frontend/.env
 server/.env
 webauthn-contract/.env
 
-# WASM worker
-frontend/wasm-worker/pkg
-frontend/wasm-worker/target
+# WASM workers
+packages/passkey/src/wasm-signer-worker/pkg
+packages/passkey/src/wasm-signer-worker/target
+packages/passkey/src/wasm-vrf-worker/pkg
+packages/passkey/src/wasm-vrf-worker/target
+
+frontend/public/workers
 
 # Database files
 server/passkey_users.db

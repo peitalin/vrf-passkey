@@ -28,6 +28,7 @@ export function PasskeyLogin() {
     optimisticAuth,
     setOptimisticAuth,
     setInputUsername,
+    passkeyManager,
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
@@ -219,96 +220,6 @@ export function PasskeyLogin() {
                 <p>Server-derived NEAR public key not available for greeting functionality.</p>
               </div>
             )}
-
-            {/* VRF WebAuthn Experimental Section */}
-            <div className="vrf-section" style={{ marginTop: '2rem', padding: '1rem', border: '2px dashed #8B5CF6', borderRadius: '8px', backgroundColor: '#F8FAFC' }}>
-              <h3 style={{ color: '#7C3AED', marginBottom: '0.5rem' }}>🔐 VRF WebAuthn (Experimental)</h3>
-              <p style={{ fontSize: '0.875rem', color: '#64748B', marginBottom: '1rem' }}>
-                Test Verifiable Random Function authentication using WebAuthn PRF extension.
-              </p>
-
-              <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
-                <button
-                  onClick={async () => {
-                    try {
-                      toast.loading('Starting VRF Registration...', { id: 'vrf-register' });
-
-                      // Get the passkey manager from context
-                      const passkeyManager = (window as any).passkeyManager;
-                      if (!passkeyManager) {
-                        throw new Error('PasskeyManager not available');
-                      }
-
-                      const result = await passkeyManager.vrfRegistrationWithContract(
-                        nearAccountId || 'alice.testnet'
-                      );
-
-                      console.log('VRF Registration:', result);
-
-                      if (result.success) {
-                        toast.success('VRF Registration successful!', { id: 'vrf-register' });
-                      } else {
-                        toast.error(`VRF Registration failed: ${result.error}`, { id: 'vrf-register' });
-                      }
-                    } catch (error: any) {
-                      console.error('VRF Registration error:', error);
-                      toast.error(`VRF Registration failed: ${error.message}`, { id: 'vrf-register' });
-                    }
-                  }}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    backgroundColor: '#8B5CF6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontSize: '0.875rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  VRF Register ({nearAccountId})
-                </button>
-
-                <button
-                  onClick={async () => {
-                    try {
-                      toast.loading('Starting VRF Authentication...', { id: 'vrf-auth' });
-
-                      // Get the passkey manager from context
-                      const passkeyManager = (window as any).passkeyManager;
-                      if (!passkeyManager) {
-                        throw new Error('PasskeyManager not available');
-                      }
-
-                      const result = await passkeyManager.vrfAuthenticationWithContract(
-                        nearAccountId || 'alice.testnet'
-                      );
-
-                      console.log('VRF Authentication:', result);
-
-                      if (result.success) {
-                        toast.success('VRF Authentication successful!', { id: 'vrf-auth' });
-                      } else {
-                        toast.error(`VRF Authentication failed: ${result.error}`, { id: 'vrf-auth' });
-                      }
-                    } catch (error: any) {
-                      console.error('VRF Authentication error:', error);
-                      toast.error(`VRF Authentication failed: ${error.message}`, { id: 'vrf-auth' });
-                    }
-                  }}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    backgroundColor: '#7C3AED',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontSize: '0.875rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  VRF Authenticate ({nearAccountId})
-                </button>
-              </div>
-            </div>
           </>
         )}
       </div>

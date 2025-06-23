@@ -148,17 +148,17 @@ export function encrypt_data_aes_gcm(plain_text_data_str, key_bytes) {
 
 /**
  * @param {string} encrypted_data_b64u
- * @param {string} iv_b64u
+ * @param {string} aes_gcm_nonce_b64u
  * @param {Uint8Array} key_bytes
  * @returns {string}
  */
-export function decrypt_data_aes_gcm(encrypted_data_b64u, iv_b64u, key_bytes) {
+export function decrypt_data_aes_gcm(encrypted_data_b64u, aes_gcm_nonce_b64u, key_bytes) {
     let deferred5_0;
     let deferred5_1;
     try {
         const ptr0 = passStringToWasm0(encrypted_data_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(iv_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(aes_gcm_nonce_b64u, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         const ptr2 = passArray8ToWasm0(key_bytes, wasm.__wbindgen_malloc);
         const len2 = WASM_VECTOR_LEN;
@@ -509,7 +509,7 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
         arg0.getRandomValues(arg1);
     }, arguments) };
-    imports.wbg.__wbg_log_4caee689d5123dc1 = function(arg0, arg1) {
+    imports.wbg.__wbg_log_aeb0d47390d0b8bf = function(arg0, arg1) {
         console.log(getStringFromWasm0(arg0, arg1));
     };
     imports.wbg.__wbg_msCrypto_a61aeb35a24c1329 = function(arg0) {
@@ -680,7 +680,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (typeof module_or_path === 'undefined') {
-        module_or_path = new URL('passkey_crypto_worker_bg.wasm', import.meta.url);
+        module_or_path = new URL('web3authn_passkey_worker_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

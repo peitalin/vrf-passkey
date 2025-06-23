@@ -4311,6 +4311,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.21.7",
  "bincode",
+ "bs58 0.5.1",
  "ecdsa",
  "ed25519-dalek",
  "elliptic-curve",

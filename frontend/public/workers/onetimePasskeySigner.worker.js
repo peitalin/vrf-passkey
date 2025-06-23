@@ -17293,80 +17293,6 @@ function validate_cose_key_format$1(cose_key_bytes) {
     }
 }
 
-/**
- * Generate VRF keypair and encrypt it using PRF output
- * This is used during registration to create and store VRF credentials
- * @param {string} prf_output_base64
- * @returns {string}
- */
-function generate_and_encrypt_vrf_keypair_with_prf$1(prf_output_base64) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.generate_and_encrypt_vrf_keypair_with_prf(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * Generate VRF challenge and proof using encrypted VRF keypair
- * This is used during authentication to create WebAuthn challenges
- * @param {string} prf_output_base64
- * @param {string} encrypted_vrf_data
- * @param {string} encrypted_vrf_iv
- * @param {string} user_id
- * @param {string} rp_id
- * @param {string} session_id
- * @param {bigint} block_height
- * @param {Uint8Array} block_hash_bytes
- * @param {bigint} timestamp
- * @returns {string}
- */
-function generate_vrf_challenge_with_prf$1(prf_output_base64, encrypted_vrf_data, encrypted_vrf_iv, user_id, rp_id, session_id, block_height, block_hash_bytes, timestamp) {
-    let deferred9_0;
-    let deferred9_1;
-    try {
-        const ptr0 = passStringToWasm0(prf_output_base64, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(encrypted_vrf_data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(encrypted_vrf_iv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(user_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len3 = WASM_VECTOR_LEN;
-        const ptr4 = passStringToWasm0(rp_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len4 = WASM_VECTOR_LEN;
-        const ptr5 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len5 = WASM_VECTOR_LEN;
-        const ptr6 = passArray8ToWasm0(block_hash_bytes, wasm.__wbindgen_malloc);
-        const len6 = WASM_VECTOR_LEN;
-        const ret = wasm.generate_vrf_challenge_with_prf(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, block_height, ptr6, len6, timestamp);
-        var ptr8 = ret[0];
-        var len8 = ret[1];
-        if (ret[3]) {
-            ptr8 = 0; len8 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred9_0 = ptr8;
-        deferred9_1 = len8;
-        return getStringFromWasm0(ptr8, len8);
-    } finally {
-        wasm.__wbindgen_free(deferred9_0, deferred9_1, 1);
-    }
-}
-
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
         if (typeof WebAssembly.instantiateStreaming === 'function') {
@@ -17618,9 +17544,7 @@ var wasmModule = /*#__PURE__*/Object.freeze({
   encrypt_data_aes_gcm: encrypt_data_aes_gcm,
   extract_cose_public_key_from_attestation: extract_cose_public_key_from_attestation$1,
   generate_and_encrypt_near_keypair_with_prf: generate_and_encrypt_near_keypair_with_prf$1,
-  generate_and_encrypt_vrf_keypair_with_prf: generate_and_encrypt_vrf_keypair_with_prf$1,
   generate_near_keypair: generate_near_keypair,
-  generate_vrf_challenge_with_prf: generate_vrf_challenge_with_prf$1,
   initSync: initSync,
   init_panic_hook: init_panic_hook,
   sign_near_transaction_with_prf: sign_near_transaction_with_prf,
@@ -17687,7 +17611,7 @@ const STORE_NAME = 'encryptedKeys';
 const HKDF_INFO = 'near-key-encryption';
 const HKDF_SALT = '';
 // === WASM MODULE FUNCTIONS ===
-const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf, extract_cose_public_key_from_attestation, validate_cose_key_format, generate_and_encrypt_vrf_keypair_with_prf, generate_vrf_challenge_with_prf } = wasmModule;
+const { decrypt_data_aes_gcm, derive_encryption_key_from_prf, generate_and_encrypt_near_keypair_with_prf, extract_cose_public_key_from_attestation, validate_cose_key_format } = wasmModule;
 // === UTILITY FUNCTIONS ===
 /**
  * Initialize WASM module with caching support
@@ -17758,14 +17682,25 @@ function createErrorResponse(error) {
  * Parse WASM result with proper typing
  */
 function parseWasmResult(resultJson) {
+    console.log('WORKER: parseWasmResult - Input type:', typeof resultJson);
+    console.log('WORKER: parseWasmResult - Input value:', resultJson);
     const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
+    console.log('WORKER: parseWasmResult - Parsed result:', result);
+    console.log('WORKER: parseWasmResult - Parsed result keys:', result ? Object.keys(result) : 'undefined');
     const encryptedPrivateKey = typeof result.encryptedPrivateKey === 'string'
         ? JSON.parse(result.encryptedPrivateKey)
         : result.encryptedPrivateKey;
-    return {
+    console.log('WORKER: parseWasmResult - encryptedPrivateKey processing:');
+    console.log('  - result.encryptedPrivateKey type:', typeof result.encryptedPrivateKey);
+    console.log('  - result.encryptedPrivateKey value:', result.encryptedPrivateKey);
+    console.log('  - Final encryptedPrivateKey:', encryptedPrivateKey);
+    console.log('  - Final encryptedPrivateKey keys:', encryptedPrivateKey ? Object.keys(encryptedPrivateKey) : 'undefined');
+    const finalResult = {
         publicKey: result.publicKey,
         encryptedPrivateKey
     };
+    console.log('WORKER: parseWasmResult - Final result:', finalResult);
+    return finalResult;
 }
 // === INDEXEDDB OPERATIONS ===
 const KEY_PATH = 'nearAccountId';
@@ -17808,16 +17743,31 @@ async function storeEncryptedKey(data) {
  * Retrieve encrypted key data
  */
 async function getEncryptedKey(nearAccountId) {
+    console.log('WORKER: getEncryptedKey - Retrieving for account:', nearAccountId);
     const db = await openDB();
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     return new Promise((resolve, reject) => {
         const request = store.get(nearAccountId);
         request.onsuccess = () => {
+            const result = request.result;
+            console.log('WORKER: getEncryptedKey - Raw result:', result);
+            console.log('WORKER: getEncryptedKey - Result type:', typeof result);
+            if (result) {
+                console.log('WORKER: getEncryptedKey - Result keys:', Object.keys(result));
+                console.log('WORKER: getEncryptedKey - encryptedData type:', typeof result.encryptedData);
+                console.log('WORKER: getEncryptedKey - encryptedData value:', result.encryptedData);
+                console.log('WORKER: getEncryptedKey - iv type:', typeof result.iv);
+                console.log('WORKER: getEncryptedKey - iv value:', result.iv);
+            }
+            else {
+                console.log('WORKER: getEncryptedKey - No result found');
+            }
             db.close();
-            resolve(request.result || null);
+            resolve(result || null);
         };
         request.onerror = () => {
+            console.error('WORKER: getEncryptedKey - Error:', request.error);
             db.close();
             reject(request.error);
         };
@@ -17865,12 +17815,6 @@ self.onmessage = async (event) => {
             case WorkerRequestType.VALIDATE_COSE_KEY:
                 await handleValidateCoseKey(payload);
                 break;
-            case WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF:
-                await handleGenerateVrfKeypairWithPrf(payload);
-                break;
-            case WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF:
-                await handleGenerateVrfChallengeWithPrf(payload);
-                break;
             default:
                 sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
         }
@@ -17891,14 +17835,32 @@ self.onmessage = async (event) => {
  * Generate and encrypt NEAR keypair using PRF
  */
 async function generateAndEncryptKeypair(prfOutput, nearAccountId) {
+    console.log('WORKER: generateAndEncryptKeypair - Starting...');
+    console.log('WORKER: prfOutput type:', typeof prfOutput);
+    console.log('WORKER: nearAccountId:', nearAccountId);
     const resultJson = generate_and_encrypt_near_keypair_with_prf(prfOutput);
+    console.log('WORKER: WASM result type:', typeof resultJson);
+    console.log('WORKER: WASM result raw:', resultJson);
     const { publicKey, encryptedPrivateKey } = parseWasmResult(resultJson);
+    console.log('WORKER: parseWasmResult output:');
+    console.log('  - publicKey type:', typeof publicKey);
+    console.log('  - publicKey value:', publicKey);
+    console.log('  - encryptedPrivateKey type:', typeof encryptedPrivateKey);
+    console.log('  - encryptedPrivateKey keys:', encryptedPrivateKey ? Object.keys(encryptedPrivateKey) : 'undefined');
+    console.log('  - encryptedPrivateKey.encrypted_near_key_data_b64u:', encryptedPrivateKey?.encrypted_near_key_data_b64u);
+    console.log('  - encryptedPrivateKey.aes_gcm_nonce_b64u:', encryptedPrivateKey?.aes_gcm_nonce_b64u);
     const keyData = {
         nearAccountId,
-        encryptedData: encryptedPrivateKey.encrypted_vrf_data_b64u,
+        encryptedData: encryptedPrivateKey.encrypted_near_key_data_b64u,
         iv: encryptedPrivateKey.aes_gcm_nonce_b64u,
         timestamp: Date.now()
     };
+    console.log('WORKER: Final keyData being stored:');
+    console.log('  - nearAccountId:', keyData.nearAccountId);
+    console.log('  - encryptedData type:', typeof keyData.encryptedData);
+    console.log('  - encryptedData value:', keyData.encryptedData);
+    console.log('  - iv type:', typeof keyData.iv);
+    console.log('  - iv value:', keyData.iv);
     return { publicKey, keyData };
 }
 /**
@@ -17935,13 +17897,22 @@ async function handleEncryptPrivateKeyWithPrf(payload) {
  * Decrypt private key from stored data and return as string
  */
 function decryptPrivateKeyString(encryptedKeyData, prfOutput) {
+    console.log('WORKER: decryptPrivateKeyString - Starting...');
+    console.log('WORKER: encryptedKeyData keys:', Object.keys(encryptedKeyData));
+    console.log('WORKER: encryptedKeyData.encryptedData type:', typeof encryptedKeyData.encryptedData);
+    console.log('WORKER: encryptedKeyData.iv type:', typeof encryptedKeyData.iv);
+    console.log('WORKER: prfOutput type:', typeof prfOutput);
     const decryptionKey = derive_encryption_key_from_prf(prfOutput, HKDF_INFO, HKDF_SALT);
+    console.log('WORKER: decryptionKey derived, type:', typeof decryptionKey);
     const decryptedKey = decrypt_data_aes_gcm(encryptedKeyData.encryptedData, encryptedKeyData.iv, decryptionKey);
+    console.log('WORKER: decryptedKey result, type:', typeof decryptedKey);
     // Handle both cases: full "ed25519:..." format or just base58
     if (decryptedKey.startsWith('ed25519:')) {
+        console.log('WORKER: Key already has ed25519 prefix');
         return decryptedKey; // Already has the prefix
     }
     else {
+        console.log('WORKER: Adding ed25519 prefix to key');
         return `ed25519:${decryptedKey}`; // Add the prefix
     }
 }
@@ -17949,14 +17920,30 @@ function decryptPrivateKeyString(encryptedKeyData, prfOutput) {
  * Decrypt private key from stored data and return as KeyPair
  */
 function decryptPrivateKey(encryptedKeyData, prfOutput) {
+    console.log('WORKER: decryptPrivateKey - Starting...');
     const decryptedPrivateKeyString = decryptPrivateKeyString(encryptedKeyData, prfOutput);
-    return KeyPair.fromString(decryptedPrivateKeyString);
+    console.log('WORKER: decryptedPrivateKeyString result, type:', typeof decryptedPrivateKeyString);
+    console.log('WORKER: decryptedPrivateKeyString length:', decryptedPrivateKeyString?.length);
+    console.log('WORKER: Creating KeyPair from string...');
+    const keyPair = KeyPair.fromString(decryptedPrivateKeyString);
+    console.log('WORKER: KeyPair created successfully, type:', typeof keyPair);
+    return keyPair;
 }
 /**
  * Create NEAR transaction from parameters
  */
 function createNearTransaction(nearAccountId, keyPair, payload) {
     const { receiverId, contractMethodName, contractArgs, gasAmount, depositAmount, nonce, blockHashBytes } = payload;
+    console.log('WORKER: Creating NEAR transaction with blockHashBytes:', {
+        type: typeof blockHashBytes,
+        isArray: Array.isArray(blockHashBytes),
+        length: blockHashBytes?.length,
+        sample: blockHashBytes?.slice(0, 5) // Show first 5 bytes for debugging
+    });
+    // Defensive validation of blockHashBytes before Buffer.from()
+    if (!blockHashBytes || !Array.isArray(blockHashBytes) || blockHashBytes.length === 0) {
+        throw new Error(`Invalid blockHashBytes for transaction creation: ${typeof blockHashBytes}, length: ${blockHashBytes?.length}`);
+    }
     const actions = [
         {
             functionCall: {
@@ -17967,7 +17954,15 @@ function createNearTransaction(nearAccountId, keyPair, payload) {
             }
         }
     ];
-    return createTransaction(nearAccountId, keyPair.getPublicKey(), receiverId, BigInt(nonce), actions, buffer.Buffer.from(blockHashBytes));
+    try {
+        const blockHashBuffer = buffer.Buffer.from(blockHashBytes);
+        console.log('WORKER: Block hash buffer created successfully:', blockHashBuffer.length, 'bytes');
+        return createTransaction(nearAccountId, keyPair.getPublicKey(), receiverId, BigInt(nonce), actions, blockHashBuffer);
+    }
+    catch (error) {
+        console.error('WORKER: Failed to create block hash buffer:', error);
+        throw new Error(`Failed to create block hash buffer: ${error.message}`);
+    }
 }
 /**
  * Sign transaction and create signed transaction
@@ -17992,13 +17987,38 @@ function signTransaction(transaction, keyPair) {
 async function handleDecryptAndSignTransactionWithPrf(payload) {
     try {
         const { nearAccountId, prfOutput } = payload;
+        // Validate payload data before processing
+        console.log('WORKER: Validating payload data...');
+        console.log('WORKER: Payload keys:', Object.keys(payload));
+        console.log('WORKER: blockHashBytes type:', typeof payload.blockHashBytes);
+        console.log('WORKER: blockHashBytes length:', payload.blockHashBytes?.length);
+        console.log('WORKER: blockHashBytes value:', payload.blockHashBytes);
+        // Validate required fields
+        const requiredFields = ['nearAccountId', 'prfOutput', 'receiverId', 'contractMethodName', 'contractArgs', 'gasAmount', 'depositAmount', 'nonce', 'blockHashBytes'];
+        const missingFields = requiredFields.filter(field => !payload[field]);
+        if (missingFields.length > 0) {
+            throw new Error(`Missing required fields in worker payload: ${missingFields.join(', ')}`);
+        }
+        // Specifically validate blockHashBytes
+        if (!payload.blockHashBytes || !Array.isArray(payload.blockHashBytes) || payload.blockHashBytes.length === 0) {
+            throw new Error(`Invalid blockHashBytes in worker payload: ${typeof payload.blockHashBytes}, length: ${payload.blockHashBytes?.length}`);
+        }
+        console.log('WORKER: Payload validation successful');
+        console.log('WORKER: Step 1 - Getting encrypted key data...');
         const encryptedKeyData = await getEncryptedKey(nearAccountId);
         if (!encryptedKeyData) {
             throw new Error(`No encrypted key found for account: ${nearAccountId}`);
         }
+        console.log('WORKER: Step 1 completed - Encrypted key data retrieved');
+        console.log('WORKER: Step 2 - Decrypting private key...');
         const keyPair = decryptPrivateKey(encryptedKeyData, prfOutput);
+        console.log('WORKER: Step 2 completed - Private key decrypted, keyPair type:', typeof keyPair);
+        console.log('WORKER: Step 3 - Creating NEAR transaction...');
         const transaction = createNearTransaction(nearAccountId, keyPair, payload);
+        console.log('WORKER: Step 3 completed - Transaction created, transaction type:', typeof transaction);
+        console.log('WORKER: Step 4 - Signing transaction...');
         const serializedSignedTx = signTransaction(transaction, keyPair);
+        console.log('WORKER: Step 4 completed - Transaction signed, serialized length:', serializedSignedTx.length);
         sendResponseAndTerminate({
             type: WorkerResponseType.SIGNATURE_SUCCESS,
             payload: {
@@ -18009,6 +18029,7 @@ async function handleDecryptAndSignTransactionWithPrf(payload) {
     }
     catch (error) {
         console.error('WORKER: Signing failed:', error.message);
+        console.error('WORKER: Error stack:', error.stack);
         sendResponseAndTerminate({
             type: WorkerResponseType.SIGNATURE_FAILURE,
             payload: { error: error.message || 'PRF decryption/signing failed' }
@@ -18093,64 +18114,6 @@ async function handleValidateCoseKey(payload) {
         sendResponseAndTerminate({
             type: WorkerResponseType.COSE_VALIDATION_FAILURE,
             payload: { error: error.message || 'COSE key validation failed' }
-        });
-    }
-}
-// === VRF OPERATIONS WORKFLOW ===
-/**
- * Handle VRF keypair generation and encryption with PRF
- */
-async function handleGenerateVrfKeypairWithPrf(payload) {
-    try {
-        const { prfOutput } = payload;
-        console.log('WORKER: Generating VRF keypair with PRF');
-        // Call the WASM function to generate and encrypt VRF keypair
-        const result = generate_and_encrypt_vrf_keypair_with_prf(prfOutput);
-        const vrfResult = JSON.parse(result);
-        console.log('WORKER: Successfully generated VRF keypair');
-        sendResponseAndTerminate({
-            type: WorkerResponseType.VRF_KEYPAIR_SUCCESS,
-            payload: {
-                vrfPublicKey: vrfResult.vrfPublicKey,
-                encryptedVrfKeypair: vrfResult.encryptedVrfKeypair
-            }
-        });
-    }
-    catch (error) {
-        console.error('WORKER: VRF keypair generation failed:', error.message);
-        sendResponseAndTerminate({
-            type: WorkerResponseType.VRF_KEYPAIR_FAILURE,
-            payload: { error: error.message || 'VRF keypair generation failed' }
-        });
-    }
-}
-/**
- * Handle VRF challenge generation with PRF
- */
-async function handleGenerateVrfChallengeWithPrf(payload) {
-    try {
-        const { prfOutput, encryptedVrfData, encryptedVrfNonce, userId, rpId, sessionId, blockHeight, blockHashBytes, timestamp } = payload;
-        console.log('WORKER: Generating VRF challenge with PRF');
-        // Call the WASM function to generate VRF challenge
-        const result = generate_vrf_challenge_with_prf(prfOutput, encryptedVrfData, encryptedVrfNonce, userId, rpId, sessionId, BigInt(blockHeight), new Uint8Array(blockHashBytes), BigInt(timestamp));
-        const challengeResult = JSON.parse(result);
-        console.log('WORKER: Successfully generated VRF challenge');
-        sendResponseAndTerminate({
-            type: WorkerResponseType.VRF_CHALLENGE_SUCCESS,
-            payload: {
-                vrfInput: challengeResult.vrfInput,
-                vrfOutput: challengeResult.vrfOutput,
-                vrfProof: challengeResult.vrfProof,
-                vrfPublicKey: challengeResult.vrfPublicKey,
-                rpId: challengeResult.rpId
-            }
-        });
-    }
-    catch (error) {
-        console.error('WORKER: VRF challenge generation failed:', error.message);
-        sendResponseAndTerminate({
-            type: WorkerResponseType.VRF_CHALLENGE_FAILURE,
-            payload: { error: error.message || 'VRF challenge generation failed' }
         });
     }
 }
