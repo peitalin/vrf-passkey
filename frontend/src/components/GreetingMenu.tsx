@@ -23,8 +23,6 @@ interface LastTxDetails {
 export function GreetingMenu() {
   const {
     loginState: { isLoggedIn, nearAccountId },
-    optimisticAuth,
-    setOptimisticAuth,
     passkeyManager,
   } = usePasskeyContext();
 
@@ -68,7 +66,6 @@ export function GreetingMenu() {
     setLastTxDetails(null);
 
     await passkeyManager.executeAction(nearAccountId, actionToExecute, {
-      optimisticAuth: optimisticAuth,
       onEvent: (event: ActionEvent) => {
         switch (event.type) {
           case 'actionStarted':
@@ -111,82 +108,78 @@ export function GreetingMenu() {
         }
       }
     });
-  }, [greetingInput, isLoggedIn, nearAccountId, optimisticAuth, passkeyManager, fetchGreeting]);
+  }, [greetingInput, isLoggedIn, nearAccountId, passkeyManager, fetchGreeting]);
 
   if (!isLoggedIn) {
     return null;
   }
 
   return (
-    <div className="greeting-controls-box">
-      <div className="webauthn-contract-link">
-        Onchain message on&nbsp;
-        <a href={`${NEAR_EXPLORER_BASE_URL}/address/${WEBAUTHN_CONTRACT_ID}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {WEBAUTHN_CONTRACT_ID}
-        </a>:
-      </div>
+    <div className="passkey-container-root">
+      <div className="passkey-container">
 
-      <div className="on-chain-greeting-box">
-        <button
-          onClick={handleRefreshGreeting}
-          disabled={isLoading}
-          title="Refresh Greeting"
-          className="refresh-icon-button"
-        >
-          <RefreshIcon size={22} color={MUTED_GREEN}/>
-        </button>
-        <p><strong>{onchainGreeting || "..."}</strong></p>
-      </div>
+        <h2>Welcome, {nearAccountId}</h2>
+        <p className="caption">Send NEAR transactions with Passkeys</p>
 
-      {lastTxDetails && lastTxDetails.id !== 'N/A' && (
-        <div className="last-tx-display">
-          <span>Transaction ID: </span>
-          <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer"
-            title={lastTxDetails.id}
-            className="tx-link"
-          >
-            {shortenString(lastTxDetails.id, 10, 6)}
-          </a>
+        <div className="greeting-controls-box">
+          <div className="webauthn-contract-link">
+            Onchain message on&nbsp;
+            <a href={`${NEAR_EXPLORER_BASE_URL}/address/${WEBAUTHN_CONTRACT_ID}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {WEBAUTHN_CONTRACT_ID}
+            </a>:
+          </div>
+
+          <div className="on-chain-greeting-box">
+            <button
+              onClick={handleRefreshGreeting}
+              disabled={isLoading}
+              title="Refresh Greeting"
+              className="refresh-icon-button"
+            >
+              <RefreshIcon size={22} color={MUTED_GREEN}/>
+            </button>
+            <p><strong>{onchainGreeting || "..."}</strong></p>
+          </div>
+
+          {lastTxDetails && lastTxDetails.id !== 'N/A' && (
+            <div className="last-tx-display">
+              <span>Transaction ID: </span>
+              <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer"
+                title={lastTxDetails.id}
+                className="tx-link"
+              >
+                {shortenString(lastTxDetails.id, 10, 6)}
+              </a>
+            </div>
+          )}
+
+          <div className="greeting-input-group">
+            <input
+              type="text"
+              value={greetingInput}
+              onChange={(e) => setGreetingInput(e.target.value)}
+              placeholder="Enter new greeting"
+              className="styled-input"
+            />
+            <button
+              onClick={handleSetGreeting}
+              className="action-button"
+              disabled={isLoading || !greetingInput.trim()}
+            >
+              {isLoading ? 'Processing...' : 'Set New Greeting'}
+            </button>
+          </div>
+
+          {error && (
+            <div className="error-message">
+              Error: {error}
+            </div>
+          )}
         </div>
-      )}
-
-      <Toggle
-        checked={optimisticAuth}
-        onChange={setOptimisticAuth}
-        label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
-        tooltip={optimisticAuth
-          ? 'Fast transaction signing with optimistic response'
-          : 'Contract signed Passkey authentication (slower)'
-        }
-        className="greeting-auth-mode-toggle"
-        size="small"
-      />
-
-      <div className="greeting-input-group">
-        <input
-          type="text"
-          value={greetingInput}
-          onChange={(e) => setGreetingInput(e.target.value)}
-          placeholder="Enter new greeting"
-          className="styled-input"
-        />
-        <button
-          onClick={handleSetGreeting}
-          className="action-button"
-          disabled={isLoading || !greetingInput.trim()}
-        >
-          {isLoading ? 'Processing...' : 'Set New Greeting'}
-        </button>
       </div>
-
-      {error && (
-        <div className="error-message">
-          Error: {error}
-        </div>
-      )}
     </div>
   );
 }

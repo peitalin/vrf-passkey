@@ -1,9 +1,24 @@
-import { PasskeyLogin } from '../components/PasskeyLogin';
+import { PasskeyLoginMenu } from '../components/PasskeyLoginMenu';
+import { GreetingMenu } from '../components/GreetingMenu';
+import { usePasskeyContext } from '@web3authn/passkey/react';
 
 export function HomePage() {
+
+  const {
+    loginState: {
+      isLoggedIn,
+      nearPublicKey,
+      nearAccountId
+    },
+  } = usePasskeyContext();
+
   return (
     <main>
-      <PasskeyLogin />
+      {isLoggedIn ? (
+        <GreetingMenu />
+      ) : (
+        <PasskeyLoginMenu />
+      )}
     </main>
   );
 }

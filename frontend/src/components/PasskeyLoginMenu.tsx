@@ -9,7 +9,7 @@ import type {
   LoginEvent
 } from '@web3authn/passkey/react'
 
-export function PasskeyLogin() {
+export function PasskeyLoginMenu() {
   const {
     loginState: {
       isLoggedIn,
@@ -25,10 +25,11 @@ export function PasskeyLogin() {
     },
     loginPasskey,
     registerPasskey,
-    optimisticAuth,
-    setOptimisticAuth,
     setInputUsername,
     passkeyManager,
+    useRelayer,
+    setUseRelayer,
+    toggleRelayer,
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
@@ -45,10 +46,6 @@ export function PasskeyLogin() {
     inputValue: inputUsername
   });
 
-  const handleAuthModeToggle = useCallback((checked: boolean) => {
-    setOptimisticAuth(checked);
-  }, [setOptimisticAuth]);
-
   const handleLocalUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputUsername(e.target.value);
   };
@@ -61,7 +58,6 @@ export function PasskeyLogin() {
     console.log('Registering account:', targetAccountId);
     try {
       const result = await registerPasskey(targetAccountId, {
-        optimisticAuth,
         onEvent: (event: RegistrationSSEEvent) => {
           switch (event.phase) {
             case 'webauthn-verification':
@@ -105,7 +101,6 @@ export function PasskeyLogin() {
 
     console.log('Logging in with account:', targetAccountId);
     const result = await loginPasskey(targetAccountId, {
-      optimisticAuth,
       onEvent: (event: LoginEvent) => {
         switch (event.type) {
           case 'loginStarted':
@@ -144,17 +139,23 @@ export function PasskeyLogin() {
   return (
     <div className="passkey-container-root">
       <div className="passkey-container">
-        {!isLoggedIn ? (
-          <>
-            <h2>Passkey Login</h2>
-            <p className="caption">Authenticate onchain with Passkeys</p>
-          </>
-        ) : (
-          <>
-            <h2>Welcome, {accountName}</h2>
-            <p className="caption">Send NEAR transactions with Passkeys</p>
-          </>
-        )}
+
+        <h2>Passkey Login</h2>
+        <p className="caption">Authenticate onchain with Passkeys</p>
+
+        <Toggle
+          checked={useRelayer}
+          onChange={toggleRelayer}
+          label={useRelayer ? 'Use relayer' : 'Use faucet'}
+          tooltip={useRelayer
+            ? 'Using relayer for account creation'
+            : 'Using faucet for account creation'
+          }
+          className="auth-mode-toggle"
+          size="small"
+          textPosition="left"
+        />
+
         {!isLoggedIn ? (
           <>
             <div className="input-wrapper">
@@ -183,18 +184,6 @@ export function PasskeyLogin() {
               )}
             </div>
 
-            <Toggle
-              checked={optimisticAuth}
-              onChange={handleAuthModeToggle}
-              label={optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
-              tooltip={optimisticAuth
-                ? 'Fast transaction signing with optimistic response'
-                : 'Contract signed Passkey authentication (slower)'
-              }
-              className="auth-mode-toggle"
-              size="small"
-              textPosition="left"
-            />
 
             <div className="auth-buttons">
               <button onClick={onRegister}
