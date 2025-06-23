@@ -1,7 +1,7 @@
 //! End-to-End VRF WebAuthn Authentication Test
 //!
 //! Comprehensive test suite for VRF-based WebAuthn authentication flow.
-//! Tests the complete `verify_authentication_response_vrf` method with:
+//! Tests the complete `verify_authentication_response` method with:
 //! - Real VRF proof generation using vrf-wasm
 //! - Mock WebAuthn authentication responses using VRF output as challenge
 //! - Full user journey: Register → Authenticate → Re-authenticate
@@ -18,7 +18,7 @@
 
 use near_workspaces::types::Gas;
 use serde_json::json;
-use vrf_wasm::ecvrf::{ECVRFKeyPair, ECVRFProof, ECVRFPublicKey};
+use vrf_wasm::ecvrf::ECVRFKeyPair;
 use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
 use vrf_wasm::traits::{WasmRngFromSeed};
 use rand_core::SeedableRng;
@@ -27,9 +27,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGI
 use std::collections::BTreeMap;
 
 mod utils_mocks;
-use utils_mocks::{
-    VrfAuthenticationData,
-};
+use utils_mocks::VrfAuthenticationData;
 
 
 /// Create mock WebAuthn authentication response using VRF challenge
@@ -56,19 +54,17 @@ fn create_mock_webauthn_authentication(vrf_output: &[u8], rp_id: &str, counter: 
 
     // Return WebAuthn authentication data structure
     json!({
-        "authentication_response": {
-            "id": "vrf_e2e_test_credential_id_123",
-            "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
-            "response": {
-                "clientDataJSON": client_data_b64,
-                "authenticatorData": auth_data_b64,
-                "signature": BASE64_URL_ENGINE.encode(&vec![0x88u8; 64]), // Mock signature (different from registration)
-                "userHandle": null
-            },
-            "authenticatorAttachment": "platform",
-            "type": "public-key",
-            "clientExtensionResults": null
-        }
+        "id": "vrf_e2e_test_credential_id_123",
+        "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
+        "response": {
+            "clientDataJSON": client_data_b64,
+            "authenticatorData": auth_data_b64,
+            "signature": BASE64_URL_ENGINE.encode(&vec![0x88u8; 64]), // Mock signature (different from registration)
+            "userHandle": null
+        },
+        "authenticatorAttachment": "platform",
+        "type": "public-key",
+        "clientExtensionResults": null
     })
 }
 
@@ -129,20 +125,18 @@ fn create_mock_webauthn_registration(vrf_output: &[u8], rp_id: &str) -> serde_js
     let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
     let attestation_object_b64 = BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-    // Return WebAuthn registration data structure
+    // Return WebAuthn registration data structure (flattened)
     json!({
-        "registration_response": {
-            "id": "vrf_e2e_test_credential_id_123",
-            "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
-            "response": {
-                "clientDataJSON": client_data_b64,
-                "attestationObject": attestation_object_b64,
-                "transports": ["internal"]
-            },
-            "authenticatorAttachment": "platform",
-            "type": "public-key",
-            "clientExtensionResults": null
-        }
+        "id": "vrf_e2e_test_credential_id_123",
+        "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
+        "response": {
+            "clientDataJSON": client_data_b64,
+            "attestationObject": attestation_object_b64,
+            "transports": ["internal"]
+        },
+        "authenticatorAttachment": "platform",
+        "type": "public-key",
+        "clientExtensionResults": null
     })
 }
 
@@ -196,6 +190,7 @@ async fn generate_vrf_authentication_data(
         output: vrf_output,
         proof,
         public_key: keypair.pk,
+        user_id: user_id.to_string(),
         rp_id: rp_id.to_string(),
         block_height: block_height,
         block_hash: block_hash.to_vec(),
@@ -252,6 +247,7 @@ async fn generate_vrf_registration_data(
         output: vrf_output,
         proof,
         public_key: keypair.pk,
+        user_id: user_id.to_string(),
         rp_id: rp_id.to_string(),
         block_height: block_height,
         block_hash: block_hash.to_vec(),
@@ -280,10 +276,10 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
 
     // Perform registration
     let reg_result = contract
-        .call("verify_registration_response_vrf")
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": reg_webauthn_data
+            "webauthn_registration": reg_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -313,10 +309,10 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
 
     // Perform first authentication
     let auth1_result = contract
-        .call("verify_authentication_response_vrf")
+        .call("verify_authentication_response")
         .args_json(json!({
             "vrf_data": auth1_vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": auth1_webauthn_data
+            "webauthn_authentication": auth1_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -349,10 +345,10 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
 
     // Perform second authentication
     let auth2_result = contract
-        .call("verify_authentication_response_vrf")
+        .call("verify_authentication_response")
         .args_json(json!({
             "vrf_data": auth2_vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": auth2_webauthn_data
+            "webauthn_authentication": auth2_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -425,12 +421,12 @@ async fn test_vrf_authentication_e2e_success() -> Result<(), Box<dyn std::error:
 
     println!("📋 Testing successful VRF authentication flow...");
 
-    // Call verify_authentication_response_vrf method
+    // Call verify_authentication_response method
     let result = contract
-        .call("verify_authentication_response_vrf")
+        .call("verify_authentication_response")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": webauthn_data
+            "webauthn_authentication": webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -493,11 +489,11 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
     let reg_vrf_data = generate_vrf_registration_data(rp_id, user_id, reg_session_id, seed).await?;
     let reg_webauthn_data = create_mock_webauthn_registration(&reg_vrf_data.output, rp_id);
 
-    let reg_result = contract
-        .call("verify_registration_response_vrf")
+    let _reg_result = contract
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": reg_webauthn_data
+            "webauthn_registration": reg_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -509,11 +505,11 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
     let auth_vrf_data = generate_vrf_authentication_data(rp_id, user_id, auth_session_id, seed).await?;
     let auth_webauthn_data = create_mock_webauthn_authentication(&auth_vrf_data.output, rp_id, 2);
 
-    let auth_result = contract
-        .call("verify_authentication_response_vrf")
+    let _auth_result = contract
+        .call("verify_authentication_response")
         .args_json(json!({
             "vrf_data": auth_vrf_data.to_vrf_authentication_data(),
-            "webauthn_data": auth_webauthn_data
+            "webauthn_authentication": auth_webauthn_data
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -566,13 +562,13 @@ async fn test_vrf_authentication_counter_validation() -> Result<(), Box<dyn std:
 
         let session_id = format!("counter_test_session_{}", counter);
         let vrf_data = generate_vrf_authentication_data(rp_id, user_id, &session_id, seed).await?;
-        let webauthn_data = create_mock_webauthn_authentication(&vrf_data.output, rp_id, counter);
+        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, rp_id, counter);
 
         let result = contract
-            .call("verify_authentication_response_vrf")
+            .call("verify_authentication_response")
             .args_json(json!({
                 "vrf_data": vrf_data.to_vrf_authentication_data(),
-                "webauthn_data": webauthn_data
+                "webauthn_authentication": webauthn_authentication
             }))
             .gas(Gas::from_tgas(200))
             .transact()
@@ -613,16 +609,16 @@ async fn test_vrf_authentication_cross_domain_security() -> Result<(), Box<dyn s
         println!("\nTesting domain: {}", domain);
 
         let vrf_data = generate_vrf_authentication_data(domain, user_id, session_id, seed).await?;
-        let webauthn_data = create_mock_webauthn_authentication(&vrf_data.output, domain, 1);
+        let webauthn_authentication = create_mock_webauthn_authentication(&vrf_data.output, domain, 1);
 
         // Store VRF output for uniqueness checking
-        vrf_outputs.push((domain.clone(), vrf_data.output.clone()));
+        vrf_outputs.push((domain, vrf_data.output.clone()));
 
         let result = contract
-            .call("verify_authentication_response_vrf")
+            .call("verify_authentication_response")
             .args_json(json!({
                 "vrf_data": vrf_data.to_vrf_authentication_data(),
-                "webauthn_data": webauthn_data
+                "webauthn_authentication": webauthn_authentication
             }))
             .gas(Gas::from_tgas(200))
             .transact()

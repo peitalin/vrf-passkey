@@ -2,7 +2,7 @@ use serde_cbor::Value as CborValue;
 
 #[derive(Debug)]
 pub struct AttestedCredentialData {
-    pub(crate) aaguid: Vec<u8>,
+    pub(crate) _aaguid: Vec<u8>,
     pub(crate) credential_id: Vec<u8>,
     pub(crate) credential_public_key: Vec<u8>,
 }
@@ -96,7 +96,7 @@ pub fn parse_authenticator_data(auth_data_bytes: &[u8]) -> Result<AuthenticatorD
         let credential_public_key = auth_data_bytes[offset..].to_vec();
 
         attested_credential_data = Some(AttestedCredentialData {
-            aaguid,
+            _aaguid: aaguid,
             credential_id,
             credential_public_key,
         });

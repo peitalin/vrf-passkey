@@ -1,7 +1,7 @@
 //! End-to-End VRF WebAuthn Registration Test
 //!
 //! Comprehensive test suite for VRF-based WebAuthn registration flow.
-//! Tests the complete `verify_registration_response_vrf` method with:
+//! Tests the complete `verify_registration_response` method with:
 //! - Real VRF proof generation using vrf-wasm
 //! - Mock WebAuthn registration responses using VRF output as challenge
 //! - Various error scenarios and edge cases
@@ -16,18 +16,16 @@
 
 use near_workspaces::types::Gas;
 use serde_json::json;
-use vrf_wasm::ecvrf::{ECVRFKeyPair, ECVRFProof, ECVRFPublicKey};
+use vrf_wasm::ecvrf::ECVRFKeyPair;
 use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
-use vrf_wasm::traits::{WasmRng, WasmRngFromSeed};
+use vrf_wasm::traits::WasmRngFromSeed;
 use rand_core::SeedableRng;
 use sha2::{Sha256, Digest};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
 use std::collections::BTreeMap;
 
 mod utils_mocks;
-use utils_mocks::{
-    VrfRegistrationData,
-};
+use utils_mocks::VrfRegistrationData;
 
 /// Create mock WebAuthn registration response using VRF challenge
 fn create_mock_webauthn_registration(vrf_output: &[u8], rp_id: &str) -> serde_json::Value {
@@ -88,18 +86,16 @@ fn create_mock_webauthn_registration(vrf_output: &[u8], rp_id: &str) -> serde_js
 
     // Return WebAuthn registration data structure
     json!({
-        "registration_response": {
-            "id": "vrf_e2e_test_credential_id_123",
-            "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
-            "response": {
-                "clientDataJSON": client_data_b64,
-                "attestationObject": attestation_object_b64,
-                "transports": ["internal"]
-            },
-            "authenticatorAttachment": "platform",
-            "type": "public-key",
-            "clientExtensionResults": null
-        }
+        "id": "vrf_e2e_test_credential_id_123",
+        "rawId": BASE64_URL_ENGINE.encode(b"vrf_e2e_test_credential_id_123"),
+        "response": {
+            "clientDataJSON": client_data_b64,
+            "attestationObject": attestation_object_b64,
+            "transports": ["internal"]
+        },
+        "authenticatorAttachment": "platform",
+        "type": "public-key",
+        "clientExtensionResults": null
     })
 }
 
@@ -153,6 +149,7 @@ async fn generate_vrf_registration_data(
         output: vrf_output,
         proof,
         public_key: keypair.pk,
+        user_id: user_id.to_string(),
         rp_id: rp_id.to_string(),
         block_height: block_height,
         block_hash: block_hash.to_vec(),
@@ -175,17 +172,17 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
     println!("\n\nVRF data: {:?}\n\n", vrf_data);
 
     // Create WebAuthn registration data using VRF output as challenge
-    let webauthn_data = create_mock_webauthn_registration(&vrf_data.output, rp_id);
-    println!("\n\nWebAuthn data: {:?}\n\n", webauthn_data);
+    let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, rp_id);
+    println!("\n\nWebAuthn registration data: {:?}\n\n", webauthn_registration);
 
     println!("📋 Testing successful VRF registration flow...");
 
-    // Call verify_registration_response_vrf method
+    // Call verify_registration_response method
     let result = contract
-        .call("verify_registration_response_vrf")
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
-            "webauthn_data": webauthn_data
+            "webauthn_registration": webauthn_registration
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -241,13 +238,13 @@ async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::E
     let vrf_data = generate_vrf_registration_data(vrf_rp_id, user_id, session_id).await?;
 
     // Create WebAuthn data with different RP ID (should fail)
-    let webauthn_data = create_mock_webauthn_registration(&vrf_data.output, webauthn_rp_id);
+    let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, webauthn_rp_id);
 
     let result = contract
-        .call("verify_registration_response_vrf")
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
-            "webauthn_data": webauthn_data
+            "webauthn_registration": webauthn_registration
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -272,25 +269,28 @@ async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::erro
     let user_id = "test_user";
     let session_id = "test_session";
 
-    let mut vrf_data = generate_vrf_registration_data(rp_id, user_id, session_id).await?;
+    let vrf_data = generate_vrf_registration_data(rp_id, user_id, session_id).await?;
 
     // Corrupt the VRF proof
     let mut corrupted_proof = vrf_data.proof_bytes();
     corrupted_proof[10] = corrupted_proof[10].wrapping_add(1); // Corrupt one byte
 
-    let webauthn_data = create_mock_webauthn_registration(&vrf_data.output, rp_id);
+    let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, rp_id);
 
     let result = contract
-        .call("verify_registration_response_vrf")
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": {
                 "vrf_input_data": vrf_data.input_data,
                 "vrf_output": vrf_data.output,
                 "vrf_proof": corrupted_proof,
                 "public_key": vrf_data.pubkey_bytes(),
-                "rp_id": vrf_data.rp_id
+                "user_id": vrf_data.user_id,
+                "rp_id": vrf_data.rp_id,
+                "block_height": vrf_data.block_height,
+                "block_hash": vrf_data.block_hash
             },
-            "webauthn_data": webauthn_data
+            "webauthn_registration": webauthn_registration
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -319,13 +319,13 @@ async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::e
 
     // Create WebAuthn data with wrong challenge (different VRF output)
     let wrong_challenge = vec![0xFFu8; 64]; // Different from VRF output
-    let webauthn_data = create_mock_webauthn_registration(&wrong_challenge, rp_id);
+    let webauthn_registration = create_mock_webauthn_registration(&wrong_challenge, rp_id);
 
     let result = contract
-        .call("verify_registration_response_vrf")
+        .call("verify_registration_response")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
-            "webauthn_data": webauthn_data
+            "webauthn_registration": webauthn_registration
         }))
         .gas(Gas::from_tgas(200))
         .transact()
@@ -387,23 +387,34 @@ async fn test_vrf_data_structure_serialization() -> Result<(), Box<dyn std::erro
     assert!(vrf_verification_data.get("vrf_proof").is_some(), "Should have vrf_proof");
     assert!(vrf_verification_data.get("public_key").is_some(), "Should have public_key");
     assert!(vrf_verification_data.get("rp_id").is_some(), "Should have rp_id");
+    assert!(vrf_verification_data.get("user_id").is_some(), "Should have user_id");
+    assert!(vrf_verification_data.get("block_height").is_some(), "Should have block_height");
+    assert!(vrf_verification_data.get("block_hash").is_some(), "Should have block_hash");
 
     // Validate sizes
     let vrf_input = vrf_verification_data["vrf_input_data"].as_array().unwrap();
     let vrf_output = vrf_verification_data["vrf_output"].as_array().unwrap();
     let vrf_proof = vrf_verification_data["vrf_proof"].as_array().unwrap();
     let public_key = vrf_verification_data["public_key"].as_array().unwrap();
+    let block_height = vrf_verification_data["block_height"].as_u64().unwrap();
+    let block_hash_bytes: Vec<u8> = vrf_verification_data["block_hash"].as_array().unwrap()
+        .iter().map(|v| v.as_u64().unwrap() as u8).collect();
+    let block_hash = bs58::encode(block_hash_bytes).into_string();
 
     assert_eq!(vrf_input.len(), 32, "VRF input should be 32 bytes (SHA256)");
     assert_eq!(vrf_output.len(), 64, "VRF output should be 64 bytes");
     assert!(vrf_proof.len() > 0, "VRF proof should not be empty");
     assert!(public_key.len() > 0, "Public key should not be empty");
+    assert!(block_height > 0, "Block height should be positive");
+    assert!(block_hash.len() > 0, "Block hash should not be empty");
 
     println!("✅ VRF data structure serialization test passed");
     println!("  - VRF input: {} bytes", vrf_input.len());
     println!("  - VRF output: {} bytes", vrf_output.len());
     println!("  - VRF proof: {} bytes", vrf_proof.len());
     println!("  - Public key: {} bytes", public_key.len());
+    println!("  - Block height: {}", block_height);
+    println!("  - Block hash: {}", block_hash);
 
     Ok(())
 }

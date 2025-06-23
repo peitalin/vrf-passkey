@@ -1,15 +1,12 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
 
 use crate::types::{
-    AuthenticatorTransport,
-    PublicKeyCredentialDescriptorJSON,
-    PublicKeyCredentialCreationOptionsJSON,
-    YieldedRegistrationData,
+    AuthenticatorTransport
 };
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
-use near_sdk::{env, log, near, require, CryptoHash};
+use near_sdk::{env, log, near};
 use serde_cbor::Value as CborValue;
 use crate::utils::parsers::{
     parse_attestation_object,
@@ -41,14 +38,6 @@ pub struct VRFVerificationData {
     pub block_hash: Vec<u8>,
 }
 
-// WebAuthn Registration Data Structure
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug, Clone)]
-pub struct WebAuthnRegistrationData {
-    /// WebAuthn registration response (signed vrf_output using platform key)
-    pub registration_response: RegistrationResponseJSON,
-}
-
 // WebAuthn verification structures
 #[near_sdk::near(serializers = [json, borsh])]
 #[derive(Debug)]
@@ -63,7 +52,7 @@ pub struct ClientDataJSON {
 
 #[near_sdk::near(serializers = [json, borsh])]
 #[derive(Debug, Clone)]
-pub struct RegistrationResponseJSON {
+pub struct WebauthnRegistration {
     pub id: String,
     #[serde(rename = "rawId")]
     pub raw_id: String,
@@ -134,16 +123,16 @@ impl WebAuthnContract {
 
     /// VRF Registration - First time users (one-time setup)
     /// Verifies VRF proof + WebAuthn registration, stores credentials on-chain
-    pub fn verify_registration_response_vrf(
+    pub fn verify_registration_response(
         &mut self,
         vrf_data: VRFVerificationData,
-        webauthn_data: WebAuthnRegistrationData, // RegistrationResponse
+        webauthn_registration: WebauthnRegistration,
     ) -> VerifiedRegistrationResponse {
         log!("VRF Registration: Verifying VRF proof + WebAuthn registration");
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
 
         // 1. Validate block height freshness
-        let current_height = env::block_index();
+        let current_height = env::block_height();
         if current_height < vrf_data.block_height || current_height > vrf_data.block_height + self.vrf_settings.max_block_age {
             log!("VRF challenge is stale or invalid: current_height={}, vrf_height={}",
                  current_height, vrf_data.block_height);
@@ -200,7 +189,7 @@ impl WebAuthnContract {
         // 6. Process WebAuthn registration with VRF-generated challenge
         let webauthn_result = self.internal_process_registration(
             challenge_b64url,
-            webauthn_data.registration_response,
+            webauthn_registration,
             vrf_data.rp_id.clone(), // Use the RP ID from VRF data
             require_user_verification,
             Some(vrf_data.public_key.clone()), // Pass VRF public key for storage
@@ -219,7 +208,7 @@ impl WebAuthnContract {
     pub fn internal_process_registration(
         &mut self,
         webauthn_challenge_b64url: String,
-        attestation_response: RegistrationResponseJSON,
+        attestation_response: WebauthnRegistration,
         rp_id: String,
         require_user_verification: bool,
         vrf_public_key: Option<Vec<u8>>, // Optional VRF public key for storage
@@ -230,47 +219,26 @@ impl WebAuthnContract {
         let expected_origin = format!("https://{}", rp_id);
 
         // 2. Call the core WebAuthn verification logic
-        let mut webauthn_result = self.internal_verify_registration_response(
+        let webauthn_result = self.internal_verify_registration_response(
             attestation_response.clone(),
             webauthn_challenge_b64url,
             expected_origin,
             rp_id,
             require_user_verification,
+            vrf_public_key.clone(), // Pass VRF public key for storage
         );
 
-        // 3. If WebAuthn verification succeeded and we have a VRF public key, store it
+        // 3. If WebAuthn verification succeeded and we have a VRF public key, update user profile
         if webauthn_result.verified && vrf_public_key.is_some() {
-            if let Some(ref mut reg_info) = webauthn_result.registration_info {
-                reg_info.vrf_public_key = vrf_public_key.clone();
+            let user_account_id = env::predecessor_account_id();
 
-                // Update the stored authenticator with VRF public key
-                let user_account_id = env::predecessor_account_id();
-                let credential_id_b64url = BASE64_URL_ENGINE.encode(&reg_info.credential_id);
-
-                // Retrieve and update the authenticator
-                if let Some(mut authenticator) = self.get_authenticator(user_account_id.clone(), credential_id_b64url.clone()) {
-                    authenticator.vrf_public_key = vrf_public_key.clone();
-                    // Re-store the updated authenticator
-                    self.store_authenticator(
-                        user_account_id.clone(),
-                        credential_id_b64url,
-                        authenticator.credential_public_key,
-                        authenticator.counter,
-                        authenticator.transports,
-                        authenticator.client_managed_near_public_key,
-                        authenticator.registered,
-                        authenticator.backed_up,
-                    );
-                }
-
-                // Store VRF public key in user profile for future reference
-                if let Some(mut profile) = self.get_user_profile(user_account_id.clone()) {
-                    profile.primary_vrf_public_key = vrf_public_key;
-                    self.user_profiles.insert(user_account_id, profile);
-                }
-
-                log!("Stored VRF public key with authenticator for future stateless authentication");
+            // Store VRF public key in user profile for future reference
+            if let Some(mut profile) = self.get_user_profile(user_account_id.clone()) {
+                profile.primary_vrf_public_key = vrf_public_key.clone();
+                self.user_profiles.insert(user_account_id, profile);
             }
+
+            log!("VRF public key stored with authenticator during registration for stateless authentication");
         }
 
         webauthn_result
@@ -280,11 +248,12 @@ impl WebAuthnContract {
     #[private]
     pub fn internal_verify_registration_response(
         &mut self,
-        attestation_response: RegistrationResponseJSON,
+        attestation_response: WebauthnRegistration,
         expected_challenge: String, // This is the VRF-generated challenge (base64url)
         expected_origin: String,
         expected_rp_id: String,
         require_user_verification: bool,
+        vrf_public_key: Option<Vec<u8>>, // Optional VRF public key for VRF registration
     ) -> VerifiedRegistrationResponse {
         log!("Contract verification of registration response");
         log!("Expected challenge: {}", expected_challenge);
@@ -514,7 +483,7 @@ impl WebAuthnContract {
         // Determine if backed up based on authenticator flags (BS flag = bit 4)
         let backed_up = (auth_data.flags & 0x10) != 0;
 
-        // Store the authenticator on-chain
+        // Store the authenticator on-chain with VRF public key if provided
         self.store_authenticator(
             user_account_id.clone(),
             credential_id_b64url.clone(),
@@ -524,6 +493,7 @@ impl WebAuthnContract {
             None, // client_managed_near_public_key starts as None
             current_timestamp,
             backed_up,
+            vrf_public_key.clone(), // Store VRF public key for VRF registration
         );
 
         // Phase 2: Register user in user registry if not already registered
@@ -549,7 +519,7 @@ impl WebAuthnContract {
                 credential_public_key: attested_cred_data.credential_public_key,
                 counter: auth_data.counter,
                 user_id: attestation_response.id, // Use the credential ID as user ID
-                vrf_public_key: None, // Will be set by caller if provided
+                vrf_public_key: vrf_public_key.clone(), // Include VRF public key if provided
             }),
         }
     }
@@ -629,7 +599,7 @@ mod tests {
     }
 
     /// Create a mock WebAuthn registration response using VRF challenge
-    fn create_mock_webauthn_registration_with_vrf_challenge(vrf_output: &[u8]) -> RegistrationResponseJSON {
+    fn create_mock_webauthn_registration_with_vrf_challenge(vrf_output: &[u8]) -> WebauthnRegistration {
         // Use first 32 bytes of VRF output as WebAuthn challenge
         let webauthn_challenge = &vrf_output[0..32];
         let challenge_b64 = TEST_BASE64_URL_ENGINE.encode(webauthn_challenge);
@@ -684,7 +654,7 @@ mod tests {
         let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
         let attestation_object_b64 = TEST_BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-        RegistrationResponseJSON {
+        WebauthnRegistration {
             id: "test_vrf_credential_id_123".to_string(),
             raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_vrf_credential_id_123"),
             response: AttestationResponse {
@@ -699,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_registration_response_vrf_success() {
+    fn test_verify_registration_response_success() {
         // Setup test environment
         let context = get_context_with_seed(42);
         testing_env!(context.build());
@@ -720,10 +690,7 @@ mod tests {
         };
 
         // Create WebAuthn registration data using VRF output as challenge
-        let registration_response = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
-        let webauthn_data = WebAuthnRegistrationData {
-            registration_response,
-        };
+        let webauthn_registration= create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
 
         println!("Testing VRF Registration with mock data:");
         println!("  - VRF input: {} bytes", vrf_data.vrf_input_data.len());
@@ -738,7 +705,7 @@ mod tests {
 
         // Note: This test will fail VRF verification since we're using mock data
         // but it will test the structure and flow of the VRF registration process
-        let result = contract.verify_registration_response_vrf(vrf_data, webauthn_data);
+        let result = contract.verify_registration_response(vrf_data, webauthn_registration);
 
         // The result should fail VRF verification (expected with mock data)
         // but the test verifies the method structure and parameter handling
@@ -779,22 +746,17 @@ mod tests {
     }
 
     #[test]
-    fn test_webauthn_registration_data_serialization() {
+    fn test_webauthn_registration_serialization() {
         let mock_vrf = MockVRFData::create_mock();
-        let registration_response = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
+        let webauthn_registration = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
 
-        let webauthn_data = WebAuthnRegistrationData {
-            registration_response,
-        };
+        let json_str = serde_json::to_string(&webauthn_registration).expect("Should serialize to JSON");
+        let deserialized: WebauthnRegistration = serde_json::from_str(&json_str).expect("Should deserialize from JSON");
 
-        // Test JSON serialization
-        let json_str = serde_json::to_string(&webauthn_data).expect("Should serialize to JSON");
-        let deserialized: WebAuthnRegistrationData = serde_json::from_str(&json_str).expect("Should deserialize from JSON");
+        assert_eq!(webauthn_registration.id, deserialized.id);
+        assert_eq!(webauthn_registration.type_, deserialized.type_);
 
-        assert_eq!(webauthn_data.registration_response.id, deserialized.registration_response.id);
-        assert_eq!(webauthn_data.registration_response.type_, deserialized.registration_response.type_);
-
-        println!("✅ WebAuthnRegistrationData serialization test passed");
+        println!("✅ WebauthnRegistration serialization test passed");
     }
 
     #[test]

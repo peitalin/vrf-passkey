@@ -31,7 +31,7 @@ let contract = WebAuthnContract::init("my-app.testnet".to_string());
 
 ### VRF Registration (First-Time Users)
 
-#### `verify_registration_response_vrf(vrf_data: VRFVerificationData, webauthn_data: WebAuthnRegistrationData) -> VerifiedRegistrationResponse`
+#### `verify_registration_response(vrf_data: VRFVerificationData, webauthn_data: WebAuthnRegistrationData) -> VerifiedRegistrationResponse`
 
 Verifies VRF proof + WebAuthn registration, stores credentials on-chain for future stateless authentication.
 
@@ -76,7 +76,7 @@ Verifies VRF proof + WebAuthn registration, stores credentials on-chain for futu
 
 ### VRF Authentication (Subsequent Logins)
 
-#### `verify_authentication_response_vrf(vrf_data: VRFAuthenticationData, webauthn_data: WebAuthnAuthenticationData) -> VerifiedAuthenticationResponse`
+#### `verify_authentication_response(vrf_data: VRFAuthenticationData, webauthn_data: WebAuthnAuthenticationData) -> VerifiedAuthenticationResponse`
 
 Verifies VRF proof + WebAuthn authentication using stored credentials (stateless).
 

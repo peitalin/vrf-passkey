@@ -8,15 +8,12 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 use rand_core::SeedableRng;
 
-use vrf_wasm::ecvrf::{ECVRFKeyPair, ECVRFProof};
+use vrf_wasm::ecvrf::ECVRFKeyPair;
 use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
 use vrf_wasm::traits::WasmRngFromSeed;
 
 mod utils_mocks;
 mod utils_contracts;
-
-use utils_mocks::generate_test_vrf_wasm_data;
-use utils_contracts::deploy_test_contract;
 
 // name of the `vrf-contract-verifier` based verify function in the contract
 const VERIFY_FUNCTION_NAME: &str = "verify_vrf_1";
@@ -27,7 +24,7 @@ static CONTRACT: OnceCell<near_workspaces::Contract> = OnceCell::const_new();
 async fn get_contract() -> &'static near_workspaces::Contract {
     CONTRACT.get_or_init(|| async {
         println!("🚀 Deploying shared test contract for VRF contract verifier tests...");
-        deploy_test_contract().await.expect("Failed to deploy test contract")
+        utils_contracts::deploy_test_contract().await.expect("Failed to deploy test contract")
     }).await
 }
 
@@ -44,7 +41,7 @@ mod tests {
         println!("Test: ✅ Valid proof should pass");
 
         let contract = get_contract().await;
-        let test_data = generate_test_vrf_wasm_data().await?;
+        let test_data = utils_mocks::generate_test_vrf_wasm_data().await?;
 
         let verification_result: serde_json::Value = contract
             .call(VERIFY_FUNCTION_NAME)
@@ -76,7 +73,7 @@ mod tests {
         println!("Test: Wrong proof should fail");
 
         let contract = get_contract().await;
-        let test_data = generate_test_vrf_wasm_data().await?;
+        let test_data = utils_mocks::generate_test_vrf_wasm_data().await?;
 
         // Create corrupted proof by modifying some bytes
         let mut corrupted_proof = test_data.proof_bytes();
@@ -113,7 +110,7 @@ mod tests {
         println!("Test: Malformed public key should fail");
 
         let contract = get_contract().await;
-        let test_data = generate_test_vrf_wasm_data().await?;
+        let test_data = utils_mocks::generate_test_vrf_wasm_data().await?;
 
         // Create invalid public key
         let invalid_public_key = vec![0u8; test_data.pubkey_bytes().len()];
@@ -142,7 +139,7 @@ mod tests {
         println!("Test: Truncated proof should fail");
 
         let contract = get_contract().await;
-        let test_data = generate_test_vrf_wasm_data().await?;
+        let test_data = utils_mocks::generate_test_vrf_wasm_data().await?;
 
         // Truncate the proof to half its original size
         let mut truncated_proof = test_data.proof_bytes();
@@ -176,7 +173,7 @@ mod tests {
         println!("Test: ✅ Roundtrip verification");
 
         let contract = get_contract().await;
-        let test_data = generate_test_vrf_wasm_data().await?;
+        let test_data = utils_mocks::generate_test_vrf_wasm_data().await?;
 
         let verification_result: serde_json::Value = contract
             .call(VERIFY_FUNCTION_NAME)

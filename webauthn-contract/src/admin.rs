@@ -152,7 +152,7 @@ impl WebAuthnContract {
         self.authenticators.get(&(user_id, credential_id)).cloned()
     }
 
-    /// Store a new authenticator
+    /// Store a new authenticator with optional VRF public key (for VRF registration)
     pub fn store_authenticator(
         &mut self,
         user_id: AccountId,
@@ -163,7 +163,10 @@ impl WebAuthnContract {
         client_managed_near_public_key: Option<String>,
         registered: String,
         backed_up: bool,
+        vrf_public_key: Option<Vec<u8>>,
     ) -> bool {
+                let vrf_enabled = vrf_public_key.is_some();
+
         let authenticator = StoredAuthenticator {
             credential_public_key,
             counter,
@@ -172,15 +175,19 @@ impl WebAuthnContract {
             registered,
             last_used: None,
             backed_up,
-            vrf_public_key: None,
+            vrf_public_key,
         };
 
         self.authenticators.insert((user_id.clone(), credential_id), authenticator);
 
         // Update user's authenticator count if user is registered
         if self.registered_users.contains(&user_id) {
-            self.update_user_authenticator_count(user_id);
+            self.update_user_authenticator_count(user_id.clone());
         }
+
+        log!("Stored authenticator for user {} with VRF support: {}",
+             user_id,
+             if vrf_enabled { "enabled" } else { "disabled" });
 
         true
     }
@@ -334,7 +341,7 @@ impl WebAuthnContract {
         };
 
         // Create the account using a promise
-        let promise = near_sdk::Promise::new(account_id.parse().unwrap())
+        near_sdk::Promise::new(account_id.parse().unwrap())
             .create_account()
             .add_full_access_key(public_key_parsed)
             .transfer(NearToken::from_yoctonear(balance));

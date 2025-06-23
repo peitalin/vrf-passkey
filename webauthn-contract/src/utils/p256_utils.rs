@@ -74,7 +74,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    fn build_p256_cose_key(x_coord: &[u8; 32], y_coord: &[u8; 32]) -> Vec<u8> {
+    fn _build_p256_cose_key(x_coord: &[u8; 32], y_coord: &[u8; 32]) -> Vec<u8> {
         let mut map = BTreeMap::new();
         map.insert(CborValue::Integer(1), CborValue::Integer(2)); // kty: EC2
         map.insert(CborValue::Integer(3), CborValue::Integer(-7)); // alg: ES256
@@ -97,7 +97,7 @@ mod tests {
             0xbc, 0x64, 0xf2, 0xf1, 0xb2, 0x0c, 0x2d, 0x7e, 0x9f, 0x51, 0x77, 0xa3, 0xc2, 0x94,
             0xd4, 0x46, 0x22, 0x99,
         ];
-        let cose_public_key = build_p256_cose_key(&x_coord, &y_coord);
+        let cose_public_key = _build_p256_cose_key(&x_coord, &y_coord);
 
         let result = get_uncompressed_p256_pubkey(&cose_public_key);
 

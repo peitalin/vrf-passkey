@@ -66,6 +66,7 @@ serde_json = "1"
 rand_core = "0.6"
 rand_chacha = "0.3"
 sha2 = "0.10"
+bs58 = "0.5"
 # VRF generation for testing, uses getrandom lib for browser WASM compatibility
 # (this library is not included in contract binary,
 # vrf-wasm in the contract is compiled with 'near' feature flag)

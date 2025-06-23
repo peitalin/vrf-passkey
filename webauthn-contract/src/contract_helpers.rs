@@ -5,7 +5,6 @@ use base64::Engine;
 use near_sdk::{env, log, near};
 
 pub const DEFAULT_CHALLENGE_SIZE: usize = 16;
-pub const DEFAULT_USER_ID_SIZE: usize = 16;
 
 /////////////////////////////////////
 ///////////// Contract //////////////

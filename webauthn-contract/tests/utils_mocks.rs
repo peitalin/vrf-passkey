@@ -33,6 +33,7 @@ pub struct VrfRegistrationData {
     pub output: Vec<u8>,        // VRF output (64 bytes full hash)
     pub proof: ECVRFProof,      // VRF proof
     pub public_key: ECVRFPublicKey, // VRF public key
+    pub user_id: String,        // NEAR account_id
     pub rp_id: String,          // Relying Party ID used in construction
     pub block_height: u64,
     pub block_hash: Vec<u8>,
@@ -45,6 +46,7 @@ pub struct VrfAuthenticationData {
     pub output: Vec<u8>,        // VRF output (64 bytes full hash)
     pub proof: ECVRFProof,      // VRF proof
     pub public_key: ECVRFPublicKey, // VRF public key (same as registration)
+    pub user_id: String,        // NEAR account_id
     pub rp_id: String,          // Relying Party ID used in construction
     pub block_height: u64,
     pub block_hash: Vec<u8>,
@@ -65,6 +67,7 @@ impl VrfRegistrationData {
             "vrf_output": self.output,
             "vrf_proof": self.proof_bytes(),
             "public_key": self.pubkey_bytes(),
+            "user_id": self.user_id,
             "rp_id": self.rp_id,
             "block_height": self.block_height,
             "block_hash": self.block_hash
@@ -87,6 +90,7 @@ impl VrfAuthenticationData {
             "vrf_output": self.output,
             "vrf_proof": self.proof_bytes(),
             "public_key": self.pubkey_bytes(),
+            "user_id": self.user_id,
             "rp_id": self.rp_id,
             "block_height": self.block_height,
             "block_hash": self.block_hash
