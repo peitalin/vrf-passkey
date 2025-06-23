@@ -1,0 +1,47 @@
+/**
+ * VRF Types for Web Worker Communication
+ */
+
+export interface VRFKeypairData {
+  /** Bincode-serialized ECVRFKeyPair (includes both private key and public key) */
+  keypair_bytes: Uint8Array;
+  /** Base64url-encoded public key for convenience */
+  public_key_base64: string;
+}
+
+export interface EncryptedVRFData {
+  encrypted_vrf_data_b64u: string;
+  aes_gcm_nonce_b64u: string;
+}
+
+export interface VRFInputData {
+  userId: string;
+  rpId: string;
+  sessionId: string;
+  blockHeight: number;
+  blockHash: Uint8Array;
+  timestamp: number;
+}
+
+export interface VRFChallengeData {
+  vrfInput: string;
+  vrfOutput: string;
+  vrfProof: string;
+  vrfPublicKey: string;
+  rpId: string;
+  blockHeight: number;
+  blockHash: string;
+}
+
+export interface VRFWorkerMessage {
+  type: 'PING' | 'UNLOCK_VRF_KEYPAIR' | 'GENERATE_VRF_CHALLENGE' | 'GENERATE_VRF_KEYPAIR' | 'CHECK_VRF_STATUS' | 'LOGOUT';
+  id: string;
+  data?: any;
+}
+
+export interface VRFWorkerResponse {
+  success: boolean;
+  id?: string;
+  data?: any;
+  error?: string;
+}

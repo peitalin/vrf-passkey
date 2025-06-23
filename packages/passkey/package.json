@@ -28,13 +28,15 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "npm run build:clean && npm run build:wasm && npm run build:ts && npm run build:bundle",
+    "build": "npm run build:clean && npm run build:wasm && npm run build:vrf-wasm && npm run build:ts && npm run build:bundle",
     "build:clean": "rm -rf dist/",
-    "build:wasm": "cd src/wasm-worker && wasm-pack build --target web --out-dir . && echo 'WASM build complete'",
-    "build:wasm:dev": "cd src/wasm-worker && wasm-pack build --target web --out-dir . --dev",
+    "build:wasm": "cd src/wasm-signer-worker && wasm-pack build --target web --out-dir . && echo 'WASM signer build complete'",
+    "build:wasm:dev": "cd src/wasm-signer-worker && wasm-pack build --target web --out-dir . --dev",
+    "build:vrf-wasm": "cd src/wasm-vrf-worker && wasm-pack build --target web --out-dir . && echo 'VRF WASM build complete'",
+    "build:vrf-wasm:dev": "cd src/wasm-vrf-worker && wasm-pack build --target web --out-dir . --dev && echo 'VRF WASM dev build complete'",
     "build:ts": "tsc -p tsconfig.build.json",
     "build:bundle": "rollup -c rollup.config.js",
-    "build:all": "npm run build && npm run copy-assets",
+    "build:all": "npm run build && npm run copy-wasm-assets",
     "dev": "rollup -c rollup.config.js -w",
     "dev:link": "npm run build:all && pnpm link --dir ../../frontend",
     "dev:unlink": "pnpm unlink --dir ../../frontend",
@@ -43,7 +45,7 @@
     "test:core": "jest src/core/__tests__",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "copy-assets": "echo 'Copying worker files to frontend...' && cp dist/onetimePasskeySigner.worker.js ../../frontend/public/workers/ && cp dist/web3authn_passkey_worker.js ../../frontend/public/workers/ && cp dist/web3authn_passkey_worker_bg.wasm ../../frontend/public/workers/ && echo '✅ Worker files copied to frontend/public/workers/'",
+    "copy-wasm-assets": "./scripts/copy-wasm-assets.sh",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

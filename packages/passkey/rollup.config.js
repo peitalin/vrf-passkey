@@ -46,17 +46,17 @@ const plugins = [
   }),
   copy({
     targets: [
-      { src: 'src/wasm-worker/*.wasm', dest: 'dist/wasm-worker' },
-      { src: 'src/wasm-worker/*.js', dest: 'dist/wasm-worker' },
+      { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist/wasm-signer-worker' },
+      { src: 'src/wasm-signer-worker/*.js', dest: 'dist/wasm-signer-worker' },
       // Copy WASM files for worker access at root level too
-      { src: 'src/wasm-worker/*.wasm', dest: 'dist' },
-      { src: 'src/wasm-worker/*.js', dest: 'dist' },
+      { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist' },
+      { src: 'src/wasm-signer-worker/*.js', dest: 'dist' },
       // Copy for ESM builds
-      { src: 'src/wasm-worker/*.wasm', dest: 'dist/esm/wasm-worker' },
-      { src: 'src/wasm-worker/*.js', dest: 'dist/esm/wasm-worker' },
+      { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist/esm/wasm-signer-worker' },
+      { src: 'src/wasm-signer-worker/*.js', dest: 'dist/esm/wasm-signer-worker' },
       // Copy for CJS builds
-      { src: 'src/wasm-worker/*.wasm', dest: 'dist/cjs/wasm-worker' },
-      { src: 'src/wasm-worker/*.js', dest: 'dist/cjs/wasm-worker' }
+      { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist/cjs/wasm-signer-worker' },
+      { src: 'src/wasm-signer-worker/*.js', dest: 'dist/cjs/wasm-signer-worker' }
     ]
   })
 ];
@@ -148,8 +148,37 @@ export default [
       // Copy WASM files to the same directory as the worker
       copy({
         targets: [
-          { src: 'src/wasm-worker/*.wasm', dest: 'dist' },
-          { src: 'src/wasm-worker/*.js', dest: 'dist' }
+          { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist' },
+          { src: 'src/wasm-signer-worker/*.js', dest: 'dist' }
+        ]
+      })
+    ]
+  },
+  // VRF Service Worker build (module mode)
+  {
+    input: 'src/core/vrfService.worker.ts',
+    output: {
+      file: 'dist/vrf-service-worker.js',
+      format: 'esm',
+      sourcemap: true
+    },
+    external: [], // Don't externalize dependencies for service worker
+    plugins: [
+      resolve({
+        preferBuiltins: false,
+        browser: true
+      }),
+      commonjs(),
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+        declarationMap: false
+      }),
+      // Copy VRF WASM files to the same directory as the service worker
+      copy({
+        targets: [
+          { src: 'src/wasm-vrf-worker/*.wasm', dest: 'dist' },
+          { src: 'src/wasm-vrf-worker/*.js', dest: 'dist' }
         ]
       })
     ]

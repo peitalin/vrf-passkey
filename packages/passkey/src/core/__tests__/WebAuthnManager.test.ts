@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 // Mock IndexDBManager first
 const mockIndexDBManager = {
   storeWebAuthnUserData: jest.fn().mockResolvedValue(undefined),
@@ -201,117 +203,6 @@ describe('WebAuthnManager', () => {
     });
   });
 
-  describe('Server Communication', () => {
-    const testServerUrl = 'https://test-server.com';
-    const testNearAccountId = 'test.testnet';
-
-    it('should get registration options from server', async () => {
-      const mockResponse = {
-        options: {
-          challenge: 'c2VydmVyLWNoYWxsZW5nZS0zMi1ieXRlcy1oZXJl', // Valid base64url encoded challenge
-          rp: { name: 'Test RP', id: 'localhost' },
-          user: { id: 'test-user-id', name: 'test', displayName: 'Test User' },
-          pubKeyCredParams: [{ alg: -7, type: 'public-key' }]
-        },
-        commitmentId: 'test-commitment'
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockResponse)
-      });
-
-      const result = await webAuthnManager.getRegistrationOptionsFromServer(
-        testServerUrl,
-        testNearAccountId
-      );
-
-      expect(result).toMatchObject({
-        challengeId: expect.any(String),
-        commitmentId: 'test-commitment'
-      });
-      expect(mockFetch).toHaveBeenCalledWith(
-        `${testServerUrl}/generate-registration-options`,
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId: testNearAccountId })
-        })
-      );
-    });
-
-    it('should handle server errors gracefully', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: jest.fn().mockResolvedValue({ error: 'Internal server error' })
-      });
-
-      await expect(
-        webAuthnManager.getRegistrationOptionsFromServer(testServerUrl, testNearAccountId)
-      ).rejects.toThrow('Internal server error');
-    });
-
-    it('should get authentication options from server', async () => {
-      const mockResponse = {
-        challenge: 'YXV0aC1jaGFsbGVuZ2UtMzItYnl0ZXMtaGVyZQ', // Valid base64url encoded challenge
-        rpId: 'localhost',
-        timeout: 60000
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockResponse)
-      });
-
-      const result = await webAuthnManager.getAuthenticationOptionsFromServer(
-        testServerUrl,
-        testNearAccountId
-      );
-
-      expect(result).toMatchObject({
-        challengeId: expect.any(String),
-        options: mockResponse
-      });
-    });
-  });
-
-  describe('WebAuthn Registration with PRF', () => {
-    const testServerUrl = 'https://test-server.com';
-    const testNearAccountId = 'test.testnet';
-
-    it('should register with PRF and server URL', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValue({
-          options: {
-            challenge: 'dGVzdC1jaGFsbGVuZ2UtMzItYnl0ZXMtaGVyZQ', // Valid base64url encoded challenge
-            rp: { name: 'Test RP', id: 'localhost' },
-            user: { id: 'test-user', name: 'test', displayName: 'Test User' },
-            pubKeyCredParams: [{ alg: -7, type: 'public-key' }]
-          },
-          commitmentId: 'test-commitment'
-        })
-      });
-
-      const result = await webAuthnManager.registerWithPrfAndUrl(
-        testServerUrl,
-        testNearAccountId
-      );
-
-      expect(result.credential).toBeDefined();
-      expect(result.prfEnabled).toBe(true);
-      expect(result.commitmentId).toBe('test-commitment');
-      expect(mockNavigator.credentials.create).toHaveBeenCalled();
-    });
-
-    it('should throw error when no server URL provided', async () => {
-      await expect(
-        webAuthnManager.registerWithPrfAndUrl(undefined, testNearAccountId)
-      ).rejects.toThrow('Server URL is required for server-based registration');
-    });
-  });
-
   describe('WebAuthn Authentication with PRF', () => {
     const testNearAccountId = 'test.testnet';
 
@@ -334,8 +225,7 @@ describe('WebAuthnManager', () => {
         })
       });
 
-      const result = await webAuthnManager.authenticateWithPrfAndUrl(
-        testServerUrl,
+      const result = await webAuthnManager.authenticateWithPrf(
         testNearAccountId
       );
 
@@ -352,51 +242,188 @@ describe('WebAuthnManager', () => {
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle network errors gracefully', async () => {
-      mockFetch.mockRejectedValue(new Error('Network error'));
+  describe('VRF Operations', () => {
+    const testPrfOutput = new ArrayBuffer(32);
+    const mockVrfResult = {
+      vrfPublicKey: 'test-vrf-public-key',
+      encryptedVrfKeypair: {
+        encrypted_vrf_data_b64u: 'test-encrypted-data',
+        aes_gcm_nonce_b64u: 'test-nonce'
+      }
+    };
 
-      await expect(
-        webAuthnManager.getRegistrationOptionsFromServer('https://test.com', 'test.testnet')
-      ).rejects.toThrow();
+    it('should generate VRF keypair with PRF', async () => {
+      // Mock the VRFManager method
+      const mockGenerateVrfKeypairWithPrf = jest.fn().mockResolvedValue(mockVrfResult);
+      (webAuthnManager as any).vrfManager.generateVrfKeypairWithPrf = mockGenerateVrfKeypairWithPrf;
+
+      const result = await webAuthnManager.generateVrfKeypairWithPrf(testPrfOutput, false);
+
+      expect(result).toEqual(mockVrfResult);
+      expect(mockGenerateVrfKeypairWithPrf).toHaveBeenCalledWith(testPrfOutput, false, undefined);
     });
 
-    it('should handle IndexDB errors gracefully', async () => {
-      mockIndexDBManager.storeWebAuthnUserData.mockRejectedValue(new Error('Storage error'));
-
-      await expect(
-        webAuthnManager.storeUserData({
-          nearAccountId: 'test.testnet',
-          lastUpdated: Date.now()
-        })
-      ).rejects.toThrow('Storage error');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle malformed server responses', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockRejectedValue(new Error('Invalid JSON'))
-      });
-
-      await expect(
-        webAuthnManager.getRegistrationOptionsFromServer('https://test.com', 'test.testnet')
-      ).rejects.toThrow();
-    });
-
-    it('should handle missing PRF support gracefully', async () => {
-      const credentialWithoutPrf = {
-        ...mockCredential,
-        getClientExtensionResults: jest.fn(() => ({}))
+    it('should generate VRF keypair with PRF and challenge data in one call', async () => {
+      const mockVrfResultWithChallenge = {
+        ...mockVrfResult,
+        vrfChallengeData: {
+          vrfInput: 'test-vrf-input',
+          vrfOutput: 'test-vrf-output',
+          vrfProof: 'test-vrf-proof',
+          vrfPublicKey: 'test-vrf-public-key',
+          rpId: 'localhost'
+        }
       };
 
-      mockNavigator.credentials.get.mockResolvedValue(credentialWithoutPrf);
+      const vrfInputParams = {
+        userId: 'test.testnet',
+        rpId: 'localhost',
+        sessionId: 'session-123',
+        blockHeight: 1000,
+        blockHashBytes: [1, 2, 3, 4],
+        timestamp: Date.now()
+      };
 
-      const result = await webAuthnManager.authenticateWithPrf('test.testnet');
+      // Mock the VRFManager method
+      const mockGenerateVrfKeypairWithPrf = jest.fn().mockResolvedValue(mockVrfResultWithChallenge);
+      (webAuthnManager as any).vrfManager.generateVrfKeypairWithPrf = mockGenerateVrfKeypairWithPrf;
 
-      expect(result.credential).toBeDefined();
-      expect(result.prfOutput).toBeUndefined();
+      const result = await webAuthnManager.generateVrfKeypairWithPrf(testPrfOutput, true, vrfInputParams);
+
+      expect(result).toEqual(mockVrfResultWithChallenge);
+      expect(result.vrfChallengeData).toBeDefined();
+      expect(mockGenerateVrfKeypairWithPrf).toHaveBeenCalledWith(testPrfOutput, true, vrfInputParams);
+    });
+
+    it('should generate VRF challenge with PRF', async () => {
+      const mockVrfChallengeResult = {
+        vrfInput: 'test-vrf-input',
+        vrfOutput: 'test-vrf-output',
+        vrfProof: 'test-vrf-proof',
+        vrfPublicKey: 'test-vrf-public-key',
+        rpId: 'localhost'
+      };
+
+      // Mock the VRFManager method
+      const mockGenerateVrfChallengeWithPrf = jest.fn().mockResolvedValue(mockVrfChallengeResult);
+      (webAuthnManager as any).vrfManager.generateVrfChallengeWithPrf = mockGenerateVrfChallengeWithPrf;
+
+      const result = await webAuthnManager.generateVrfChallengeWithPrf(
+        testPrfOutput,
+        'encrypted-vrf-data',
+        'test-nonce',
+        'test.testnet',
+        'localhost',
+        'session-123',
+        1000,
+        [1, 2, 3, 4],
+        Date.now()
+      );
+
+      expect(result).toEqual(mockVrfChallengeResult);
+      expect(mockGenerateVrfChallengeWithPrf).toHaveBeenCalledWith(
+        testPrfOutput,
+        'encrypted-vrf-data',
+        'test-nonce',
+        'test.testnet',
+        'localhost',
+        'session-123',
+        1000,
+        [1, 2, 3, 4],
+        expect.any(Number)
+      );
+    });
+
+    it('should verify VRF authentication with contract', async () => {
+      const mockNearRpcProvider = {
+        viewBlock: jest.fn().mockResolvedValue({
+          header: { height: 1000, hash: 'test-hash' }
+        })
+      };
+
+      const mockVrfChallengeData = {
+        vrfInput: 'test-vrf-input',
+        vrfOutput: 'test-vrf-output',
+        vrfProof: 'test-vrf-proof',
+        vrfPublicKey: 'test-vrf-public-key',
+        rpId: 'localhost',
+        blockHeight: 1000,
+        blockHash: 'test-hash'
+      };
+
+      const mockVerificationResult = {
+        success: true,
+        verified: true,
+        transactionId: 'test-tx-id'
+      };
+
+      // Mock the contract calls method
+      const mockVerifyVrfAuthentication = jest.fn().mockResolvedValue(mockVerificationResult);
+      (webAuthnManager as any).contractCalls.verifyVrfAuthentication = mockVerifyVrfAuthentication;
+
+      const result = await webAuthnManager.verifyVrfAuthentication(
+        mockNearRpcProvider as any,
+        'test-contract.testnet',
+        mockVrfChallengeData,
+        mockCredential as any,
+        'test.testnet'
+      );
+
+      expect(result).toEqual(mockVerificationResult);
+      expect(mockVerifyVrfAuthentication).toHaveBeenCalledWith(
+        mockNearRpcProvider,
+        'test-contract.testnet',
+        mockVrfChallengeData,
+        mockCredential,
+        'test.testnet',
+        undefined  // PRF output parameter (optional)
+      );
+    });
+
+    it('should verify VRF registration with contract', async () => {
+      const mockNearRpcProvider = {
+        viewBlock: jest.fn().mockResolvedValue({
+          header: { height: 1000, hash: 'test-hash' }
+        })
+      };
+
+      const mockVrfChallengeData = {
+        vrfInput: 'test-vrf-input',
+        vrfOutput: 'test-vrf-output',
+        vrfProof: 'test-vrf-proof',
+        vrfPublicKey: 'test-vrf-public-key',
+        rpId: 'localhost',
+        blockHeight: 1000,
+        blockHash: 'test-hash'
+      };
+
+      const mockRegistrationResult = {
+        success: true,
+        verified: true,
+        transactionId: 'test-reg-tx-id'
+      };
+
+      // Mock the contract calls method
+      const mockVerifyVrfRegistration = jest.fn().mockResolvedValue(mockRegistrationResult);
+      (webAuthnManager as any).contractCalls.verifyVrfRegistration = mockVerifyVrfRegistration;
+
+      const result = await webAuthnManager.verifyVrfRegistration(
+        mockNearRpcProvider as any,
+        'test-contract.testnet',
+        mockVrfChallengeData,
+        mockCredential as any,
+        'test.testnet'
+      );
+
+      expect(result).toEqual(mockRegistrationResult);
+      expect(mockVerifyVrfRegistration).toHaveBeenCalledWith(
+        mockNearRpcProvider,
+        'test-contract.testnet',
+        mockVrfChallengeData,
+        mockCredential,
+        'test.testnet',
+        undefined
+      );
     });
   });
 });

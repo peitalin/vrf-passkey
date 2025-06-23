@@ -159,13 +159,20 @@ export interface ActionOptions {
   hooks?: OperationHooks;
 }
 
-// Result Types (reusing existing types)
+// Result Types
 export interface RegistrationResult {
   success: boolean;
   error?: string;
   clientNearPublicKey?: string | null;
   nearAccountId?: string;
   transactionId?: string | null;
+  vrfRegistration?: {
+    success: boolean;
+    vrfPublicKey?: string;
+    encryptedVrfKeypair?: any;
+    contractVerified?: boolean;
+    error?: string;
+  };
 }
 
 export interface LoginResult {
@@ -188,6 +195,7 @@ export interface PasskeyManagerConfig {
   serverUrl?: string; // Optional - enables serverless mode when not provided
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
+  contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
 }
 
 // === TRANSACTION TYPES ===

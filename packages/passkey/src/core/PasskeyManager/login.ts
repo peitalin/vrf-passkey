@@ -1,33 +1,12 @@
-import { bufferDecode, publicKeyCredentialToJSON, bufferEncode } from '../../utils/encoders';
-import { RELAYER_ACCOUNT_ID, WEBAUTHN_CONTRACT_ID } from '../../config';
 import { indexDBManager } from '../IndexDBManager';
-import { AuthenticatorSyncer  } from '../AuthenticatorSyncer';
-import { determineOperationMode, validateModeRequirements, getModeDescription } from '../utils/routing';
 import type { PasskeyManager } from '../PasskeyManager';
-import type { ServerAuthenticationOptions } from '../types/webauthn';
 import type {
   LoginOptions,
   LoginResult,
   LoginEvent,
 } from '../types/passkeyManager';
-import {
-  VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
-  GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING
-} from '../../config';
-import { FinalExecutionOutcome } from '@near-js/types';
+import { base64UrlDecode } from '../../utils/encoders';
 
-
-interface ServerAuthOptions extends ServerAuthenticationOptions {
-  nearAccountId?: string;
-  commitmentId?: string;
-}
-
-interface ServerVerificationResponse {
-  verified: boolean;
-  username?: string;
-  nearAccountId?: string;
-  error?: string;
-}
 
 /**
  * Core login function that handles passkey authentication without React dependencies
@@ -59,29 +38,8 @@ export async function loginPasskey(
       return { success: false, error: errorMessage };
     }
 
-    // Client-side routing logic using routing utilities
-    const routing = determineOperationMode({
-      optimisticAuth,
-      config,
-      operation: 'login'
-    });
-
-    // Validate mode requirements
-    const validation = validateModeRequirements(routing, nearRpcProvider, 'login');
-    if (!validation.valid) {
-      const error = new Error(validation.error!);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: validation.error!, nearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: validation.error! };
-    }
-
-    // Log the determined mode
-    console.log(`Login: ${getModeDescription(routing)}`);
-
     // Handle serverless mode with direct contract calls via WASM worker
-    if (routing.mode === 'serverless') {
-      console.log('⚡ Login: Implementing serverless mode with WASM worker contract calls');
+    console.log('⚡ Login: VRF login with WASM worker contract calls');
 
       return await handleLoginOnchain(
         passkeyManager,
@@ -90,17 +48,7 @@ export async function loginPasskey(
         onError,
         hooks
       );
-    } else {
 
-      return await handleLoginWithServer(
-        routing.serverUrl!,
-        passkeyManager,
-        nearAccountId,
-        onEvent,
-        onError,
-        hooks
-      );
-    }
   } catch (err: any) {
     console.error('Login error:', err.message, err.stack);
     onError?.(err);
@@ -111,198 +59,22 @@ export async function loginPasskey(
 }
 
 /**
- * Handle login via server webauthn authentication to sign contract calls
- */
-async function handleLoginWithServer(
-  serverUrl: string,
-  passkeyManager: PasskeyManager,
-  nearAccountId: string,
-  onEvent?: (event: LoginEvent) => void,
-  onError?: (error: Error) => void,
-  hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
-): Promise<LoginResult> {
-  // For server modes, use the serverUrl from routing
-  const baseUrl = serverUrl;
-
-  // Step 1: Get authentication options from server
-  onEvent?.({
-    type: 'loginProgress',
-    data: {
-      step: 'getting-options',
-      message: 'Getting authentication options...'
-    }
-  });
-
-  const authOptionsResponse = await fetch(`${baseUrl}/generate-authentication-options`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountId: nearAccountId
-    }),
-  });
-
-  if (!authOptionsResponse.ok) {
-    const errorData = await authOptionsResponse.json().catch(() => ({
-      error: 'Failed to fetch auth options'
-    }));
-    const errorMessage = errorData.error || `Server error ${authOptionsResponse.status}`;
-    const error = new Error(errorMessage);
-    onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: errorMessage };
-  }
-
-  const options: ServerAuthOptions = await authOptionsResponse.json();
-  const commitmentId = options.commitmentId;
-  console.log('PasskeyLogin: Received authentication options with commitmentId:', commitmentId);
-
-  // Step 2: Perform WebAuthn assertion ceremony with PRF extension
-  onEvent?.({
-    type: 'loginProgress',
-    data: {
-      step: 'webauthn-assertion',
-      message: 'Authenticating with passkey...'
-    }
-  });
-
-  // Add PRF extension to the request options
-  const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-    challenge: bufferDecode(options.challenge),
-    rpId: options.rpId,
-    allowCredentials: options.allowCredentials?.map(c => ({
-      id: bufferDecode(c.id),
-      type: 'public-key' as const,
-      transports: c.transports as AuthenticatorTransport[]
-    })),
-    userVerification: (options.userVerification || "preferred") as UserVerificationRequirement,
-    timeout: options.timeout || 60000,
-    extensions: {
-      prf: {
-        eval: {
-          first: new Uint8Array(new Array(32).fill(42)) // PRF salt for NEAR key encryption
-        }
-      }
-    }
-  };
-
-  const assertion = await navigator.credentials.get({
-    publicKey: pkRequestOpts
-  }) as PublicKeyCredential | null;
-
-  if (!assertion) {
-    const errorMessage = 'Passkey login cancelled or no assertion.';
-    const error = new Error(errorMessage);
-    onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: errorMessage };
-  }
-
-  // Get PRF output from the assertion
-  const extensionResults = assertion.getClientExtensionResults();
-  const prfOutput = (extensionResults as any).prf?.results?.first;
-
-  if (!prfOutput) {
-    const errorMessage = 'PRF output not available - required for serverless verification.';
-    const error = new Error(errorMessage);
-    onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: errorMessage };
-  }
-
-  // Step 3: Prepare verification payload
-  onEvent?.({
-    type: 'loginProgress',
-    data: {
-      step: 'verifying-server',
-      message: 'Verifying with server...'
-    }
-  });
-
-  const assertionJSON = publicKeyCredentialToJSON(assertion);
-  const verificationPayload = {
-    ...assertionJSON,
-    commitmentId,
-  };
-
-  // Step 4: Send assertion to server for verification
-  const verifyResponse = await fetch(`${baseUrl}/verify-authentication`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(verificationPayload),
-  });
-
-  const serverVerifyData: ServerVerificationResponse = await verifyResponse.json();
-
-  if (verifyResponse.ok && serverVerifyData.verified) {
-    const loggedInNearAccountId = serverVerifyData.nearAccountId;
-    if (!loggedInNearAccountId) {
-      const errorMessage = "Login successful but server didn't return NEAR account ID.";
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
-    }
-
-    // Fetch comprehensive user data from local storage
-    const webAuthnManager = passkeyManager.getWebAuthnManager();
-    const localUserData = await webAuthnManager.getUserData(loggedInNearAccountId);
-    const finalNearAccountId = serverVerifyData.nearAccountId || localUserData?.nearAccountId;
-
-    // Update IndexDBManager with login
-    if (finalNearAccountId) {
-      let clientUser = await indexDBManager.getUser(finalNearAccountId);
-      if (!clientUser) {
-        console.log(`Creating IndexDBManager entry for existing user: ${loggedInNearAccountId}`);
-        clientUser = await indexDBManager.registerUser(finalNearAccountId);
-      } else {
-        await indexDBManager.updateLastLogin(finalNearAccountId);
-      }
-    }
-
-    const result: LoginResult = {
-      success: true,
-      loggedInNearAccountId,
-      clientNearPublicKey: localUserData?.clientNearPublicKey || null,
-      nearAccountId: finalNearAccountId
-    };
-
-    if (localUserData?.clientNearPublicKey) {
-      console.log(`Login successful for ${loggedInNearAccountId}. Client-managed PK set from IndexDBManager: ${localUserData.clientNearPublicKey}`);
-    } else {
-      console.warn(`User ${loggedInNearAccountId} logged in, but no clientNearPublicKey found in local storage. Greeting functionality may be limited.`);
-    }
-
-    onEvent?.({
-      type: 'loginCompleted',
-      data: {
-        nearAccountId: loggedInNearAccountId,
-        publicKey: localUserData?.clientNearPublicKey || ''
-      }
-    });
-
-    hooks?.afterCall?.(true, result);
-    return result;
-  } else {
-    const errorMessage = serverVerifyData.error || 'Passkey authentication failed by server.';
-    const error = new Error(errorMessage);
-    onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
- * Handle onchain (serverless) login using WASM worker to sign contract calls
+ * Handle onchain (serverless) login using VRF flow per docs/vrf_challenges.md
  *
- * OPTIMIZATION: This flow uses only TWO TouchID prompts instead of three by:
- * 1. First TouchID: callContract() for generate_authentication_options (gets contract challenge)
- * 2. Second TouchID: WebAuthn assertion ceremony with contract's challenge (gets PRF output)
- * 3. NO TouchID: callContract() with prfOutput for verify_authentication_response (reuses PRF from step 2)
+ * VRF AUTHENTICATION FLOW (Per Specification):
+ * 1. Check if user has VRF credentials stored locally
+ * 2. Get NEAR block data for freshness (height + hash)
+ * 3. Decrypt VRF keypair using PRF from initial WebAuthn ceremony
+ * 4. Generate VRF challenge using stored VRF keypair + NEAR block data
+ * 5. Use VRF output as WebAuthn challenge for final authentication
+ * 6. Verify VRF proof and WebAuthn response on contract
+ *
+ *
+ * BENEFITS OF VRF FLOW:
+ * - Provides cryptographically verifiable, stateless authentication
+ * - Uses NEAR block data for freshness guarantees
+ * - Follows RFC-compliant VRF challenge construction
+ * - Eliminates server-side session state
  */
 async function handleLoginOnchain(
   passkeyManager: PasskeyManager,
@@ -331,201 +103,178 @@ async function handleLoginOnchain(
       }
     }
 
-    // Step 2: Get authenticator data from local cache
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(targetNearAccountId);
-    if (authenticators.length === 0) {
-      const errorMessage = `No authenticators found for account ${targetNearAccountId}. Please register first.`;
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+    // Step 2: Check for VRF credentials and determine authentication method
+    const userData = await webAuthnManager.getUserData(targetNearAccountId);
+    const hasVrfCredentials = userData?.vrfCredentials?.encrypted_vrf_data_b64u && userData?.vrfCredentials?.aes_gcm_nonce_b64u;
+
+    if (hasVrfCredentials) {
+      console.log('🔐 VRF credentials found - using VRF authentication flow');
+      return await handleVrfLogin(
+        passkeyManager,
+        targetNearAccountId,
+        userData.vrfCredentials!, // Non-null assertion since we've verified it exists
+        onEvent,
+        onError,
+        hooks
+      );
+    } else {
+      console.log('⚡ No VRF credentials - traditional contract authentication flow not implemented');
+      throw new Error('No VRF credentials found. Please register with VRF support first.');
     }
 
-    // Step 3: Get authentication options from contract using callContract (FIRST TOUCHID)
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'getting-options',
-        message: 'Getting authentication options from contract...'
-      }
-    });
+  } catch (error: any) {
+    console.error('Serverless login error:', error);
+    onError?.(error);
+    onEvent?.({ type: 'loginFailed', data: { error: error.message, nearAccountId } });
+    hooks?.afterCall?.(false, error);
+    return { success: false, error: error.message };
+  }
+}
 
-    // Initialize AuthenticatorSyncer  to build arguments
-    const authenticatorSyncer = new AuthenticatorSyncer (
-      nearRpcProvider,
-      WEBAUTHN_CONTRACT_ID,
-      'WebAuthn Passkey',
-      window.location.hostname,
-      RELAYER_ACCOUNT_ID
-    );
+/**
+ * Handle VRF-based login using Service Worker for persistent VRF keypair management
+ *
+ * New Architecture:
+ * 1. Single WebAuthn authentication to get PRF output
+ * 2. Unlock VRF keypair in Service Worker memory using PRF
+ * 3. VRF keypair persists in Service Worker until logout
+ * 4. Subsequent authentications can generate VRF challenges without additional TouchID
+ */
+async function handleVrfLogin(
+  passkeyManager: PasskeyManager,
+  nearAccountId: string,
+  vrfCredentials: { encrypted_vrf_data_b64u: string; aes_gcm_nonce_b64u: string },
+  onEvent?: (event: LoginEvent) => void,
+  onError?: (error: Error) => void,
+  hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
+): Promise<LoginResult> {
+  try {
+    console.log(`Starting VRF login for ${nearAccountId} (Service Worker architecture)`);
 
-    // Use the first (most recent) authenticator for authentication
-    const primaryAuthenticator = authenticators[0];
+    // Step 1: Check if VRF Service Worker is ready
+    const vrfManager = passkeyManager.getVRFManager();
+    const isVRFReady = await vrfManager.isReady();
 
-    // Build contract arguments for generate_authentication_options
-    const allowCredentials = authenticators.map(auth => ({
-      id: auth.credentialID,
-      type: 'public-key' as const,
-      transports: auth.transports || undefined,
-    }));
+    if (!isVRFReady) {
+      console.warn('VRF Service Worker not ready yet - VRF initialization may still be in progress');
+    }
 
-    const contractArgs = authenticatorSyncer.buildAuthenticationOptionsArgs(
-      primaryAuthenticator,
-      allowCredentials,
-      'preferred'
-    );
+    // Step 2: Get authenticator data for WebAuthn authentication
+    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+    }
 
-    // Use callContract to get authentication options (this will do its own TouchID)
-    const authOptionsResult: FinalExecutionOutcome = await passkeyManager.callContract({
-      contractId: WEBAUTHN_CONTRACT_ID,
-      methodName: 'generate_authentication_options',
-      args: contractArgs,
-      gas: GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING,
-      attachedDeposit: '0',
-      nearAccountId: targetNearAccountId,
-      requiresAuth: true,
-      optimisticAuth: false
-    });
-    console.log("Auth options result:", authOptionsResult);
-
-    // Parse the authentication options from the result
-    const parsedOptions = authenticatorSyncer.parseContractResponse(authOptionsResult, 'generate_authentication_options');
-
-    // Step 4: Perform WebAuthn assertion ceremony with CONTRACT'S challenge (SECOND TOUCHID)
+    // Step 3: Perform single WebAuthn authentication to get PRF output for VRF decryption
     onEvent?.({
       type: 'loginProgress',
       data: {
         step: 'webauthn-assertion',
-        message: 'Authenticating with passkey using contract challenge...'
+        message: 'Authenticating to unlock VRF keypair (TouchID #1)...'
       }
     });
 
-    // Add PRF extension to the request options using the CONTRACT'S challenge
-    const pkRequestOpts: PublicKeyCredentialRequestOptions = {
-      challenge: bufferDecode(parsedOptions.options.challenge), // Use contract's challenge
-      rpId: parsedOptions.options.rpId,
-      allowCredentials: parsedOptions.options.allowCredentials?.map((c: any) => ({
-        id: bufferDecode(c.id),
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const authOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      rpId: window.location.hostname,
+      allowCredentials: authenticators.map(auth => ({
+        id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
         type: 'public-key' as const,
-        transports: c.transports as AuthenticatorTransport[]
+        transports: auth.transports as AuthenticatorTransport[]
       })),
-      userVerification: (parsedOptions.options.userVerification || "preferred") as UserVerificationRequirement,
-      timeout: parsedOptions.options.timeout || 60000,
+      userVerification: 'preferred' as UserVerificationRequirement,
+      timeout: 60000,
       extensions: {
         prf: {
           eval: {
-            first: new Uint8Array(new Array(32).fill(42)) // PRF salt for NEAR key encryption
+            first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt
           }
         }
       }
     };
 
-    const assertion = await navigator.credentials.get({
-      publicKey: pkRequestOpts
-    }) as PublicKeyCredential | null;
+    const credential = await navigator.credentials.get({
+      publicKey: authOptions
+    }) as PublicKeyCredential;
 
-    if (!assertion) {
-      const errorMessage = 'Passkey login cancelled or no assertion.';
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+    if (!credential) {
+      throw new Error('WebAuthn authentication failed or was cancelled');
     }
 
-    // Get PRF output from the assertion
-    const extensionResults = assertion.getClientExtensionResults();
+    // Get PRF output for VRF decryption
+    const extensionResults = credential.getClientExtensionResults();
     const prfOutput = (extensionResults as any).prf?.results?.first;
 
     if (!prfOutput) {
-      const errorMessage = 'PRF output not available - required for serverless verification.';
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+      throw new Error('PRF output not available - required for VRF keypair decryption');
     }
 
-    // Step 5: Verify authentication with contract using PRF from verification ceremony (NO ADDITIONAL TOUCHID)
+    console.log('✅ WebAuthn authentication successful, PRF output obtained');
+
+    // Step 4: Unlock VRF keypair in Service Worker memory
     onEvent?.({
       type: 'loginProgress',
       data: {
         step: 'verifying-server',
-        message: 'Verifying authentication with contract (reusing PRF)...'
+        message: 'Unlocking VRF keypair in secure memory...'
       }
     });
 
-    const assertionJSON = publicKeyCredentialToJSON(assertion);
-    const verificationArgs = authenticatorSyncer.buildAuthenticationVerificationArgs(
-      assertionJSON,
-      parsedOptions.commitmentId || ''
+    console.log('Unlocking VRF keypair in Service Worker memory');
+
+    const unlockResult = await vrfManager.unlockVRFKeypair(
+      nearAccountId,
+      vrfCredentials,
+      prfOutput
     );
 
-    // Use callContract to verify authentication (reusing PRF from verification)
-    const verificationResult: FinalExecutionOutcome = await passkeyManager.callContract({
-      contractId: WEBAUTHN_CONTRACT_ID,
-      methodName: 'verify_authentication_response',
-      args: verificationArgs,
-      gas: VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING,
-      attachedDeposit: '0',
-      nearAccountId: targetNearAccountId,
-      prfOutput,
-      optimisticAuth: false
-    });
-
-    const parsedVerification = authenticatorSyncer.parseContractResponse(
-      verificationResult,
-      'verify_authentication_response'
-    );
-
-    if (!parsedVerification.verified) {
-      const errorMessage = 'Authentication verification failed by contract.';
-      const error = new Error(errorMessage);
-      onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId: targetNearAccountId } });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+    if (!unlockResult.success) {
+      throw new Error(`Failed to unlock VRF keypair: ${unlockResult.error}`);
     }
 
-    // Step 6: Update local data and return success
-    const localUserData = await webAuthnManager.getUserData(targetNearAccountId);
+    console.log('✅ VRF keypair unlocked in Service Worker memory');
+    console.log('VRF session active - challenge generation available without additional TouchID');
+
+    // Step 5: Update local data and return success
+    const localUserData = await passkeyManager.getWebAuthnManager().getUserData(nearAccountId);
 
     // Update IndexDBManager with login
-    let clientUser = await indexDBManager.getUser(targetNearAccountId);
+    let clientUser = await indexDBManager.getUser(nearAccountId);
     if (!clientUser) {
-      console.log(`Creating IndexDBManager entry for existing user: ${targetNearAccountId}`);
-      clientUser = await indexDBManager.registerUser(targetNearAccountId);
+      console.log(`Creating IndexDBManager entry for existing user: ${nearAccountId}`);
+      clientUser = await indexDBManager.registerUser(nearAccountId);
     } else {
-      await indexDBManager.updateLastLogin(targetNearAccountId);
+      await indexDBManager.updateLastLogin(nearAccountId);
     }
 
     const result: LoginResult = {
       success: true,
-      loggedInNearAccountId: targetNearAccountId,
+      loggedInNearAccountId: nearAccountId,
       clientNearPublicKey: localUserData?.clientNearPublicKey || null,
-      nearAccountId: targetNearAccountId
+      nearAccountId: nearAccountId
     };
 
     if (localUserData?.clientNearPublicKey) {
-      console.log(`Serverless login successful for ${targetNearAccountId}. Client-managed PK: ${localUserData.clientNearPublicKey}`);
+      console.log(`VRF login successful for ${nearAccountId}. Client-managed PK: ${localUserData.clientNearPublicKey}`);
     } else {
-      console.warn(`User ${targetNearAccountId} logged in via serverless mode, but no clientNearPublicKey found in local storage.`);
+      console.warn(`User ${nearAccountId} logged in via VRF mode, but no clientNearPublicKey found in local storage.`);
     }
 
     onEvent?.({
       type: 'loginCompleted',
       data: {
-        nearAccountId: targetNearAccountId,
+        nearAccountId: nearAccountId,
         publicKey: localUserData?.clientNearPublicKey || ''
       }
     });
+    await indexDBManager.updateLastLogin(nearAccountId);
 
     hooks?.afterCall?.(true, result);
     return result;
 
   } catch (error: any) {
-    console.error('Serverless login error:', error);
+    console.error('VRF login error:', error);
     onError?.(error);
     onEvent?.({ type: 'loginFailed', data: { error: error.message, nearAccountId } });
     hooks?.afterCall?.(false, error);

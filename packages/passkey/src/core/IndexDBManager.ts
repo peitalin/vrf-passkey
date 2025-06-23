@@ -24,6 +24,12 @@ export interface ClientUserData {
     rawId: string;
   };
 
+  // VRF credentials for stateless authentication
+  vrfCredentials?: {
+    encrypted_vrf_data_b64u: string;
+    aes_gcm_nonce_b64u: string;
+  };
+
   // User preferences
   preferences?: UserPreferences;
 }
@@ -278,6 +284,10 @@ class IndexDBManager {
       id: string;
       rawId: string;
     };
+    vrfCredentials?: {
+      encrypted_vrf_data_b64u: string;
+      aes_gcm_nonce_b64u: string;
+    };
   }): Promise<void> {
     const validation = this.validateNearAccountId(userData.nearAccountId);
     if (!validation.valid) {
@@ -290,11 +300,12 @@ class IndexDBManager {
       existingUser = await this.registerUser(userData.nearAccountId);
     }
 
-    // Update with WebAuthn-specific data
+    // Update with WebAuthn-specific data (including VRF credentials)
     await this.updateUser(userData.nearAccountId, {
       clientNearPublicKey: userData.clientNearPublicKey,
       prfSupported: userData.prfSupported,
       passkeyCredential: userData.passkeyCredential,
+      vrfCredentials: userData.vrfCredentials,
       lastUpdated: userData.lastUpdated || Date.now()
     });
   }
@@ -312,6 +323,10 @@ class IndexDBManager {
       id: string;
       rawId: string;
     };
+    vrfCredentials?: {
+      encrypted_vrf_data_b64u: string;
+      aes_gcm_nonce_b64u: string;
+    };
   } | null> {
     const user = await this.getUser(nearAccountId);
     if (!user) return null;
@@ -321,7 +336,8 @@ class IndexDBManager {
       clientNearPublicKey: user.clientNearPublicKey,
       lastUpdated: user.lastUpdated,
       prfSupported: user.prfSupported,
-      passkeyCredential: user.passkeyCredential
+      passkeyCredential: user.passkeyCredential,
+      vrfCredentials: user.vrfCredentials
     };
   }
 
@@ -465,6 +481,82 @@ class IndexDBManager {
     // Sort by registered date (earliest first)
     authenticators.sort((a, b) => new Date(a.registered).getTime() - new Date(b.registered).getTime());
     return { credentialID: authenticators[0].credentialID };
+  }
+
+  // === ATOMIC OPERATIONS AND ROLLBACK METHODS ===
+
+  /**
+   * Delete all authenticators for a user
+   */
+  async deleteAllAuthenticatorsForUser(nearAccountId: string): Promise<void> {
+    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
+
+    if (authenticators.length === 0) {
+      console.log(`No authenticators found for user ${nearAccountId}`);
+      return;
+    }
+
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.authenticatorStore, 'readwrite');
+    const store = tx.objectStore(DB_CONFIG.authenticatorStore);
+
+    for (const auth of authenticators) {
+      await store.delete([nearAccountId, auth.credentialID]);
+    }
+
+    console.log(`Deleted ${authenticators.length} authenticators for user ${nearAccountId}`);
+  }
+
+  /**
+   * Delete WebAuthn user data
+   */
+  async deleteWebAuthnUserData(nearAccountId: string): Promise<void> {
+    const db = await this.getDB();
+    await db.delete(DB_CONFIG.userStore, nearAccountId);
+    console.log(`Deleted WebAuthn user data for: ${nearAccountId}`);
+  }
+
+  /**
+   * Atomic operation wrapper for multiple IndexedDB operations
+   * Either all operations succeed or all are rolled back
+   */
+  async atomicOperation<T>(
+    operation: (db: IDBPDatabase) => Promise<T>
+  ): Promise<T> {
+    const db = await this.getDB();
+
+    try {
+      const result = await operation(db);
+      return result;
+    } catch (error) {
+      console.error('Atomic operation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Complete rollback of user registration data
+   * Deletes user, authenticators, and WebAuthn data atomically
+   */
+  async rollbackUserRegistration(nearAccountId: string): Promise<void> {
+    console.log(`🔄 Rolling back registration data for ${nearAccountId}`);
+
+    await this.atomicOperation(async (db) => {
+      // Delete all authenticators for this user
+      await this.deleteAllAuthenticatorsForUser(nearAccountId);
+
+      // Delete user record
+      await db.delete(DB_CONFIG.userStore, nearAccountId);
+
+      // Clear from app state if this was the last user
+      const lastUserAccount = await this.getAppState<string>('lastUserAccountId');
+      if (lastUserAccount === nearAccountId) {
+        await this.setAppState('lastUserAccountId', null);
+      }
+
+      console.log(`✅ Rolled back all registration data for ${nearAccountId}`);
+      return true;
+    });
   }
 }
 

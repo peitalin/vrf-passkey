@@ -1,5 +1,4 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { indexDBManager } from '../../core/IndexDBManager';
 import { PasskeyManager } from '../../core/PasskeyManager';
 import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
 import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
@@ -24,6 +23,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 }) => {
 
   // Authentication state (actual login status)
+  // Note: isLoggedIn is true ONLY when VRF worker has private key in memory (vrfActive = true)
+  // This means the user can generate VRF challenges without additional TouchID prompts
   const [loginState, setLoginState] = useState<LoginState>({
     isLoggedIn: false,
     nearAccountId: null,
@@ -53,6 +54,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
       relayerAccount: 'web3-authn.testnet',
+      contractId: 'web3-authn.testnet'
     };
 
     // Only add serverUrl if explicitly provided
@@ -103,26 +105,42 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   ]);
 
   // Simple logout that only manages React state
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      // Clear VRF session when user logs out
+      await passkeyManager.getVRFManager().logout();
+    } catch (error) {
+      console.warn('VRF logout warning:', error);
+    }
+
     setLoginState(prevState => ({
       ...prevState,
       isLoggedIn: false,
       nearAccountId: null,
       nearPublicKey: null,
     }));
-  }, []);
+  }, [passkeyManager]);
 
   const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
       optimisticAuth: optimisticAuth,
-      onEvent: (event) => {
+      onEvent: async (event) => {
         if (event.type === 'loginCompleted') {
+          // Check VRF status to determine if user is truly logged in
+          const currentLoginState = await passkeyManager.getLoginState(nearAccountId);
+          const isVRFLoggedIn = currentLoginState.vrfActive;
+
           setLoginState(prevState => ({
             ...prevState,
-            isLoggedIn: true,
+            isLoggedIn: isVRFLoggedIn,  // Only logged in if VRF is active
             nearAccountId: event.data.nearAccountId || null,
             nearPublicKey: event.data.publicKey || null,
           }));
+
+          console.log('Login completed - VRF status:', {
+            vrfActive: currentLoginState.vrfActive,
+            isLoggedIn: isVRFLoggedIn
+          });
         }
         options.onEvent?.(event);
       },
@@ -138,14 +156,25 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const registerPasskey = async (nearAccountId: string, options: RegistrationOptions) => {
     const result: RegistrationResult = await passkeyManager.registerPasskey(nearAccountId, {
       optimisticAuth: optimisticAuth,
-      onEvent: (event) => {
-        if (event.phase === 'user-ready') {
+      onEvent: async (event) => {
+        if (event.phase === 'registration-complete' && event.status === 'success') {
+          // Check VRF status to determine if user is truly logged in after registration
+          const currentLoginState = await passkeyManager.getLoginState(nearAccountId);
+          const isVRFLoggedIn = currentLoginState.vrfActive;
+
           setLoginState(prevState => ({
             ...prevState,
-            isLoggedIn: true,
-            nearAccountId: event.nearAccountId || null,
-            nearPublicKey: event.clientNearPublicKey || null,
+            isLoggedIn: isVRFLoggedIn,  // Only logged in if VRF is active
+            nearAccountId: nearAccountId,
+            nearPublicKey: currentLoginState.publicKey || null,
           }));
+
+          console.log('Registration completed - VRF status:', {
+            vrfActive: currentLoginState.vrfActive,
+            isLoggedIn: isVRFLoggedIn,
+            nearAccountId: nearAccountId,
+            publicKey: currentLoginState.publicKey
+          });
         }
         options.onEvent?.(event);
       },
@@ -162,35 +191,32 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const lastUser = await indexDBManager.getLastUser();
-        if (lastUser) {
+        // Use the new consolidated getLoginState function
+        const loginState = await passkeyManager.getLoginState();
+
+        if (loginState.nearAccountId) {
+          // User is only logged in if VRF worker has private key in memory
+          const isVRFLoggedIn = loginState.vrfActive;
+
           setLoginState(prevState => ({
             ...prevState,
-            nearAccountId: lastUser.nearAccountId,
+            nearAccountId: loginState.nearAccountId,
+            nearPublicKey: loginState.publicKey,
+            isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
           }));
-          await indexDBManager.updateLastLogin(lastUser.nearAccountId);
 
-          // Load client-managed NEAR public key
-          try {
-            const webAuthnManager = passkeyManager.getWebAuthnManager();
-            const webAuthnUserData = await webAuthnManager.getUserData(lastUser.nearAccountId);
-            if (webAuthnUserData?.clientNearPublicKey) {
-              setLoginState(prevState => ({
-                ...prevState,
-                nearPublicKey: webAuthnUserData.clientNearPublicKey || null,
-              }));
-              console.log('Loaded client-managed NEAR public key:', webAuthnUserData.clientNearPublicKey);
-            } else {
-              console.log('No client-managed NEAR public key found for:', lastUser.nearAccountId);
-              setLoginState(prevState => ({ ...prevState, nearPublicKey: null }));
-            }
-          } catch (webAuthnDataError) {
-            console.warn('Failed to load WebAuthn user data:', webAuthnDataError);
-            setLoginState(prevState => ({ ...prevState, nearPublicKey: null }));
-          }
+          console.log('Loaded login state:', {
+            nearAccountId: loginState.nearAccountId,
+            publicKey: loginState.publicKey,
+            isLoggedIn: isVRFLoggedIn,
+            vrfActive: loginState.vrfActive,
+            hasUserData: !!loginState.userData
+          });
+        } else {
+          console.log('No user data found');
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
+        console.error('Error loading login state:', error);
       }
     };
 
@@ -198,14 +224,15 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   }, [passkeyManager]);
 
   const value: PasskeyContextType = {
-    // Authentication state (actual state from contract/backend)
-    loginState,
-    // UI input state (form/input tracking)
+    // UI acccount name input state (form/input tracking)
     accountInputState,
-    // Simple utility functions
+    // Simple login/register functions
     logout,
     loginPasskey,
     registerPasskey,
+    // Authentication state (actual state from contract/backend)
+    getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
+    loginState,
     // Settings
     optimisticAuth,
     setOptimisticAuth,

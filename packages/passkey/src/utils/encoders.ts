@@ -1,3 +1,29 @@
+/**
+ * Utility method for base64url encoding
+ */
+export function base64UrlEncode(bytes: Uint8Array): string {
+  let binaryString = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binaryString);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Utility function for base64url decoding
+ */
+export function base64UrlDecode(base64Url: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/') + padding;
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export const bufferEncode = (value: ArrayBuffer): string => {
   return btoa(String.fromCharCode(...new Uint8Array(value)))
     .replace(/\+/g, "-")

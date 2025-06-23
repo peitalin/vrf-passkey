@@ -116,13 +116,22 @@ export interface PasskeyContextType {
   logout: () => void;
   loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
   registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
+  // Consolidated login state function - preferred over individual getters
+  getLoginState: (nearAccountId?: string) => Promise<{
+    isLoggedIn: boolean;
+    nearAccountId: string | null;
+    publicKey: string | null;
+    vrfActive: boolean;
+    userData: any | null;
+    vrfSessionDuration?: number;
+  }>;
   // Settings
   optimisticAuth: boolean;
   setOptimisticAuth: (value: boolean) => void;
   // Account input management
   setInputUsername: (username: string) => void;
   refreshAccountData: () => Promise<void>;
-  // Core PasskeyManager instance - provides all functionality
+  // Core PasskeyManager instance - provides all user-facing functionality
   passkeyManager: PasskeyManager;
 }
 

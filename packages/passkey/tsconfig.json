@@ -21,6 +21,7 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
+    "types": ["jest"],
     "paths": {
       "@/*": ["src/*"]
     }
@@ -31,7 +32,5 @@
   "exclude": [
     "node_modules",
     "dist",
-    "**/*.test.ts",
-    "**/*.test.tsx"
   ]
 }
