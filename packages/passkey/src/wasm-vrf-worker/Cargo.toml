@@ -1,0 +1,35 @@
+[package]
+name = "vrf-service-worker"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+getrandom = { version = "0.2", features = ["js"] }
+console_error_panic_hook = "0.1"
+
+# VRF and cryptography
+vrf-wasm = { version = "0.8.2", features = ["browser"] }
+ed25519-dalek = "2.0"
+aes-gcm = "0.10"
+sha2 = "0.10"
+hkdf = "0.12"
+base64 = "0.22"
+serde_json = "1.0"
+bincode = "1.3"
+rand_core = "0.6"
+zeroize = { version = "1.7", features = ["derive"] }
+# Async support for Service Worker (using web workers for now)
+wasm-bindgen-futures = "0.4"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+]
