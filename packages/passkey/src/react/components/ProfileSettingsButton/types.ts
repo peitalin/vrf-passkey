@@ -1,3 +1,5 @@
+import type { ToggleColorProps } from './Toggle';
+
 export interface ProfileDimensions {
   width: number;
   height: number;
@@ -20,9 +22,8 @@ export interface ProfileMenuItem {
 export interface ProfileButtonProps {
   username: string;
   nearAccountId?: string;
-  optimisticAuth: boolean;
-  onOptimisticAuthChange: (value: boolean) => void;
   onLogout: () => void;
+  toggleColors?: ToggleColorProps;
 }
 
 export interface ProfileTriggerProps {
@@ -37,10 +38,11 @@ export interface ProfileTriggerProps {
 export interface ProfileDropdownProps {
   isOpen: boolean;
   menuItems: ProfileMenuItem[];
-  optimisticAuth: boolean;
-  onOptimisticAuthChange: (value: boolean) => void;
+  useRelayer: boolean;
+  onRelayerChange: (value: boolean) => void;
   onLogout: () => void;
   onClose: () => void;
+  toggleColors?: ToggleColorProps;
 }
 
 export interface ProfileMenuItemProps {
@@ -49,13 +51,14 @@ export interface ProfileMenuItemProps {
   onClose: () => void;
 }
 
-export interface ProfileToggleSectionProps {
-  optimisticAuth: boolean;
-  onOptimisticAuthChange: (value: boolean) => void;
-}
-
 export interface ProfileLogoutSectionProps {
   onLogout: () => void;
+}
+
+export interface ProfileRelayerToggleSectionProps {
+  useRelayer: boolean;
+  onRelayerChange: (value: boolean) => void;
+  toggleColors?: ToggleColorProps;
 }
 
 export interface ProfileStateRefs {
@@ -73,3 +76,6 @@ export interface ProfileCalculationParams {
   logoutSectionHeight: number;
   bottomBuffer: number;
 }
+
+// Re-export for convenience
+export type { ToggleColorProps };

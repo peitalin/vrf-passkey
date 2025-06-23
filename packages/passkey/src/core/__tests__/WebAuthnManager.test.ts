@@ -1,7 +1,7 @@
 /// <reference types="jest" />
 
-// Mock IndexDBManager first
-const mockIndexDBManager = {
+// Mock IndexedDBManager first
+const mockIndexedDBManager = {
   storeWebAuthnUserData: jest.fn().mockResolvedValue(undefined),
   getWebAuthnUserData: jest.fn().mockResolvedValue(null),
   getAllUsers: jest.fn().mockResolvedValue([]),
@@ -12,8 +12,8 @@ const mockIndexDBManager = {
   syncAuthenticatorsFromContract: jest.fn().mockResolvedValue(undefined)
 };
 
-jest.mock('../IndexDBManager', () => ({
-  indexDBManager: mockIndexDBManager
+jest.mock('../IndexedDBManager', () => ({
+  IndexedDBManager: mockIndexedDBManager
 }));
 
 // Import after mocking
@@ -136,22 +136,22 @@ describe('WebAuthnManager', () => {
 
     it('should store user data', async () => {
       await webAuthnManager.storeUserData(testUserData);
-      expect(mockIndexDBManager.storeWebAuthnUserData).toHaveBeenCalledWith(testUserData);
+      expect(mockIndexedDBManager.storeWebAuthnUserData).toHaveBeenCalledWith(testUserData);
     });
 
     it('should retrieve user data', async () => {
-      mockIndexDBManager.getWebAuthnUserData.mockResolvedValue(testUserData);
+      mockIndexedDBManager.getWebAuthnUserData.mockResolvedValue(testUserData);
 
-      const result = await webAuthnManager.getUserData(testNearAccountId);
+      const result = await webAuthnManager.getUser(testNearAccountId);
 
       expect(result).toEqual(testUserData);
-      expect(mockIndexDBManager.getWebAuthnUserData).toHaveBeenCalledWith(testNearAccountId);
+      expect(mockIndexedDBManager.getWebAuthnUserData).toHaveBeenCalledWith(testNearAccountId);
     });
 
     it('should return null for non-existent user', async () => {
-      mockIndexDBManager.getWebAuthnUserData.mockResolvedValue(null);
+      mockIndexedDBManager.getWebAuthnUserData.mockResolvedValue(null);
 
-      const result = await webAuthnManager.getUserData('nonexistent.testnet');
+      const result = await webAuthnManager.getUser('nonexistent.testnet');
 
       expect(result).toBeNull();
     });
@@ -162,7 +162,7 @@ describe('WebAuthnManager', () => {
         { nearAccountId: 'user2.testnet', clientNearPublicKey: 'key2', lastUpdated: 2, prfSupported: true }
       ];
 
-      mockIndexDBManager.getAllUsers.mockResolvedValue(mockUsers);
+      mockIndexedDBManager.getAllUsers.mockResolvedValue(mockUsers);
 
       const result = await webAuthnManager.getAllUserData();
 
@@ -173,17 +173,17 @@ describe('WebAuthnManager', () => {
 
   describe('Convenience Methods', () => {
     it('should check if passkey credential exists', async () => {
-      mockIndexDBManager.hasPasskeyCredential.mockResolvedValue(true);
+      mockIndexedDBManager.hasPasskeyCredential.mockResolvedValue(true);
 
       const result = await webAuthnManager.hasPasskeyCredential('test.testnet');
 
       expect(result).toBe(true);
-      expect(mockIndexDBManager.hasPasskeyCredential).toHaveBeenCalledWith('test.testnet');
+      expect(mockIndexedDBManager.hasPasskeyCredential).toHaveBeenCalledWith('test.testnet');
     });
 
     it('should get last used NEAR account ID', async () => {
       const mockUser = { nearAccountId: 'last.testnet', lastUpdated: Date.now() };
-      mockIndexDBManager.getLastUser.mockResolvedValue(mockUser);
+      mockIndexedDBManager.getLastUser.mockResolvedValue(mockUser);
 
       const result = await webAuthnManager.getLastUsedNearAccountId();
 
@@ -191,7 +191,7 @@ describe('WebAuthnManager', () => {
     });
 
     it('should return null when no last user exists', async () => {
-      mockIndexDBManager.getLastUser.mockResolvedValue(null);
+      mockIndexedDBManager.getLastUser.mockResolvedValue(null);
 
       const result = await webAuthnManager.getLastUsedNearAccountId();
 

@@ -118,9 +118,9 @@ export default [
   },
   // Worker build
   {
-    input: 'src/core/onetimePasskeySigner.worker.ts',
+    input: 'src/core/web3authn-signer.worker.ts',
     output: {
-      file: 'dist/onetimePasskeySigner.worker.js',
+      file: 'dist/web3authn-signer.worker.js',
       format: 'esm',
       sourcemap: true
     },
@@ -148,17 +148,17 @@ export default [
       // Copy WASM files to the same directory as the worker
       copy({
         targets: [
-          { src: 'src/wasm-signer-worker/*.wasm', dest: 'dist' },
-          { src: 'src/wasm-signer-worker/*.js', dest: 'dist' }
+          { src: 'src/wasm_signer_worker/*.wasm', dest: 'dist' },
+          { src: 'src/wasm_signer_worker/*.js', dest: 'dist' }
         ]
       })
     ]
   },
   // VRF Service Worker build (module mode)
   {
-    input: 'src/core/vrfService.worker.ts',
+    input: 'src/core/web3authn-vrf.worker.ts',
     output: {
-      file: 'dist/vrf-service-worker.js',
+      file: 'dist/web3authn-vrf.worker.js',
       format: 'esm',
       sourcemap: true
     },
@@ -177,8 +177,8 @@ export default [
       // Copy VRF WASM files to the same directory as the service worker
       copy({
         targets: [
-          { src: 'src/wasm-vrf-worker/*.wasm', dest: 'dist' },
-          { src: 'src/wasm-vrf-worker/*.js', dest: 'dist' }
+          { src: 'src/wasm_vrf_worker/*.wasm', dest: 'dist' },
+          { src: 'src/wasm_vrf_worker/*.js', dest: 'dist' }
         ]
       })
     ]

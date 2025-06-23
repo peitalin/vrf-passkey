@@ -35,7 +35,9 @@ export interface ClientUserData {
 }
 
 export interface UserPreferences {
-  optimisticAuth: boolean;
+  useRelayer: boolean;
+  useNetwork: 'testnet' | 'mainnet';
+  // User preferences can be extended here as needed
 }
 
 // Authenticator cache
@@ -43,7 +45,6 @@ export interface ClientAuthenticatorData {
   nearAccountId: string;
   credentialID: string;
   credentialPublicKey: Uint8Array;
-  counter: number;
   transports?: string[]; // AuthenticatorTransport[]
   clientNearPublicKey?: string; // Renamed from clientManagedNearPublicKey
   name?: string;
@@ -58,7 +59,7 @@ interface AppStateEntry<T = any> {
   value: T;
 }
 
-interface IndexDBManagerConfig {
+interface IndexedDBManagerConfig {
   dbName: string;
   dbVersion: number;
   userStore: string;
@@ -67,7 +68,7 @@ interface IndexDBManagerConfig {
 }
 
 // === CONSTANTS ===
-const DB_CONFIG: IndexDBManagerConfig = {
+const DB_CONFIG: IndexedDBManagerConfig = {
   dbName: 'PasskeyClientDB',
   dbVersion: 4, // Increment version for schema changes
   userStore: 'users',
@@ -75,11 +76,11 @@ const DB_CONFIG: IndexDBManagerConfig = {
   authenticatorStore: 'authenticators'
 } as const;
 
-class IndexDBManager {
-  private config: IndexDBManagerConfig;
+class IndexedDBManagerClass {
+  private config: IndexedDBManagerConfig;
   private db: IDBPDatabase | null = null;
 
-  constructor(config: IndexDBManagerConfig) {
+  constructor(config: IndexedDBManagerConfig) {
     this.config = config;
   }
 
@@ -230,7 +231,9 @@ class IndexDBManager {
       lastLogin: now,
       lastUpdated: now,
       preferences: {
-        optimisticAuth: true,
+        useRelayer: false,
+        useNetwork: 'testnet',
+        // Default preferences can be set here
       },
       ...additionalData,
     };
@@ -400,17 +403,15 @@ class IndexDBManager {
   }
 
   /**
-   * Update authenticator counter (critical for replay protection)
+   * Update authenticator last used timestamp
    */
-  async updateAuthenticatorCounter(
+  async updateAuthenticatorLastUsed(
     nearAccountId: string,
     credentialId: string,
-    counter: number,
     lastUsed?: string
   ): Promise<void> {
     const authenticator = await this.getAuthenticatorByCredentialId(nearAccountId, credentialId);
     if (authenticator) {
-      authenticator.counter = counter;
       authenticator.lastUsed = lastUsed || new Date().toISOString();
       authenticator.syncedAt = new Date().toISOString();
       await this.storeAuthenticator(authenticator);
@@ -439,7 +440,6 @@ class IndexDBManager {
     contractAuthenticators: Array<{
       credentialID: string;
       credentialPublicKey: Uint8Array;
-      counter: number;
       transports?: string[];
       clientNearPublicKey?: string;
       name?: string;
@@ -458,7 +458,6 @@ class IndexDBManager {
         nearAccountId,
         credentialID: auth.credentialID,
         credentialPublicKey: auth.credentialPublicKey,
-        counter: auth.counter,
         transports: auth.transports,
         clientNearPublicKey: auth.clientNearPublicKey,
         name: auth.name,
@@ -561,4 +560,4 @@ class IndexDBManager {
 }
 
 // Export a singleton instance
-export const indexDBManager = new IndexDBManager(DB_CONFIG);
+export const IndexedDBManager = new IndexedDBManagerClass(DB_CONFIG);

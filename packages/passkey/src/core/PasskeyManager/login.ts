@@ -1,4 +1,3 @@
-import { indexDBManager } from '../IndexDBManager';
 import type { PasskeyManager } from '../PasskeyManager';
 import type {
   LoginOptions,
@@ -17,9 +16,7 @@ export async function loginPasskey(
   options?: LoginOptions
 ): Promise<LoginResult> {
 
-  const { optimisticAuth, onEvent, onError, hooks } = options || { optimisticAuth: false };
-  const config = passkeyManager.getConfig();
-  const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
+  const { onEvent, onError, hooks } = options || {};
 
   // Emit started event
   onEvent?.({ type: 'loginStarted', data: { nearAccountId } });
@@ -104,7 +101,7 @@ async function handleLoginOnchain(
     }
 
     // Step 2: Check for VRF credentials and determine authentication method
-    const userData = await webAuthnManager.getUserData(targetNearAccountId);
+    const userData = await webAuthnManager.getUser(targetNearAccountId);
     const hasVrfCredentials = userData?.vrfCredentials?.encrypted_vrf_data_b64u && userData?.vrfCredentials?.aes_gcm_nonce_b64u;
 
     if (hasVrfCredentials) {
@@ -160,7 +157,8 @@ async function handleVrfLogin(
     }
 
     // Step 2: Get authenticator data for WebAuthn authentication
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    const webAuthnManager = passkeyManager.getWebAuthnManager();
+    const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
     if (authenticators.length === 0) {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
@@ -237,15 +235,15 @@ async function handleVrfLogin(
     console.log('VRF session active - challenge generation available without additional TouchID');
 
     // Step 5: Update local data and return success
-    const localUserData = await passkeyManager.getWebAuthnManager().getUserData(nearAccountId);
+    const localUserData = await passkeyManager.getWebAuthnManager().getUser(nearAccountId);
 
-    // Update IndexDBManager with login
-    let clientUser = await indexDBManager.getUser(nearAccountId);
+    // Update IndexedDBManager with login
+    let clientUser = await webAuthnManager.getUser(nearAccountId);
     if (!clientUser) {
-      console.log(`Creating IndexDBManager entry for existing user: ${nearAccountId}`);
-      clientUser = await indexDBManager.registerUser(nearAccountId);
+      console.log(`Creating IndexedDBManager entry for existing user: ${nearAccountId}`);
+      clientUser = await webAuthnManager.registerUser(nearAccountId);
     } else {
-      await indexDBManager.updateLastLogin(nearAccountId);
+      await webAuthnManager.updateLastLogin(nearAccountId);
     }
 
     const result: LoginResult = {
@@ -268,7 +266,7 @@ async function handleVrfLogin(
         publicKey: localUserData?.clientNearPublicKey || ''
       }
     });
-    await indexDBManager.updateLastLogin(nearAccountId);
+    await webAuthnManager.updateLastLogin(nearAccountId);
 
     hooks?.afterCall?.(true, result);
     return result;

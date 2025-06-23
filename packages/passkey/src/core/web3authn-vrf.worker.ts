@@ -6,11 +6,11 @@
 
 import type { VRFWorkerMessage, VRFWorkerResponse } from './types/vrf';
 
-// Import VRF WASM module directly (same pattern as onetimePasskeySigner.worker.ts)
-import init, * as vrfWasmModule from '../wasm-vrf-worker/vrf_service_worker.js';
+// Import VRF WASM module directly
+import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker.js';
 
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./vrf_service_worker_bg.wasm', import.meta.url);
+const wasmUrl = new URL('./wasm_vrf_worker_bg.wasm', import.meta.url);
 
 // === VRF WASM MODULE FUNCTIONS ===
 const {

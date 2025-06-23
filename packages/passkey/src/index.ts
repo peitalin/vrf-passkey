@@ -1,7 +1,7 @@
 // === MAIN EXPORTS ===
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
-export { indexDBManager } from './core/IndexDBManager';
+export { IndexedDBManager } from './core/IndexedDBManager';
 
 // === Re-exported from various type definition files ===
 export type {
@@ -15,13 +15,7 @@ export type {
 export type {
   WebAuthnRegistrationWithPrf,
   WebAuthnAuthenticationWithPrf,
-  RegistrationOptions,
-  AuthenticationOptions,
   PrfSaltConfig,
-  ServerAuthenticationOptions,
-  RegistrationResponseJSON,
-  AuthenticationResponseJSON,
-  PublicKeyCredentialCreationOptionsJSON,
 } from './core/types/webauthn';
 
 export type { UserData } from './core/types/worker';
@@ -57,6 +51,3 @@ export {
 // === UTILITIES ===
 export * from './utils/encoders';
 export * from './config';
-
-// === CONTRACT SERVICE (SERVERLESS MODE) ===
-export { AuthenticatorSyncer } from './core/AuthenticatorSyncer';

@@ -11,12 +11,8 @@ import {
   isDecryptionSuccess,
   isCoseKeySuccess,
   isCoseValidationSuccess,
-  isVRFKeyPairSuccess,
-  isVRFChallengeSuccess
 } from '../types/worker';
-import type {
-  PrfSaltConfig
-} from '../types/webauthn';
+import type { PrfSaltConfig } from '../types/webauthn';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -37,7 +33,7 @@ export class WebAuthnWorkers {
 
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
-    const workerUrl = new URL('/workers/onetimePasskeySigner.worker.js', window.location.origin);
+    const workerUrl = new URL('/workers/web3authn-signer.worker.js', window.location.origin);
 
     console.log('Creating secure worker from:', workerUrl.href);
 

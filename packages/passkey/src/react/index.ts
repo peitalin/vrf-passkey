@@ -2,12 +2,13 @@
 export { PasskeyProvider, usePasskeyContext } from './context/index';
 
 // === REACT HOOKS ===
-export { useOptimisticAuth } from './hooks/useOptimisticAuth';
+
 export { useNearRpcProvider } from './hooks/useNearRpcProvider';
 export { useAccountInput } from './hooks/useAccountInput';
+export { useRelayer } from './hooks/useRelayer';
 
 // === REACT COMPONENTS ===
-export { ProfileButton } from './components/ProfileButton';
+export { ProfileButton } from './components/ProfileSettingsButton';
 
 // === TYPES ===
 export type {
@@ -22,10 +23,11 @@ export type {
   ToastStyleOptions,
   ManagedToast,
   NearRpcProviderHook,
-  OptimisticAuthOptions,
-  OptimisticAuthHook,
+
   AccountInputState,
   UseAccountInputReturn,
+  UseRelayerOptions,
+  UseRelayerReturn,
   // Re-exported from PasskeyManager types
   RegistrationOptions,
   LoginOptions,
@@ -44,11 +46,12 @@ export type {
   ProfileTriggerProps,
   ProfileDropdownProps,
   ProfileMenuItemProps,
-  ProfileToggleSectionProps,
   ProfileLogoutSectionProps,
+  ProfileRelayerToggleSectionProps,
   ProfileStateRefs,
   ProfileCalculationParams,
-} from './components/ProfileButton/types';
+  ToggleColorProps,
+} from './components/ProfileSettingsButton/types';
 
 // === RE-EXPORT CORE ===
 export type { PasskeyManagerConfig as PasskeyConfig } from '../core/types/passkeyManager';

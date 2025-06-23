@@ -9,10 +9,21 @@ server/.env
 webauthn-contract/.env
 
 # WASM workers
-packages/passkey/src/wasm-signer-worker/pkg
-packages/passkey/src/wasm-signer-worker/target
-packages/passkey/src/wasm-vrf-worker/pkg
-packages/passkey/src/wasm-vrf-worker/target
+packages/passkey/dist
+
+packages/passkey/src/wasm_signer_worker/pkg
+packages/passkey/src/wasm_signer_worker/target
+packages/passkey/src/wasm_signer_worker/wasm_signer_worker_bg.wasm
+packages/passkey/src/wasm_signer_worker/wasm_signer_worker_bg.wasm.d.ts
+packages/passkey/src/wasm_signer_worker/wasm_signer_worker.js
+packages/passkey/src/wasm_signer_worker/wasm_signer_worker.d.ts
+
+packages/passkey/src/wasm_vrf_worker/pkg
+packages/passkey/src/wasm_vrf_worker/target
+packages/passkey/src/wasm_vrf_worker/wasm_vrf_worker_bg.wasm
+packages/passkey/src/wasm_vrf_worker/wasm_vrf_worker_bg.wasm.d.ts
+packages/passkey/src/wasm_vrf_worker/wasm_vrf_worker.js
+packages/passkey/src/wasm_vrf_worker/wasm_vrf_worker.d.ts
 
 frontend/public/workers
 

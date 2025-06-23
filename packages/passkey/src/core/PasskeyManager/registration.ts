@@ -1,5 +1,4 @@
 import { bufferEncode, base64UrlDecode, base64UrlEncode } from '../../utils/encoders';
-import { indexDBManager } from '../IndexDBManager';
 import { validateNearAccountId } from '../utils/validation';
 import { WEBAUTHN_CONTRACT_ID } from '../../config';
 import type { PasskeyManager } from './index';
@@ -281,7 +280,7 @@ export async function registerPasskey(
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
 
-  const { optimisticAuth, onEvent, onError, hooks } = options;
+  const { onEvent, onError, hooks } = options;
   // Generate a temporary sessionId for client-side events before SSE stream starts
   const tempSessionId = `client_${Date.now()}_${Math.random().toString(36).substring(2)}`;
 
@@ -645,7 +644,7 @@ async function handleRegistration(
 
       // Rollback any stored registration data
       try {
-        await indexDBManager.rollbackUserRegistration(nearAccountId);
+        await webAuthnManager.rollbackUserRegistration(nearAccountId);
         console.log('✅ Registration data rolled back');
       } catch (rollbackError: any) {
         console.warn('⚠️ Rollback partial failure:', rollbackError.message);
@@ -777,24 +776,23 @@ async function handleRegistration(
     });
 
     try {
-      await indexDBManager.atomicOperation(async (db) => {
+      await webAuthnManager.atomicOperation(async (db) => {
         // Register user in IndexDB
-        await indexDBManager.registerUser(nearAccountId);
+        await webAuthnManager.registerUser(nearAccountId);
 
         // Store credential for authentication
         const credentialId = bufferEncode(credential.rawId);
         const response = credential.response as AuthenticatorAttestationResponse;
 
-        await indexDBManager.storeAuthenticator({
+        await webAuthnManager.storeAuthenticator({
           nearAccountId,
           credentialID: credentialId,
           credentialPublicKey: await webAuthnManager.extractCosePublicKeyFromAttestation(
             bufferEncode(response.attestationObject)
           ),
-          counter: 0,
           transports: response.getTransports?.() || [],
           clientNearPublicKey: keyGenResult.publicKey,
-          name: `VRF Passkey for ${indexDBManager.extractUsername(nearAccountId)}`,
+          name: `VRF Passkey for ${webAuthnManager.extractUsername(nearAccountId)}`,
           registered: new Date().toISOString(),
           lastUsed: undefined,
           backedUp: false,

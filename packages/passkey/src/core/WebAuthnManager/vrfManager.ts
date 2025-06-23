@@ -26,9 +26,9 @@ export interface VRFManagerConfig {
    * Defaults to client-hosted worker file
    *
    * Examples:
-   * - undefined (uses default: '/workers/vrf-service-worker.js')
-   * - '/workers/vrf-service-worker.js' (client-hosted)
-   * - '/custom/path/vrf-worker.js' (custom location)
+   * - undefined (uses default: '/workers/wasm_vrf_worker.js')
+   * - '/workers/wasm_vrf_worker.js' (client-hosted)
+   * - '/custom/path/wasm_vrf_worker.js' (custom location)
    */
   vrfWorkerUrl?: string;
 
@@ -68,12 +68,12 @@ export class VRFManager {
   constructor(config: VRFManagerConfig = {}) {
     this.config = {
       // Default to client-hosted worker file
-      vrfWorkerUrl: '/workers/vrf-service-worker.js',
+      vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
       workerTimeout: 10000,
       debug: false,
       ...config
     };
-    console.log('🔧 VRF Manager: Initializing with client-hosted Web Worker...');
+    console.log('VRF Manager: Initializing with client-hosted Web Worker...');
   }
 
     /**
@@ -119,7 +119,7 @@ export class VRFManager {
     encryptedVrfData: EncryptedVRFData,
     prfOutput: ArrayBuffer
   ): Promise<VRFWorkerResponse> {
-    console.log(`🔓 VRF Manager: Unlocking VRF keypair for ${nearAccountId}`);
+    console.log(`VRF Manager: Unlocking VRF keypair for ${nearAccountId}`);
 
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized');

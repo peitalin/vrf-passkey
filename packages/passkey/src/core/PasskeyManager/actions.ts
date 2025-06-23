@@ -4,14 +4,9 @@ import type { AccessKeyView } from '@near-js/types';
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
 import { base64UrlDecode } from '../../utils/encoders';
 import type { SerializableActionArgs } from '../types';
-import {
-  determineOperationMode,
-  validateModeRequirements,
-  getModeDescription
-} from '../utils/routing';
+
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult, LoginEvent } from '../types/passkeyManager';
-import { indexDBManager } from '../IndexDBManager';
 
 interface BlockInfo {
   header: {
@@ -43,7 +38,7 @@ export async function executeAction(
   actionArgs: SerializableActionArgs,
   options?: ActionOptions
 ): Promise<ActionResult> {
-  const { optimisticAuth = true, onEvent, onError, hooks } = options || {};
+  const { onEvent, onError, hooks } = options || {};
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager['nearRpcProvider']; // Access private property
 
@@ -86,10 +81,10 @@ export async function executeAction(
     });
 
     // Check if user has PRF support
-    const userData = await webAuthnManager.getUserData(nearAccountId);
+    const userData = await webAuthnManager.getUser(nearAccountId);
     const usesPrf = userData?.prfSupported === true;
 
-    console.log('🔍 DEBUG: User Data from IndexDB:');
+    console.log('DEBUG: User Data from IndexDB:');
     console.log(`  - Account ID: ${nearAccountId}`);
     console.log(`  - Has user data: ${!!userData}`);
     console.log(`  - PRF supported: ${userData?.prfSupported}`);
@@ -179,7 +174,7 @@ export async function executeAction(
     const webauthnChallengeBytes = vrfOutputBytes.slice(0, 32); // First 32 bytes as challenge
 
     // Get stored authenticator data for this user
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
     console.log(`🔍 DEBUG: Found ${authenticators.length} authenticators for ${nearAccountId}:`);
     authenticators.forEach((auth, index) => {
       console.log(`  [${index}] Credential ID: ${auth.credentialID}`);
@@ -524,7 +519,8 @@ export async function authenticateWithVRF(
     console.log('Using VRF output as WebAuthn challenge for authentication');
 
     // Get authenticator data for WebAuthn ceremony
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    const webAuthnManager = passkeyManager.getWebAuthnManager();
+    const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
     if (authenticators.length === 0) {
       throw new Error(`No authenticators found for account ${nearAccountId}`);
     }

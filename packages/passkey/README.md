@@ -155,7 +155,6 @@ interface PasskeyConfig {
   serverUrl: string              // Your backend server URL
   nearNetwork: 'testnet' | 'mainnet'
   relayerAccount: string         // Account that pays for transactions
-  optimisticAuth?: boolean       // Enable fast auth (default: true)
   debugMode?: boolean           // Enable debug logging
 }
 ```
@@ -191,10 +190,6 @@ const {
 
   // Transaction
   executeDirectActionViaWorker: (action, callbacks?) => Promise<void>,
-
-  // Configuration
-  optimisticAuth: boolean,
-  setOptimisticAuth: (value: boolean) => void
 } = usePasskeyContext();
 ```
 
@@ -296,20 +291,6 @@ src/
 
 ## 🔧 Configuration Options
 
-### Optimistic Auth
-
-Enable fast transaction signing without server roundtrips:
-
-```typescript
-const passkey = new PasskeyManager({
-  // ... other config
-  optimisticAuth: true  // Default: true
-});
-
-// Or per-operation
-await passkey.login('username', { optimisticAuth: false });
-```
-
 ### Debug Mode
 
 Enable detailed logging for development:
@@ -372,9 +353,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 The package includes WebAssembly (WASM) workers for secure cryptographic operations. These files need to be accessible to the browser:
 
 ### Files Included
-- `dist/onetimePasskeySigner.worker.js` - The worker script
-- `dist/web3authn_passkey_worker_bg.wasm` - WASM binary
-- `dist/web3authn_passkey_worker.js` - WASM JavaScript bindings
+- `dist/web3authn-signer.worker.js` - The worker script
+- `dist/web3authn_signer_worker_bg.wasm` - WASM binary
+- `dist/web3authn_signer_worker.js` - WASM JavaScript bindings
 
 ### Setup Instructions
 
@@ -382,9 +363,9 @@ When using this package in a web application, you need to ensure the worker and 
 
 1. **Copy the worker files to your public directory:**
    ```bash
-   cp node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js public/
-   cp node_modules/@web3authn/passkey/dist/web3authn_passkey_worker_bg.wasm public/
-   cp node_modules/@web3authn/passkey/dist/web3authn_passkey_worker.js public/
+   cp node_modules/@web3authn/passkey/dist/web3authn-signer.worker.js public/
+   cp node_modules/@web3authn/passkey/dist/web3authn_signer_worker_bg.wasm public/
+   cp node_modules/@web3authn/passkey/dist/web3authn_signer_worker.js public/
    ```
 
 2. **Or use a build tool to copy them automatically** (e.g., in webpack):
@@ -397,15 +378,15 @@ When using this package in a web application, you need to ensure the worker and 
        new CopyPlugin({
          patterns: [
            {
-             from: 'node_modules/@web3authn/passkey/dist/onetimePasskeySigner.worker.js',
+             from: 'node_modules/@web3authn/passkey/dist/web3authn-signer.worker.js',
              to: 'public/'
            },
            {
-             from: 'node_modules/@web3authn/passkey/dist/web3authn_passkey_worker_bg.wasm',
+             from: 'node_modules/@web3authn/passkey/dist/web3authn_signer_worker_bg.wasm',
              to: 'public/'
            },
            {
-             from: 'node_modules/@web3authn/passkey/dist/web3authn_passkey_worker.js',
+             from: 'node_modules/@web3authn/passkey/dist/web3authn_signer_worker.js',
              to: 'public/'
            }
          ]

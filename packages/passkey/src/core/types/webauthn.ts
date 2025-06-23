@@ -1,12 +1,12 @@
-import type { SerializableActionArgs } from './index';
-import type { PasskeyErrorCode } from './errors';
-
 // =================================================================
 // 0. CORE WEBAUTHN & BROWSER-API TYPES
 // =================================================================
 
 /** Transport modes for authenticators */
 export type AuthenticatorTransport = 'ble' | 'hybrid' | 'internal' | 'nfc' | 'usb';
+
+/** User verification requirement for WebAuthn operations */
+export type UserVerificationRequirement = 'discouraged' | 'preferred' | 'required';
 
 /** JSON-compatible version of PublicKeyCredentialCreationOptions */
 export interface PublicKeyCredentialCreationOptionsJSON {
@@ -40,65 +40,9 @@ export interface PublicKeyCredentialCreationOptionsJSON {
   extensions?: Record<string, any>;
 }
 
-/** JSON-compatible version of PublicKeyCredentialRequestOptions */
-export interface PublicKeyCredentialRequestOptionsJSON {
-  challenge: string;
-  timeout?: number;
-  rpId?: string;
-  allowCredentials?: Array<{
-    id: string;
-    type: 'public-key';
-    transports?: AuthenticatorTransport[];
-  }>;
-  userVerification?: 'discouraged' | 'preferred' | 'required';
-  extensions?: Record<string, any>;
-}
-
-/** JSON-compatible version of a registration response */
-export interface RegistrationResponseJSON {
-  id: string;
-  rawId: string;
-  response: {
-    attestationObject: string;
-    clientDataJSON: string;
-    transports?: AuthenticatorTransport[];
-  };
-  authenticatorAttachment?: string;
-  type: 'public-key';
-  clientExtensionResults?: Record<string, any>;
-}
-
-/** JSON-compatible version of an authentication response */
-export interface AuthenticationResponseJSON {
-  id: string;
-  rawId: string;
-  response: {
-    clientDataJSON: string;
-    authenticatorData: string;
-    signature: string;
-    userHandle?: string;
-  };
-  authenticatorAttachment?: string;
-  type: 'public-key';
-  clientExtensionResults?: Record<string, any>;
-}
-
-
 // =================================================================
 // 1. HIGH-LEVEL WRAPPERS & OPTIONS
 // =================================================================
-
-/** Options for a WebAuthn registration ceremony */
-export interface RegistrationOptions {
-  options: PublicKeyCredentialCreationOptions;
-  expiresAt?: number;
-}
-
-/** Options for a WebAuthn authentication ceremony */
-export interface AuthenticationOptions {
-  options: PublicKeyCredentialRequestOptions;
-  expiresAt?: number;
-}
 
 /** Enhanced WebAuthn registration result that includes PRF details */
 export interface WebAuthnRegistrationWithPrf {
@@ -149,7 +93,6 @@ export interface PrfEvaluationResult {
 export interface StoredAuthenticator {
   credentialID: string;
   credentialPublicKey: Uint8Array;
-  counter: number;
   transports?: AuthenticatorTransport[];
   userId: string;
   name?: string;
@@ -161,314 +104,108 @@ export interface StoredAuthenticator {
 
 
 // =================================================================
-// 4. NETWORK & SERVER COMMUNICATION
+// 4. CONTRACT CALL TYPES
 // =================================================================
 
-// ~~~ Generic Request / Response ~~~
-export interface BaseRequest {}
-export interface BaseResponse {
-  success?: boolean;
-  error?: string;
+/** VRF challenge data structure used in contract verification */
+export interface VrfChallengeData {
+  vrfInput: string;
+  vrfOutput: string;
+  vrfProof: string;
+  vrfPublicKey: string;
+  userId: string;
+  rpId: string;
+  blockHeight: number;
+  blockHash: string;
 }
 
-// ~~~ Registration Endpoints ~~~
-export interface GenerateRegistrationOptionsRequest extends BaseRequest {
-  accountId: string;
+/** Registration data provided during registration contract calls */
+export interface RegistrationData {
+  nearPublicKey: string;
+  prfOutput: ArrayBuffer;
 }
-export interface GenerateRegistrationOptionsResponse extends BaseResponse {
-  options: PublicKeyCredentialCreationOptionsJSON;
-  nearAccountId?: string;
-  commitmentId?: string;
-}
-export interface VerifyRegistrationRequest {
-  accountId: string;
-  attestationResponse: RegistrationResponseJSON;
-  commitmentId?: string;
+
+/** User data structure for transaction operations */
+export interface UserDataForTransaction {
   clientNearPublicKey?: string;
 }
 
-// ~~~ Authentication Endpoints ~~~
-export interface GenerateAuthenticationOptionsRequest extends BaseRequest {
-  accountId?: string;
+/** Result of contract verification operations */
+export interface ContractVerificationResponse {
+  verified: boolean;
+  transaction_id?: string;
+  error?: string;
 }
-export interface GenerateAuthenticationOptionsResponse extends BaseResponse {
-  challenge: string;
-  timeout?: number;
-  rpId?: string;
-  allowCredentials?: Array<{
-    id: string;
-    type: 'public-key';
-    transports?: AuthenticatorTransport[];
-  }>;
-  userVerification?: 'discouraged' | 'preferred' | 'required';
-  extensions?: {
-    appid?: string;
-    credProps?: boolean;
-    hmacCreateSecret?: boolean;
-    minPinLength?: boolean;
-  };
-  nearAccountId?: string;
-  commitmentId?: string;
+
+/** Result of VRF authentication verification */
+export interface VrfAuthenticationResult {
+  success: boolean;
+  verified?: boolean;
+  error?: string;
 }
-export interface VerifyAuthenticationRequest {
+
+/** Result of VRF registration verification */
+export interface VrfRegistrationResult {
+  success: boolean;
+  verified?: boolean;
+  transactionId?: string;
+  error?: string;
+}
+
+/** Result of checking call permissions for an account */
+export interface CallPermissionsResult {
+  hasPermission: boolean;
+  allowedReceivers?: string[];
+  allowedMethods?: string[];
+}
+
+/** Network information for transaction building */
+export interface NetworkInfo {
+  latest_block_height: number;
+  latest_block_hash: string;
+  node_version: string;
+  protocol_version: number;
+  chain_id: string;
+}
+
+/** WebAuthn authentication data structure for contract calls */
+export interface WebAuthnAuthenticationData {
   id: string;
   rawId: string;
   response: {
     clientDataJSON: string;
     authenticatorData: string;
     signature: string;
-    userHandle?: string;
+    userHandle?: string | null;
   };
-  authenticatorAttachment?: string;
+  authenticatorAttachment?: string | null;
   type: 'public-key';
   clientExtensionResults?: Record<string, any>;
-  commitmentId?: string;
-}
-export interface VerifyAuthenticationResponse extends BaseResponse {
-  verified: boolean;
-  nearAccountId: string;
 }
 
-// ~~~ Action Signing Endpoint ~~~
-export interface ActionChallengeRequest {
-  accountId: string;
-  actionDetails: SerializableActionArgs;
-}
-export interface ActionChallengeResponse extends BaseResponse {
-  challenge: string;
-  rpId: string;
-  allowCredentials: Array<{
-    type: 'public-key';
-    id: string;
-  }>;
-  userVerification: 'preferred';
-  timeout: number;
+/** WebAuthn registration data structure for contract calls */
+export interface WebAuthnRegistrationData {
+  id: string;
+  rawId: string;
+  response: {
+    clientDataJSON: string;
+    attestationObject: string;
+    transports?: string[];
+  };
+  authenticatorAttachment?: string | null;
+  type: 'public-key';
+  clientExtensionResults?: Record<string, any>;
 }
 
-// ~~~ Server Options ~~~
-/** Options for server-based authentication, typically fetched from a backend */
-export interface ServerAuthenticationOptions {
-  challenge: string;
-  rpId?: string;
-  allowCredentials?: Array<{
-    id: string;
-    type: string;
-    transports: AuthenticatorTransport[];
-  }>;
-  userVerification?: UserVerificationRequirement;
-  timeout?: number;
-}
-
-
-// =================================================================
-// 5. CONTRACT & WORKER PAYLOADS
-// =================================================================
-
-// ~~~ Contract Integration ~~~
-/** Authenticator format compatible with the smart contract */
-export interface ContractAuthenticator {
-  credential_public_key: number[];
-  counter: number;
-  transports?: string[];
-  client_managed_near_public_key?: string;
-  name?: string;
-  registered: string;
-  last_used?: string;
-  backed_up: boolean;
-}
-export interface ContractRegistrationArgs {
-  rp_name: string;
-  rp_id: string;
-  user_name: string;
+/** VRF data structure for contract verification calls */
+export interface ContractVrfData {
+  vrf_input_data: number[];
+  vrf_output: number[];
+  vrf_proof: number[];
+  public_key: number[];
   user_id: string;
-  challenge: string | null;
-  [key: string]: any;
-}
-export interface ContractAuthenticationArgs {
-  rp_id: string | null;
-  allow_credentials: Array<{
-    id: string;
-    type: string;
-    transports?: string[];
-  }> | null;
-  challenge: string | null;
-  authenticator: {
-    credential_id: number[];
-    credential_public_key: number[];
-    counter: number;
-    transports?: string[];
-  };
-  [key: string]: any;
-}
-
-export interface ContractGenerateOptionsArgs {
-  rp_name: string;
   rp_id: string;
-  user_name: string;
-  user_id: string;
-  challenge: string | null;
-  user_display_name: string | null;
-  timeout: number | null;
-  attestation_type: string | null;
-  exclude_credentials: { id: string; type: string; transports?: string[] }[] | null;
-  authenticator_selection: {
-    authenticatorAttachment?: string;
-    residentKey?: string;
-    requireResidentKey?: boolean;
-    userVerification?: string;
-  } | null;
-  extensions: { cred_props?: boolean } | null;
-  supported_algorithm_ids: number[] | null;
-  preferred_authenticator_type: string | null;
+  block_height: number;
+  block_hash: number[];
 }
 
-export interface ContractCompleteRegistrationArgs {
-  registration_response: RegistrationResponseJSON;
-  commitment_id: string;
-}
-
-export interface ContractGenerateAuthOptionsArgs {
-  rp_id: string | null;
-  allow_credentials: { id: string; type: string; transports?: string[] }[] | null;
-  challenge: string | null;
-  timeout: number | null;
-  user_verification: 'discouraged' | 'preferred' | 'required' | null;
-  extensions: {
-    appid?: string;
-    cred_props?: boolean;
-    hmac_create_secret?: boolean;
-    min_pin_length?: boolean
-  } | null;
-  authenticator: {
-    credential_id: number[];
-    credential_public_key: number[];
-    counter: number;
-    transports?: string[];
-  };
-}
-
-export interface ContractVerifyAuthArgs {
-  authentication_response: AuthenticationResponseJSON;
-  commitment_id: string;
-}
-
-export interface ContractRegistrationOptionsResponse {
-  options: PublicKeyCredentialCreationOptionsJSON;
-  nearAccountId: string | undefined;
-  commitmentId: string | null;
-}
-
-export interface ContractCallPreparation {
-  nearAccountId: string;
-  contractId: string;
-  methodName: string;
-  args: any;
-  gas: string;
-  deposit: string;
-  nonce: string;
-  blockHash: Uint8Array;
-  publicKey: string;
-}
-
-// ~~~ Worker Payloads ~~~
-/** Payload for a PRF-based registration in the WASM worker */
-export interface PrfRegistrationPayload {
-  nearAccountId: string;
-  prfOutput: ArrayBuffer;
-  skipChallengeValidation?: boolean;
-}
-/** Payload for a PRF-based transaction signing in the WASM worker */
-export interface PrfSigningPayload {
-  nearAccountId: string;
-  prfOutput: ArrayBuffer;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-  nonce: string;
-  blockHashBytes: number[];
-}
-/** Payload for a PRF-based key decryption in the WASM worker */
-export interface PrfDecryptionPayload {
-  nearAccountId: string;
-  prfOutput: ArrayBuffer;
-}
-
-
-// =================================================================
-// 6. VALIDATION & UTILITIES
-// =================================================================
-
-/** Context for validating a WebAuthn response */
-export interface WebAuthnValidationContext {
-  expectedOrigin: string;
-  expectedRpId: string;
-  expectedChallenge: string;
-  requireUserVerification: boolean;
-  allowedCredentials?: string[];
-  timestamp: number;
-}
-
-/** The result of a WebAuthn validation check */
-export interface WebAuthnValidationResult {
-  valid: boolean;
-  errorCode?: PasskeyErrorCode;
-  errorMessage?: string;
-  validationDetails?: {
-    originValid: boolean;
-    rpIdValid: boolean;
-    challengeValid: boolean;
-    signatureValid: boolean;
-    userVerificationValid: boolean;
-    counterValid: boolean;
-  };
-}
-
-/** Converts a contract-formatted authenticator to the client-side format */
-export function contractToClientAuthenticator(
-  contractAuth: ContractAuthenticator,
-  credentialId: string,
-  nearAccountId: string
-): StoredAuthenticator {
-  return {
-    credentialID: credentialId,
-    credentialPublicKey: new Uint8Array(contractAuth.credential_public_key),
-    counter: contractAuth.counter,
-    transports: contractAuth.transports as AuthenticatorTransport[],
-    userId: nearAccountId,
-    name: contractAuth.name,
-    registered: new Date(contractAuth.registered),
-    lastUsed: contractAuth.last_used ? new Date(contractAuth.last_used) : undefined,
-    backedUp: contractAuth.backed_up,
-    clientNearPublicKey: contractAuth.client_managed_near_public_key,
-  };
-}
-
-/** Converts a client-side authenticator to the contract-compatible format */
-export function clientToContractAuthenticator(auth: StoredAuthenticator): ContractAuthenticator {
-  return {
-    credential_public_key: Array.from(auth.credentialPublicKey),
-    counter: auth.counter,
-    transports: auth.transports?.map(t => t.toString()),
-    client_managed_near_public_key: auth.clientNearPublicKey,
-    name: auth.name,
-    registered: auth.registered.toISOString(),
-    last_used: auth.lastUsed?.toISOString(),
-    backed_up: auth.backedUp,
-  };
-}
-
-/** Creates metadata for an operation, including duration */
-export function createOperationMetadata(
-  operationType: 'registration' | 'authentication' | 'key-generation',
-  mode: 'server' | 'serverless' | 'hybrid',
-  startTime: number
-) {
-  return {
-    operationType,
-    timestamp: Date.now(),
-    duration: Date.now() - startTime,
-    mode
-  };
-}

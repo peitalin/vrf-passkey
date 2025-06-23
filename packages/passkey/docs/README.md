@@ -20,7 +20,6 @@ function MyComponent() {
 
   const handleRegister = async (username: string) => {
     await registerPasskey(username, {
-      optimisticAuth: true,
       onEvent: (event) => {
         console.log(`Step ${event.step}: ${event.phase} - ${event.status}`);
         if (event.step === 2) enableUserLogin(); // Enable login after verification

@@ -1,4 +1,3 @@
-export const WASM_WORKER_FILENAME = '../../onetimePasskeySigner.worker.js';
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
 export const WEBAUTHN_CONTRACT_ID = 'web3-authn.testnet';
 export const RELAYER_ACCOUNT_ID = 'web3-authn.testnet';

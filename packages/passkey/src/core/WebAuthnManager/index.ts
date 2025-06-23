@@ -2,20 +2,11 @@ import type { Provider } from '@near-js/providers';
 import { WebAuthnWorkers } from './webauthn-workers';
 import { WebAuthnNetworkCalls } from './network-calls';
 import { WebAuthnContractCalls } from './contract-calls';
-import { VRFManager } from './vrf-manager';
-import { indexDBManager } from '../IndexDBManager';
-import { bufferEncode, bufferDecode } from '../../utils/encoders';
+import { WebAuthnIndexedDBCalls } from './indexedDB-calls';
+import { VRFManager } from './vrfManager';
 import type { UserData } from '../types/worker';
-import type {
-  WebAuthnRegistrationWithPrf,
-  WebAuthnAuthenticationWithPrf,
-  RegistrationOptions,
-  GenerateRegistrationOptionsRequest,
-  GenerateRegistrationOptionsResponse,
-  GenerateAuthenticationOptionsRequest,
-  GenerateAuthenticationOptionsResponse,
-  PublicKeyCredentialRequestOptionsJSON
-} from '../types/webauthn';
+import type { WebAuthnAuthenticationWithPrf } from '../types/webauthn';
+import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -25,48 +16,138 @@ import type {
  * - webauthn-workers.ts: PRF, challenges, workers, COSE operations
  * - network-calls.ts: Server/contract communication
  * - contract-calls.ts: Contract calling functionality
+ * - indexedDB-calls.ts: IndexedDB data access facade
  */
 export class WebAuthnManager {
   private readonly webauthnWorkers: WebAuthnWorkers;
   private readonly networkCalls: WebAuthnNetworkCalls;
   private readonly contractCalls: WebAuthnContractCalls;
+  private readonly indexedDBCalls: WebAuthnIndexedDBCalls;
   private readonly vrfManager: VRFManager;
 
   constructor() {
     this.webauthnWorkers = new WebAuthnWorkers();
     this.networkCalls = new WebAuthnNetworkCalls(this.webauthnWorkers);
-    this.contractCalls = new WebAuthnContractCalls(this.webauthnWorkers, this.networkCalls);
+    this.indexedDBCalls = new WebAuthnIndexedDBCalls();
+    this.contractCalls = new WebAuthnContractCalls(this.webauthnWorkers, this.networkCalls, this.indexedDBCalls);
     this.vrfManager = new VRFManager();
   }
 
-  // === INDEXDB OPERATIONS (Now using unified IndexDBManager) ===
+  // === INDEXDB OPERATIONS (Now using WebAuthnindexedDBCalls facade) ===
 
   /**
-   * Store user data using unified IndexDBManager
+   * Store user data using IndexedDB facade
    */
   async storeUserData(userData: UserData): Promise<void> {
-    await indexDBManager.storeWebAuthnUserData(userData);
+    await this.indexedDBCalls.storeWebAuthnUserData(userData);
   }
 
   /**
-   * Retrieve user data using unified IndexDBManager
+   * Get complete user data (preferred method)
+   * This replaces both getUserData() and getUser() with a single comprehensive method
    */
-  async getUserData(nearAccountId: string): Promise<UserData | null> {
-    return await indexDBManager.getWebAuthnUserData(nearAccountId);
+  async getUser(nearAccountId: string): Promise<ClientUserData | null> {
+    return await this.indexedDBCalls.getUser(nearAccountId);
   }
 
   /**
-   * Get all user data using unified IndexDBManager
+   * Check if user has WebAuthn/passkey data configured
+   */
+  async hasWebAuthnData(nearAccountId: string): Promise<boolean> {
+    const user = await this.getUser(nearAccountId);
+    return !!(user?.clientNearPublicKey && user?.passkeyCredential);
+  }
+
+  /**
+   * Get all user data using IndexedDB facade
    */
   async getAllUserData(): Promise<UserData[]> {
-    const allUsers = await indexDBManager.getAllUsers();
+    const allUsers = await this.indexedDBCalls.getAllUsers();
     return allUsers.map(user => ({
       nearAccountId: user.nearAccountId,
       clientNearPublicKey: user.clientNearPublicKey,
       lastUpdated: user.lastUpdated,
       prfSupported: user.prfSupported,
-      passkeyCredential: user.passkeyCredential
+      deterministicKey: false, // VRF mode doesn't use deterministic keys
+      passkeyCredential: user.passkeyCredential,
+      vrfCredentials: user.vrfCredentials
     }));
+  }
+
+  /**
+   * Get all users (comprehensive data)
+   */
+  async getAllUsers(): Promise<ClientUserData[]> {
+    return await this.indexedDBCalls.getAllUsers();
+  }
+
+  /**
+   * Get all authenticators for a user
+   */
+  async getAuthenticatorsByUser(nearAccountId: string): Promise<ClientAuthenticatorData[]> {
+    return await this.indexedDBCalls.getAuthenticatorsByUser(nearAccountId);
+  }
+
+  /**
+   * Update user's last login timestamp
+   */
+  async updateLastLogin(nearAccountId: string): Promise<void> {
+    return await this.indexedDBCalls.updateLastLogin(nearAccountId);
+  }
+
+  /**
+   * Register a new user
+   */
+  async registerUser(nearAccountId: string, additionalData?: Partial<ClientUserData>): Promise<ClientUserData> {
+    return await this.indexedDBCalls.registerUser(nearAccountId, additionalData);
+  }
+
+  /**
+   * Store an authenticator
+   */
+  async storeAuthenticator(authenticatorData: {
+    nearAccountId: string;
+    credentialID: string;
+    credentialPublicKey: Uint8Array;
+    transports?: string[];
+    clientNearPublicKey?: string;
+    name?: string;
+    registered: string;
+    lastUsed?: string;
+    backedUp: boolean;
+    syncedAt: string;
+  }): Promise<void> {
+    return await this.indexedDBCalls.storeAuthenticator(authenticatorData);
+  }
+
+  /**
+   * Extract username from NEAR account ID
+   */
+  extractUsername(nearAccountId: string): string {
+    return this.indexedDBCalls.extractUsername(nearAccountId);
+  }
+
+  /**
+   * Perform an atomic operation
+   */
+  async atomicOperation<T>(callback: (db: any) => Promise<T>): Promise<T> {
+    return await this.indexedDBCalls.atomicOperation(callback);
+  }
+
+  /**
+   * Rollback user registration
+   */
+  async rollbackUserRegistration(nearAccountId: string): Promise<void> {
+    return await this.indexedDBCalls.rollbackUserRegistration(nearAccountId);
+  }
+
+  // === VRF MANAGER ACCESS ===
+
+  /**
+   * Get the VRF manager instance
+   */
+  getVRFManager(): VRFManager {
+    return this.vrfManager;
   }
 
   // === CONVENIENCE METHODS ===
@@ -75,39 +156,18 @@ export class WebAuthnManager {
    * Check if a passkey credential exists for a NEAR account ID
    */
   async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
-    return await indexDBManager.hasPasskeyCredential(nearAccountId);
+    return await this.indexedDBCalls.hasPasskeyCredential(nearAccountId);
   }
 
   /**
    * Get the last used NEAR account ID from stored user data
    */
   async getLastUsedNearAccountId(): Promise<string | null> {
-    return await indexDBManager.getLastUser().then(user => user?.nearAccountId || null);
+    const lastUser = await this.indexedDBCalls.getLastUser();
+    return lastUser?.nearAccountId || null;
   }
 
   // === WEBAUTHN AUTHENTICATION & REGISTRATION ===
-
-  /**
-   * Convert PublicKeyCredentialRequestOptionsJSON to PublicKeyCredentialRequestOptions
-   * Helper method for WebAuthn API conversion
-   */
-  private convertAuthenticationOptions(
-    options: PublicKeyCredentialRequestOptionsJSON
-  ): PublicKeyCredentialRequestOptions {
-    return {
-      challenge: bufferDecode(options.challenge),
-      timeout: options.timeout,
-      rpId: options.rpId,
-      allowCredentials: options.allowCredentials?.map(cred => ({
-        id: typeof cred.id === 'string' ? bufferDecode(cred.id) : cred.id as BufferSource,
-        type: 'public-key' as const,
-        transports: cred.transports as AuthenticatorTransport[]
-      })),
-      userVerification: options.userVerification,
-      extensions: options.extensions
-    };
-  }
-
 
   /**
    * Authenticate with PRF - generate local challenge for serverless mode

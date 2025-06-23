@@ -13,7 +13,7 @@ members = [
     "webauthn-contract",
 ]
 exclude = [
-    "packages/passkey/src/wasm-vrf-worker",
-    "packages/passkey/src/wasm-signer-worker",
+    "packages/passkey/src/wasm_vrf_worker",
+    "packages/passkey/src/wasm_signer_worker",
 ]
 

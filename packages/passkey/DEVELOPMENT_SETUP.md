@@ -29,15 +29,15 @@ npm run copy-assets  # Copy latest workers to frontend
 frontend/
 ├── public/
 │   └── workers/           # 🛠️ Development worker files
-│       ├── onetimePasskeySigner.worker.js
-│       ├── web3authn_passkey_worker.js
-│       └── web3authn_passkey_worker_bg.wasm
+│       ├── web3authn-signer.worker.js
+│       ├── wasm_signer_worker.js
+│       └── wasm_signer_worker_bg.wasm
 └── src/
 
 packages/passkey/
 ├── dist/
-│   ├── onetimePasskeySigner.worker.js  # 🚀 Production worker
-│   ├── web3authn_passkey_worker.js
-│   └── web3authn_passkey_worker_bg.wasm
+│   ├── web3authn-signer.worker.js  # 🚀 Production worker
+│   ├── wasm_signer_worker.js
+│   └── wasm_signer_worker_bg.wasm
 └── src/
 ```

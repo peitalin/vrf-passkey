@@ -23,7 +23,6 @@ export interface BaseSSERegistrationEvent {
 export interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
   step: 1;
   phase: 'webauthn-verification';
-  mode?: 'optimistic' | 'secure';
 }
 
 export interface UserReadySSEEvent extends BaseSSERegistrationEvent {
@@ -139,21 +138,18 @@ export type ActionEvent =
 
 // Function Options
 export interface RegistrationOptions {
-  optimisticAuth: boolean;
   onEvent?: EventCallback<RegistrationSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
 
 export interface LoginOptions {
-  optimisticAuth: boolean;
   onEvent?: EventCallback<LoginEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
 
 export interface ActionOptions {
-  optimisticAuth?: boolean;
   onEvent?: EventCallback<ActionEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;

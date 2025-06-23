@@ -1,8 +1,5 @@
 import type { Provider } from '@near-js/providers';
-import type { PublicKeyCredentialRequestOptionsJSON } from '../types/webauthn';
-import { publicKeyCredentialToJSON } from '../../utils/encoders';
 import { WebAuthnWorkers } from './webauthn-workers';
-import type { NetworkAuthenticationOptions } from '../types/worker';
 
 /**
  * WebAuthnNetworkCalls handles server/contract communication

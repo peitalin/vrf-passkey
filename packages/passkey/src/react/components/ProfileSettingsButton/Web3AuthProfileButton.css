@@ -93,6 +93,10 @@
 }
 
 /* Gear icon animation for AvatarIcon */
+.web3authn-profile-dropdown-gear-icon {
+  transition: transform 400ms ease;
+}
+
 .web3authn-profile-dropdown-gear-icon.open {
   animation: web3authn-gearRotateIn 0.6s ease-out;
   animation-fill-mode: forwards;

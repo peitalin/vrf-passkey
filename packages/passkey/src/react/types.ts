@@ -54,7 +54,6 @@ export interface LoginResult extends BaseResult {
 
 // === ACTION EXECUTION TYPES ===
 export interface ExecuteActionCallbacks {
-  optimisticAuth?: boolean;
   beforeDispatch?: () => void;
   afterDispatch?: (success: boolean, data?: any) => void;
 }
@@ -90,20 +89,21 @@ export interface NearRpcProviderHook {
   getNearRpcProvider: () => import('@near-js/providers').Provider;
 }
 
-export interface OptimisticAuthOptions {
-  currentUser?: string | null;
-  initialValue?: boolean;
-}
-
-export interface OptimisticAuthHook {
-  optimisticAuth: boolean;
-  setOptimisticAuth: (value: boolean) => void;
-}
-
 // Account input hook types
 export interface UseAccountInputReturn extends AccountInputState {
   setInputUsername: (username: string) => void;
   refreshAccountData: () => Promise<void>;
+}
+
+// Relayer hook types
+export interface UseRelayerOptions {
+  initialValue?: boolean;
+}
+
+export interface UseRelayerReturn {
+  useRelayer: boolean;
+  setUseRelayer: (value: boolean) => void;
+  toggleRelayer: () => void;
 }
 
 // === SIMPLIFIED CONTEXT TYPES ===
@@ -125,12 +125,13 @@ export interface PasskeyContextType {
     userData: any | null;
     vrfSessionDuration?: number;
   }>;
-  // Settings
-  optimisticAuth: boolean;
-  setOptimisticAuth: (value: boolean) => void;
   // Account input management
   setInputUsername: (username: string) => void;
   refreshAccountData: () => Promise<void>;
+  // Relayer management
+  useRelayer: boolean;
+  setUseRelayer: (value: boolean) => void;
+  toggleRelayer: () => void;
   // Core PasskeyManager instance - provides all user-facing functionality
   passkeyManager: PasskeyManager;
 }
@@ -143,7 +144,7 @@ export interface PasskeyContextProviderProps {
     serverUrl?: string;
     nearNetwork?: 'testnet' | 'mainnet';
     relayerAccount?: string;
-    optimisticAuth?: boolean;
+    useRelayer?: boolean;
   };
 }
 

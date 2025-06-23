@@ -1,6 +1,6 @@
 import { WebAuthnManager } from '../WebAuthnManager';
-import { indexDBManager } from '../IndexDBManager';
-import { VRFManager } from '../WebAuthnManager/vrf-manager';
+import { IndexedDBManager } from '../IndexedDBManager';
+import { VRFManager } from '../WebAuthnManager/vrfManager';
 
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
@@ -177,9 +177,8 @@ export class PasskeyManager {
         };
       }
 
-      // Get user data from IndexedDB
-      const userData = await this.webAuthnManager.getUserData(targetAccountId);
-      const indexDBUser = await indexDBManager.getUser(targetAccountId);
+      // Get comprehensive user data from IndexedDB (single call instead of two)
+      const userData = await this.webAuthnManager.getUser(targetAccountId);
 
       // Check VRF Web Worker status
       await this.ensureVRFReady();
@@ -198,7 +197,7 @@ export class PasskeyManager {
         nearAccountId: targetAccountId,
         publicKey,
         vrfActive,
-        userData: indexDBUser,
+        userData,
         vrfSessionDuration: vrfStatus.sessionDuration
       };
 
@@ -224,7 +223,7 @@ export class PasskeyManager {
    * - Challenge only needs to be random to prevent pre-computation
    * - Security comes from device possession + biometrics, not challenge validation
    */
-  async exportPrivateKey(nearAccountId?: string, optimisticAuth?: boolean): Promise<string> {
+  async exportPrivateKey(nearAccountId?: string): Promise<string> {
     // If no nearAccountId provided, try to get the last used account
     if (!nearAccountId) {
       const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
@@ -235,7 +234,7 @@ export class PasskeyManager {
     }
 
     // Get user data to verify user exists
-    const userData = await this.webAuthnManager.getUserData(nearAccountId);
+    const userData = await this.webAuthnManager.getUser(nearAccountId);
     if (!userData) {
       throw new Error(`No user data found for ${nearAccountId}`);
     }
@@ -251,7 +250,7 @@ export class PasskeyManager {
     console.log('🔐 Using local authentication for private key export (no server coordination needed)');
 
     // Get stored authenticator data for this user
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    const authenticators = await this.webAuthnManager.getAuthenticatorsByUser(nearAccountId);
     if (authenticators.length === 0) {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
@@ -308,7 +307,7 @@ export class PasskeyManager {
   /**
    * Export key pair (both private and public keys)
    */
-  async exportKeyPair(nearAccountId?: string, optimisticAuth: boolean = false): Promise<{
+  async exportKeyPair(nearAccountId?: string): Promise<{
     userAccountId: string;
     privateKey: string;
     publicKey: string
@@ -323,7 +322,7 @@ export class PasskeyManager {
     }
 
     // Get user data to retrieve public key
-    const userData = await this.webAuthnManager.getUserData(nearAccountId);
+    const userData = await this.webAuthnManager.getUser(nearAccountId);
     if (!userData) {
       throw new Error(`No user data found for ${nearAccountId}`);
     }
@@ -333,7 +332,7 @@ export class PasskeyManager {
     }
 
     // Export private key using the method above
-    const privateKey = await this.exportPrivateKey(nearAccountId, optimisticAuth);
+    const privateKey = await this.exportPrivateKey(nearAccountId);
 
     return {
       userAccountId: nearAccountId,
@@ -367,10 +366,6 @@ export class PasskeyManager {
     prfOutput?: ArrayBuffer;
     /** Force view mode (read-only, no authentication) */
     viewOnly?: boolean;
-    /** Force state-changing mode (requires authentication) */
-    requiresAuth?: boolean;
-    /** Force server mode (optimisticAuth==true) or serverless mode (optimisticAuth==false) */
-    optimisticAuth?: boolean;
   }): Promise<any> {
     if (!this.nearRpcProvider) {
       throw new Error('NEAR RPC provider is required for contract calls');
@@ -385,8 +380,6 @@ export class PasskeyManager {
       nearAccountId,
       prfOutput,
       viewOnly = false,
-      requiresAuth = false,
-      optimisticAuth
     } = options;
 
     // 1. Handle explicit view-only calls

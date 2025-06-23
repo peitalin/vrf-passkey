@@ -3,13 +3,33 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import { SignedTransaction } from '@near-js/transactions';
 import { WebAuthnWorkers } from './webauthn-workers';
 import { WebAuthnNetworkCalls } from './network-calls';
-import { indexDBManager } from '../IndexDBManager';
+import { WebAuthnIndexedDBCalls } from './indexedDB-calls';
 import { bufferDecode, base64UrlDecode, base64UrlEncode } from '../../utils/encoders';
 import bs58 from 'bs58';
 import type {
   ContractCallOptions,
   AccessKeyView
 } from '../types/worker';
+import type {
+  VrfChallengeData,
+  RegistrationData,
+  UserDataForTransaction,
+  ContractVerificationResponse,
+  VrfAuthenticationResult,
+  VrfRegistrationResult,
+  CallPermissionsResult,
+  NetworkInfo,
+  WebAuthnAuthenticationData,
+  WebAuthnRegistrationData,
+  ContractVrfData,
+  AuthenticatorTransport,
+  UserVerificationRequirement
+} from '../types/webauthn';
+
+const CONTRACT_FUNCTIONS = {
+  VERIFY_AUTHENTICATION_RESPONSE: 'verify_authentication_response',
+  VERIFY_REGISTRATION_RESPONSE: 'verify_registration_response',
+}
 
 /**
  * WebAuthnContractCalls handles blockchain contract interactions
@@ -17,10 +37,16 @@ import type {
 export class WebAuthnContractCalls {
   private readonly webauthnWorkers: WebAuthnWorkers;
   private readonly networkCalls: WebAuthnNetworkCalls;
+  private readonly indexedDBCalls: WebAuthnIndexedDBCalls;
 
-  constructor(webauthnWorkers: WebAuthnWorkers, networkCalls: WebAuthnNetworkCalls) {
+  constructor(
+    webauthnWorkers: WebAuthnWorkers,
+    networkCalls: WebAuthnNetworkCalls,
+    indexedDBCalls: WebAuthnIndexedDBCalls
+  ) {
     this.webauthnWorkers = webauthnWorkers;
     this.networkCalls = networkCalls;
+    this.indexedDBCalls = indexedDBCalls;
   }
 
   /**
@@ -37,12 +63,11 @@ export class WebAuthnContractCalls {
       contractId,
       methodName,
       args,
-      gas = '50000000000000',
+      gas = '30000000000000',
       attachedDeposit = '0',
       nearAccountId,
       prfOutput,
       viewOnly = false,
-      requiresAuth = false
     } = options;
 
     // 1. Handle explicit view-only calls
@@ -51,7 +76,7 @@ export class WebAuthnContractCalls {
     }
 
     // 2. Handle state-changing calls
-    console.log(`Executing state-changing call: ${methodName}`);
+    console.debug(`Executing state-changing call: ${methodName}`);
 
     // 2a. Use pre-obtained PRF if available (batch mode)
     if (prfOutput && nearAccountId) {
@@ -92,16 +117,16 @@ export class WebAuthnContractCalls {
     methodName: string,
     args: any
   ): Promise<any> {
-    console.log(`Calling contract view function: ${methodName}`);
+    console.debug(`Calling contract view function: ${methodName}`);
 
     const argsJson = JSON.stringify(args);
     const argsBase64 = Buffer.from(argsJson).toString('base64');
 
-    console.log('🔧 DEBUG: View call execution:');
-    console.log('  - Method:', methodName);
-    console.log('  - Args JSON length:', argsJson.length);
-    console.log('  - Args JSON sample:', argsJson.substring(0, 200) + '...');
-    console.log('  - Args Base64 length:', argsBase64.length);
+    console.debug('DEBUG: View call execution:');
+    console.debug('  - Method:', methodName);
+    console.debug('  - Args JSON length:', argsJson.length);
+    console.debug('  - Args JSON sample:', argsJson.substring(0, 200) + '...');
+    console.debug('  - Args Base64 length:', argsBase64.length);
 
     const result = await nearRpcProvider.query({
       request_type: 'call_function',
@@ -129,7 +154,7 @@ export class WebAuthnContractCalls {
       prfOutput: ArrayBuffer;
     }
   ): Promise<any> {
-    console.log(`Calling registration contract function: ${methodName} for account: ${nearAccountId}`);
+    console.debug(`Calling registration contract function: ${methodName} for account: ${nearAccountId}`);
 
     try {
       // For registration verification, we need to call the contract to save authenticator data
@@ -141,7 +166,7 @@ export class WebAuthnContractCalls {
       }
 
       // Use the PRF output from registration directly
-      console.log('Using registration PRF output for contract call...');
+      console.debug('Using registration PRF output for contract call...');
       return this.executeRegistrationCallWithData(
         nearRpcProvider,
         contractId,
@@ -186,7 +211,7 @@ export class WebAuthnContractCalls {
     }
 
     // Get stored authenticator data for this user
-    const authenticators = await indexDBManager.getAuthenticatorsByUser(nearAccountId);
+    const authenticators = await this.indexedDBCalls.getAuthenticatorsByUser(nearAccountId);
     if (authenticators.length === 0) {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
@@ -228,7 +253,7 @@ export class WebAuthnContractCalls {
       throw new Error('PRF output not available - required for contract calls');
     }
 
-    console.log('Contract call authentication successful, executing with PRF...');
+    console.debug('Contract call authentication successful, executing with PRF...');
 
     return this.executeAuthenticatedCallWithPrf(
       nearRpcProvider,
@@ -256,7 +281,7 @@ export class WebAuthnContractCalls {
     prfOutput: ArrayBuffer
   ): Promise<FinalExecutionOutcome> {
     // No challenge validation needed - VRF provides cryptographic freshness
-    console.log("Contract call (with PRF): secureTransactionSigningWithPrf");
+    console.debug("Contract call (with PRF): secureTransactionSigningWithPrf");
 
     return this.signAndSubmitTransaction(
       nearRpcProvider,
@@ -285,14 +310,14 @@ export class WebAuthnContractCalls {
     nearPublicKey: string,
     prfOutput: ArrayBuffer
   ): Promise<FinalExecutionOutcome> {
-    console.log(`Registration contract call: ${methodName} for ${nearAccountId}`);
+    console.debug(`Registration contract call: ${methodName} for ${nearAccountId}`);
 
     // Wait for account and access key to be available (with retry logic)
     const accessKeyInfo = await this.waitForAccessKey(nearRpcProvider, nearAccountId, nearPublicKey);
     const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
 
     // Debug blockInfo to understand the structure
-    console.log('📊 Block info debug:', {
+    console.debug('📊 Block info debug:', {
       hasBlockInfo: !!blockInfo,
       hasHeader: !!blockInfo?.header,
       hasHash: !!blockInfo?.header?.hash,
@@ -309,12 +334,12 @@ export class WebAuthnContractCalls {
     const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
 
     // No challenge validation needed - VRF provides cryptographic freshness
-    console.log("Registration contract call: secureTransactionSigningWithPrf");
+    console.debug("Registration contract call: secureTransactionSigningWithPrf");
 
     let blockHashBytes: number[];
     try {
       blockHashBytes = Array.from(bs58.decode(blockInfo.header.hash));
-      console.log('✅ Block hash decoded successfully:', blockHashBytes.length, 'bytes');
+      console.debug('✅ Block hash decoded successfully:', blockHashBytes.length, 'bytes');
     } catch (error: any) {
       console.error('❌ Failed to decode block hash:', error);
       console.error('Block hash value:', blockInfo.header.hash);
@@ -322,11 +347,11 @@ export class WebAuthnContractCalls {
     }
 
     // Debug the registration transaction args before signing
-    console.log('🔧 DEBUG: Registration transaction signing args:');
-    console.log('  - Method name:', methodName);
-    console.log('  - Contract args type:', typeof args);
-    console.log('  - Contract args JSON structure:');
-    console.log(JSON.stringify(args, null, 2));
+    console.debug('🔧 DEBUG: Registration transaction signing args:');
+    console.debug('  - Method name:', methodName);
+    console.debug('  - Contract args type:', typeof args);
+    console.debug('  - Contract args JSON structure:');
+    console.debug(JSON.stringify(args, null, 2));
 
     // Use WASM worker to sign the transaction
     const signedTxResult = await this.webauthnWorkers.secureTransactionSigningWithPrf(
@@ -349,13 +374,13 @@ export class WebAuthnContractCalls {
 
     try {
       // Submit the transaction asynchronously to avoid RPC timeouts
-      console.log("Submitting registration transaction with optimistic execution...");
+      console.debug("Submitting registration transaction with optimistic execution...");
       const finalResult = await nearRpcProvider.sendTransactionUntil(
         signedTransaction,
         'INCLUDED_FINAL' // Wait until included in final block
       );
 
-      console.log("Registration transaction successful:", finalResult);
+      console.debug("Registration transaction successful:", finalResult);
       return finalResult;
 
     } catch (error: any) {
@@ -375,7 +400,7 @@ export class WebAuthnContractCalls {
     maxRetries: number = 10,
     delayMs: number = 1000
   ): Promise<AccessKeyView> {
-    console.log(`Waiting for access key to be available for ${nearAccountId}...`);
+    console.debug(`Waiting for access key to be available for ${nearAccountId}...`);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -384,10 +409,10 @@ export class WebAuthnContractCalls {
           nearPublicKey,
         ) as AccessKeyView;
 
-        console.log(`✅ Access key found on attempt ${attempt}`);
+        console.debug(`✅ Access key found on attempt ${attempt}`);
         return accessKeyInfo;
       } catch (error: any) {
-        console.log(`⏳ Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
+        console.debug(`⏳ Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
 
         if (attempt === maxRetries) {
           console.error(`❌ Access key still not available after ${maxRetries} attempts`);
@@ -396,7 +421,7 @@ export class WebAuthnContractCalls {
 
         // Wait before next attempt with exponential backoff
         const delay = delayMs * Math.pow(1.5, attempt - 1);
-        console.log(`   Waiting ${delay}ms before retry...`);
+        console.debug(`   Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -433,7 +458,7 @@ export class WebAuthnContractCalls {
     ]);
 
     // Debug blockInfo to understand the structure
-    console.log('📊 Block info debug (signAndSubmitTransaction):', {
+    console.debug('📊 Block info debug (signAndSubmitTransaction):', {
       hasBlockInfo: !!blockInfo,
       hasHeader: !!blockInfo?.header,
       hasHash: !!blockInfo?.header?.hash,
@@ -449,12 +474,12 @@ export class WebAuthnContractCalls {
 
     const nonce = accessKeyInfo.nonce + BigInt(1); // Proper nonce calculation
 
-    console.log("Contract call: secureTransactionSigningWithPrf");
+    console.debug("Contract call: secureTransactionSigningWithPrf");
 
     let blockHashBytes: number[];
     try {
       blockHashBytes = Array.from(bs58.decode(blockInfo.header.hash));
-      console.log('✅ Block hash decoded successfully:', blockHashBytes.length, 'bytes');
+      console.debug('✅ Block hash decoded successfully:', blockHashBytes.length, 'bytes');
     } catch (error: any) {
       console.error('❌ Failed to decode block hash:', error);
       console.error('Block hash value:', blockInfo.header.hash);
@@ -482,13 +507,13 @@ export class WebAuthnContractCalls {
 
     try {
       // Submit the transaction asynchronously to avoid RPC timeouts
-      console.log("Submitting transaction with optimistic execution...");
+      console.debug("Submitting transaction with optimistic execution...");
       const finalResult = await nearRpcProvider.sendTransactionUntil(
         signedTransaction,
         'INCLUDED_FINAL' // Wait until included in final block
       );
 
-      console.log("Transaction successful:", finalResult);
+      console.debug("Transaction successful:", finalResult);
       return finalResult;
 
     } catch (error: any) {
@@ -498,11 +523,11 @@ export class WebAuthnContractCalls {
   }
 
   /**
-   * Get user data for transaction - integrates with IndexDBManager
+   * Get user data for transaction - integrates with IndexedDBManager
    */
-  private async getUserDataForTransaction(nearAccountId: string): Promise<{ clientNearPublicKey?: string } | null> {
+  private async getUserDataForTransaction(nearAccountId: string): Promise<UserDataForTransaction | null> {
     try {
-      const userData = await indexDBManager.getWebAuthnUserData(nearAccountId);
+      const userData = await this.indexedDBCalls.getWebAuthnUserData(nearAccountId);
       return userData ? { clientNearPublicKey: userData.clientNearPublicKey } : null;
     } catch (error: any) {
       console.error('Failed to get user data for transaction:', error);
@@ -529,14 +554,14 @@ export class WebAuthnContractCalls {
     nearRpcProvider: Provider,
     accountId: string,
     publicKey: string
-  ): Promise<{ hasPermission: boolean; allowedReceivers?: string[]; allowedMethods?: string[] }> {
+  ): Promise<CallPermissionsResult> {
     return await this.networkCalls.checkAccountPermissions(nearRpcProvider, accountId, publicKey);
   }
 
   /**
    * Get blockchain network information for transaction building
    */
-  async getNetworkInfo(nearRpcProvider: Provider) {
+  async getNetworkInfo(nearRpcProvider: Provider): Promise<any> {
     return await this.networkCalls.getNetworkInfo(nearRpcProvider);
   }
 
@@ -549,24 +574,11 @@ export class WebAuthnContractCalls {
   async verifyVrfAuthentication(
     nearRpcProvider: Provider,
     contractId: string,
-    vrfChallengeData: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      userId: string;
-      rpId: string;
-      blockHeight: number;
-      blockHash: string;
-    },
+    vrfChallengeData: VrfChallengeData,
     webauthnCredential: PublicKeyCredential,
-  ): Promise<{
-    success: boolean;
-    verified?: boolean;
-    error?: string;
-  }> {
+  ): Promise<VrfAuthenticationResult> {
     try {
-      console.log('🔐 Verifying VRF authentication with contract...');
+      console.debug('Verifying VRF authentication with contract...');
 
       // Extract WebAuthn response data
       const response = webauthnCredential.response as AuthenticatorAssertionResponse;
@@ -590,16 +602,16 @@ export class WebAuthnContractCalls {
       // Note: Contract expects base64url strings and camelCase field names per serde renames
       const webauthnAuthentication = {
         id: webauthnCredential.id,
-        rawId: base64UrlEncode(new Uint8Array(webauthnCredential.rawId)),                    // Fixed: camelCase + base64url
+        rawId: base64UrlEncode(new Uint8Array(webauthnCredential.rawId)),
         response: {
-          clientDataJSON: base64UrlEncode(clientDataJSONBytes),                              // Fixed: camelCase + base64url
-          authenticatorData: base64UrlEncode(authenticatorData),                             // Fixed: camelCase + base64url
-          signature: base64UrlEncode(signature),                                             // Fixed: base64url
-          userHandle: response.userHandle ? base64UrlEncode(new Uint8Array(response.userHandle)) : null,  // Fixed: camelCase + base64url
+          clientDataJSON: base64UrlEncode(clientDataJSONBytes),
+          authenticatorData: base64UrlEncode(authenticatorData),
+          signature: base64UrlEncode(signature),
+          userHandle: response.userHandle ? base64UrlEncode(new Uint8Array(response.userHandle)) : null,
         },
-        authenticatorAttachment: (webauthnCredential as any).authenticatorAttachment || null,   // Fixed: camelCase
+        authenticatorAttachment: (webauthnCredential as any).authenticatorAttachment || null,
         type: 'public-key',
-        clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},           // Fixed: camelCase
+        clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},
       };
 
       // Call contract verification method
@@ -608,31 +620,25 @@ export class WebAuthnContractCalls {
         webauthn_authentication: webauthnAuthentication,
       };
 
-      console.log('Calling verify_authentication_response on contract...');
-      console.log('  - Contract ID:', contractId);
-      console.log('  - VRF Block Height:', vrfChallengeData.blockHeight);
-      console.log('  - RP ID:', vrfChallengeData.rpId);
-      console.log('  - User ID from VRF data:', vrfChallengeData.userId);
-      console.log('  - Credential ID being sent:', webauthnCredential.id);
-      console.log('  - Credential rawId (base64url):', base64UrlEncode(new Uint8Array(webauthnCredential.rawId)));
-      console.log('🔍 Contract args structure:', JSON.stringify(contractArgs, null, 2));
+      console.debug(`Calling ${CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE} on contract...`);
+      console.debug('Contract args structure:', JSON.stringify(contractArgs, null, 2));
 
       // Call contract as view function (gas-free, read-only)
       const result = await this.executeViewCall(
         nearRpcProvider,
         contractId,
-        'verify_authentication_response',
+        CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
         contractArgs
       );
 
       // NOTE: view vs non-view function calls
       //
       // DEBUG VERSION: Uncomment below to call as authenticated function for debugging contract logs
-      // console.log('🔧 DEBUG: Calling verify_authentication_response as authenticated function to see logs');
+      // console.debug('🔧 DEBUG: Calling verify_authentication_response as authenticated function to see logs');
       // const result = await this.executeAuthenticatedCall(
       //   nearRpcProvider,
       //   contractId,
-      //   'verify_authentication_response',
+      //   CONTRACT_FUNCTIONS.VERIFY_AUTHENTICATION_RESPONSE,
       //   contractArgs,
       //   '100000000000000', // 100 TGas for debugging
       //   '0', // no deposit
@@ -643,7 +649,7 @@ export class WebAuthnContractCalls {
       const contractResponse = this.parseContractVerificationResponse(result);
 
       if (contractResponse.verified) {
-        console.log('✅ VRF authentication verified by contract');
+        console.debug('✅ VRF authentication verified by contract');
         return {
           success: true,
           verified: true,
@@ -669,11 +675,7 @@ export class WebAuthnContractCalls {
   /**
    * Parse contract verification response
    */
-  private parseContractVerificationResponse(result: any): {
-    verified: boolean;
-    transaction_id?: string;
-    error?: string;
-  } {
+  private parseContractVerificationResponse(result: any): ContractVerificationResponse {
     try {
       // Handle different response formats from NEAR RPC
       let responseData: any;
@@ -686,7 +688,7 @@ export class WebAuthnContractCalls {
           responseData = JSON.parse(resultString);
         } else if (result.receipts_outcome) {
           // Handle transaction response format (change calls)
-          console.log('🔍 Parsing transaction response for verification result');
+          console.debug('🔍 Parsing transaction response for verification result');
 
           // Look for return value in the transaction outcome
           const outcome = result.receipts_outcome?.[0]?.outcome;
@@ -737,30 +739,13 @@ export class WebAuthnContractCalls {
   async verifyVrfRegistration(
     nearRpcProvider: Provider,
     contractId: string,
-    vrfChallengeData: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      userId: string;
-      rpId: string;
-      blockHeight: number;
-      blockHash: string;
-    },
+    vrfChallengeData: VrfChallengeData,
     webauthnCredential: PublicKeyCredential,
     nearAccountId: string,
-    registrationData?: {
-      nearPublicKey: string;
-      prfOutput: ArrayBuffer;
-    }
-  ): Promise<{
-    success: boolean;
-    verified?: boolean;
-    transactionId?: string;
-    error?: string;
-  }> {
+    registrationData?: RegistrationData
+  ): Promise<VrfRegistrationResult> {
     try {
-      console.log('🔐 Verifying VRF registration with contract...');
+      console.debug('🔐 Verifying VRF registration with contract...');
 
       // Extract WebAuthn response data
       const response = webauthnCredential.response as AuthenticatorAttestationResponse;
@@ -790,15 +775,15 @@ export class WebAuthnContractCalls {
       // Note: Contract expects base64url strings and camelCase field names per serde renames
       const webauthnRegistration = {
         id: webauthnCredential.id,
-        rawId: base64UrlEncode(new Uint8Array(webauthnCredential.rawId)),           // Fixed: camelCase
+        rawId: base64UrlEncode(new Uint8Array(webauthnCredential.rawId)),
         response: {
-          clientDataJSON: base64UrlEncode(clientDataJSONBytes),                     // Fixed: camelCase
-          attestationObject: base64UrlEncode(attestationObject),                    // Fixed: camelCase
+          clientDataJSON: base64UrlEncode(clientDataJSONBytes),
+          attestationObject: base64UrlEncode(attestationObject),
           transports: (response as any).getTransports?.() || [],
         },
-        authenticatorAttachment: (webauthnCredential as any).authenticatorAttachment || null,  // Fixed: camelCase
+        authenticatorAttachment: (webauthnCredential as any).authenticatorAttachment || null,
         type: 'public-key',
-        clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},          // Fixed: camelCase
+        clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},
       };
 
       // Call contract verification method
@@ -807,25 +792,20 @@ export class WebAuthnContractCalls {
         webauthn_registration: webauthnRegistration,
       };
 
-      console.log('🔧 DEBUG: Contract args being sent to verify_registration_response:');
-      console.log('🔧 Full contract args JSON:');
-      console.log(JSON.stringify(contractArgs, null, 2));
-      console.log('🔧 VRF data structure:');
-      console.log(JSON.stringify(vrfData, null, 2));
-      console.log('🔧 WebAuthn data structure:');
-      console.log(JSON.stringify(webauthnRegistration, null, 2));
-      console.log('🔧 Contract call details:');
-      console.log('  - Contract ID:', contractId);
-      console.log('  - Method: verify_registration_response');
-      console.log('  - VRF Block Height:', vrfChallengeData.blockHeight);
-      console.log('  - RP ID:', vrfChallengeData.rpId);
+      console.debug(`DEBUG: Contract args being sent to ${CONTRACT_FUNCTIONS.VERIFY_REGISTRATION_RESPONSE}:`);
+      console.debug('Full contract args JSON:');
+      console.debug(JSON.stringify(contractArgs, null, 2));
+      console.debug('VRF data structure:');
+      console.debug(JSON.stringify(vrfData, null, 2));
+      console.debug('WebAuthn data structure:');
+      console.debug(JSON.stringify(webauthnRegistration, null, 2));
 
       // Use state-changing function for registration (saves authenticator on-chain)
       // Special case: account exists but user data not in IndexedDB yet
       const result = await this.executeRegistrationContractCall(
         nearRpcProvider,
         contractId,
-        'verify_registration_response',
+        CONTRACT_FUNCTIONS.VERIFY_REGISTRATION_RESPONSE,
         contractArgs,
         nearAccountId,
         registrationData
@@ -835,7 +815,7 @@ export class WebAuthnContractCalls {
       const contractResponse = this.parseContractVerificationResponse(result);
 
       if (contractResponse.verified) {
-        console.log('✅ VRF registration verified by contract');
+        console.debug('✅ VRF registration verified by contract');
         return {
           success: true,
           verified: true,

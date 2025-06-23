@@ -7,7 +7,7 @@ import { useProfileState } from './hooks/useProfileState';
 import { useProfileDimensions } from './hooks/useProfileDimensions';
 import { useProfileAnimations } from './hooks/useProfileAnimations';
 import { usePasskeyContext } from '../../context';
-import type { ProfileMenuItem, ProfileCalculationParams } from './types';
+import type { ProfileMenuItem, ProfileCalculationParams, ToggleColorProps } from './types';
 import './Web3AuthProfileButton.css';
 
 // Configuration constants
@@ -23,33 +23,29 @@ const MENU_CONFIG = {
 export interface ProfileButtonProps {
   username?: string | null;
   nearAccountId?: string | null;
-  optimisticAuth?: boolean;
   onLogout?: () => void;
-  onOptimisticAuthChange?: (value: boolean) => void;
+  toggleColors?: ToggleColorProps;
 }
 
 export const ProfileButton: React.FC<ProfileButtonProps> = ({
   username: usernameProp,
   nearAccountId: nearAccountIdProp,
-  optimisticAuth: optimisticAuthProp,
   onLogout: onLogoutProp,
-  onOptimisticAuthChange: onOptimisticAuthChangeProp,
+  toggleColors,
 }) => {
   // Get values from context if not provided as props
   const {
     loginState,
     passkeyManager,
     logout,
-    optimisticAuth: contextOptimisticAuth,
-    setOptimisticAuth,
+    useRelayer,
+    setUseRelayer,
   } = usePasskeyContext();
 
   // Use props if provided, otherwise fall back to context
   const accountName = nearAccountIdProp?.split('.')?.[0] || 'User';
   const nearAccountId = nearAccountIdProp || loginState.nearAccountId;
-  const optimisticAuth = optimisticAuthProp !== undefined ? optimisticAuthProp : contextOptimisticAuth;
   const onLogout = onLogoutProp || logout;
-  const onOptimisticAuthChange = onOptimisticAuthChangeProp || setOptimisticAuth;
 
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: ProfileMenuItem[] = [
@@ -64,7 +60,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
             userAccountId,
             privateKey,
             publicKey
-          } = await passkeyManager.exportKeyPair(nearAccountId!, optimisticAuth);
+          } = await passkeyManager.exportKeyPair(nearAccountId!);
 
           // Small delay to allow document to regain focus after WebAuthn
           await new Promise(resolve => setTimeout(resolve, 150));
@@ -123,10 +119,6 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
     handleClose();
   };
 
-  const handleOptimisticAuthChange = (value: boolean) => {
-    onOptimisticAuthChange?.(value);
-  };
-
   return (
     <div className="web3authn-profile-button-container">
       <div
@@ -144,11 +136,12 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
           ref={refs.dropdownRef}
           isOpen={isOpen}
           menuItems={MENU_ITEMS}
-          optimisticAuth={optimisticAuth}
-          onOptimisticAuthChange={handleOptimisticAuthChange}
+          useRelayer={useRelayer}
+          onRelayerChange={setUseRelayer}
           onLogout={handleLogout}
           onClose={handleClose}
           menuItemsRef={refs.menuItemsRef}
+          toggleColors={toggleColors}
         />
       </div>
     </div>

@@ -10,7 +10,7 @@ import {
 import { sha256 } from 'js-sha256';
 
 // Import WASM binary directly
-import init, * as wasmModule from '../wasm-signer-worker/web3authn_passkey_worker.js';
+import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 
 import {
   WorkerRequestType,
@@ -22,7 +22,7 @@ import {
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest
-} from './types/worker';
+} from './types/worker.js';
 
 // Buffer polyfill for Web Workers
 // Workers don't inherit main thread polyfills - they run in an isolated environment
@@ -33,7 +33,7 @@ import { Buffer } from 'buffer';
 globalThis.Buffer = Buffer;
 
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./web3authn_passkey_worker_bg.wasm', import.meta.url);
+const wasmUrl = new URL('./wasm_signer_worker_bg.wasm', import.meta.url);
 
 // === CONSTANTS ===
 const WASM_CACHE_NAME = 'passkey-wasm-v1';

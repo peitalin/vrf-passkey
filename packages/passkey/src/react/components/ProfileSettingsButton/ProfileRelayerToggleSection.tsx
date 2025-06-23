@@ -1,9 +1,9 @@
 import React, { forwardRef } from 'react';
 import { Toggle } from './Toggle';
-import type { ProfileToggleSectionProps } from './types';
+import type { ProfileRelayerToggleSectionProps } from './types';
 
-export const ProfileToggleSection = forwardRef<HTMLDivElement, ProfileToggleSectionProps>(
-  ({ optimisticAuth, onOptimisticAuthChange }, ref) => {
+export const ProfileRelayerToggleSection = forwardRef<HTMLDivElement, ProfileRelayerToggleSectionProps>(
+  ({ useRelayer, onRelayerChange, toggleColors }, ref) => {
     const handleClick = (e: React.MouseEvent) => {
       e.stopPropagation();
     };
@@ -17,21 +17,22 @@ export const ProfileToggleSection = forwardRef<HTMLDivElement, ProfileToggleSect
         <div className="web3authn-profile-dropdown-toggle-content">
           <div className="web3authn-profile-dropdown-toggle-text">
             <p className="web3authn-profile-dropdown-toggle-title">
-              {optimisticAuth ? 'Fast Signing' : 'Contract Signing'}
+              {useRelayer ? 'Use Relayer' : 'Use Faucet'}
             </p>
             <p className="web3authn-profile-dropdown-toggle-description">
-              {optimisticAuth
-                ? 'Fast transaction signing with optimistic responses'
-                : 'Contract signed Passkey authentication (slower)'
+              {useRelayer
+                ? 'Using relayer for account creation'
+                : 'Direct testnet account creation'
               }
             </p>
           </div>
           <Toggle
-            checked={optimisticAuth}
-            onChange={onOptimisticAuthChange}
+            checked={useRelayer}
+            onChange={onRelayerChange}
             showTooltip={false}
             size="large"
             textPosition='left'
+            colors={toggleColors}
           />
         </div>
       </div>
@@ -39,4 +40,4 @@ export const ProfileToggleSection = forwardRef<HTMLDivElement, ProfileToggleSect
   }
 );
 
-ProfileToggleSection.displayName = 'ProfileToggleSection';
+ProfileRelayerToggleSection.displayName = 'ProfileRelayerToggleSection';

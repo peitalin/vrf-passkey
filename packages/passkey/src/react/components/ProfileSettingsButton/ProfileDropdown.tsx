@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 import { ProfileMenuItem } from './ProfileMenuItem';
-import { ProfileToggleSection } from './ProfileToggleSection';
+import { ProfileRelayerToggleSection } from './ProfileRelayerToggleSection';
 import { ProfileLogoutSection } from './ProfileLogoutSection';
 import type { ProfileDropdownProps } from './types';
 
@@ -9,7 +9,7 @@ interface ProfileDropdownWithRefs extends ProfileDropdownProps {
 }
 
 export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRefs>(
-  ({ isOpen, menuItems, optimisticAuth, onOptimisticAuthChange, onLogout, onClose, menuItemsRef }, ref) => {
+  ({ isOpen, menuItems, useRelayer, onRelayerChange, onLogout, onClose, menuItemsRef, toggleColors }, ref) => {
     return (
       <div
         ref={ref}
@@ -31,20 +31,21 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
             />
           ))}
 
-          {/* Toggle Section */}
-          <ProfileToggleSection
-            ref={(el) => {
+          {/* Relayer Toggle Section */}
+          <ProfileRelayerToggleSection
+            ref={(el: any) => {
               if (menuItemsRef.current) {
                 menuItemsRef.current[menuItems.length + 1] = el;
               }
             }}
-            optimisticAuth={optimisticAuth}
-            onOptimisticAuthChange={onOptimisticAuthChange}
+            useRelayer={useRelayer}
+            onRelayerChange={onRelayerChange}
+            toggleColors={toggleColors}
           />
 
           {/* Logout Section */}
           <ProfileLogoutSection
-            ref={(el) => {
+            ref={(el: any) => {
               if (menuItemsRef.current) {
                 menuItemsRef.current[menuItems.length + 2] = el;
               }

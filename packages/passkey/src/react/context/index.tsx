@@ -1,8 +1,8 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { PasskeyManager } from '../../core/PasskeyManager';
-import { useOptimisticAuth } from '../hooks/useOptimisticAuth';
 import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
 import { useAccountInput } from '../hooks/useAccountInput';
+import { useRelayer } from '../hooks/useRelayer';
 import type {
   PasskeyContextType,
   PasskeyContextProviderProps,
@@ -46,9 +46,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Get NEAR RPC provider
   const { getNearRpcProvider } = useNearRpcProvider();
 
-  // Store the initial optimisticAuth value from config
-  const [initialOptimisticAuth] = useState(() => userConfig?.optimisticAuth ?? false);
-
   // Initialize PasskeyManager with configuration
   const [passkeyManager] = useState(() => {
     const defaultConfig = {
@@ -66,17 +63,16 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return new PasskeyManager(finalConfig, getNearRpcProvider());
   });
 
-  // Use optimistic auth hook
-  const { optimisticAuth, setOptimisticAuth } = useOptimisticAuth({
-    currentUser: loginState.nearAccountId,
-    initialValue: initialOptimisticAuth
+  // Use relayer hook
+  const relayerHook = useRelayer({
+    initialValue: userConfig?.useRelayer ?? false
   });
 
   // Use account input hook
   const accountInputHook = useAccountInput({
     passkeyManager,
     relayerAccount: passkeyManager.getConfig().relayerAccount,
-    optimisticAuth,
+    useRelayer: relayerHook.useRelayer,
     currentNearAccountId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn
   });
@@ -123,7 +119,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
-      optimisticAuth: optimisticAuth,
       onEvent: async (event) => {
         if (event.type === 'loginCompleted') {
           // Check VRF status to determine if user is truly logged in
@@ -155,7 +150,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const registerPasskey = async (nearAccountId: string, options: RegistrationOptions) => {
     const result: RegistrationResult = await passkeyManager.registerPasskey(nearAccountId, {
-      optimisticAuth: optimisticAuth,
       onEvent: async (event) => {
         if (event.phase === 'registration-complete' && event.status === 'success') {
           // Check VRF status to determine if user is truly logged in after registration
@@ -233,12 +227,13 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     // Authentication state (actual state from contract/backend)
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
     loginState,
-    // Settings
-    optimisticAuth,
-    setOptimisticAuth,
     // Account input management
     setInputUsername: accountInputHook.setInputUsername,
     refreshAccountData: accountInputHook.refreshAccountData,
+    // Relayer management
+    useRelayer: relayerHook.useRelayer,
+    setUseRelayer: relayerHook.setUseRelayer,
+    toggleRelayer: relayerHook.toggleRelayer,
     // Core PasskeyManager instance - provides ALL functionality
     passkeyManager,
   };
