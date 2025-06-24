@@ -5,11 +5,10 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 
 import config from './config';
-import { nearClient } from './nearService';
+import { nearAccountService } from './accountService';
 import routes from './routes';
 
 const app: Express = express();
-
 
 // Middleware
 app.use(express.json());
@@ -29,12 +28,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 app.listen(config.port, () => {
   console.log(`Server listening on http://localhost:${config.port}`);
-  console.log(`Relying Party ID: ${config.rpID}`);
   console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
 
-  nearClient.init().then((relayer) => {
-    console.log(`NearClient connected with relayer account: ${relayer.accountId}`)
+  nearAccountService.getRelayerAccount().then((relayer) => {
+    console.log(`AccountService connected with relayer account: ${relayer.accountId}`)
   }).catch((err: Error) => {
-    console.error("NearClient initial check failed (non-blocking server start):", err);
+    console.error("AccountService initial check failed (non-blocking server start):", err);
   });
 });

@@ -17,7 +17,11 @@ function App() {
         <PasskeyProvider
           config={{
             nearNetwork: 'testnet',
-            relayerAccount: 'web3-authn.testnet',
+            relayerOptions: {
+              relayerAccount: 'web3-authn.testnet',
+              relayServerUrl: 'http://localhost:3000',
+              initialUseRelayer: true
+            },
             debugMode: false
           }}
         >

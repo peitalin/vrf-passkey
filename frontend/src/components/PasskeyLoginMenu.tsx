@@ -28,7 +28,6 @@ export function PasskeyLoginMenu() {
     setInputUsername,
     passkeyManager,
     useRelayer,
-    setUseRelayer,
     toggleRelayer,
   } = usePasskeyContext();
 

@@ -141,10 +141,16 @@ export interface PasskeyContextProviderProps {
 
   // Optional configuration
   config?: {
-    serverUrl?: string;
     nearNetwork?: 'testnet' | 'mainnet';
-    relayerAccount?: string;
-    useRelayer?: boolean;
+    relayerOptions?: {
+      // The account ID of the relayer
+      relayerAccount?: string;
+      // The URL of the relay server
+      relayServerUrl?: string;
+      // Whether to use the relayer by default on intial load
+      initialUseRelayer?: boolean;
+    }
+    debugMode?: boolean;
   };
 }
 
