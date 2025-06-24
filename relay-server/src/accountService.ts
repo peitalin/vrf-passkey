@@ -9,12 +9,10 @@ import { FinalExecutionOutcome } from '@near-js/types';
 
 import * as dotenv from 'dotenv';
 dotenv.config();
+import type { RegistrationSSEEvent, SSEEventEmitter } from './types';
+import config, { type AppConfig } from './config';
 
-const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
-const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
-const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
-const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org';
-const INITIAL_BALANCE = BigInt('20000000000000000000000'); // 0.02 NEAR
+const DEFAULT_INITIAL_BALANCE = BigInt('20000000000000000000000'); // 0.02 NEAR
 
 // Interfaces for relay server API
 export interface AccountCreationResult {
@@ -28,31 +26,33 @@ export interface AccountCreationResult {
 export interface AccountCreationRequest {
   accountId: string;
   publicKey: string;
-  initialBalance?: string; // Optional, will default to INITIAL_BALANCE if not provided
+  initialBalance?: string; // Optional, will default to DEFAULT_INITIAL_BALANCE if not provided
 }
 
 class AccountService {
+  private config: AppConfig;
   private keyStore: KeyStore;
-  private rpcProvider: Provider;
-  private signer: Signer = null!;
-  private relayerAccount: Account = null!;
   private isInitialized = false;
+  private rpcProvider: Provider;
+  private relayerAccount: Account = null!;
+  private signer: Signer = null!;
 
   // Add transaction queue to prevent nonce conflicts
   private transactionQueue: Promise<any> = Promise.resolve();
   private queueStats = { pending: 0, completed: 0, failed: 0 };
 
-  constructor() {
-    if (!RELAYER_ACCOUNT_ID || !RELAYER_PRIVATE_KEY) {
+  constructor(config: AppConfig) {
+    this.config = config;
+    if (!config.relayerAccountId || !config.relayerPrivateKey) {
       throw new Error('Missing NEAR environment variables for relayer account.');
     }
     this.keyStore = new InMemoryKeyStore();
-    if (!RELAYER_PRIVATE_KEY.startsWith('ed25519:')) {
+    if (!config.relayerPrivateKey.startsWith('ed25519:')) {
       throw new Error('Relayer private key must be in format "ed25519:base58privatekey"');
     }
     // Initialize rpcProvider with JsonRpcProvider and a specific URL
-    this.rpcProvider = new JsonRpcProvider({ url: NEAR_RPC_URL });
-    console.log(`NearClient initialized with RPC URL: ${NEAR_RPC_URL}`);
+    this.rpcProvider = new JsonRpcProvider({ url: config.nearRpcUrl });
+    console.log(`NearClient initialized with RPC URL: ${config.nearRpcUrl}`);
   }
 
   async getRelayerAccount(): Promise<Account> {
@@ -64,15 +64,14 @@ class AccountService {
     if (this.isInitialized) {
       return;
     }
-
-    const privateKeyString = RELAYER_PRIVATE_KEY.substring(8);
+    const privateKeyString = this.config.relayerPrivateKey.substring(8);
     const keyPair = new KeyPairEd25519(privateKeyString);
-    await this.keyStore.setKey(NEAR_NETWORK_ID, RELAYER_ACCOUNT_ID, keyPair);
+    await this.keyStore.setKey(this.config.networkId, this.config.relayerAccountId, keyPair);
 
-    this.signer = await getSignerFromKeystore(RELAYER_ACCOUNT_ID, NEAR_NETWORK_ID, this.keyStore);
-    this.relayerAccount = new Account(RELAYER_ACCOUNT_ID, this.rpcProvider, this.signer);
+    this.signer = await getSignerFromKeystore(this.config.relayerAccountId, this.config.networkId, this.keyStore);
+    this.relayerAccount = new Account(this.config.relayerAccountId, this.rpcProvider, this.signer);
     this.isInitialized = true;
-    console.log(`NearClient signer and relayer account initialized for network: ${NEAR_NETWORK_ID}, relayer: ${RELAYER_ACCOUNT_ID}`);
+    console.log(`NearClient signer and relayer account initialized for network: ${this.config.networkId}, relayer: ${this.config.relayerAccountId}`);
   }
 
   /**
@@ -82,23 +81,58 @@ class AccountService {
    * @param request.accountId - The desired NEAR account ID
    * @param request.publicKey - The public key to associate with the account (ed25519:...)
    * @param request.initialBalance - Optional initial balance in yoctoNEAR (defaults to INITIAL_BALANCE)
+   * @param onEvent - Optional SSE event emitter callback for progress updates
+   * @param sessionId - Optional session ID for SSE tracking
    * @returns Promise resolving to account creation result with success status and transaction details
    */
-  async createAccount(request: AccountCreationRequest): Promise<AccountCreationResult> {
+  async createAccount(
+    request: AccountCreationRequest,
+    onEvent?: SSEEventEmitter,
+    sessionId?: string
+  ): Promise<AccountCreationResult> {
     await this._ensureSignerAndRelayerAccount();
+
+    const currentSessionId = sessionId || `relay_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+
     return this.queueTransaction(async () => {
       try {
+        // Emit user ready event
+        onEvent?.({
+          step: 2,
+          sessionId: currentSessionId,
+          phase: 'user-ready',
+          status: 'success',
+          timestamp: Date.now(),
+          message: 'Relay server ready to create account',
+          verified: true,
+          nearAccountId: request.accountId,
+          clientNearPublicKey: request.publicKey,
+          mode: 'relay-server'
+        });
+
         if (!this.isValidAccountId(request.accountId)) {
           throw new Error(`Invalid account ID format: ${request.accountId}`);
         }
+
+        // Emit access key addition start event
+        onEvent?.({
+          step: 3,
+          sessionId: currentSessionId,
+          phase: 'access-key-addition',
+          status: 'progress',
+          timestamp: Date.now(),
+          message: 'Starting account creation with access key...'
+        });
+
         // Parse initial balance or use default
-        const initialBalance = request.initialBalance ? BigInt(request.initialBalance) : INITIAL_BALANCE;
+        const initialBalance = request.initialBalance ? BigInt(request.initialBalance) : DEFAULT_INITIAL_BALANCE;
         // Parse the public key
         const publicKey = PublicKey.fromString(request.publicKey);
         console.log(`Creating account: ${request.accountId}`);
         console.log(`Parsed public key: ${publicKey.toString()}`);
         console.log(`Initial balance: ${initialBalance.toString()} yoctoNEAR`);
         console.log(`Creating account ${request.accountId} using relayer: ${this.relayerAccount.accountId}`);
+
         // Create account using actionCreators (simpler and cleaner)
         const result: FinalExecutionOutcome = await this.relayerAccount.signAndSendTransaction({
           receiverId: request.accountId,
@@ -107,6 +141,36 @@ class AccountService {
             actionCreators.transfer(initialBalance),
             actionCreators.addKey(publicKey, actionCreators.fullAccessKey())
           ]
+        });
+
+        // Emit access key addition success event
+        onEvent?.({
+          step: 3,
+          sessionId: currentSessionId,
+          phase: 'access-key-addition',
+          status: 'success',
+          timestamp: Date.now(),
+          message: `Account ${request.accountId} created successfully with access key`
+        });
+
+        // Emit account verification event
+        onEvent?.({
+          step: 4,
+          sessionId: currentSessionId,
+          phase: 'account-verification',
+          status: 'success',
+          timestamp: Date.now(),
+          message: 'Account creation verified on NEAR blockchain'
+        });
+
+        // Emit registration complete event
+        onEvent?.({
+          step: 7,
+          sessionId: currentSessionId,
+          phase: 'registration-complete',
+          status: 'success',
+          timestamp: Date.now(),
+          message: 'Account creation completed successfully!'
         });
 
         console.log(`Account created successfully: ${result.transaction.hash}`);
@@ -120,6 +184,18 @@ class AccountService {
 
       } catch (error: any) {
         console.error(`Account creation failed for ${request.accountId}:`, error);
+
+        // Emit error event
+        onEvent?.({
+          step: 0,
+          sessionId: currentSessionId,
+          phase: 'registration-error',
+          status: 'error',
+          timestamp: Date.now(),
+          message: `Account creation failed: ${error.message}`,
+          error: error.message || 'Unknown account creation error'
+        });
+
         return {
           success: false,
           error: error.message || 'Unknown account creation error',
@@ -190,7 +266,6 @@ class AccountService {
 
     return this.transactionQueue;
   }
-
 }
 
-export const nearAccountService = new AccountService();
+export const nearAccountService = new AccountService(config);

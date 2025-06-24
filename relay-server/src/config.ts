@@ -6,7 +6,7 @@ export interface AppConfig {
   expectedOrigin: string;
   relayerAccountId: string;
   relayerPrivateKey: string;
-  nodeUrl: string;
+  nearRpcUrl: string;
   networkId: string;
 }
 
@@ -16,7 +16,7 @@ const config: AppConfig = {
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
-  nodeUrl: process.env.NEAR_NODE_URL || 'https://rpc.testnet.near.org',
+  nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NEAR_NETWORK_ID || 'testnet',
 };
 
