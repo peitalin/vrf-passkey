@@ -1,95 +1,59 @@
 import { Router, Request, Response } from 'express';
-import { delegateService, DelegateActionRequest } from '../services/delegateService';
+import { accountCreationService } from '../services/accountCreationService';
 
 const router = Router();
 
-// Middleware to parse binary data for signed delegates
-const parseBinaryMiddleware = (req: Request, res: Response, next: any) => {
-  if (req.headers['content-type'] === 'application/octet-stream') {
-    let data: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      data.push(chunk);
-    });
-    req.on('end', () => {
-      req.body = new Uint8Array(Buffer.concat(data));
-      next();
-    });
-  } else {
-    next();
-  }
-};
-
 /**
  * POST /relay/create-account
- * Create account via delegate action
- * Accepts binary-encoded signed delegate actions for account creation
+ * Create a new account directly using relay server authority
+ *
+ * Body: JSON with accountId and publicKey
+ * {
+ *   "accountId": "user.near",
+ *   "publicKey": "ed25519:ABC123..."
+ * }
  */
-router.post('/relay/create-account', parseBinaryMiddleware, async (req: Request, res: Response) => {
-  console.log(`\nRELAY ENDPOINT HIT! /relay/create-account called`);
-  console.log(`Timestamp: ${new Date().toISOString()}`);
-  console.log(`Request URL: ${req.url}`);
-  console.log(`Query params:`, req.query);
-
+router.post('/relay/create-account', async (req: Request, res: Response) => {
   try {
-    console.log(`📝 Request headers:`, req.headers);
-    console.log(`📦 Request body type:`, typeof req.body);
-    console.log(`📦 Request body instanceof Uint8Array:`, req.body instanceof Uint8Array);
+    console.log('POST /relay/create-account');
+    console.log('Request body:', req.body);
 
-    // Validate request body
-    if (!req.body || !(req.body instanceof Uint8Array)) {
-      console.log(`❌ Invalid request body validation failed`);
+    const { accountId, publicKey } = req.body;
+
+    if (!accountId || typeof accountId !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'Invalid request body. Expected binary encoded signed delegate.'
+        error: 'Missing or invalid accountId',
+        message: 'accountId is required in request body'
       });
     }
 
-    console.log(`📨 Received account creation delegate request (${req.body.length} bytes)`);
-
-    // Get the new account ID from query parameter
-    const newAccountId = req.query.newAccountId as string;
-    if (!newAccountId) {
+    if (!publicKey || typeof publicKey !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'Missing required query parameter: newAccountId'
+        error: 'Missing or invalid publicKey',
+        message: 'publicKey is required in request body'
       });
     }
 
-    console.log(`🎯 Target account for creation: ${newAccountId}`);
+    const result = await accountCreationService.createAccount({
+      accountId,
+      publicKey
+    });
 
-    // Process the delegate action
-    const request: DelegateActionRequest = {
-      encodedSignedDelegate: req.body,
-      description: 'account creation delegate action',
-      newAccountId: newAccountId
-    };
-
-    const result = await delegateService.processDelegateAction(request);
-
-    // Return the result directly - avoid JSON serialization of complex objects
     if (result.success) {
-      console.log(`✅ Account creation successful: ${result.transactionHash}`);
-      res.json({
-        success: result.success,
-        transactionHash: result.transactionHash,
-        receiverId: result.receiverId,
-        senderId: result.senderId,
-        message: 'Account created successfully via delegate action'
-      });
+      res.status(200).json(result);
     } else {
-      console.error(`❌ Account creation failed: ${result.error}`);
-      res.status(500).json({
-        success: result.success,
-        error: result.error,
-        message: 'Failed to create account via delegate action'
-      });
+      console.log(`Account creation failed: ${result.error}`);
+      res.status(500).json(result);
     }
 
   } catch (error: any) {
-    console.error('Account creation relay endpoint error:', error);
+    console.error('Account creation endpoint error:', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Internal server error creating account via delegate action'
+      error: error.message || 'Unknown server error',
+      message: 'Failed to create account'
     });
   }
 });

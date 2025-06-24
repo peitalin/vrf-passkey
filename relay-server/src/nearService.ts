@@ -8,7 +8,7 @@ import type { Signer } from '@near-js/signers';
 import type { Provider } from '@near-js/providers';
 import { type CreateAccountResult } from './types';
 
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 dotenv.config();
 
 const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
