@@ -3,6 +3,7 @@ import { JsonRpcProvider } from '@near-js/providers';
 import { Account, LocalAccountCreator } from '@near-js/accounts';
 import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
 import { InMemoryKeyStore } from '@near-js/keystores';
+import { actionCreators } from '@near-js/transactions';
 import type { KeyStore } from '@near-js/keystores';
 import type { Signer } from '@near-js/signers';
 import type { Provider } from '@near-js/providers';
@@ -15,6 +16,21 @@ const RELAYER_ACCOUNT_ID = process.env.RELAYER_ACCOUNT_ID!;
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY!;
 const NEAR_NETWORK_ID = process.env.NEAR_NETWORK_ID || 'testnet';
 const NEAR_RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org';
+const INITIAL_BALANCE = BigInt('20000000000000000000000'); // 0.02 NEAR
+
+// Interfaces for relay server API
+export interface AccountCreationResult {
+  success: boolean;
+  transactionHash?: string;
+  accountId?: string;
+  error?: string;
+  message?: string;
+}
+
+export interface AccountCreationRequest {
+  accountId: string;
+  publicKey: string;
+}
 
 
 class NearClient {
@@ -113,6 +129,70 @@ class NearClient {
         return { success: false, message: msg, error: error };
       }
     }, description);
+  }
+
+  /**
+   * Simplified account creation for relay server API
+   * Creates account with actionCreators (cleaner than LocalAccountCreator)
+   */
+  async createAccountForRelay(request: AccountCreationRequest): Promise<AccountCreationResult> {
+    await this._ensureSignerAndRelayerAccount();
+
+    return this.queueTransaction(async () => {
+      try {
+        console.log(`Creating account: ${request.accountId}`);
+        console.log(`Public key: ${request.publicKey}`);
+
+        // Basic validation
+        if (!this.isValidAccountId(request.accountId)) {
+          throw new Error(`Invalid account ID format: ${request.accountId}`);
+        }
+
+        // Parse the public key
+        const publicKey = PublicKey.fromString(request.publicKey);
+        console.log(`Parsed public key: ${publicKey.toString()}`);
+
+        console.log(`Creating account ${request.accountId} using relayer: ${this.relayerAccount.accountId}`);
+
+        // Create account using actionCreators (simpler and cleaner)
+        const result = await this.relayerAccount.signAndSendTransaction({
+          receiverId: request.accountId,
+          actions: [
+            actionCreators.createAccount(),
+            actionCreators.transfer(INITIAL_BALANCE),
+            actionCreators.addKey(publicKey, actionCreators.fullAccessKey())
+          ]
+        });
+
+        console.log(`Account created successfully: ${result.transaction.hash}`);
+
+        return {
+          success: true,
+          transactionHash: result.transaction.hash,
+          accountId: request.accountId,
+          message: `Account ${request.accountId} created successfully with 0.02 NEAR initial balance`
+        };
+
+      } catch (error: any) {
+        console.error(`Account creation failed for ${request.accountId}:`, error);
+        return {
+          success: false,
+          error: error.message || 'Unknown account creation error',
+          message: `Failed to create account ${request.accountId}: ${error.message}`
+        };
+      }
+    }, `create account ${request.accountId}`);
+  }
+
+  private isValidAccountId(accountId: string): boolean {
+    // Basic NEAR account ID validation
+    if (!accountId || accountId.length < 2 || accountId.length > 64) {
+      return false;
+    }
+
+    // Check for valid characters and format
+    const validPattern = /^[a-z0-9_.-]+$/;
+    return validPattern.test(accountId);
   }
 
   async checkAccountExists(accountId: string): Promise<boolean> {
@@ -225,29 +305,6 @@ class NearClient {
     return this.transactionQueue;
   }
 
-  /**
-   * Get transaction queue diagnostics
-   */
-  getQueueDiagnostics() {
-    return {
-      ...this.queueStats,
-      queueEmpty: this.queueStats.pending === 0,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  /**
-   * Wait for all pending transactions to complete
-   */
-  async waitForQueueEmpty(): Promise<void> {
-    console.log(`🔄 [NearClient] Waiting for transaction queue to empty (pending: ${this.queueStats.pending})`);
-    try {
-      await this.transactionQueue;
-      console.log(`✅ [NearClient] Transaction queue is now empty`);
-    } catch (error) {
-      console.log(`✅ [NearClient] Transaction queue processed (some transactions may have failed)`);
-    }
-  }
 }
 
 export const nearClient = new NearClient();

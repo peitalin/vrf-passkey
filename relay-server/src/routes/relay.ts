@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { accountCreationService } from '../services/accountCreationService';
+import { nearClient } from '../nearService';
 
 const router = Router();
 
@@ -36,10 +36,10 @@ router.post('/relay/create-account', async (req: Request, res: Response) => {
       });
     }
 
-    const result = await accountCreationService.createAccount({
-      accountId,
-      publicKey
-    });
+          const result = await nearClient.createAccountForRelay({
+        accountId,
+        publicKey
+      });
 
     if (result.success) {
       res.status(200).json(result);
