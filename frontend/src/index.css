@@ -631,6 +631,36 @@ header { /* Duplicate definition */
   width: auto;
 }
 
+/* Transfer Section Styles */
+.transfer-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.transfer-section h3 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: var(--muted-green-primary);
+  font-size: 1.25rem;
+}
+
+.transfer-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.transfer-input-group .styled-input {
+  margin-bottom: 0;
+  height: 45px;
+}
+
+.transfer-input-group .action-button {
+  margin-top: 0.5rem;
+  width: 100%;
+}
+
 .user-info-box {
   margin-bottom: 1rem;
   padding: 1rem;

@@ -29,6 +29,10 @@ export function GreetingMenu() {
   const [greetingInput, setGreetingInput] = useState('Hello from Passkey App!');
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
+  // NEAR transfer state
+  const [transferRecipient, setTransferRecipient] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+
   const {
     onchainGreeting,
     isLoading,
@@ -110,6 +114,88 @@ export function GreetingMenu() {
     });
   }, [greetingInput, isLoggedIn, nearAccountId, passkeyManager, fetchGreeting]);
 
+  const handleSendNear = useCallback(async () => {
+    if (!transferRecipient.trim() || !transferAmount.trim() || !isLoggedIn) {
+      return;
+    }
+
+    // Validate amount is a positive number
+    const amount = parseFloat(transferAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid amount greater than 0');
+      return;
+    }
+
+    // Validate recipient account ID format (basic validation)
+    const recipient = transferRecipient.trim();
+    if (!recipient.includes('.') || recipient.length < 2) {
+      toast.error('Please enter a valid NEAR account ID (e.g., recipient.testnet)');
+      return;
+    }
+
+    // Convert NEAR to yoctoNEAR (1 NEAR = 10^24 yoctoNEAR)
+    const yoctoAmount = (amount * Math.pow(10, 24)).toString();
+
+    const transferAction: SerializableActionArgs = {
+      action_type: ActionType.Transfer,
+      receiver_id: recipient,
+      amount: yoctoAmount,
+    };
+
+    setLastTxDetails(null);
+
+    await passkeyManager.executeAction(nearAccountId, transferAction, {
+      onEvent: (event: ActionEvent) => {
+        switch (event.type) {
+          case 'actionStarted':
+            toast.loading('Processing NEAR transfer...', { id: 'transfer' });
+            break;
+          case 'actionProgress':
+            toast.loading(event.data.message, { id: 'transfer' });
+            break;
+          case 'actionCompleted':
+            toast.success(`Successfully sent ${amount} NEAR to ${recipient}!`, { id: 'transfer' });
+            break;
+          case 'actionFailed':
+            toast.error(`Transfer failed: ${event.data.error}`, { id: 'transfer' });
+            break;
+        }
+      },
+      hooks: {
+        afterCall: (success: boolean, result?: any) => {
+          if (success) {
+            // Reset transfer inputs on successful transaction
+            setTransferRecipient("");
+            setTransferAmount("");
+          }
+
+          if (success && result?.transactionId) {
+            const txId = result.transactionId;
+            const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
+
+            setLastTxDetails({
+              id: txId,
+              link: txLink,
+              message: `Sent ${amount} NEAR to ${recipient}`
+            });
+          } else if (success) {
+            setLastTxDetails({
+              id: 'N/A',
+              link: '#',
+              message: `Transfer successful: ${amount} NEAR to ${recipient}`
+            });
+          } else {
+            setLastTxDetails({
+              id: 'N/A',
+              link: '#',
+              message: `Transfer failed: ${result?.error || 'Unknown error'}`
+            });
+          }
+        }
+      }
+    });
+  }, [transferRecipient, transferAmount, isLoggedIn, nearAccountId, passkeyManager]);
+
   if (!isLoggedIn) {
     return null;
   }
@@ -171,6 +257,35 @@ export function GreetingMenu() {
             >
               {isLoading ? 'Processing...' : 'Set New Greeting'}
             </button>
+          </div>
+
+          <div className="transfer-section">
+            <h3>Send NEAR</h3>
+            <div className="transfer-input-group">
+              <input
+                type="text"
+                value={transferRecipient}
+                onChange={(e) => setTransferRecipient(e.target.value)}
+                placeholder="Recipient account (e.g., alice.testnet)"
+                className="styled-input"
+              />
+              <input
+                type="number"
+                value={transferAmount}
+                onChange={(e) => setTransferAmount(e.target.value)}
+                placeholder="Amount in NEAR"
+                className="styled-input"
+                min="0"
+                step="0.01"
+              />
+              <button
+                onClick={handleSendNear}
+                className="action-button"
+                disabled={isLoading || !transferRecipient.trim() || !transferAmount.trim()}
+              >
+                {isLoading ? 'Processing...' : 'Send NEAR'}
+              </button>
+            </div>
           </div>
 
           {error && (

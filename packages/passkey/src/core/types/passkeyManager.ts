@@ -10,7 +10,7 @@ export interface OperationHooks {
   ) => void | Promise<void>;
 }
 
-// SSE Registration Event Types (matching server structure)
+// SSE Registration Event Types
 export interface BaseSSERegistrationEvent {
   step: number;
   sessionId: string;

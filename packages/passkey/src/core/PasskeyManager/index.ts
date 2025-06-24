@@ -140,6 +140,13 @@ export class PasskeyManager {
   }
 
   /**
+   * Get access to the underlying NearRpcProvider for advanced operations
+   */
+  getNearRpcProvider(): Provider {
+    return this.nearRpcProvider;
+  }
+
+  /**
    * Get access to the VRF manager
    */
   getVRFManager(): VRFManager {
