@@ -1,14 +1,6 @@
 /**
- * VRF Manager - Web Worker Implementation
- *
+ * VRF Manager
  * Uses Web Workers for VRF keypair management with client-hosted worker files.
- * Requires copying worker files to your public directory.
- *
- * Benefits:
- * + Simple Web Worker setup without Worker complexity
- * + Direct communication without MessageChannel
- * + No scope or registration issues
- * + Session-based persistence
  */
 
 import type {
@@ -19,27 +11,20 @@ import type {
   VRFWorkerMessage,
   VRFWorkerResponse
 } from '../types/vrf';
+import { base64UrlDecode } from '../../utils';
 
 export interface VRFManagerConfig {
-  /**
-   * URL to the VRF Web Worker file
-   * Defaults to client-hosted worker file
-   *
-   * Examples:
-   * - undefined (uses default: '/workers/wasm_vrf_worker.js')
-   * - '/workers/wasm_vrf_worker.js' (client-hosted)
-   * - '/custom/path/wasm_vrf_worker.js' (custom location)
-   */
+  // URL to the VRF Web Worker file
+  // Defaults to client-hosted worker file
+  //
+  // Examples:
+  // - undefined (uses default: '/workers/wasm_vrf_worker.js')
+  // - '/workers/wasm_vrf_worker.js' (client-hosted)
+  // - '/custom/path/wasm_vrf_worker.js' (custom location)
   vrfWorkerUrl?: string;
-
-  /**
-   * Timeout for Web Worker initialization (ms)
-   */
+  // Timeout for Web Worker initialization (ms)
   workerTimeout?: number;
-
-  /**
-   * Whether to enable debug logging
-   */
+  // Whether to enable debug logging
   debug?: boolean;
 }
 
@@ -47,6 +32,33 @@ export interface VRFWorkerStatus {
   active: boolean;
   nearAccountId: string | null;
   sessionDuration?: number;
+}
+
+export class VRFChallenge {
+  vrfInput: string;
+  vrfOutput: string;
+  vrfProof: string;
+  vrfPublicKey: string;
+  userId: string;
+  rpId: string;
+  blockHeight: number;
+  blockHash: string;
+
+  constructor(vrfChallengeData: VRFChallengeData) {
+    this.vrfInput = vrfChallengeData.vrfInput;
+    this.vrfOutput = vrfChallengeData.vrfOutput;
+    this.vrfProof = vrfChallengeData.vrfProof;
+    this.vrfPublicKey = vrfChallengeData.vrfPublicKey;
+    this.userId = vrfChallengeData.userId;
+    this.rpId = vrfChallengeData.rpId;
+    this.blockHeight = vrfChallengeData.blockHeight;
+    this.blockHash = vrfChallengeData.blockHash;
+  }
+
+  outputAs32Bytes(): Uint8Array {
+    let vrfOutputBytes = base64UrlDecode(this.vrfOutput);
+    return vrfOutputBytes.slice(0, 32);
+  }
 }
 
 /**
@@ -152,7 +164,7 @@ export class VRFManager {
    * Generate VRF challenge using in-memory VRF keypair
    * This is called during authentication to create WebAuthn challenges
    */
-  async generateVRFChallenge(inputData: VRFInputData): Promise<VRFChallengeData> {
+  async generateVRFChallenge(inputData: VRFInputData): Promise<VRFChallenge> {
     console.log('VRF Manager: Generating VRF challenge...');
 
     if (!this.vrfWorker) {
@@ -173,13 +185,14 @@ export class VRFManager {
     };
 
     const response = await this.sendMessage(message);
+    console.log("RESPONSE:", response);
 
     if (!response.success || !response.data) {
       throw new Error(`VRF challenge generation failed: ${response.error}`);
     }
 
     console.log('✅ VRF Manager: VRF challenge generated successfully');
-    return response.data as VRFChallengeData;
+    return new VRFChallenge(response.data as VRFChallengeData);
   }
 
   /**
@@ -568,13 +581,7 @@ export class VRFManager {
     blockHeight: number,
     blockHashBytes: number[],
     timestamp: number
-  ): Promise<{
-    vrfInput: string;
-    vrfOutput: string;
-    vrfProof: string;
-    vrfPublicKey: string;
-    rpId: string;
-  }> {
+  ): Promise<VRFChallenge> {
     console.log('VRF Manager: Generating VRF challenge with Web Worker');
 
     if (!this.vrfWorker) {
@@ -610,16 +617,9 @@ export class VRFManager {
         timestamp
       };
 
-      const challengeData = await this.generateVRFChallenge(inputData);
-
+      const vrfChallenge = await this.generateVRFChallenge(inputData);
       console.log('✅ VRF Manager: VRF challenge generation successful');
-      return {
-        vrfInput: challengeData.vrfInput,
-        vrfOutput: challengeData.vrfOutput,
-        vrfProof: challengeData.vrfProof,
-        vrfPublicKey: challengeData.vrfPublicKey,
-        rpId: challengeData.rpId
-      };
+      return vrfChallenge;
     } catch (error: any) {
       console.error('❌ VRF Manager: VRF challenge generation failed:', error);
       throw new Error(`Failed to generate VRF challenge: ${error.message}`);

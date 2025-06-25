@@ -25,6 +25,7 @@ import type {
   AuthenticatorTransport,
   UserVerificationRequirement
 } from '../types/webauthn';
+import { generateUserScopedPrfSalt } from '../../utils';
 
 // Type for contract verification response parsing - handles multiple NEAR RPC response formats
 export type ContractResponse =
@@ -237,7 +238,7 @@ export class WebAuthnContractCalls {
       extensions: {
         prf: {
           eval: {
-            first: this.webauthnWorkers.getPrfSalts().nearKeyEncryption
+            first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
           }
         }
       }
@@ -617,7 +618,8 @@ export class WebAuthnContractCalls {
         },
         authenticatorAttachment: (webauthnCredential as any).authenticatorAttachment || null,
         type: 'public-key',
-        clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},
+        // clientExtensionResults: webauthnCredential.getClientExtensionResults() || {},
+        // Don't send PRF extension results to contract, should be kept private
       };
 
       // Call contract verification method

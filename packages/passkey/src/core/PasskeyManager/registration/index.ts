@@ -9,6 +9,8 @@ import type {
 } from '../../types/passkeyManager';
 import { createAccountRelayServer } from './createAccountRelayServer';
 import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
+import { generateUserScopedPrfSalt } from '../../../utils';
+
 
 /**
  * Generate a VRF keypair + challenge in VRF wasm worker for WebAuthn registration ceremony bootstrapping
@@ -117,16 +119,15 @@ export async function registerPasskey(
       message: 'Starting registration...'
     } as RegistrationSSEEvent);
 
-
     console.log('⚡ Registration: Optimized VRF registration with single WebAuthn ceremony');
     return await handleRegistration(
-        passkeyManager,
-        nearAccountId,
-        tempSessionId,
-        onEvent,
-        onError,
-        hooks,
-      );
+      passkeyManager,
+      nearAccountId,
+      tempSessionId,
+      onEvent,
+      onError,
+      hooks,
+    );
 
   } catch (err: any) {
     console.error('Registration error:', err.message, err.stack);
@@ -148,7 +149,10 @@ export async function registerPasskey(
     } as RegistrationSSEEvent);
 
     hooks?.afterCall?.(false, err);
-    return { success: false, error: errorMessage };
+    return {
+      success: false,
+      error: errorMessage
+    };
   }
 }
 
@@ -176,12 +180,6 @@ async function handleRegistration(
   hooks?: OperationHooks,
 ): Promise<RegistrationResult> {
   try {
-    const validation = validateNearAccountId(nearAccountId);
-    if (!validation.valid) {
-      const error = new Error(validation.error!);
-      onError?.(error);
-      throw error;
-    }
 
     const webAuthnManager = passkeyManager.getWebAuthnManager();
     const nearRpcProvider = passkeyManager.getNearRpcProvider();
@@ -276,7 +274,7 @@ async function handleRegistration(
       extensions: {
         prf: {
           eval: {
-            first: new Uint8Array(new Array(32).fill(42)) // PRF salt for encryption
+            first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
           }
         }
       }
@@ -453,6 +451,7 @@ async function handleRegistration(
 
     try {
 
+      // verify registration and save authenticator credentials on-chain
       const contractVerificationResult = await webAuthnManager.verifyVrfRegistration(
         nearRpcProvider,
         config.contractId,
@@ -481,39 +480,24 @@ async function handleRegistration(
         console.log('✅ VRF registration verified by contract');
         console.log('  - Transaction ID:', contractTransactionId);
 
-      onEvent?.({
+        onEvent?.({
           step: 6,
-        sessionId: tempSessionId,
+          sessionId: tempSessionId,
           phase: 'contract-registration',
-        status: 'success',
-        timestamp: Date.now(),
+          status: 'success',
+          timestamp: Date.now(),
           message: 'VRF registration verified by contract'
-      });
-    } else {
+        });
+      } else {
         console.warn('️Contract verification failed, but registration continues locally');
         console.warn('  - Error:', contractVerificationResult.error);
-
-      onEvent?.({
-          step: 6,
-        sessionId: tempSessionId,
-          phase: 'contract-registration',
-        status: 'success',
-        timestamp: Date.now(),
-          message: 'Contract verification failed but registration continues locally'
-        });
+        throw new Error(contractVerificationResult.error);
       }
+
     } catch (contractError: any) {
       console.warn('️Contract verification failed, but registration continues locally');
       console.warn('  - Contract Error:', contractError.message);
-
-      onEvent?.({
-        step: 6,
-        sessionId: tempSessionId,
-        phase: 'contract-registration',
-        status: 'success',
-        timestamp: Date.now(),
-        message: 'Contract verification failed but registration continues locally'
-      });
+      throw new Error(contractError.message);
     }
 
     // Step 12: Store user data with VRF credentials atomically

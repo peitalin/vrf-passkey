@@ -4,6 +4,7 @@ import type {
   LoginResult,
   LoginEvent,
 } from '../types/passkeyManager';
+import { generateUserScopedPrfSalt } from '../../utils';
 
 /**
  * Core login function that handles passkey authentication without React dependencies
@@ -127,37 +128,15 @@ async function handleLoginUnlockVRF(
     });
 
     const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const credential = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: window.location.hostname,
-        allowCredentials: authenticators.map(auth => ({
-          id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
-          type: 'public-key' as const,
-          transports: auth.transports as AuthenticatorTransport[]
-        })),
-        userVerification: 'preferred' as UserVerificationRequirement,
-        timeout: 60000,
-        extensions: {
-          prf: {
-            eval: {
-              first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt
-            }
-          }
-        }
-      } as PublicKeyCredentialRequestOptions
-    }) as PublicKeyCredential;
 
-    if (!credential) {
-      throw new Error('WebAuthn authentication failed or was cancelled');
-    }
-    // Get PRF output for VRF decryption
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutput = (extensionResults as any).prf?.results?.first;
-    if (!prfOutput) {
-      throw new Error('PRF output not available - required for VRF keypair decryption');
-    }
-    console.log('✅ WebAuthn authentication successful, PRF output obtained');
+    const {
+      credential: _credential,
+      prfOutput
+    } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
+      nearAccountId,
+      challenge,
+      authenticators,
+    });
 
     // Step 3: Unlock VRF keypair in VRF Worker memory
     onEvent?.({

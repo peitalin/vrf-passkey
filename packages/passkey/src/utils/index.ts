@@ -1,3 +1,9 @@
+import { sha256 } from 'js-sha256';
+
+export * from './encoders';
+
+// === HELPER FUNCTIONS ===
+
 export const shortenString = (str: string | null | undefined, headChars = 6, tailChars = 4) => {
   if (!str) return '';
   if (str.length <= headChars + tailChars + 2) return str; // If already short or has a prefix like "ed25519:"
@@ -7,3 +13,14 @@ export const shortenString = (str: string | null | undefined, headChars = 6, tai
   }
   return `${str.substring(0, headChars)}...${str.substring(str.length - tailChars)}`;
 };
+
+/**
+ * Generate user-scoped PRF salt to prevent collision risks
+ * @param accountId - NEAR account ID to scope the salt to
+ * @returns 32-byte Uint8Array salt unique to the user
+ */
+export function generateUserScopedPrfSalt(accountId: string): Uint8Array {
+  const saltInput = `prf-salt:${accountId}`;
+  const hashArray = sha256.array(saltInput);
+  return new Uint8Array(hashArray);
+}

@@ -1,6 +1,7 @@
 import { WebAuthnManager } from '../WebAuthnManager';
 import { IndexedDBManager } from '../IndexedDBManager';
 import { VRFManager } from '../WebAuthnManager/vrfManager';
+import { generateUserScopedPrfSalt } from '../../utils';
 
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
@@ -52,12 +53,9 @@ export class PasskeyManager {
    */
   private async initializeVRFWorkerInternal(): Promise<void> {
     try {
-      console.log('PasskeyManager: Auto-initializing VRF Web Worker...');
       await this.vrfManager.initialize();
-      console.log('PasskeyManager: VRF Web Worker auto-initialized successfully');
     } catch (error: any) {
-      console.warn('️ PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
-      // Don't throw - VRF is optional, passkey operations can still work without it
+      console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
     }
   }
 
@@ -245,16 +243,14 @@ export class PasskeyManager {
     if (!userData) {
       throw new Error(`No user data found for ${nearAccountId}`);
     }
-
     if (!userData.prfSupported) {
       throw new Error('PRF is required for private key export but not supported by this user\'s authenticator');
     }
 
     console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
-
     // For private key export, we can use direct WebAuthn authentication with local random challenge
     // This is secure because the security comes from device possession + biometrics, not challenge validation
-    console.log('🔐 Using local authentication for private key export (no server coordination needed)');
+    console.log('Using local authentication for private key export');
 
     // Get stored authenticator data for this user
     const authenticators = await this.webAuthnManager.getAuthenticatorsByUser(nearAccountId);
@@ -264,47 +260,16 @@ export class PasskeyManager {
 
     // Generate local random challenge - this is sufficient for local key export security
     const challenge = crypto.getRandomValues(new Uint8Array(32));
-
-    // Build authentication options using stored credential
-    const authOptions: PublicKeyCredentialRequestOptions = {
-      challenge, // Local random challenge - no server coordination needed
-      rpId: window.location.hostname,
-      allowCredentials: authenticators.map((auth: any) => ({
-        id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
-        type: 'public-key' as const,
-        transports: auth.transports as AuthenticatorTransport[]
-      })),
-      userVerification: 'preferred' as UserVerificationRequirement,
-      timeout: 60000,
-      extensions: {
-        prf: {
-          eval: {
-            first: new Uint8Array(new Array(32).fill(42)) // Consistent PRF salt for deterministic key derivation
-          }
-        }
-      }
-    };
-
-    // Authenticate to get PRF output
-    const credential = await navigator.credentials.get({
-      publicKey: authOptions
-    }) as PublicKeyCredential;
-
-    if (!credential) {
-      throw new Error('WebAuthn authentication failed or was cancelled');
-    }
-
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutput = (extensionResults as any).prf?.results?.first;
-
-    if (!prfOutput) {
-      throw new Error('PRF output not available - required for private key export');
-    }
+    const { prfOutput } = await this.webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
+      nearAccountId,
+      challenge,
+      authenticators,
+    });
 
     // Use WASM worker to decrypt private key
     const decryptionResult = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
       nearAccountId,
-      prfOutput as ArrayBuffer
+      prfOutput
     );
 
     console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);
@@ -333,7 +298,6 @@ export class PasskeyManager {
     if (!userData) {
       throw new Error(`No user data found for ${nearAccountId}`);
     }
-
     if (!userData.clientNearPublicKey) {
       throw new Error(`No NEAR public key found for account ${nearAccountId}`);
     }
@@ -346,111 +310,6 @@ export class PasskeyManager {
       privateKey,
       publicKey: userData.clientNearPublicKey
     };
-  }
-
-  /**
-   * Unified contract call function that intelligently handles all scenarios:
-   * - View functions (no auth required)
-   * - State-changing functions (with auth)
-   * - Batch operations (with PRF reuse)
-   *
-   * @param options - All call parameters and options
-   */
-  async callContract(options: {
-    /** Contract to call */
-    contractId: string;
-    /** Method name to call */
-    methodName: string;
-    /** Method arguments */
-    args: any;
-    /** Gas amount for state-changing calls */
-    gas?: string;
-    /** Attached deposit for state-changing calls */
-    attachedDeposit?: string;
-    /** NEAR account ID for authentication (auto-detected if not provided) */
-    nearAccountId?: string;
-    /** Pre-obtained PRF output for batch operations */
-    prfOutput?: ArrayBuffer;
-    /** Force view mode (read-only, no authentication) */
-    viewOnly?: boolean;
-  }): Promise<any> {
-    if (!this.nearRpcProvider) {
-      throw new Error('NEAR RPC provider is required for contract calls');
-    }
-
-    const {
-      contractId,
-      methodName,
-      args,
-      gas = '50000000000000',
-      attachedDeposit = '0',
-      nearAccountId,
-      prfOutput,
-      viewOnly = false,
-    } = options;
-
-    // 1. Handle explicit view-only calls
-    if (viewOnly) {
-      return this.webAuthnManager.callContract(this.nearRpcProvider, {
-        contractId,
-        methodName,
-        args,
-        viewOnly: true
-      });
-    }
-
-    // 2. Handle calls with pre-obtained PRF (batch mode)
-    if (prfOutput) {
-      const targetNearAccountId = nearAccountId || await this.webAuthnManager.getLastUsedNearAccountId();
-      if (!targetNearAccountId) {
-        throw new Error('NEAR account ID required for authenticated contract calls');
-      }
-      return this.webAuthnManager.callContract(this.nearRpcProvider, {
-        contractId,
-        methodName,
-        args,
-        gas,
-        attachedDeposit,
-        nearAccountId: targetNearAccountId,
-        prfOutput
-      });
-    }
-
-    // 3. Handle state-changing calls that require authentication
-    console.log(`Executing state-changing call: ${methodName}`);
-
-    // Get the target account ID
-    const targetAccountId = nearAccountId || await this.webAuthnManager.getLastUsedNearAccountId();
-    if (!targetAccountId) {
-      throw new Error('NEAR account ID required for authenticated contract calls');
-    }
-
-    // Determine authentication mode
-    let authPrfOutput: ArrayBuffer;
-
-    // Serverless mode: authenticate directly
-    console.log('Using serverless mode authentication...');
-    const { credential, prfOutput: serverlessPrfOutput } = await this.webAuthnManager.authenticateWithPrf(
-      targetAccountId,
-      'signing'
-    );
-
-    if (!credential || !serverlessPrfOutput) {
-      throw new Error('Serverless authentication failed - PRF output required for contract calls.');
-    }
-
-    authPrfOutput = serverlessPrfOutput;
-
-    // Execute the contract call with obtained PRF
-    return this.webAuthnManager.callContract(this.nearRpcProvider, {
-      contractId,
-      methodName,
-      args,
-      gas,
-      attachedDeposit,
-      nearAccountId: targetAccountId,
-      prfOutput: authPrfOutput
-    });
   }
 
 }

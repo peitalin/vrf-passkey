@@ -28,13 +28,23 @@ export interface VRFChallengeData {
   vrfOutput: string;
   vrfProof: string;
   vrfPublicKey: string;
+  userId: string;
   rpId: string;
   blockHeight: number;
   blockHash: string;
 }
 
 export interface VRFWorkerMessage {
-  type: 'PING' | 'UNLOCK_VRF_KEYPAIR' | 'GENERATE_VRF_CHALLENGE' | 'GENERATE_VRF_KEYPAIR' | 'GENERATE_VRF_KEYPAIR_BOOTSTRAP' | 'ENCRYPT_VRF_KEYPAIR_WITH_PRF' | 'CHECK_VRF_STATUS' | 'LOGOUT';
+  type: 'PING'
+      | 'UNLOCK_VRF_KEYPAIR'
+      | 'GENERATE_VRF_CHALLENGE'
+      | 'GENERATE_VRF_KEYPAIR'
+      | 'GENERATE_VRF_KEYPAIR_BOOTSTRAP'
+      | 'ENCRYPT_VRF_KEYPAIR_WITH_PRF'
+      | 'CHECK_VRF_STATUS'
+      | 'LOGOUT'
+      | 'EXPORT_VRF_KEYPAIR'
+      | 'IMPORT_VRF_KEYPAIR';
   id?: string;
   data?: any;
 }

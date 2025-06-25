@@ -1,6 +1,7 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
 import { TxExecutionStatus } from '@near-js/types';
+import { sha256 } from 'js-sha256';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
 import { base64UrlDecode } from '../../utils/encoders';
@@ -9,6 +10,12 @@ import type { NearRpcCallParams } from '../types';
 
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult, LoginEvent } from '../types/passkeyManager';
+import { generateUserScopedPrfSalt } from '../../utils';
+
+// See default finality settings
+// https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
+// export const DEFAULT_WAIT_STATUS: TxExecutionStatus = "INCLUDED_FINAL";
+export const DEFAULT_WAIT_STATUS: TxExecutionStatus = "EXECUTED_OPTIMISTIC";
 
 // === TYPE DEFINITIONS FOR INTERNAL CONTEXT ===
 
@@ -88,20 +95,12 @@ export async function executeAction(
       { onEvent, onError, hooks }
     );
 
-    // 2. VRF Authentication
-    const authContext = await performVRFAuthentication(
+    // 2. VRF Authentication + Transaction Signing
+    const signingResult = await verifyVrfAuthAndSignTransaction(
       passkeyManager,
       nearAccountId,
       validationContext,
-      { onEvent, onError, hooks }
-    );
-
-    // 3. Transaction Signing
-    const signingResult = await signTransaction(
-      passkeyManager,
-      nearAccountId,
       actionArgs,
-      authContext,
       { onEvent, onError, hooks }
     );
 
@@ -286,10 +285,11 @@ async function validateActionInputs(
  * 2. VRF Authentication - Handles VRF challenge generation and WebAuthn authentication
  *  with the webauthn contract
  */
-async function performVRFAuthentication(
+async function verifyVrfAuthAndSignTransaction(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
   validationContext: ValidationContext,
+  actionArgs: SerializableActionArgs,
   eventOptions: EventOptions
 ): Promise<AuthContext> {
   const { onEvent, onError, hooks } = eventOptions;
@@ -324,30 +324,20 @@ async function performVRFAuthentication(
     hooks?.afterCall?.(false, error);
     throw error;
   }
+  console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
 
-  console.log(`✅ VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
-
-  // Generate VRF challenge using Service Worker
   const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
-  const blockHeight = blockInfo.header.height;
-  const blockHashBytes = new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'));
-
+  // Generate VRF challenge using Service Worker
   const vrfInputData = {
     userId: nearAccountId,
     rpId: window.location.hostname,
     sessionId: crypto.randomUUID(),
-    blockHeight,
-    blockHash: blockHashBytes,
+    blockHeight: blockInfo.header.height,
+    blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
     timestamp: Date.now()
   };
-
-  console.log('Generating VRF challenge in Worker');
-  const vrfChallengeData = await vrfManager.generateVRFChallenge(vrfInputData);
-
-  console.log('DEBUG: VRF Authentication Data:');
-  console.log(`  - VRF Public Key: ${vrfChallengeData.vrfPublicKey.substring(0, 40)}...`);
-  console.log(`  - RP ID: ${vrfChallengeData.rpId}`);
-  console.log(`  - User ID: ${nearAccountId}`);
+  // Use VRF output as WebAuthn challenge
+  const vrfChallenge = await vrfManager.generateVRFChallenge(vrfInputData);
 
   onEvent?.({
     type: 'actionProgress',
@@ -357,56 +347,20 @@ async function performVRFAuthentication(
     }
   });
 
-  // Use VRF output as WebAuthn challenge
-  const vrfOutputBytes = base64UrlDecode(vrfChallengeData.vrfOutput);
-  const webauthnChallengeBytes = vrfOutputBytes.slice(0, 32);
-
   // Get stored authenticator data
   const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
-  console.log(`DEBUG: Found ${authenticators.length} authenticators for ${nearAccountId}:`);
-  authenticators.forEach((auth, index) => {
-    console.log(`  [${index}] Credential ID: ${auth.credentialID}`);
-    console.log(`  [${index}] Name: ${auth.name}`);
-    console.log(`  [${index}] Registered: ${auth.registered}`);
-  });
-
   if (authenticators.length === 0) {
     throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
   }
 
-  // Perform WebAuthn authentication with VRF-generated challenge
-  const credential = await navigator.credentials.get({
-    publicKey: {
-      challenge: webauthnChallengeBytes,
-      rpId: window.location.hostname,
-      allowCredentials: authenticators.map(auth => ({
-        id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
-        type: 'public-key' as const,
-        transports: auth.transports as AuthenticatorTransport[]
-      })),
-      userVerification: 'preferred' as UserVerificationRequirement,
-      timeout: 60000,
-      extensions: {
-        prf: {
-          eval: {
-            first: new Uint8Array(new Array(32).fill(42))
-          }
-        }
-      }
-    } as PublicKeyCredentialRequestOptions
-  }) as PublicKeyCredential;
-
-  if (!credential) {
-    throw new Error('VRF WebAuthn authentication failed or was cancelled');
-  }
-
-  // Get PRF output for NEAR key decryption
-  const extensionResults = credential.getClientExtensionResults();
-  const prfOutput = (extensionResults as any).prf?.results?.first;
-
-  if (!prfOutput) {
-    throw new Error('PRF output not available - required for NEAR key decryption');
-  }
+  const {
+    credential,
+    prfOutput
+  } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
+    nearAccountId,
+    challenge: vrfChallenge.outputAs32Bytes(),
+    authenticators,
+  });
 
   console.log('✅ VRF WebAuthn authentication completed');
 
@@ -419,21 +373,11 @@ async function performVRFAuthentication(
     }
   });
 
-  console.log('📜 Verifying VRF authentication with contract before transaction signing');
-
+  console.log('Verifying VRF authentication with contract before transaction signing');
   const contractVerificationResult = await webAuthnManager.verifyVrfAuthentication(
     nearRpcProvider,
     passkeyManager.getConfig().contractId,
-    {
-      vrfInput: vrfChallengeData.vrfInput,
-      vrfOutput: vrfChallengeData.vrfOutput,
-      vrfProof: vrfChallengeData.vrfProof,
-      vrfPublicKey: vrfChallengeData.vrfPublicKey,
-      userId: nearAccountId,
-      rpId: vrfChallengeData.rpId,
-      blockHeight: vrfChallengeData.blockHeight,
-      blockHash: vrfChallengeData.blockHash,
-    },
+    vrfChallenge,
     credential,
     passkeyManager.getConfig().debugMode ?? false
   );
@@ -463,28 +407,6 @@ async function performVRFAuthentication(
     }
   });
 
-  return {
-    ...validationContext,
-    vrfChallengeData,
-    credential,
-    prfOutput,
-    contractVerificationResult
-  };
-}
-
-/**
- * 3. Transaction Signing - Signs the transaction using WASM worker
- */
-async function signTransaction(
-  passkeyManager: PasskeyManager,
-  nearAccountId: string,
-  actionArgs: SerializableActionArgs,
-  authContext: AuthContext,
-  eventOptions: EventOptions
-): Promise<any> {
-  const { onEvent, onError, hooks } = eventOptions;
-  const webAuthnManager = passkeyManager.getWebAuthnManager();
-
   onEvent?.({
     type: 'actionProgress',
     data: {
@@ -497,19 +419,20 @@ async function signTransaction(
   let signingResult: any;
 
   if (actionArgs.action_type === 'Transfer') {
-    // Transfer actions are not yet implemented in the WASM worker
-    const errorMsg = 'NEAR transfers are not yet supported. The current implementation only supports smart contract function calls. Transfer functionality requires extending the WASM worker to handle Transfer actions.';
-    const error = new Error(errorMsg);
-    onError?.(error);
-    onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.action_type
-      }
-    });
-    hooks?.afterCall?.(false, error);
-    throw error;
+    // Use the new Transfer transaction signing with WASM worker
+    const transferPayload = {
+      nearAccountId: nearAccountId,
+      receiverId: actionArgs.receiver_id!,
+      depositAmount: actionArgs.amount!,
+      nonce: validationContext.nonce.toString(),
+      blockHashBytes: validationContext.transactionBlockHashBytes,
+    };
+
+    signingResult = await webAuthnManager.signTransferTransactionWithPrf(
+      nearAccountId,
+      prfOutput,
+      transferPayload
+    );
 
   } else if (actionArgs.action_type === 'FunctionCall') {
     // Use the existing WASM worker transaction signing for function calls
@@ -520,13 +443,13 @@ async function signTransaction(
       contractArgs: JSON.parse(actionArgs.args!),
       gasAmount: actionArgs.gas || DEFAULT_GAS_STRING,
       depositAmount: actionArgs.deposit || "0",
-      nonce: authContext.nonce.toString(),
-      blockHashBytes: authContext.transactionBlockHashBytes,
+      nonce: validationContext.nonce.toString(),
+      blockHashBytes: validationContext.transactionBlockHashBytes,
     };
 
     signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
       nearAccountId,
-      authContext.prfOutput,
+      prfOutput,
       signingPayload
     );
 
@@ -549,7 +472,7 @@ async function signTransaction(
 }
 
 /**
- * 4. Transaction Broadcasting - Broadcasts the signed transaction to NEAR network
+ * 3. Transaction Broadcasting - Broadcasts the signed transaction to NEAR network
  */
 async function broadcastTransaction(
   signingResult: any,
@@ -579,7 +502,7 @@ async function broadcastTransaction(
       method: 'send_tx',
       params: {
         signed_tx_base64: Buffer.from(signedTransactionBorsh).toString('base64'),
-        wait_until: "EXECUTED_OPTIMISTIC"
+        wait_until: DEFAULT_WAIT_STATUS
       }
     } as NearRpcCallParams)
   });

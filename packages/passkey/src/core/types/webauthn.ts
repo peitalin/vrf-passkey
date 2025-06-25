@@ -64,13 +64,6 @@ export interface WebAuthnAuthenticationWithPrf {
 // =================================================================
 // 2. PRF MANAGEMENT
 // =================================================================
-// Note: Challenge management removed - VRF provides cryptographic freshness
-
-/** Configuration for PRF salts used in deterministic key derivation */
-export interface PrfSaltConfig {
-  nearKeyEncryption: Uint8Array;
-  [key: string]: Uint8Array;
-}
 
 /** A PRF evaluation request for WebAuthn extensions */
 export interface PrfEvaluationRequest {
@@ -83,7 +76,6 @@ export interface PrfEvaluationResult {
   first?: ArrayBuffer;
   second?: ArrayBuffer;
 }
-
 
 // =================================================================
 // 3. AUTHENTICATOR & STORAGE TYPES
@@ -180,7 +172,7 @@ export interface WebAuthnAuthenticationData {
   };
   authenticatorAttachment?: string | null;
   type: 'public-key';
-  clientExtensionResults?: Record<string, any>;
+  clientExtensionResults?: AuthenticationExtensionsClientOutputs;
 }
 
 /** WebAuthn registration data structure for contract calls */
@@ -194,7 +186,7 @@ export interface WebAuthnRegistrationData {
   };
   authenticatorAttachment?: string | null;
   type: 'public-key';
-  clientExtensionResults?: Record<string, any>;
+  clientExtensionResults?: AuthenticationExtensionsClientOutputs;
 }
 
 /** VRF data structure for contract verification calls */
@@ -209,3 +201,56 @@ export interface ContractVrfData {
   block_hash: number[];
 }
 
+// === WEBAUTHN EXTENSION TYPES (Based on WebAuthn Level 2 Specification) ===
+// These match the Rust structures in webauthn-contract/src/verify_authentication_response.rs
+
+/**
+ * WebAuthn Client Extension Outputs
+ * Equivalent to AuthenticationExtensionsClientOutputs in Rust
+ */
+export interface AuthenticationExtensionsClientOutputs {
+  /** Application Identifier Extension output */
+  appid?: boolean;
+
+  /** Credential Properties Extension output */
+  credProps?: CredentialPropertiesOutput;
+
+  /** HMAC Secret Extension output */
+  hmacCreateSecret?: boolean;
+
+  /** PRF (Pseudo-Random Function) Extension output */
+  prf?: AuthenticationExtensionsPRFOutputs;
+}
+
+/**
+ * PRF Extension Outputs
+ * Equivalent to AuthenticationExtensionsPRFOutputs in Rust
+ */
+export interface AuthenticationExtensionsPRFOutputs {
+  /** Whether PRF extension was enabled/supported */
+  enabled?: boolean;
+
+  /** PRF evaluation results (the actual PRF outputs) */
+  results?: AuthenticationExtensionsPRFValues;
+}
+
+/**
+ * PRF Extension Values
+ * Equivalent to AuthenticationExtensionsPRFValues in Rust
+ */
+export interface AuthenticationExtensionsPRFValues {
+  /** First PRF output (Base64URL encoded) */
+  first: string;
+
+  /** Optional second PRF output (Base64URL encoded) */
+  second?: string;
+}
+
+/**
+ * Credential Properties Extension Output
+ * Equivalent to CredentialPropertiesOutput in Rust
+ */
+export interface CredentialPropertiesOutput {
+  /** Resident key property */
+  rk?: boolean;
+}

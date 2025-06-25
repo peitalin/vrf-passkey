@@ -15,7 +15,6 @@ export type {
 export type {
   WebAuthnRegistrationWithPrf,
   WebAuthnAuthenticationWithPrf,
-  PrfSaltConfig,
 } from './core/types/webauthn';
 
 export type { UserData } from './core/types/worker';

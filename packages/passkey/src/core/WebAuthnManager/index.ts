@@ -4,9 +4,12 @@ import { WebAuthnNetworkCalls } from './network-calls';
 import { WebAuthnContractCalls } from './contract-calls';
 import { WebAuthnIndexedDBCalls } from './indexedDB-calls';
 import { VRFManager } from './vrfManager';
+import { TouchIdPrompt } from './touchIdPrompt';
+import { generateUserScopedPrfSalt } from '../../utils';
 import type { UserData } from '../types/worker';
 import type { WebAuthnAuthenticationWithPrf } from '../types/webauthn';
 import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
+import type { VRFChallenge } from './vrfManager';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -24,6 +27,7 @@ export class WebAuthnManager {
   private readonly contractCalls: WebAuthnContractCalls;
   private readonly indexedDBCalls: WebAuthnIndexedDBCalls;
   private readonly vrfManager: VRFManager;
+  readonly touchIdPrompt: TouchIdPrompt;
 
   constructor() {
     this.webauthnWorkers = new WebAuthnWorkers();
@@ -31,6 +35,7 @@ export class WebAuthnManager {
     this.indexedDBCalls = new WebAuthnIndexedDBCalls();
     this.contractCalls = new WebAuthnContractCalls(this.webauthnWorkers, this.networkCalls, this.indexedDBCalls);
     this.vrfManager = new VRFManager();
+    this.touchIdPrompt = new TouchIdPrompt();
   }
 
   // === INDEXDB OPERATIONS (Now using WebAuthnindexedDBCalls facade) ===
@@ -172,13 +177,17 @@ export class WebAuthnManager {
   /**
    * Authenticate with PRF - generate local challenge for serverless mode
    */
-  async authenticateWithPrf(
-    nearAccountId?: string,
-    purpose: 'encryption' | 'signing' = 'signing',
-    useOptimistic: boolean = true
-  ): Promise<WebAuthnAuthenticationWithPrf> {
+  async authenticateWithPrf(nearAccountId?: string): Promise<WebAuthnAuthenticationWithPrf> {
     // For serverless mode, create local challenge
     const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+    // Get the target account ID for user-scoped salt
+    if (!nearAccountId) {
+      nearAccountId = await this.getLastUsedNearAccountId() || undefined;
+      if (!nearAccountId) {
+        throw new Error('Account ID required for user-scoped PRF salt generation');
+      }
+    }
 
     const authenticationOptions: PublicKeyCredentialRequestOptions = {
       challenge,
@@ -188,7 +197,7 @@ export class WebAuthnManager {
       extensions: {
         prf: {
           eval: {
-            first: this.webauthnWorkers.getPrfSalts().nearKeyEncryption
+            first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
           }
         }
       }
@@ -243,6 +252,27 @@ export class WebAuthnManager {
     }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     return await this.webauthnWorkers.secureTransactionSigningWithPrf(
+      nearAccountId,
+      prfOutput,
+      payload
+    );
+  }
+
+  /**
+   * Sign a NEAR Transfer transaction using PRF
+   */
+  async signTransferTransactionWithPrf(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    payload: {
+      nearAccountId: string;
+      receiverId: string;
+      depositAmount: string;
+      nonce: string;
+      blockHashBytes: number[];
+    }
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+    return await this.webauthnWorkers.signTransferTransactionWithPrf(
       nearAccountId,
       prfOutput,
       payload
@@ -372,13 +402,7 @@ export class WebAuthnManager {
     blockHeight: number,
     blockHashBytes: number[],
     timestamp: number
-  ): Promise<{
-    vrfInput: string;
-    vrfOutput: string;
-    vrfProof: string;
-    vrfPublicKey: string;
-    rpId: string;
-  }> {
+  ): Promise<VRFChallenge> {
     return await this.vrfManager.generateVrfChallengeWithPrf(
       prfOutput,
       encryptedVrfData,
@@ -426,7 +450,7 @@ export class WebAuthnManager {
   async verifyVrfAuthentication(
     nearRpcProvider: Provider,
     contractId: string,
-    vrfChallengeData: {
+    vrfChallenge: {
       vrfInput: string;
       vrfOutput: string;
       vrfProof: string;
@@ -446,7 +470,7 @@ export class WebAuthnManager {
     return await this.contractCalls.verifyVrfAuthentication(
       nearRpcProvider,
       contractId,
-      vrfChallengeData,
+      vrfChallenge,
       webauthnCredential,
       debugMode
     );
@@ -459,7 +483,7 @@ export class WebAuthnManager {
   async verifyVrfRegistration(
     nearRpcProvider: Provider,
     contractId: string,
-    vrfChallengeData: {
+    vrfChallenge: {
       vrfInput: string;
       vrfOutput: string;
       vrfProof: string;
@@ -484,7 +508,7 @@ export class WebAuthnManager {
     return await this.contractCalls.verifyVrfRegistration(
       nearRpcProvider,
       contractId,
-      vrfChallengeData,
+      vrfChallenge,
       webauthnCredential,
       nearAccountId,
       registrationData

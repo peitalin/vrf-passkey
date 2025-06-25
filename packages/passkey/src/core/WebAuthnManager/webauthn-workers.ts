@@ -2,17 +2,19 @@ import { bufferEncode } from '../../utils/encoders';
 import type {
   WorkerResponse,
   RegistrationPayload,
-  SigningPayload
+  SigningPayload,
+  ActionParams
 } from '../types/worker';
 import {
   WorkerRequestType,
+  ActionType,
   isEncryptionSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
   isCoseKeySuccess,
   isCoseValidationSuccess,
+  validateActionParams,
 } from '../types/worker';
-import type { PrfSaltConfig } from '../types/webauthn';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -21,20 +23,14 @@ import type { PrfSaltConfig } from '../types/webauthn';
  * without needing centralized challenge management
  */
 export class WebAuthnWorkers {
-  private readonly PRF_SALTS: PrfSaltConfig = {
-    nearKeyEncryption: new Uint8Array(new Array(32).fill(42))
-  };
 
-  constructor() {
-    // No challenge cleanup needed - VRF provides cryptographic freshness
-  }
+  constructor() {}
 
   // === WORKER MANAGEMENT ===
 
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
     const workerUrl = new URL('/workers/web3authn-signer.worker.js', window.location.origin);
-
     console.log('Creating secure worker from:', workerUrl.href);
 
     try {
@@ -84,10 +80,6 @@ export class WebAuthnWorkers {
   }
 
   // === PRF OPERATIONS ===
-
-  getPrfSalts(): PrfSaltConfig {
-    return this.PRF_SALTS;
-  }
 
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
@@ -216,20 +208,13 @@ export class WebAuthnWorkers {
    *    - No network communication with servers
    *    - No transaction signing or blockchain interaction
    *    - No replay attack surface since nothing is transmitted
-   *    - Security comes from device possession + biometrics, not challenge validation
-   *
-   * This is equivalent to: "If you can unlock your phone, you can access your local keychain"
-   *
-   * RANDOM CHALLENGE PURPOSE: Prevents pre-computation attacks
-   *    - Fresh random challenge ensures PRF output cannot be pre-computed
-   *    - Challenge doesn't need server validation - randomness is sufficient
-   *    - Challenge is NOT a shared secret - it's public in WebAuthn clientDataJSON
+   *    - Security comes from device possession + biometrics
+   *    - This is equivalent to: "If you can unlock your phone, you can access your local keychain"
    *
    * PRF DETERMINISTIC KEY DERIVATION: WebAuthn PRF provides cryptographic guarantees
    *    - Same SALT + same authenticator = same PRF output (deterministic)
    *    - Different SALT + same authenticator = different PRF output
-   *    - We use FIXED salt (new Array(32).fill(42)) so we always get same PRF output
-   *    - Challenge can be random because PRF depends on SALT, not challenge
+   *    - Use a fixed user-scoped salt (sha256(`prf-salt:${accountId}`)) for deterministic PRF output
    *    - Impossible to derive PRF output without the physical authenticator
    */
   async securePrivateKeyDecryptionWithPrf(
@@ -313,6 +298,181 @@ export class WebAuthnWorkers {
     } else {
       console.error('WebAuthnManager: COSE key validation failed:', response);
       throw new Error('Failed to validate COSE key format');
+    }
+  }
+
+  // === NEW ACTION-BASED SIGNING METHODS ===
+
+  /**
+   * Sign a NEAR transaction with multiple actions using PRF
+   */
+  async signMultiActionTransactionWithPrf(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    payload: {
+      nearAccountId: string;
+      receiverId: string;
+      actions: ActionParams[];
+      nonce: string;
+      blockHashBytes: number[];
+    }
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+    try {
+      console.log('WebAuthnManager: Starting multi-action transaction signing with PRF');
+
+      // Validate all actions
+      payload.actions.forEach((action, index) => {
+        try {
+          validateActionParams(action);
+        } catch (error) {
+          throw new Error(`Action ${index} validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      });
+
+      const worker = this.createSecureWorker();
+
+      const workerPayload = {
+        nearAccountId: payload.nearAccountId,
+        prfOutput: bufferEncode(prfOutput),
+        receiverId: payload.receiverId,
+        actions: payload.actions,
+        nonce: payload.nonce,
+        blockHashBytes: payload.blockHashBytes
+      };
+
+      // Validate required fields
+      const requiredFields = ['nearAccountId', 'receiverId', 'actions', 'nonce', 'blockHashBytes'];
+      const missingFields = requiredFields.filter(field => !workerPayload[field as keyof typeof workerPayload]);
+
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields for multi-action transaction signing: ${missingFields.join(', ')}`);
+      }
+
+      if (!payload.actions || payload.actions.length === 0) {
+        throw new Error('At least one action is required');
+      }
+
+      if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
+        throw new Error('blockHashBytes is required and cannot be empty');
+      }
+
+      if (!prfOutput || prfOutput.byteLength === 0) {
+        throw new Error('PRF output is required and cannot be empty');
+      }
+
+      console.log('WebAuthnManager: Multi-action worker payload:', {
+        ...workerPayload,
+        prfOutput: `[${bufferEncode(prfOutput).length} chars]`,
+        actions: `[${payload.actions.length} actions]`,
+        blockHashBytes: `[${payload.blockHashBytes?.length || 0} bytes]`
+      });
+
+      const response = await this.executeWorkerOperation(worker, {
+        type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS,
+        payload: {
+          nearAccountId: payload.nearAccountId,
+          prfOutput: bufferEncode(prfOutput),
+          receiverId: payload.receiverId,
+          actions: JSON.stringify(payload.actions), // Serialize actions for WASM
+          nonce: payload.nonce,
+          blockHashBytes: payload.blockHashBytes
+        }
+      });
+
+      if (response.type === 'SIGNATURE_SUCCESS' && response.payload?.signedTransactionBorsh) {
+        console.log('WebAuthnManager: Multi-action transaction signing successful');
+        return {
+          signedTransactionBorsh: response.payload.signedTransactionBorsh,
+          nearAccountId: payload.nearAccountId
+        };
+      } else {
+        console.error('WebAuthnManager: Multi-action transaction signing failed:', response);
+        throw new Error('Multi-action transaction signing failed');
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: Multi-action transaction signing error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sign a NEAR Transfer transaction using PRF
+   */
+  async signTransferTransactionWithPrf(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    payload: {
+      nearAccountId: string;
+      receiverId: string;
+      depositAmount: string;
+      nonce: string;
+      blockHashBytes: number[];
+    }
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+    try {
+      console.log('WebAuthnManager: Starting Transfer transaction signing with PRF');
+
+      // Validate transfer action
+      const transferAction: ActionParams = {
+        actionType: ActionType.Transfer,
+        transfer: {
+          deposit: payload.depositAmount
+        }
+      };
+
+      validateActionParams(transferAction);
+
+      const worker = this.createSecureWorker();
+
+      const workerPayload = {
+        nearAccountId: payload.nearAccountId,
+        prfOutput: bufferEncode(prfOutput),
+        receiverId: payload.receiverId,
+        depositAmount: payload.depositAmount,
+        nonce: payload.nonce,
+        blockHashBytes: payload.blockHashBytes
+      };
+
+      // Validate required fields
+      const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce', 'blockHashBytes'];
+      const missingFields = requiredFields.filter(field => !workerPayload[field as keyof typeof workerPayload]);
+
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields for transfer transaction signing: ${missingFields.join(', ')}`);
+      }
+
+      if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
+        throw new Error('blockHashBytes is required and cannot be empty');
+      }
+
+      if (!prfOutput || prfOutput.byteLength === 0) {
+        throw new Error('PRF output is required and cannot be empty');
+      }
+
+      console.log('WebAuthnManager: Transfer worker payload:', {
+        ...workerPayload,
+        prfOutput: `[${bufferEncode(prfOutput).length} chars]`,
+        blockHashBytes: `[${payload.blockHashBytes?.length || 0} bytes]`
+      });
+
+      const response = await this.executeWorkerOperation(worker, {
+        type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION,
+        payload: workerPayload
+      });
+
+      if (response.type === 'SIGNATURE_SUCCESS' && response.payload?.signedTransactionBorsh) {
+        console.log('WebAuthnManager: Transfer transaction signing successful');
+        return {
+          signedTransactionBorsh: response.payload.signedTransactionBorsh,
+          nearAccountId: payload.nearAccountId
+        };
+      } else {
+        console.error('WebAuthnManager: Transfer transaction signing failed:', response);
+        throw new Error('Transfer transaction signing failed');
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: Transfer transaction signing error:', error);
+      throw error;
     }
   }
 }

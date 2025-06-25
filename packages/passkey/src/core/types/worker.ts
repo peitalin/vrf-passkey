@@ -71,6 +71,8 @@ export enum WorkerRequestType {
   VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY',
   GENERATE_VRF_KEYPAIR_WITH_PRF = 'GENERATE_VRF_KEYPAIR_WITH_PRF',
   GENERATE_VRF_CHALLENGE_WITH_PRF = 'GENERATE_VRF_CHALLENGE_WITH_PRF',
+  SIGN_TRANSACTION_WITH_ACTIONS = 'SIGN_TRANSACTION_WITH_ACTIONS',
+  SIGN_TRANSFER_TRANSACTION = 'SIGN_TRANSFER_TRANSACTION',
 }
 
 export enum WorkerResponseType {
@@ -139,6 +141,52 @@ export interface EncryptPrivateKeyWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
+// === ACTION TYPES ===
+
+export enum ActionType {
+  CreateAccount = "CreateAccount",
+  DeployContract = "DeployContract",
+  FunctionCall = "FunctionCall",
+  Transfer = "Transfer",
+  Stake = "Stake",
+  AddKey = "AddKey",
+  DeleteKey = "DeleteKey",
+  DeleteAccount = "DeleteAccount",
+}
+
+export interface ActionParams {
+  actionType: ActionType;
+  // Union type for all action-specific parameters
+  functionCall?: {
+    methodName: string;
+    args: Record<string, any>;
+    gas: string;
+    deposit: string;
+  };
+  transfer?: {
+    deposit: string;
+  };
+  createAccount?: {};
+  deployContract?: {
+    code: number[]; // WASM bytecode
+  };
+  stake?: {
+    stake: string;
+    publicKey: string;
+  };
+  addKey?: {
+    publicKey: string;
+    accessKey: any; // AccessKey object
+  };
+  deleteKey?: {
+    publicKey: string;
+  };
+  deleteAccount?: {
+    beneficiaryId: string;
+  };
+}
+
+// Legacy request (for backward compatibility during transition)
 export interface DecryptAndSignTransactionWithPrfRequest extends BaseWorkerRequest {
   type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF;
   payload: {
@@ -154,6 +202,44 @@ export interface DecryptAndSignTransactionWithPrfRequest extends BaseWorkerReque
     contractArgs: Record<string, any>;
     /** Gas amount in string format */
     gasAmount: string;
+    /** Deposit amount in string format */
+    depositAmount: string;
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
+  };
+}
+
+// New multi-action request
+export interface SignTransactionWithActionsRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS;
+  payload: {
+    /** NEAR account ID whose key should be used for signing */
+    nearAccountId: string;
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Receiver account ID */
+    receiverId: string;
+    /** Array of actions to include in the transaction */
+    actions: ActionParams[];
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
+  };
+}
+
+// Convenience request for Transfer transactions
+export interface SignTransferTransactionRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
+  payload: {
+    /** NEAR account ID whose key should be used for signing */
+    nearAccountId: string;
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Receiver account ID */
+    receiverId: string;
     /** Deposit amount in string format */
     depositAmount: string;
     /** Transaction nonce as string */
@@ -228,7 +314,9 @@ export type WorkerRequest =
   | ExtractCosePublicKeyRequest
   | ValidateCoseKeyRequest
   | GenerateVrfKeypairWithPrfRequest
-  | GenerateVrfChallengeWithPrfRequest;
+  | GenerateVrfChallengeWithPrfRequest
+  | SignTransactionWithActionsRequest
+  | SignTransferTransactionRequest;
 
 // === RESPONSE MESSAGE INTERFACES ===
 
@@ -490,6 +578,93 @@ export function isWorkerSuccess(response: WorkerResponse): response is Encryptio
     WorkerResponseType.VRF_KEYPAIR_SUCCESS,
     WorkerResponseType.VRF_CHALLENGE_SUCCESS
   ].includes(response.type);
+}
+
+// === ACTION TYPE VALIDATION ===
+
+/**
+ * Validate action parameters before sending to worker
+ */
+export function validateActionParams(actionParams: ActionParams): void {
+  switch (actionParams.actionType) {
+    case ActionType.FunctionCall:
+      if (!actionParams.functionCall?.methodName) {
+        throw new Error('methodName required for FunctionCall');
+      }
+      if (!actionParams.functionCall?.args) {
+        throw new Error('args required for FunctionCall');
+      }
+      if (!actionParams.functionCall?.gas) {
+        throw new Error('gas required for FunctionCall');
+      }
+      if (!actionParams.functionCall?.deposit) {
+        throw new Error('deposit required for FunctionCall');
+      }
+      break;
+    case ActionType.Transfer:
+      if (!actionParams.transfer?.deposit) {
+        throw new Error('deposit required for Transfer');
+      }
+      break;
+    case ActionType.CreateAccount:
+      // No additional validation needed
+      break;
+    case ActionType.DeployContract:
+      if (!actionParams.deployContract?.code || actionParams.deployContract.code.length === 0) {
+        throw new Error('code required for DeployContract');
+      }
+      break;
+    case ActionType.Stake:
+      if (!actionParams.stake?.stake) {
+        throw new Error('stake amount required for Stake');
+      }
+      if (!actionParams.stake?.publicKey) {
+        throw new Error('publicKey required for Stake');
+      }
+      break;
+    case ActionType.AddKey:
+      if (!actionParams.addKey?.publicKey) {
+        throw new Error('publicKey required for AddKey');
+      }
+      if (!actionParams.addKey?.accessKey) {
+        throw new Error('accessKey required for AddKey');
+      }
+      break;
+    case ActionType.DeleteKey:
+      if (!actionParams.deleteKey?.publicKey) {
+        throw new Error('publicKey required for DeleteKey');
+      }
+      break;
+    case ActionType.DeleteAccount:
+      if (!actionParams.deleteAccount?.beneficiaryId) {
+        throw new Error('beneficiaryId required for DeleteAccount');
+      }
+      break;
+    default:
+      throw new Error(`Unsupported action type: ${actionParams.actionType}`);
+  }
+}
+
+/**
+ * Check if a worker request is for action-based signing
+ */
+export function isActionBasedSigningRequest(request: WorkerRequest): request is SignTransactionWithActionsRequest | SignTransferTransactionRequest {
+  return request.type === WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS ||
+         request.type === WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
+}
+
+/**
+ * Check if a worker request is a multi-action signing request
+ */
+export function isMultiActionSigningRequest(request: WorkerRequest): request is SignTransactionWithActionsRequest {
+  return request.type === WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS;
+}
+
+/**
+ * Check if a worker request is a transfer transaction signing request
+ */
+export function isTransferSigningRequest(request: WorkerRequest): request is SignTransferTransactionRequest {
+  return request.type === WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
 }
 
 // === UTILITY FUNCTIONS ===

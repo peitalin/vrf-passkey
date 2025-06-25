@@ -69,6 +69,8 @@ pub struct VRFChallengeData {
     pub vrf_proof: String,
     #[serde(rename = "vrfPublicKey")]
     pub vrf_public_key: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
     #[serde(rename = "rpId")]
     pub rp_id: String,
     #[serde(rename = "blockHeight")]
@@ -288,6 +290,7 @@ impl VRFKeyManager {
             vrf_output: base64_url_encode(&vrf_output),
             vrf_proof: base64_url_encode(&bincode::serialize(&proof).unwrap()),
             vrf_public_key: base64_url_encode(&bincode::serialize(&vrf_keypair.pk).unwrap()),
+            user_id: input_data.user_id,
             rp_id: input_data.rp_id,
             block_height: input_data.block_height,
             block_hash: base64_url_encode(&input_data.block_hash),
@@ -339,6 +342,7 @@ impl VRFKeyManager {
             vrf_output: base64_url_encode(&vrf_output),
             vrf_proof: base64_url_encode(&bincode::serialize(&proof).unwrap()),
             vrf_public_key: base64_url_encode(&bincode::serialize(&vrf_keypair.pk).unwrap()),
+            user_id: input_data.user_id,
             rp_id: input_data.rp_id,
             block_height: input_data.block_height,
             block_hash: base64_url_encode(&input_data.block_hash),

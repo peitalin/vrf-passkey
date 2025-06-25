@@ -1,13 +1,5 @@
-import { KeyPair, type KeyPairString } from '@near-js/crypto';
-import { serialize } from 'borsh';
-import {
-  SCHEMA,
-  SignedTransaction,
-  createTransaction,
-  Action,
-  Signature
-} from '@near-js/transactions';
-import { sha256 } from 'js-sha256';
+// WASM-only transaction signing worker
+// This worker handles all NEAR transaction operations using WASM functions only.
 
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
@@ -40,8 +32,6 @@ const WASM_CACHE_NAME = 'passkey-wasm-v1';
 const DB_NAME = 'PasskeyNearKeys';
 const DB_VERSION = 1;
 const STORE_NAME = 'encryptedKeys';
-const HKDF_INFO = 'near-key-encryption';
-const HKDF_SALT = '';
 
 // === WASM MODULE FUNCTIONS ===
 const {
@@ -50,7 +40,11 @@ const {
   derive_encryption_key_from_prf,
   generate_and_encrypt_near_keypair_with_prf,
   extract_cose_public_key_from_attestation,
-  validate_cose_key_format
+  validate_cose_key_format,
+  sign_near_transaction_with_actions,
+  sign_transfer_transaction_with_prf,
+  sign_transaction_with_encrypted_key, // Legacy transaction signing function
+  decrypt_private_key_with_prf_as_string // New WASM function for private key decryption
 } = wasmModule;
 
 // === UTILITY FUNCTIONS ===
@@ -271,8 +265,6 @@ async function verifyKeyStorage(nearAccountId: string): Promise<boolean> {
   }
 }
 
-
-
 // === MAIN MESSAGE HANDLER ===
 
 let messageProcessed = false;
@@ -312,6 +304,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 
       case WorkerRequestType.VALIDATE_COSE_KEY:
         await handleValidateCoseKey(payload);
+        break;
+
+      case WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS:
+        await handleSignTransactionWithActions(payload);
+        break;
+
+      case WorkerRequestType.SIGN_TRANSFER_TRANSACTION:
+        await handleSignTransferTransaction(payload);
         break;
 
       default:
@@ -410,6 +410,7 @@ async function handleEncryptPrivateKeyWithPrf(
 
 /**
  * Decrypt private key from stored data and return as string
+ * NOTE: This is kept for the DECRYPT_PRIVATE_KEY_WITH_PRF operation only
  */
 function decryptPrivateKeyString(
   encryptedKeyData: EncryptedKeyData,
@@ -421,132 +422,45 @@ function decryptPrivateKeyString(
   console.log('WORKER: encryptedKeyData.iv type:', typeof encryptedKeyData.iv);
   console.log('WORKER: prfOutput type:', typeof prfOutput);
 
-  const decryptionKey = derive_encryption_key_from_prf(prfOutput, HKDF_INFO, HKDF_SALT);
-  console.log('WORKER: decryptionKey derived, type:', typeof decryptionKey);
-
-  const decryptedKey = decrypt_data_aes_gcm(
-    encryptedKeyData.encryptedData,
-    encryptedKeyData.iv,
-    decryptionKey
-  );
-  console.log('WORKER: decryptedKey result, type:', typeof decryptedKey);
-
-  // Handle both cases: full "ed25519:..." format or just base58
-  if (decryptedKey.startsWith('ed25519:')) {
-    console.log('WORKER: Key already has ed25519 prefix');
-    return decryptedKey; // Already has the prefix
-  } else {
-    console.log('WORKER: Adding ed25519 prefix to key');
-    return `ed25519:${decryptedKey}`; // Add the prefix
-  }
-}
-
-/**
- * Decrypt private key from stored data and return as KeyPair
- */
-function decryptPrivateKey(
-  encryptedKeyData: EncryptedKeyData,
-  prfOutput: string
-): KeyPair {
-  console.log('WORKER: decryptPrivateKey - Starting...');
-  const decryptedPrivateKeyString = decryptPrivateKeyString(encryptedKeyData, prfOutput);
-  console.log('WORKER: decryptedPrivateKeyString result, type:', typeof decryptedPrivateKeyString);
-  console.log('WORKER: decryptedPrivateKeyString length:', decryptedPrivateKeyString?.length);
-
-  console.log('WORKER: Creating KeyPair from string...');
-  const keyPair = KeyPair.fromString(decryptedPrivateKeyString as KeyPairString);
-  console.log('WORKER: KeyPair created successfully, type:', typeof keyPair);
-
-  return keyPair;
-}
-
-/**
- * Create NEAR transaction from parameters
- */
-function createNearTransaction(
-  nearAccountId: string,
-  keyPair: KeyPair,
-  payload: DecryptAndSignTransactionWithPrfRequest['payload']
-): any {
-  const { receiverId, contractMethodName, contractArgs, gasAmount, depositAmount, nonce, blockHashBytes } = payload;
-
-  console.log('WORKER: Creating NEAR transaction with blockHashBytes:', {
-    type: typeof blockHashBytes,
-    isArray: Array.isArray(blockHashBytes),
-    length: blockHashBytes?.length,
-    sample: blockHashBytes?.slice(0, 5) // Show first 5 bytes for debugging
-  });
-
-  // Defensive validation of blockHashBytes before Buffer.from()
-  if (!blockHashBytes || !Array.isArray(blockHashBytes) || blockHashBytes.length === 0) {
-    throw new Error(`Invalid blockHashBytes for transaction creation: ${typeof blockHashBytes}, length: ${blockHashBytes?.length}`);
-  }
-
-  const actions: Action[] = [
-    ({
-      functionCall: {
-        methodName: contractMethodName,
-        args: Buffer.from(JSON.stringify(contractArgs)),
-        gas: BigInt(gasAmount),
-        deposit: BigInt(depositAmount)
-      }
-    } as any)
-  ];
-
+  // Use WASM function for decryption - handles all key derivation and formatting
   try {
-    const blockHashBuffer = Buffer.from(blockHashBytes);
-    console.log('WORKER: Block hash buffer created successfully:', blockHashBuffer.length, 'bytes');
-
-    return createTransaction(
-      nearAccountId,
-      keyPair.getPublicKey(),
-      receiverId,
-      BigInt(nonce),
-      actions,
-      blockHashBuffer
+    const decryptedKey = decrypt_private_key_with_prf_as_string(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv
     );
-  } catch (error: any) {
-    console.error('WORKER: Failed to create block hash buffer:', error);
-    throw new Error(`Failed to create block hash buffer: ${error.message}`);
+    console.log('WORKER: WASM decryption successful, type:', typeof decryptedKey);
+    return decryptedKey;
+  } catch (error) {
+    console.error('WORKER: WASM decryption failed:', error);
+    throw new Error(`Private key decryption failed: ${error}`);
   }
 }
 
 /**
- * Sign transaction and create signed transaction
- */
-function signTransaction(transaction: any, keyPair: KeyPair): Uint8Array {
-  const serializedTx = serialize(SCHEMA.Transaction, transaction);
-  const hash = new Uint8Array(sha256.array(serializedTx));
-  const signatureFromKeyPair = keyPair.sign(hash);
-
-  const nearSignature = new Signature({
-    keyType: keyPair.getPublicKey().keyType,
-    data: signatureFromKeyPair.signature
-  });
-
-  const signedTransaction = new SignedTransaction({
-    transaction,
-    signature: nearSignature
-  });
-
-  return serialize(SCHEMA.SignedTransaction, signedTransaction);
-}
-
-/**
- * Handle transaction decryption and signing with PRF
+ * Handle transaction decryption and signing with PRF using WASM-only implementation
  */
 async function handleDecryptAndSignTransactionWithPrf(
   payload: DecryptAndSignTransactionWithPrfRequest['payload']
 ): Promise<void> {
   try {
-    const { nearAccountId, prfOutput } = payload;
+    const {
+      nearAccountId,
+      prfOutput,
+      receiverId,
+      contractMethodName,
+      contractArgs,
+      gasAmount,
+      depositAmount,
+      nonce,
+      blockHashBytes
+    } = payload;
 
     // Validate payload data before processing
     console.log('WORKER: Validating payload data...');
     console.log('WORKER: Payload keys:', Object.keys(payload));
-    console.log('WORKER: blockHashBytes type:', typeof payload.blockHashBytes);
-    console.log('WORKER: blockHashBytes length:', payload.blockHashBytes?.length);
-    console.log('WORKER: blockHashBytes value:', payload.blockHashBytes);
+    console.log('WORKER: blockHashBytes type:', typeof blockHashBytes);
+    console.log('WORKER: blockHashBytes length:', blockHashBytes?.length);
 
     // Validate required fields
     const requiredFields = ['nearAccountId', 'prfOutput', 'receiverId', 'contractMethodName', 'contractArgs', 'gasAmount', 'depositAmount', 'nonce', 'blockHashBytes'];
@@ -563,38 +477,49 @@ async function handleDecryptAndSignTransactionWithPrf(
 
     console.log('WORKER: Payload validation successful');
 
-    console.log('WORKER: Step 1 - Getting encrypted key data...');
+    console.log('WORKER: Getting encrypted key data...');
     const encryptedKeyData = await getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
-    console.log('WORKER: Step 1 completed - Encrypted key data retrieved');
+    console.log('WORKER: Encrypted key data retrieved');
 
-    console.log('WORKER: Step 2 - Decrypting private key...');
-    const keyPair = decryptPrivateKey(encryptedKeyData, prfOutput);
-    console.log('WORKER: Step 2 completed - Private key decrypted, keyPair type:', typeof keyPair);
+    // Prepare encrypted key data as JSON for WASM function
+    const encryptedKeyJson = JSON.stringify({
+      encrypted_near_key_data_b64u: encryptedKeyData.encryptedData,
+      aes_gcm_nonce_b64u: encryptedKeyData.iv
+    });
 
-    console.log('WORKER: Step 3 - Creating NEAR transaction...');
-    const transaction = createNearTransaction(nearAccountId, keyPair, payload);
-    console.log('WORKER: Step 3 completed - Transaction created, transaction type:', typeof transaction);
+    console.log('WORKER: Using WASM-only transaction signing...');
+    // Use WASM function directly - handles decryption, transaction creation, and signing
+    const signedTransactionBorsh = sign_transaction_with_encrypted_key(
+      prfOutput, // PRF output for decryption
+      encryptedKeyJson, // Encrypted key data as JSON
+      nearAccountId, // Signer account ID
+      receiverId, // Receiver account ID
+      contractMethodName, // Contract method name
+      JSON.stringify(contractArgs), // Contract arguments as JSON string
+      gasAmount, // Gas amount as string
+      depositAmount, // Deposit amount as string
+      BigInt(nonce), // Nonce as number
+      new Uint8Array(blockHashBytes) // Block hash as Uint8Array
+    );
 
-    console.log('WORKER: Step 4 - Signing transaction...');
-    const serializedSignedTx = signTransaction(transaction, keyPair);
-    console.log('WORKER: Step 4 completed - Transaction signed, serialized length:', serializedSignedTx.length);
+    console.log('WORKER: WASM transaction signing completed successfully');
 
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_SUCCESS,
       payload: {
-        signedTransactionBorsh: Array.from(serializedSignedTx),
+        signedTransactionBorsh: Array.from(signedTransactionBorsh),
         nearAccountId
       }
     });
   } catch (error: any) {
-    console.error('WORKER: Signing failed:', error.message);
+    console.error('WORKER: WASM signing failed:', error.message);
     console.error('WORKER: Error stack:', error.stack);
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_FAILURE,
-      payload: { error: error.message || 'PRF decryption/signing failed' }
+      payload: { error: error.message || 'WASM transaction signing failed' }
     });
   }
 }
@@ -694,6 +619,138 @@ async function handleValidateCoseKey(
     sendResponseAndTerminate({
       type: WorkerResponseType.COSE_VALIDATION_FAILURE,
       payload: { error: error.message || 'COSE key validation failed' }
+    });
+  }
+}
+
+// === NEW ACTION-BASED SIGNING HANDLERS ===
+
+/**
+ * Handle multi-action transaction signing with PRF
+ */
+async function handleSignTransactionWithActions(
+  payload: any // SignTransactionWithActionsRequest['payload'] - using any to avoid circular imports
+): Promise<void> {
+  try {
+    const { nearAccountId, prfOutput, receiverId, actions, nonce, blockHashBytes } = payload;
+
+    console.log('WORKER: Starting multi-action transaction signing');
+    console.log('WORKER: Actions to process:', actions);
+
+    // Validate all required parameters are defined
+    const requiredFields = ['nearAccountId', 'receiverId', 'actions', 'nonce'];
+    const missingFields = requiredFields.filter(field => !payload[field]);
+
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields for multi-action transaction signing: ${missingFields.join(', ')}`);
+    }
+
+    if (!blockHashBytes || blockHashBytes.length === 0) {
+      throw new Error('blockHashBytes is required and cannot be empty');
+    }
+
+    if (!prfOutput || prfOutput.length === 0) {
+      throw new Error('PRF output is required and cannot be empty');
+    }
+
+    console.log('WORKER: Getting encrypted key data for account:', nearAccountId);
+    const encryptedKeyData = await getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    console.log('WORKER: Using new multi-action WASM function');
+    // Call the new WASM function for multi-action signing
+    const signedTransactionBorsh = sign_near_transaction_with_actions(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv,
+      nearAccountId,
+      receiverId,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes),
+      actions // actions JSON string
+    );
+
+    console.log('WORKER: Multi-action transaction signing completed successfully');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_SUCCESS,
+      payload: {
+        signedTransactionBorsh: Array.from(signedTransactionBorsh),
+        nearAccountId
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: Multi-action transaction signing failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'Multi-action transaction signing failed' }
+    });
+  }
+}
+
+/**
+ * Handle Transfer transaction signing with PRF
+ */
+async function handleSignTransferTransaction(
+  payload: any // SignTransferTransactionRequest['payload'] - using any to avoid circular imports
+): Promise<void> {
+  try {
+    const { nearAccountId, prfOutput, receiverId, depositAmount, nonce, blockHashBytes } = payload;
+
+    console.log('WORKER: Starting Transfer transaction signing');
+    console.log('WORKER: Transfer amount:', depositAmount);
+
+    // Validate all required parameters
+    const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce'];
+    const missingFields = requiredFields.filter(field => !payload[field]);
+
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields for transfer transaction signing: ${missingFields.join(', ')}`);
+    }
+
+    if (!blockHashBytes || blockHashBytes.length === 0) {
+      throw new Error('blockHashBytes is required and cannot be empty');
+    }
+
+    if (!prfOutput || prfOutput.length === 0) {
+      throw new Error('PRF output is required and cannot be empty');
+    }
+
+    console.log('WORKER: Getting encrypted key data for account:', nearAccountId);
+    const encryptedKeyData = await getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    console.log('WORKER: Using new transfer WASM function');
+    // Call the new WASM function for transfer signing
+    const signedTransactionBorsh = sign_transfer_transaction_with_prf(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv,
+      nearAccountId,
+      receiverId,
+      depositAmount,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes)
+    );
+
+    console.log('WORKER: Transfer transaction signing completed successfully');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_SUCCESS,
+      payload: {
+        signedTransactionBorsh: Array.from(signedTransactionBorsh),
+        nearAccountId
+      }
+    });
+  } catch (error: any) {
+    console.error('WORKER: Transfer transaction signing failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'Transfer transaction signing failed' }
     });
   }
 }
