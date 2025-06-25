@@ -35,8 +35,8 @@ fn base64_url_decode(input: &str) -> Result<Vec<u8>, KdfError> {
 
 // === KEY DERIVATION ===
 
-/// Function for deriving encryption key from PRF output
-pub fn derive_encryption_key_from_prf_core(
+/// Function for deriving AES-GCM encryption key from PRF output
+pub(crate) fn derive_aes_gcm_encryption_key_from_prf_core(
     prf_output_base64: &str,  // Base64-encoded PRF output from WebAuthn
 ) -> Result<Vec<u8>, KdfError> {
     console_log!("RUST: Deriving encryption key from PRF output");
@@ -64,7 +64,7 @@ pub fn derive_encryption_key_from_prf_core(
 // === AES-GCM ENCRYPTION/DECRYPTION ===
 
 /// Encrypt data using AES-256-GCM
-pub fn encrypt_data_aes_gcm_core(plain_text_data_str: &str, key_bytes: &[u8]) -> Result<EncryptedDataAesGcmResponse, String> {
+pub(crate) fn encrypt_data_aes_gcm_core(plain_text_data_str: &str, key_bytes: &[u8]) -> Result<EncryptedDataAesGcmResponse, String> {
     if key_bytes.len() != 32 {
         return Err("Encryption key must be 32 bytes for AES-256-GCM.".to_string());
     }
@@ -86,7 +86,7 @@ pub fn encrypt_data_aes_gcm_core(plain_text_data_str: &str, key_bytes: &[u8]) ->
 }
 
 /// Decrypt data using AES-256-GCM
-pub fn decrypt_data_aes_gcm_core(encrypted_data_b64u: &str, aes_gcm_nonce_b64u: &str, key_bytes: &[u8]) -> Result<String, String> {
+pub(crate) fn decrypt_data_aes_gcm_core(encrypted_data_b64u: &str, aes_gcm_nonce_b64u: &str, key_bytes: &[u8]) -> Result<String, String> {
     if key_bytes.len() != 32 {
         return Err("Decryption key must be 32 bytes for AES-256-GCM.".to_string());
     }
@@ -112,63 +112,38 @@ pub fn decrypt_data_aes_gcm_core(encrypted_data_b64u: &str, aes_gcm_nonce_b64u: 
 
 // === KEY GENERATION ===
 
-/// Generate a new NEAR key pair
-pub fn generate_near_keypair_core() -> Result<(String, String), String> {
-    console_log!("RUST: Generating new NEAR key pair");
-
-    // Generate random bytes for the private key seed
-    let mut private_key_seed = [0u8; 32];
-    getrandom(&mut private_key_seed)
-        .map_err(|e| format!("Failed to generate random bytes: {}", e))?;
-
-    // Create signing key from random bytes
-    let signing_key = SigningKey::from_bytes(&private_key_seed);
-
-    // Get the public key bytes
-    let verifying_key = signing_key.verifying_key();
-    let public_key_bytes = verifying_key.to_bytes();
-
-    // NEAR Ed25519 private key format: 32-byte seed + 32-byte public key = 64 bytes total
-    let mut full_private_key = [0u8; 64];
-    full_private_key[0..32].copy_from_slice(&private_key_seed);
-    full_private_key[32..64].copy_from_slice(&public_key_bytes);
-
-    // Encode private key in NEAR format: "ed25519:BASE58_FULL_PRIVATE_KEY"
-    let private_key_b58 = bs58::encode(&full_private_key).into_string();
-    let private_key_near_format = format!("ed25519:{}", private_key_b58);
-
-    // Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
-    let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
-    let public_key_near_format = format!("ed25519:{}", public_key_b58);
-
-    console_log!("RUST: Generated NEAR key pair with public key: {}", public_key_near_format);
-    console_log!("RUST: Private key is 64 bytes (seed + public key)");
-
-    Ok((private_key_near_format, public_key_near_format))
-}
-
-/// Generate and encrypt NEAR keypair using PRF
-pub fn generate_and_encrypt_near_keypair_with_prf_core(
+/// Derive and encrypt NEAR keypair from COSE P-256 credential (RECOMMENDED)
+pub(crate) fn internal_derive_near_keypair_from_cose_and_encrypt_with_prf(
+    attestation_object_b64u: &str,
     prf_output_base64: &str,
 ) -> Result<(String, EncryptedDataAesGcmResponse), String> {
-    console_log!("RUST: Generating and encrypting NEAR key pair with PRF-derived key");
+    console_log!("RUST: Deriving deterministic NEAR key pair from COSE P-256 credential");
 
-    // Generate the key pair
-    let (private_key, public_key) = generate_near_keypair_core()?;
+    // 1. Extract COSE P-256 public key from WebAuthn attestation
+    let cose_key_bytes = crate::cose::extract_cose_public_key_from_attestation_core(attestation_object_b64u)
+        .map_err(|e| format!("Failed to extract COSE key: {}", e))?;
 
-    // Derive encryption key from PRF output
-    let encryption_key = derive_encryption_key_from_prf_core(prf_output_base64)
+    // 2. Extract P-256 coordinates from COSE key
+    let (x_coord, y_coord) = crate::cose::extract_p256_coordinates_from_cose(&cose_key_bytes)
+        .map_err(|e| format!("Failed to extract P-256 coordinates: {}", e))?;
+
+    // 3. Derive deterministic NEAR keypair from P-256 coordinates
+    let (private_key, public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord)?;
+
+    // 4. Derive encryption key from PRF output
+    let encryption_key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_base64)
         .map_err(|e| format!("Key derivation failed: {:?}", e))?;
 
-    // Encrypt the private key
+    // 5. Encrypt the deterministic private key
     let encrypted_result = encrypt_data_aes_gcm_core(&private_key, &encryption_key)?;
 
-    console_log!("RUST: Successfully generated and encrypted NEAR key pair with PRF");
+    console_log!("RUST: Successfully derived and encrypted deterministic NEAR key pair");
+    console_log!("RUST: NEAR keypair cryptographically bound to WebAuthn P-256 credential");
     Ok((public_key, encrypted_result))
 }
 
 /// Derive NEAR Ed25519 key from WebAuthn COSE P-256 public key
-pub fn derive_near_keypair_from_cose_p256_core(
+pub(crate) fn internal_derive_near_keypair_from_cose_p256(
     x_coordinate_bytes: &[u8],
     y_coordinate_bytes: &[u8],
 ) -> Result<(String, String), String> {
@@ -224,7 +199,7 @@ pub fn decrypt_private_key_with_prf_core(
     console_log!("RUST: Decrypting private key with PRF");
 
     // 1. Derive decryption key from PRF
-    let decryption_key = derive_encryption_key_from_prf_core(prf_output_base64)
+    let decryption_key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_base64)
         .map_err(|e| format!("Key derivation failed: {:?}", e))?;
 
     // 2. Decrypt private key using AES-GCM

@@ -3,15 +3,29 @@ use crate::actions::*;
 use crate::crypto::*;
 use crate::transaction::*;
 
+// Helper function for tests - creates deterministic keypair for testing
+fn create_test_keypair_with_prf(prf_output_b64: &str) -> (String, EncryptedDataAesGcmResponse) {
+    // Use deterministic function with mock coordinates
+    let x_coord = vec![0x42u8; 32]; // Mock P-256 x coordinate
+    let y_coord = vec![0x84u8; 32]; // Mock P-256 y coordinate
+    let (private_key, public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
+
+    // Encrypt the key manually for testing
+    let encryption_key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_b64).unwrap();
+    let encrypted_result = encrypt_data_aes_gcm_core(&private_key, &encryption_key).unwrap();
+
+    (public_key, encrypted_result)
+}
+
 #[test]
 fn test_prf_kdf() {
     // Test PRF-based key derivation
-    let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
-    let key = derive_encryption_key_from_prf_core(prf_output_b64, "near-key-encryption", "").unwrap();
+    let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+    let key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_b64).unwrap();
     assert_eq!(key.len(), 32);
 
     // Should be deterministic
-    let key2 = derive_encryption_key_from_prf_core(prf_output_b64, "near-key-encryption", "").unwrap();
+    let key2 = derive_aes_gcm_encryption_key_from_prf_core(prf_output_b64).unwrap();
     assert_eq!(key, key2);
 }
 
@@ -31,9 +45,11 @@ fn test_encryption_decryption_roundtrip() {
 }
 
 #[test]
-fn test_near_key_generation() {
-    // Test that generated keys have the correct format
-    let (private_key, public_key) = generate_near_keypair_core().unwrap();
+fn test_deterministic_near_key_generation() {
+    // Test that deterministic key generation produces correct format
+    let x_coord = vec![0x42u8; 32]; // Mock P-256 x coordinate
+    let y_coord = vec![0x84u8; 32]; // Mock P-256 y coordinate
+    let (private_key, public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
 
     // Remove ed25519: prefix and decode
     let private_key_b58 = &private_key[8..]; // Remove "ed25519:"
@@ -59,6 +75,11 @@ fn test_near_key_generation() {
 
     assert_eq!(derived_public_key, public_key_bytes.as_slice(),
               "Seed should generate the same public key");
+
+    // Test deterministic behavior - same inputs should produce same outputs
+    let (private_key2, public_key2) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
+    assert_eq!(private_key, private_key2, "Should be deterministic");
+    assert_eq!(public_key, public_key2, "Should be deterministic");
 }
 
 #[test]
@@ -77,8 +98,8 @@ fn test_deterministic_near_key_derivation() {
         0xe8, 0x9f, 0x71, 0x74, 0xfb, 0x0d, 0xde, 0xc0,
     ];
 
-    let (private_key1, public_key1) = derive_near_keypair_from_cose_p256_core(&x_coord, &y_coord).unwrap();
-    let (private_key2, public_key2) = derive_near_keypair_from_cose_p256_core(&x_coord, &y_coord).unwrap();
+    let (private_key1, public_key1) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
+    let (private_key2, public_key2) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
 
     // Should be deterministic
     assert_eq!(private_key1, private_key2);
@@ -91,11 +112,11 @@ fn test_deterministic_near_key_derivation() {
 
 #[test]
 fn test_private_key_decryption_with_prf() {
-    // Test PRF-based private key decryption
+    // Test PRF-based private key decryption using deterministic derivation
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4"; // "test-prf-output-from-webauthn"
 
-    // Generate a test key pair and encrypt it
-    let (public_key, encrypted_result) = generate_and_encrypt_near_keypair_with_prf_core(prf_output_b64).unwrap();
+        // Use test helper to create deterministic keypair
+    let (_public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
     // Test decryption
     let decrypted_key = decrypt_private_key_with_prf_core(
@@ -110,12 +131,59 @@ fn test_private_key_decryption_with_prf() {
 }
 
 #[test]
+fn test_deterministic_key_derivation_from_cose() {
+    // Test deterministic key derivation from COSE P-256 coordinates
+    let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
+
+    // Test P-256 coordinates (example values)
+    let x_coord = vec![
+        0x22, 0xc6, 0xb5, 0xbe, 0x9a, 0xa8, 0x08, 0x35,
+        0x8c, 0xa9, 0x33, 0x52, 0xf9, 0x5a, 0x55, 0x09,
+        0x25, 0xf3, 0xaf, 0xc2, 0xf9, 0xa6, 0x03, 0x65,
+        0x85, 0xb1, 0x18, 0x73, 0x1c, 0x23, 0x0b, 0x75,
+    ];
+    let y_coord = vec![
+        0x33, 0x1b, 0x60, 0x66, 0xae, 0xa9, 0x34, 0x5d,
+        0x7a, 0x30, 0x31, 0x5e, 0x26, 0x6e, 0x53, 0x63,
+        0x69, 0xbc, 0x8d, 0xa7, 0xe1, 0x80, 0x78, 0x1a,
+        0xe8, 0x9f, 0x71, 0x74, 0xfb, 0x0d, 0xde, 0xc0,
+    ];
+
+    // Derive deterministic NEAR keypair from P-256 coordinates
+    let (deterministic_private_key, deterministic_public_key) =
+        internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord).unwrap();
+
+    // Encrypt the deterministic private key
+    let encryption_key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_b64).unwrap();
+    let encrypted_result = encrypt_data_aes_gcm_core(&deterministic_private_key, &encryption_key).unwrap();
+
+    // Test decryption
+    let decrypted_key = decrypt_private_key_with_prf_core(
+        prf_output_b64,
+        &encrypted_result.encrypted_near_key_data_b64u,
+        &encrypted_result.aes_gcm_nonce_b64u,
+    ).unwrap();
+
+    // Verify that the decrypted key produces the same public key
+    let recovered_public_key_bytes = decrypted_key.verifying_key().to_bytes();
+    let expected_public_key_b58 = &deterministic_public_key[8..]; // Remove "ed25519:" prefix
+    let expected_public_key_bytes = bs58::decode(expected_public_key_b58).into_vec().unwrap();
+
+    assert_eq!(recovered_public_key_bytes.to_vec(), expected_public_key_bytes);
+
+    println!("✅ Deterministic key derivation test passed");
+    println!("   - P-256 coordinates → deterministic NEAR keypair");
+    println!("   - Encryption → decryption preserves keypair");
+    println!("   - Provides cryptographic binding between WebAuthn and NEAR identities");
+}
+
+#[test]
 fn test_private_key_format_compatibility() {
     // Test that the decryption function handles both 32-byte and 64-byte formats
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
 
-    // Generate a 64-byte format key
-    let (public_key, encrypted_result) = generate_and_encrypt_near_keypair_with_prf_core(prf_output_b64).unwrap();
+    // Generate a 64-byte format key using deterministic function
+    let (_public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
     // Decrypt and verify it works
     let decrypted_key = decrypt_private_key_with_prf_core(
@@ -133,11 +201,7 @@ fn test_private_key_format_compatibility() {
     let legacy_private_key_near_format = format!("ed25519:{}", legacy_private_key_b58);
 
     // Derive encryption key and encrypt the legacy format
-    let encryption_key = derive_encryption_key_from_prf_core(
-        prf_output_b64,
-        "near-key-encryption",
-        ""
-    ).unwrap();
+    let encryption_key = derive_aes_gcm_encryption_key_from_prf_core(prf_output_b64).unwrap();
 
     let legacy_encrypted = encrypt_data_aes_gcm_core(&legacy_private_key_near_format, &encryption_key).unwrap();
 
@@ -313,8 +377,8 @@ fn test_get_action_handler() {
 fn test_transaction_building() {
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
 
-    // Generate and encrypt a key pair
-    let (public_key, encrypted_result) = generate_and_encrypt_near_keypair_with_prf_core(prf_output_b64).unwrap();
+    // Generate and encrypt a key pair using deterministic function
+    let (_public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
     let private_key = decrypt_private_key_with_prf_core(
         prf_output_b64,
@@ -375,8 +439,8 @@ fn test_transaction_building() {
 fn test_transaction_signing() {
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
 
-    // Generate and encrypt a key pair
-    let (public_key, encrypted_result) = generate_and_encrypt_near_keypair_with_prf_core(prf_output_b64).unwrap();
+    // Generate and encrypt a key pair using deterministic function
+    let (_public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
     let private_key = decrypt_private_key_with_prf_core(
         prf_output_b64,
@@ -420,8 +484,8 @@ fn test_deterministic_transaction_signing() {
     // Test that transaction signing is deterministic for the same inputs
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
 
-    // Generate and encrypt a key pair
-    let (public_key, encrypted_result) = generate_and_encrypt_near_keypair_with_prf_core(prf_output_b64).unwrap();
+    // Generate and encrypt a key pair using deterministic function
+    let (_public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
     let private_key = decrypt_private_key_with_prf_core(
         prf_output_b64,
