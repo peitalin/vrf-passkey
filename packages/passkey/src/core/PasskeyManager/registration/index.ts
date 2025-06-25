@@ -10,7 +10,7 @@ import type {
 import { createAccountRelayServer } from './createAccountRelayServer';
 import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
 import { WebAuthnManager } from '../../WebAuthnManager';
-import { VRFChallenge } from '@/core/WebAuthnManager/vrfManager';
+import { VRFChallenge } from '@/core/WebAuthnManager/vrfWorkerManager';
 
 
 /**
@@ -188,8 +188,6 @@ async function handleRegistration(
     const webAuthnManager = passkeyManager.getWebAuthnManager();
     const nearRpcProvider = passkeyManager.getNearRpcProvider();
     const config = passkeyManager.getConfig();
-    const vrfManager = passkeyManager.getVRFManager();
-    await vrfManager.initialize();
 
     onEvent?.({
       step: 1,
@@ -483,7 +481,7 @@ async function handleRegistration(
     console.log('VRF Registration Step 13: Unlocking VRF keypair for immediate login');
 
     try {
-      const unlockResult = await vrfManager.unlockVRFKeypair(
+      const unlockResult = await webAuthnManager.unlockVRFKeypair(
         nearAccountId,
         encryptedVrfResult.encryptedVrfKeypair,
         prfOutput
@@ -529,15 +527,16 @@ async function handleRegistration(
     return result;
 
   } catch (error: any) {
+
     /////////////////////////////////////////
     /// Catch all errors, and rollback all state
     /////////////////////////////////////////
+
     console.error('VRF registration error:', error);
     // Rollback VRF Service Worker state
     try {
-      const vrfManager = passkeyManager.getVRFManager();
-      await vrfManager.forceCleanup();
-      console.log('✅ VRF Service Worker cleaned up');
+      await passkeyManager.forceClearVrfManager();
+      console.log('VRF Service Worker cleaned up');
     } catch (vrfError: any) {
       console.warn('️VRF cleanup partial failure:', vrfError.message);
     }
@@ -545,7 +544,7 @@ async function handleRegistration(
     try {
       const webAuthnManager = passkeyManager.getWebAuthnManager();
       await webAuthnManager.rollbackUserRegistration(nearAccountId);
-      console.log('✅ Registration data rolled back');
+      console.log('Registration data rolled back');
     } catch (rollbackError: any) {
       console.warn('️Rollback partial failure:', rollbackError.message);
     }

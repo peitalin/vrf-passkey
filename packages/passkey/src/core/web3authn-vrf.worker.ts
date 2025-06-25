@@ -20,28 +20,28 @@ let wasmInitialized: boolean = false;
  */
 async function initializeWasmModule(): Promise<void> {
   if (wasmInitialized) {
-    console.log('[VRF-worker]: Already initialized, skipping...');
+    console.log('[vrf-worker]: Already initialized, skipping...');
     return;
   }
 
-  console.log('[VRF-worker]: Starting WASM initialization...');
+  console.log('[vrf-worker]: Starting WASM initialization...');
 
   try {
     // Add timeout protection for WASM initialization
     const initPromise = (async () => {
-      console.log('[VRF-worker]: WASM URL:', wasmUrl.href);
-      console.log('[VRF-worker]: Available functions:', Object.keys(vrfWasmModule));
+      console.log('[vrf-worker]: WASM URL:', wasmUrl.href);
+      console.log('[vrf-worker]: Available functions:', Object.keys(vrfWasmModule));
 
       // Initialize WASM module
-      console.log('[VRF-worker]: Calling init()...');
+      console.log('[vrf-worker]: Calling init()...');
       await init();
-      console.log('[VRF-worker]: init() completed successfully');
+      console.log('[vrf-worker]: init() completed successfully');
 
       // Test that the handle_message function is available
       if (typeof handle_message !== 'function') {
         throw new Error('handle_message function not available after WASM initialization');
       }
-      console.log('[VRF-worker]: handle_message function verified');
+      console.log('[vrf-worker]: handle_message function verified');
     })();
 
     // Race initialization against timeout
@@ -75,7 +75,7 @@ async function initializeWasmModule(): Promise<void> {
     wasmModule = wasmInstance;
     wasmInitialized = true;
 
-    console.log('✅ [VRF-worker]: WASM module loaded and initialized successfully');
+    console.log('✅ [vrf-worker]: WASM module loaded and initialized successfully');
 
     // Quick test of the WASM functionality
     try {
@@ -84,15 +84,15 @@ async function initializeWasmModule(): Promise<void> {
         id: 'init-test',
         data: {}
       });
-      console.log('✅ [VRF-worker]: Initialization test successful:', testResponse.success);
+      console.log('✅ [vrf-worker]: Initialization test successful:', testResponse.success);
     } catch (testError: any) {
-      console.warn('️[VRF-worker]: Initialization test failed, but continuing:', testError.message);
+      console.warn('️[vrf-worker]: Initialization test failed, but continuing:', testError.message);
     }
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown WASM initialization error';
-    console.error('❌ [VRF-worker]: Failed to load WASM module:', errorMessage);
-    console.error('❌ [VRF-worker]: Error details:', error);
+    console.error('❌ [vrf-worker]: Failed to load WASM module:', errorMessage);
+    console.error('❌ [vrf-worker]: Error details:', error);
     wasmInitialized = false;
 
     // Create a fallback module that returns errors
@@ -117,11 +117,11 @@ self.onmessage = async (event: MessageEvent) => {
   const data: VRFWorkerMessage = event.data;
 
   try {
-    console.log('[VRF-worker]: Received message:', data.type);
+    console.log('[vrf-worker]: Received message:', data.type);
 
     // Handle PING messages immediately for connectivity testing
     if (data.type === 'PING') {
-      console.log('[VRF-worker]: Responding to PING');
+      console.log('[vrf-worker]: Responding to PING');
       const pingResponse: VRFWorkerResponse = {
         id: data.id,
         success: true,
@@ -137,7 +137,7 @@ self.onmessage = async (event: MessageEvent) => {
 
     // For other messages, ensure WASM is initialized
     if (!wasmInitialized) {
-      console.log('🔧 [VRF-worker]: WASM not initialized, initializing now...');
+      console.log('🔧 [vrf-worker]: WASM not initialized, initializing now...');
       await initializeWasmModule();
     }
 
@@ -145,7 +145,7 @@ self.onmessage = async (event: MessageEvent) => {
       throw new Error('WASM module not initialized after initialization attempt');
     }
 
-    console.log('[VRF-worker]: Processing message with WASM module');
+    console.log('[vrf-worker]: Processing message with WASM module');
 
     // Delegate to WASM module
     if (!wasmModule) {
@@ -159,7 +159,7 @@ self.onmessage = async (event: MessageEvent) => {
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown message handling error';
-    console.error('[VRF-worker]: Message handling error:', errorMessage);
+    console.error('[vrf-worker]: Message handling error:', errorMessage);
 
     // Send error response
     const errorResponse = createErrorResponse(data?.id, error);
@@ -183,16 +183,16 @@ function createErrorResponse(
 }
 
 self.onerror = (error) => {
-  console.error('[VRF-worker]: Global error:', error);
+  console.error('[vrf-worker]: Global error:', error);
 };
 
 self.onunhandledrejection = (event) => {
-  console.error('[VRF-worker]: Unhandled promise rejection:', event.reason);
+  console.error('[vrf-worker]: Unhandled promise rejection:', event.reason);
   event.preventDefault();
 };
 
 // === INITIALIZATION ===
 
 initializeWasmModule().catch(error => {
-  console.error('[VRF-worker]: Startup initialization failed:', error);
+  console.error('[vrf-worker]: Startup initialization failed:', error);
 });

@@ -84,7 +84,6 @@ async function handleLoginUnlockVRF(
   try {
 
     const webAuthnManager = passkeyManager.getWebAuthnManager();
-    const vrfManager = passkeyManager.getVRFManager();
 
     // Step 1: Get VRF credentials and authenticators, and validate them
     const { userData, authenticators } = await Promise.all([
@@ -92,9 +91,7 @@ async function handleLoginUnlockVRF(
       webAuthnManager.getUser(nearAccountId),
       // fetch authenticators
       webAuthnManager.getAuthenticatorsByUser(nearAccountId),
-      // check if VRF manager is ready
-      vrfManager.isReady(),
-    ]).then(([userData, authenticators, isVRFReady]) => {
+    ]).then(([userData, authenticators]) => {
       // Validate user data and authenticators
       if (!userData) {
         throw new Error(`User data not found for ${nearAccountId} in IndexedDB. Please register an account first.`);
@@ -110,9 +107,6 @@ async function handleLoginUnlockVRF(
       }
       if (authenticators.length === 0) {
         throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
-      }
-      if (!isVRFReady) {
-        console.warn('VRF Worker not ready yet - VRF initialization may still be in progress');
       }
       return { userData, authenticators };
     });
@@ -147,7 +141,7 @@ async function handleLoginUnlockVRF(
     });
 
     console.log('Unlocking VRF keypair in Service Worker memory');
-    const unlockResult = await vrfManager.unlockVRFKeypair(
+    const unlockResult = await webAuthnManager.unlockVRFKeypair(
       nearAccountId,
       userData.vrfCredentials!, // non-null assertion; validated above
       prfOutput

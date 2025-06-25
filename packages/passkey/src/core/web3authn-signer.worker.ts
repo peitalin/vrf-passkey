@@ -50,7 +50,7 @@ const nearKeysDB = new PasskeyNearKeysDBManager();
  */
 async function initializeWasmWithCache(): Promise<void> {
   try {
-    console.debug('WORKER: Starting WASM initialization...', {
+    console.debug('[signer-worker]: Starting WASM initialization...', {
       wasmUrl: wasmUrl.href,
       userAgent: navigator.userAgent,
       currentUrl: self.location.href
@@ -61,36 +61,36 @@ async function initializeWasmWithCache(): Promise<void> {
     if (cachedResponse) {
       const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
       await init({ module: wasmModule });
-      console.debug('WORKER: WASM initialized successfully from cache');
+      console.debug('[signer-worker]: WASM initialized successfully from cache');
       return;
     }
 
-    console.debug('WORKER: Fetching fresh WASM module from:', wasmUrl.href);
+    console.debug('[signer-worker]: Fetching fresh WASM module from:', wasmUrl.href);
     const response = await fetch(wasmUrl.href);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
     }
 
-    // console.log('WORKER: WASM fetch successful, content-type:', response.headers.get('content-type'));
+    // console.log('[signer-worker]: WASM fetch successful, content-type:', response.headers.get('content-type'));
     const responseToCache = response.clone();
     const wasmModule = await WebAssembly.compileStreaming(response);
 
     await cache.put(wasmUrl.href, responseToCache);
     await init({ module: wasmModule });
   } catch (error: any) {
-    console.error('WORKER: WASM initialization failed, using fallback:', error);
-    console.error('WORKER: Error details:', {
+    console.error('[signer-worker]: WASM initialization failed, using fallback:', error);
+    console.error('[signer-worker]: Error details:', {
       name: error?.name,
       message: error?.message,
       stack: error?.stack
     });
 
     try {
-      console.debug('WORKER: Attempting fallback WASM initialization...');
+      console.debug('[signer-worker]: Attempting fallback WASM initialization...');
       await init();
     } catch (fallbackError: any) {
-      console.error('WORKER: Fallback WASM initialization also failed:', fallbackError);
+      console.error('[signer-worker]: Fallback WASM initialization also failed:', fallbackError);
       throw new Error(`WASM initialization failed: ${error?.message || 'Unknown error'}. Fallback also failed: ${fallbackError?.message || 'Unknown fallback error'}`);
     }
   }
@@ -124,7 +124,7 @@ function parseWasmResult(resultJson: string | object): WasmResult {
     publicKey: result.publicKey,
     encryptedPrivateKey
   };
-  // console.log('WORKER: parseWasmResult - Final result:', finalResult);
+  // console.log('[signer-worker]: parseWasmResult - Final result:', finalResult);
   return finalResult;
 }
 
@@ -140,12 +140,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 
   messageProcessed = true;
   const { type, payload } = event.data;
-  console.log('WORKER: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
+  console.log('[signer-worker]: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
 
   try {
-    console.log('WORKER: Starting WASM initialization...');
+    console.log('[signer-worker]: Starting WASM initialization...');
     await initializeWasmWithCache();
-    console.log('WORKER: WASM initialization completed, processing message...');
+    console.log('[signer-worker]: WASM initialization completed, processing message...');
 
     switch (type) {
       case WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT:
@@ -176,7 +176,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
         sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
     }
   } catch (error: any) {
-    console.error('WORKER: Message processing failed:', {
+    console.error('[signer-worker]: Message processing failed:', {
       error: error?.message || 'Unknown error',
       stack: error?.stack,
       name: error?.name,
@@ -204,7 +204,7 @@ async function handleDeriveNearKeypairAndEncrypt(
 ): Promise<void> {
   try {
     const { prfOutput, nearAccountId, attestationObjectBase64url } = payload;
-    console.log('WORKER: Using deterministic key derivation from COSE P-256 credential');
+    console.log('[signer-worker]: Using deterministic key derivation from COSE P-256 credential');
 
     const resultJson = derive_near_keypair_from_cose_and_encrypt_with_prf(
       attestationObjectBase64url,
@@ -212,7 +212,7 @@ async function handleDeriveNearKeypairAndEncrypt(
     );
 
     const { publicKey, encryptedPrivateKey } = parseWasmResult(resultJson);
-    console.log('WORKER: Deterministic parseWasmResult output:');
+    console.log('[signer-worker]: Deterministic parseWasmResult output:');
     console.log('  - publicKey value:', publicKey);
     console.log('  - encryptedPrivateKey type:', typeof encryptedPrivateKey);
 
@@ -223,7 +223,7 @@ async function handleDeriveNearKeypairAndEncrypt(
       timestamp: Date.now()
     };
 
-    console.log('WORKER: Deterministic key derivation successful - NEAR keypair bound to WebAuthn credential');
+    console.log('[signer-worker]: Deterministic key derivation successful - NEAR keypair bound to WebAuthn credential');
     await nearKeysDB.storeEncryptedKey(keyData);
 
     const verified = await nearKeysDB.verifyKeyStorage(nearAccountId);
@@ -240,7 +240,7 @@ async function handleDeriveNearKeypairAndEncrypt(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: Encryption failed:', error.message);
+    console.error('[signer-worker]: Encryption failed:', error.message);
     sendResponseAndTerminate({
       type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
       payload: { error: error.message || 'PRF encryption failed' }
@@ -283,7 +283,7 @@ async function handleDecryptPrivateKeyWithPrf(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: Decryption failed:', error.message);
+    console.error('[signer-worker]: Decryption failed:', error.message);
     sendResponseAndTerminate({
       type: WorkerResponseType.DECRYPTION_FAILURE,
       payload: { error: error.message || 'PRF decryption failed' }
@@ -313,8 +313,8 @@ async function handleSignTransactionWithActions(
     // actions comes as a JSON string from webauthn-workers.ts
     const actionsStr = typeof actions === 'string' ? actions : JSON.stringify(actions);
 
-    console.log('WORKER: Starting multi-action transaction signing');
-    console.log('WORKER: Actions to process:', actionsStr);
+    console.log('[signer-worker]: Starting multi-action transaction signing');
+    console.log('[signer-worker]: Actions to process:', actionsStr);
 
     // Validate all required parameters are defined
     const requiredFields = ['nearAccountId', 'receiverId', 'actions', 'nonce'];
@@ -330,13 +330,13 @@ async function handleSignTransactionWithActions(
       throw new Error('PRF output is required and cannot be empty');
     }
 
-    console.log('WORKER: Getting encrypted key data for account:', nearAccountId);
+    console.log('[signer-worker]: Getting encrypted key data for account:', nearAccountId);
     const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    console.log('WORKER: Using new multi-action WASM function');
+    console.log('[signer-worker]: Using new multi-action WASM function');
     // Call the new WASM function for multi-action signing
     const signedTransactionBorsh = sign_near_transaction_with_actions(
       prfOutput,
@@ -349,7 +349,7 @@ async function handleSignTransactionWithActions(
       actionsStr // actions as JSON string
     );
 
-    console.log('WORKER: Multi-action transaction signing completed successfully');
+    console.log('[signer-worker]: Multi-action transaction signing completed successfully');
 
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_SUCCESS,
@@ -359,7 +359,7 @@ async function handleSignTransactionWithActions(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: Multi-action transaction signing failed:', error);
+    console.error('[signer-worker]: Multi-action transaction signing failed:', error);
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_FAILURE,
       payload: { error: error.message || 'Multi-action transaction signing failed' }
@@ -383,8 +383,8 @@ async function handleSignTransferTransaction(
 ): Promise<void> {
   try {
     const { nearAccountId, prfOutput, receiverId, depositAmount, nonce, blockHashBytes } = payload;
-    console.log('WORKER: Starting Transfer transaction signing');
-    console.log('WORKER: Transfer amount:', depositAmount);
+    console.log('[signer-worker]: Starting Transfer transaction signing');
+    console.log('[signer-worker]: Transfer amount:', depositAmount);
 
     // Validate all required parameters
     const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce'];
@@ -400,13 +400,13 @@ async function handleSignTransferTransaction(
       throw new Error('PRF output is required and cannot be empty');
     }
 
-    console.log('WORKER: Getting encrypted key data for account:', nearAccountId);
+    console.log('[signer-worker]: Getting encrypted key data for account:', nearAccountId);
     const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    console.log('WORKER: Using new transfer WASM function');
+    console.log('[signer-worker]: Using new transfer WASM function');
     // Call the new WASM function for transfer signing
     const signedTransactionBorsh = sign_near_transfer_transaction(
       prfOutput,
@@ -419,7 +419,7 @@ async function handleSignTransferTransaction(
       new Uint8Array(blockHashBytes)
     );
 
-    console.log('WORKER: Transfer transaction signing completed successfully');
+    console.log('[signer-worker]: Transfer transaction signing completed successfully');
 
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_SUCCESS,
@@ -429,7 +429,7 @@ async function handleSignTransferTransaction(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: Transfer transaction signing failed:', error);
+    console.error('[signer-worker]: Transfer transaction signing failed:', error);
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_FAILURE,
       payload: { error: error.message || 'Transfer transaction signing failed' }
@@ -449,11 +449,11 @@ async function handleExtractCosePublicKey(
 ): Promise<void> {
   try {
     const { attestationObjectBase64url } = payload;
-    console.log('WORKER: Extracting COSE public key from attestation object');
+    console.log('[signer-worker]: Extracting COSE public key from attestation object');
 
     // Call the WASM function to extract COSE public key
     const cosePublicKeyBytes = extract_cose_public_key_from_attestation(attestationObjectBase64url);
-    console.log('WORKER: Successfully extracted COSE public key:', cosePublicKeyBytes.length, 'bytes');
+    console.log('[signer-worker]: Successfully extracted COSE public key:', cosePublicKeyBytes.length, 'bytes');
 
     sendResponseAndTerminate({
       type: WorkerResponseType.COSE_KEY_SUCCESS,
@@ -462,7 +462,7 @@ async function handleExtractCosePublicKey(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: COSE key extraction failed:', error.message);
+    console.error('[signer-worker]: COSE key extraction failed:', error.message);
     sendResponseAndTerminate({
       type: WorkerResponseType.COSE_KEY_FAILURE,
       payload: { error: error.message || 'COSE key extraction failed' }
@@ -483,7 +483,7 @@ async function handleValidateCoseKey(
     // Call the WASM function to validate COSE key format
     const validationResult = validate_cose_key_format(new Uint8Array(coseKeyBytes));
     const validationInfo = JSON.parse(validationResult);
-    console.log('WORKER: COSE key validation result:', validationInfo);
+    console.log('[signer-worker]: COSE key validation result:', validationInfo);
 
     sendResponseAndTerminate({
       type: WorkerResponseType.COSE_VALIDATION_SUCCESS,
@@ -493,7 +493,7 @@ async function handleValidateCoseKey(
       }
     });
   } catch (error: any) {
-    console.error('WORKER: COSE key validation failed:', error.message);
+    console.error('[signer-worker]: COSE key validation failed:', error.message);
     sendResponseAndTerminate({
       type: WorkerResponseType.COSE_VALIDATION_FAILURE,
       payload: { error: error.message || 'COSE key validation failed' }

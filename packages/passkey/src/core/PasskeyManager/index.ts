@@ -2,7 +2,7 @@ import type { Provider } from '@near-js/providers';
 import { TxExecutionStatus } from '@near-js/types';
 
 import { WebAuthnManager } from '../WebAuthnManager';
-import { VRFManager } from '../WebAuthnManager/vrfManager';
+import { VrfWorkerManager, VRFWorkerStatus } from '../WebAuthnManager/vrfWorkerManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
@@ -29,7 +29,7 @@ export class PasskeyManager {
   private webAuthnManager: WebAuthnManager;
   private nearRpcProvider: Provider;
   private config: PasskeyManagerConfig;
-  private vrfManager: VRFManager;
+  private vrfWorkerManager: VrfWorkerManager;
   private vrfInitializationPromise: Promise<void> | null = null;
 
   constructor(
@@ -37,33 +37,51 @@ export class PasskeyManager {
     nearRpcProvider: Provider
   ) {
     this.config = config;
-    this.webAuthnManager = new WebAuthnManager();
     this.nearRpcProvider = nearRpcProvider;
-    this.vrfManager = new VRFManager();
-
+    this.webAuthnManager = new WebAuthnManager();
+    this.vrfWorkerManager = new VrfWorkerManager();
     // Initialize VRF Web Worker automatically in the background
-    this.vrfInitializationPromise = this.initializeVRFWorkerInternal();
+    this.vrfInitializationPromise = this.initializeVrfWorkerManager();
   }
 
   /**
    * Internal VRF Web Worker initialization that runs automatically
    * This abstracts VRF implementation details away from users
    */
-  private async initializeVRFWorkerInternal(): Promise<void> {
+  private async initializeVrfWorkerManager(): Promise<void> {
     try {
-      await this.vrfManager.initialize();
+      await this.vrfWorkerManager.initialize();
     } catch (error: any) {
       console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
     }
   }
 
-  /**
-   * Ensure VRF Web Worker is ready (used internally by VRF operations)
-   */
-  private async ensureVRFReady(): Promise<void> {
-    if (this.vrfInitializationPromise) {
-      await this.vrfInitializationPromise;
-    }
+  forceClearVrfManager(): Promise<void> {
+    return this.vrfWorkerManager.forceClearVrfManager();
+  }
+
+  async getVrfWorkerStatus(): Promise<VRFWorkerStatus> {
+    return this.vrfWorkerManager.getVrfWorkerStatus();
+  }
+
+  getConfig(): PasskeyManagerConfig {
+    return { ...this.config };
+  }
+
+  updateConfig(newConfig: Partial<PasskeyManagerConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+  }
+
+  getWebAuthnManager(): WebAuthnManager {
+    return this.webAuthnManager;
+  }
+
+  getVrfWorkerManager(): VrfWorkerManager {
+    return this.vrfWorkerManager;
+  }
+
+  getNearRpcProvider(): Provider {
+    return this.nearRpcProvider;
   }
 
   /**
@@ -83,9 +101,6 @@ export class PasskeyManager {
     nearAccountId: string,
     options?: LoginOptions
   ): Promise<LoginResult> {
-    // Ensure VRF Web Worker is ready for VRF operations
-    await this.ensureVRFReady();
-
     return loginPasskey(this, nearAccountId, options);
   }
 
@@ -101,52 +116,7 @@ export class PasskeyManager {
       throw new Error('NEAR RPC provider is required for action execution');
     }
 
-    // Ensure VRF Web Worker is ready for VRF operations
-    await this.ensureVRFReady();
-
     return executeAction(this, nearAccountId, actionArgs, options);
-  }
-
-  /**
-   * Set the NEAR RPC provider
-   */
-  setNearRpcProvider(provider: any): void {
-    this.nearRpcProvider = provider;
-  }
-
-  /**
-   * Get the current configuration
-   */
-  getConfig(): PasskeyManagerConfig {
-    return { ...this.config };
-  }
-
-  /**
-   * Update configuration
-   */
-  updateConfig(newConfig: Partial<PasskeyManagerConfig>): void {
-    this.config = { ...this.config, ...newConfig };
-  }
-
-  /**
-   * Get access to the underlying WebAuthnManager for advanced operations
-   */
-  getWebAuthnManager(): WebAuthnManager {
-    return this.webAuthnManager;
-  }
-
-  /**
-   * Get access to the underlying NearRpcProvider for advanced operations
-   */
-  getNearRpcProvider(): Provider {
-    return this.nearRpcProvider;
-  }
-
-  /**
-   * Get access to the VRF manager
-   */
-  getVRFManager(): VRFManager {
-    return this.vrfManager;
   }
 
   /**
@@ -184,8 +154,7 @@ export class PasskeyManager {
       const userData = await this.webAuthnManager.getUser(targetAccountId);
 
       // Check VRF Web Worker status
-      await this.ensureVRFReady();
-      const vrfStatus = await this.vrfManager.getVRFStatus();
+      const vrfStatus = await this.vrfWorkerManager.getVrfWorkerStatus();
       const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
 
       // Get public key

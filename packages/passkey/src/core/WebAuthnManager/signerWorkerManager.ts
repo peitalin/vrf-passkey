@@ -22,11 +22,9 @@ import {
  * Note: Challenge store removed as VRF provides cryptographic freshness
  * without needing centralized challenge management
  */
-export class WebAuthnWorkers {
+export class SignerWorkerManager {
 
   constructor() {}
-
-  // === WORKER MANAGEMENT ===
 
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
@@ -36,7 +34,7 @@ export class WebAuthnWorkers {
     try {
       const worker = new Worker(workerUrl, {
         type: 'module',
-        name: 'PasskeyWorker'
+        name: 'Web3AuthnSignerWorker'
       });
 
       // Add error handling
@@ -294,13 +292,12 @@ export class WebAuthnWorkers {
     }
   }
 
-  // === NEW ACTION-BASED SIGNING METHODS ===
+  // === ACTION-BASED SIGNING METHODS ===
 
   /**
    * Sign a NEAR transaction with multiple actions using PRF
    */
   async signTransactionWithActions(
-    nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
       nearAccountId: string;
@@ -392,7 +389,6 @@ export class WebAuthnWorkers {
    * Sign a NEAR Transfer transaction using PRF
    */
   async signTransferTransaction(
-    nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
       nearAccountId: string;

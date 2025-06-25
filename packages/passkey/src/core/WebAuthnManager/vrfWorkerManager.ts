@@ -13,7 +13,7 @@ import type {
 } from '../types/vrf';
 import { base64UrlDecode } from '../../utils';
 
-export interface VRFManagerConfig {
+export interface VrfWorkerManagerConfig {
   // URL to the VRF Web Worker file
   // Defaults to client-hosted worker file
   //
@@ -62,7 +62,7 @@ export class VRFChallenge {
 }
 
 /**
- * VRF Manager - Web Worker Implementation
+ * VRF Worker Manager
  *
  * This class manages VRF operations using Web Workers for:
  * - VRF keypair unlocking (login)
@@ -70,14 +70,14 @@ export class VRFChallenge {
  * - Session management (browser session only)
  * - Client-hosted worker files
  */
-export class VRFManager {
+export class VrfWorkerManager {
   private vrfWorker: Worker | null = null;
   private initializationPromise: Promise<void> | null = null;
   private messageId = 0;
-  private config: VRFManagerConfig;
+  private config: VrfWorkerManagerConfig;
   private currentVrfAccountId: string | null = null;
 
-  constructor(config: VRFManagerConfig = {}) {
+  constructor(config: VrfWorkerManagerConfig = {}) {
     this.config = {
       // Default to client-hosted worker file
       vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
@@ -95,30 +95,67 @@ export class VRFManager {
     if (this.initializationPromise) {
       return this.initializationPromise;
     }
-    this.initializationPromise = this.initializeWebWorker();
+    this.initializationPromise = this.createVrfWorker();
     return this.initializationPromise;
   }
 
   /**
-   * Check if VRF Web Worker is ready for use
+   * Initialize Web Worker with client-hosted VRF worker
    */
-  async isReady(): Promise<boolean> {
+  private async createVrfWorker(): Promise<void> {
     try {
+      console.log('VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
+      // Create Web Worker from client-hosted file
+      this.vrfWorker = new Worker(this.config.vrfWorkerUrl!, {
+        type: 'module',
+        name: 'Web3AuthnVRFWorker'
+      });
+      // Set up error handling
+      this.vrfWorker.onerror = (error) => {
+        console.error('VRF Manager: Web Worker error:', error);
+      };
+      // Test communication with the Web Worker
+      await this.testWebWorkerCommunication();
+
+    } catch (error: any) {
+      throw new Error(`VRF Web Worker initialization failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Send message to Web Worker and wait for response
+   */
+  private async sendMessage(message: VRFWorkerMessage, customTimeout?: number): Promise<VRFWorkerResponse> {
+    return new Promise((resolve, reject) => {
       if (!this.vrfWorker) {
-        return false;
+        reject(new Error('VRF Web Worker not available'));
+        return;
       }
 
-      const response = await this.sendMessage({
-        type: 'PING',
-        id: this.generateMessageId(),
-        data: {}
-      }, 5000);
+      const timeoutMs = customTimeout || 30000;
+      const timeout = setTimeout(() => {
+        reject(new Error(`VRF Web Worker communication timeout (${timeoutMs}ms) for message type: ${message.type}`));
+      }, timeoutMs);
 
-      return response.success;
-    } catch (error) {
-      console.warn('VRF Manager: Web Worker readiness check failed:', error);
-      return false;
-    }
+      const handleMessage = (event: MessageEvent) => {
+        const response = event.data as VRFWorkerResponse;
+        if (response.id === message.id) {
+          clearTimeout(timeout);
+          this.vrfWorker!.removeEventListener('message', handleMessage);
+          resolve(response);
+        }
+      };
+
+      this.vrfWorker.addEventListener('message', handleMessage);
+      this.vrfWorker.postMessage(message);
+    });
+  }
+
+  /**
+   * Generate unique message ID
+   */
+  private generateMessageId(): string {
+    return `vrf_${Date.now()}_${++this.messageId}`;
   }
 
   /**
@@ -130,7 +167,7 @@ export class VRFManager {
     encryptedVrfData: EncryptedVRFData,
     prfOutput: ArrayBuffer
   ): Promise<VRFWorkerResponse> {
-    console.log(`VRF Manager: Unlocking VRF keypair for ${nearAccountId}`);
+
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized');
     }
@@ -195,13 +232,10 @@ export class VRFManager {
   /**
    * Get current VRF session status
    */
-  async getVRFStatus(): Promise<{
-    active: boolean;
-    nearAccountId?: string;
-    sessionDuration?: number;
-  }> {
+  async getVrfWorkerStatus(): Promise<VRFWorkerStatus> {
+
     if (!this.vrfWorker) {
-      return { active: false };
+      return { active: false, nearAccountId: null };
     }
 
     try {
@@ -216,22 +250,22 @@ export class VRFManager {
       if (response.success && response.data) {
         return {
           active: response.data.active,
-          nearAccountId: this.currentVrfAccountId || undefined,
+          nearAccountId: this.currentVrfAccountId || null,
           sessionDuration: response.data.sessionDuration
         };
       }
 
-      return { active: false };
+      return { active: false, nearAccountId: null };
     } catch (error) {
       console.warn('VRF Manager: Failed to get VRF status:', error);
-      return { active: false };
+      return { active: false, nearAccountId: null };
     }
   }
 
   /**
    * Logout and clear VRF session
    */
-  async logout(): Promise<void> {
+  async clearVrfSession(): Promise<void> {
     console.log('🚪 VRF Manager: Logging out...');
 
     if (!this.vrfWorker) {
@@ -250,9 +284,9 @@ export class VRFManager {
       if (response.success) {
         // Clear the TypeScript-tracked account ID
         this.currentVrfAccountId = null;
-        console.log('✅ VRF Manager: Logout successful - VRF keypair securely zeroized');
+        console.log('VRF Manager: Logged out: VRF keypair securely zeroized');
       } else {
-        console.warn('⚠️ VRF Manager: Logout failed:', response.error);
+        console.warn('️VRF Manager: Logout failed:', response.error);
       }
     } catch (error) {
       console.warn('VRF Manager: Logout error:', error);
@@ -262,12 +296,12 @@ export class VRFManager {
   /**
    * Force cleanup of VRF Web Worker and sessions (for error recovery)
    */
-  async forceCleanup(): Promise<void> {
+  async forceClearVrfManager(): Promise<void> {
     console.log('🧹 VRF Manager: Force cleanup initiated...');
 
     try {
       // First try to logout gracefully
-      await this.logout();
+      await this.clearVrfSession();
 
       // Terminate the worker
       if (this.vrfWorker) {
@@ -286,8 +320,6 @@ export class VRFManager {
       console.warn('VRF Manager: Force cleanup partial failure:', error);
     }
   }
-
-  // === VRF OPERATIONS ===
 
   /**
    * Generate VRF keypair for bootstrapping - stores in memory unencrypted temporarily
@@ -370,7 +402,7 @@ export class VRFManager {
       }
 
     } catch (error: any) {
-      console.error('❌ VRF Manager: Bootstrap VRF keypair generation failed:', error);
+      console.error('VRF Manager: Bootstrap VRF keypair generation failed:', error);
       throw new Error(`Failed to generate bootstrap VRF keypair: ${error.message}`);
     }
   }
@@ -425,28 +457,6 @@ export class VRFManager {
     }
   }
 
-  // === PRIVATE METHODS ===
-
-  /**
-   * Initialize Web Worker with client-hosted VRF worker
-   */
-  private async initializeWebWorker(): Promise<void> {
-    try {
-      console.log('VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
-      // Create Web Worker from client-hosted file
-      this.vrfWorker = new Worker(this.config.vrfWorkerUrl!, { type: 'module' });
-      // Set up error handling
-      this.vrfWorker.onerror = (error) => {
-        console.error('VRF Manager: Web Worker error:', error);
-      };
-      // Test communication with the Web Worker
-      await this.testWebWorkerCommunication();
-
-    } catch (error: any) {
-      throw new Error(`VRF Web Worker initialization failed: ${error.message}`);
-    }
-  }
-
   /**
    * Test Web Worker communication with progressive retry
    */
@@ -464,8 +474,6 @@ export class VRFManager {
           id: this.generateMessageId(),
           data: {}
         }, timeoutMs);
-
-        console.log('VRF Manager: PING response received:', pingResponse);
 
         if (!pingResponse.success) {
           throw new Error(`VRF Web Worker PING failed: ${pingResponse.error}`);
@@ -487,41 +495,6 @@ export class VRFManager {
     }
   }
 
-  /**
-   * Send message to Web Worker and wait for response
-   */
-  private async sendMessage(message: VRFWorkerMessage, customTimeout?: number): Promise<VRFWorkerResponse> {
-    return new Promise((resolve, reject) => {
-      if (!this.vrfWorker) {
-        reject(new Error('VRF Web Worker not available'));
-        return;
-      }
-
-      const timeoutMs = customTimeout || 30000;
-      const timeout = setTimeout(() => {
-        reject(new Error(`VRF Web Worker communication timeout (${timeoutMs}ms) for message type: ${message.type}`));
-      }, timeoutMs);
-
-      const handleMessage = (event: MessageEvent) => {
-        const response = event.data as VRFWorkerResponse;
-        if (response.id === message.id) {
-          clearTimeout(timeout);
-          this.vrfWorker!.removeEventListener('message', handleMessage);
-          resolve(response);
-        }
-      };
-
-      this.vrfWorker.addEventListener('message', handleMessage);
-      this.vrfWorker.postMessage(message);
-    });
-  }
-
-  /**
-   * Generate unique message ID
-   */
-  private generateMessageId(): string {
-    return `vrf_${Date.now()}_${++this.messageId}`;
-  }
 }
 
 // Export types

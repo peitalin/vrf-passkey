@@ -303,8 +303,8 @@ async function verifyVrfAuthAndSignTransaction(
   console.log('[Direct Action] Using VRF authentication flow with contract verification');
 
   // Get managers and check if VRF session is active
-  const vrfManager = passkeyManager.getVRFManager();
-  const vrfStatus = await vrfManager.getVRFStatus();
+  const vrfManager = passkeyManager.getVrfWorkerManager();
+  const vrfStatus = await vrfManager.getVrfWorkerStatus();
 
   if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
     const errorMsg = 'VRF keypair not unlocked - please login first to unlock VRF session';
@@ -425,7 +425,6 @@ async function verifyVrfAuthAndSignTransaction(
     };
 
     signingResult = await webAuthnManager.signTransferTransaction(
-      nearAccountId,
       prfOutput,
       transferPayload
     );
@@ -449,7 +448,6 @@ async function verifyVrfAuthAndSignTransaction(
     };
 
     signingResult = await webAuthnManager.signTransactionWithActions(
-      nearAccountId,
       prfOutput,
       signingPayload
     );

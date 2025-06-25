@@ -1,14 +1,12 @@
 import type { Provider } from '@near-js/providers';
 import type {
   FinalExecutionOutcome,
-  QueryResponseKind,
   CallContractViewFunctionResultRaw,
   AccessKeyView,
 } from '@near-js/types';
 import { SignedTransaction } from '@near-js/transactions';
-import { WebAuthnWorkers } from './webauthn-workers';
-import { IndexedDBManager } from '../IndexedDBManager';
-import { bufferDecode, base64UrlDecode, base64UrlEncode } from '../../utils/encoders';
+import { SignerWorkerManager } from './signerWorkerManager';
+import { base64UrlDecode, base64UrlEncode } from '../../utils/encoders';
 import bs58 from 'bs58';
 import type {
   VrfChallengeData,
@@ -34,10 +32,10 @@ export const CONTRACT_FUNCTIONS = {
  * WebAuthnContractCalls handles blockchain contract interactions
  */
 export class WebAuthnContractCalls {
-  private readonly webauthnWorkers: WebAuthnWorkers;
+  private readonly signerWorkerManager: SignerWorkerManager;
 
-  constructor(webauthnWorkers: WebAuthnWorkers) {
-    this.webauthnWorkers = webauthnWorkers;
+  constructor(signerWorkerManager: SignerWorkerManager) {
+    this.signerWorkerManager = signerWorkerManager;
   }
 
   /**
@@ -225,8 +223,7 @@ export class WebAuthnContractCalls {
         deposit: '0' // no deposit
       };
 
-      const signedTxResult = await this.webauthnWorkers.signTransactionWithActions(
-        nearAccountId,
+      const signedTxResult = await this.signerWorkerManager.signTransactionWithActions(
         prfOutput,
         {
           nearAccountId,
