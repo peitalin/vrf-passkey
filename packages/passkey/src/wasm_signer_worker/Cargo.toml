@@ -33,5 +33,11 @@ rand_core = "0.6"
 rand_chacha = "0.3"
 
 
+[dev-dependencies]
+near-primitives = "0.30"
+near-crypto = "0.30"
+near-sdk = "5.13"
+near-api = "0.6"
+
 [features]
 default = ["console_error_panic_hook"]
