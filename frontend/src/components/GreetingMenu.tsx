@@ -134,7 +134,12 @@ export function GreetingMenu() {
     }
 
     // Convert NEAR to yoctoNEAR (1 NEAR = 10^24 yoctoNEAR)
-    const yoctoAmount = (amount * Math.pow(10, 24)).toString();
+    // Use string manipulation to avoid scientific notation like "1e+24"
+    const nearStr = amount.toString();
+    const parts = nearStr.split('.');
+    const wholePart = parts[0] || '0';
+    const fracPart = (parts[1] || '').padEnd(24, '0').slice(0, 24);
+    const yoctoAmount = wholePart + fracPart;
 
     const transferAction: SerializableActionArgs = {
       action_type: ActionType.Transfer,

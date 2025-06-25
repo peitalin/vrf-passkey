@@ -20,7 +20,7 @@ function App() {
             relayerOptions: {
               relayerAccount: 'web3-authn.testnet',
               relayServerUrl: 'http://localhost:3000',
-              initialUseRelayer: true
+              initialUseRelayer: false
             },
             debugMode: false
           }}
