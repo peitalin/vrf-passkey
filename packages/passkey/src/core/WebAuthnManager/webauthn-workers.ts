@@ -7,13 +7,13 @@ import type {
 } from '../types/worker';
 import {
   WorkerRequestType,
-  ActionType,
   isEncryptionSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
   isCoseKeySuccess,
   isCoseValidationSuccess,
   validateActionParams,
+  ActionType,
 } from '../types/worker';
 
 /**
@@ -84,25 +84,27 @@ export class WebAuthnWorkers {
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
-  async secureRegistrationWithPrf(
+  async deriveNearKeypairAndEncrypt(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: RegistrationPayload,
+    attestationObject: AuthenticatorAttestationResponse,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
-      console.log('WebAuthnManager: Starting secure registration with PRF');
+      console.log('WebAuthnManager: Starting secure registration with PRF using deterministic derivation');
 
       const worker = this.createSecureWorker();
       const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF,
+        type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
         payload: {
           prfOutput: bufferEncode(prfOutput),
-          nearAccountId: payload.nearAccountId
+          nearAccountId: payload.nearAccountId,
+          attestationObjectBase64url: bufferEncode(attestationObject.attestationObject)
         }
       });
 
       if (isEncryptionSuccess(response)) {
-        console.log('WebAuthnManager: PRF registration successful');
+        console.log('WebAuthnManager: PRF registration successful with deterministic derivation');
         return {
           success: true,
           nearAccountId: payload.nearAccountId,
@@ -130,14 +132,13 @@ export class WebAuthnWorkers {
    * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
    * Note: No challenge validation needed - VRF provides cryptographic freshness
    */
-  async secureTransactionSigningWithPrf(
+  async decryptAndSignTransactionWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: SigningPayload
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting secure transaction signing with PRF');
-
+      console.log('WebAuthnManager: Starting decrypt and sign transaction with PRF');
       const worker = this.createSecureWorker();
 
       const workerPayload = {
@@ -159,20 +160,12 @@ export class WebAuthnWorkers {
       if (missingFields.length > 0) {
         throw new Error(`Missing required fields for transaction signing: ${missingFields.join(', ')}`);
       }
-
       if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
         throw new Error('blockHashBytes is required and cannot be empty');
       }
-
       if (!prfOutput || prfOutput.byteLength === 0) {
         throw new Error('PRF output is required and cannot be empty');
       }
-
-      console.log('WebAuthnManager: Worker payload for signing:', {
-        ...workerPayload,
-        prfOutput: `[${bufferEncode(prfOutput).length} chars]`, // Don't log the actual PRF
-        blockHashBytes: `[${payload.blockHashBytes?.length || 0} bytes]`
-      });
 
       const response = await this.executeWorkerOperation(worker, {
         type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF,
@@ -217,12 +210,12 @@ export class WebAuthnWorkers {
    *    - Use a fixed user-scoped salt (sha256(`prf-salt:${accountId}`)) for deterministic PRF output
    *    - Impossible to derive PRF output without the physical authenticator
    */
-  async securePrivateKeyDecryptionWithPrf(
+  async decryptPrivateKeyWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting secure private key decryption with PRF (local operation)');
+      console.log('WebAuthnManager: Starting private key decryption with PRF (local operation)');
       console.log('WebAuthnManager: Security enforced by device possession + biometrics + PRF cryptography');
 
       const worker = this.createSecureWorker();
@@ -255,7 +248,7 @@ export class WebAuthnWorkers {
   /**
    * Extract COSE public key from WebAuthn attestation object using WASM worker
    */
-  async extractCosePublicKeyFromAttestation(attestationObjectBase64url: string): Promise<Uint8Array> {
+  async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
     console.log('WebAuthnManager: Extracting COSE public key from attestation object');
 
     const worker = this.createSecureWorker();
@@ -278,7 +271,7 @@ export class WebAuthnWorkers {
   /**
    * Validate COSE key format using WASM worker
    */
-  async validateCoseKeyFormat(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
+  async validateCoseKey(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
     console.log('WebAuthnManager: Validating COSE key format');
 
     const worker = this.createSecureWorker();
@@ -306,7 +299,7 @@ export class WebAuthnWorkers {
   /**
    * Sign a NEAR transaction with multiple actions using PRF
    */
-  async signMultiActionTransactionWithPrf(
+  async signTransactionWithActions(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
@@ -318,7 +311,7 @@ export class WebAuthnWorkers {
     }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting multi-action transaction signing with PRF');
+      console.log('WebAuthnManager: Starting transaction signing with actions with PRF');
 
       // Validate all actions
       payload.actions.forEach((action, index) => {
@@ -398,7 +391,7 @@ export class WebAuthnWorkers {
   /**
    * Sign a NEAR Transfer transaction using PRF
    */
-  async signTransferTransactionWithPrf(
+  async signTransferTransaction(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
@@ -410,14 +403,12 @@ export class WebAuthnWorkers {
     }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting Transfer transaction signing with PRF');
+      console.log('WebAuthnManager: Starting transfer transaction signing with PRF');
 
       // Validate transfer action
       const transferAction: ActionParams = {
         actionType: ActionType.Transfer,
-        transfer: {
-          deposit: payload.depositAmount
-        }
+        deposit: payload.depositAmount
       };
 
       validateActionParams(transferAction);

@@ -1,8 +1,7 @@
 import type { Provider } from '@near-js/providers';
 import { WebAuthnWorkers } from './webauthn-workers';
-import { WebAuthnNetworkCalls } from './network-calls';
 import { WebAuthnContractCalls } from './contract-calls';
-import { WebAuthnIndexedDBCalls } from './indexedDB-calls';
+import { IndexedDBManager } from '../IndexedDBManager';
 import { VRFManager } from './vrfManager';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { generateUserScopedPrfSalt } from '../../utils';
@@ -23,57 +22,39 @@ import type { VRFChallenge } from './vrfManager';
  */
 export class WebAuthnManager {
   private readonly webauthnWorkers: WebAuthnWorkers;
-  private readonly networkCalls: WebAuthnNetworkCalls;
   private readonly contractCalls: WebAuthnContractCalls;
-  private readonly indexedDBCalls: WebAuthnIndexedDBCalls;
   private readonly vrfManager: VRFManager;
   readonly touchIdPrompt: TouchIdPrompt;
 
   constructor() {
     this.webauthnWorkers = new WebAuthnWorkers();
-    this.networkCalls = new WebAuthnNetworkCalls(this.webauthnWorkers);
-    this.indexedDBCalls = new WebAuthnIndexedDBCalls();
-    this.contractCalls = new WebAuthnContractCalls(this.webauthnWorkers, this.networkCalls, this.indexedDBCalls);
+    this.contractCalls = new WebAuthnContractCalls(this.webauthnWorkers);
     this.vrfManager = new VRFManager();
     this.touchIdPrompt = new TouchIdPrompt();
   }
 
+  getVRFManager(): VRFManager {
+    return this.vrfManager;
+  }
+
   // === INDEXDB OPERATIONS (Now using WebAuthnindexedDBCalls facade) ===
 
-  /**
-   * Store user data using IndexedDB facade
-   */
   async storeUserData(userData: UserData): Promise<void> {
-    await this.indexedDBCalls.storeWebAuthnUserData(userData);
+    await IndexedDBManager.clientDB.storeWebAuthnUserData(userData);
   }
 
-  /**
-   * Get complete user data (preferred method)
-   * This replaces both getUserData() and getUser() with a single comprehensive method
-   */
   async getUser(nearAccountId: string): Promise<ClientUserData | null> {
-    return await this.indexedDBCalls.getUser(nearAccountId);
+    return await IndexedDBManager.clientDB.getUser(nearAccountId);
   }
 
-  /**
-   * Check if user has WebAuthn/passkey data configured
-   */
-  async hasWebAuthnData(nearAccountId: string): Promise<boolean> {
-    const user = await this.getUser(nearAccountId);
-    return !!(user?.clientNearPublicKey && user?.passkeyCredential);
-  }
-
-  /**
-   * Get all user data using IndexedDB facade
-   */
   async getAllUserData(): Promise<UserData[]> {
-    const allUsers = await this.indexedDBCalls.getAllUsers();
+    const allUsers = await IndexedDBManager.clientDB.getAllUsers();
     return allUsers.map(user => ({
       nearAccountId: user.nearAccountId,
       clientNearPublicKey: user.clientNearPublicKey,
       lastUpdated: user.lastUpdated,
       prfSupported: user.prfSupported,
-      deterministicKey: false, // VRF mode doesn't use deterministic keys
+      deterministicKey: true,
       passkeyCredential: user.passkeyCredential,
       vrfCredentials: user.vrfCredentials
     }));
@@ -83,28 +64,28 @@ export class WebAuthnManager {
    * Get all users (comprehensive data)
    */
   async getAllUsers(): Promise<ClientUserData[]> {
-    return await this.indexedDBCalls.getAllUsers();
+    return await IndexedDBManager.clientDB.getAllUsers();
   }
 
   /**
    * Get all authenticators for a user
    */
   async getAuthenticatorsByUser(nearAccountId: string): Promise<ClientAuthenticatorData[]> {
-    return await this.indexedDBCalls.getAuthenticatorsByUser(nearAccountId);
+    return await IndexedDBManager.clientDB.getAuthenticatorsByUser(nearAccountId);
   }
 
   /**
    * Update user's last login timestamp
    */
   async updateLastLogin(nearAccountId: string): Promise<void> {
-    return await this.indexedDBCalls.updateLastLogin(nearAccountId);
+    return await IndexedDBManager.clientDB.updateLastLogin(nearAccountId);
   }
 
   /**
    * Register a new user
    */
   async registerUser(nearAccountId: string, additionalData?: Partial<ClientUserData>): Promise<ClientUserData> {
-    return await this.indexedDBCalls.registerUser(nearAccountId, additionalData);
+    return await IndexedDBManager.clientDB.registerUser(nearAccountId, additionalData);
   }
 
   /**
@@ -122,37 +103,28 @@ export class WebAuthnManager {
     backedUp: boolean;
     syncedAt: string;
   }): Promise<void> {
-    return await this.indexedDBCalls.storeAuthenticator(authenticatorData);
+    return await IndexedDBManager.clientDB.storeAuthenticator(authenticatorData);
   }
 
   /**
    * Extract username from NEAR account ID
    */
   extractUsername(nearAccountId: string): string {
-    return this.indexedDBCalls.extractUsername(nearAccountId);
+    return IndexedDBManager.clientDB.extractUsername(nearAccountId);
   }
 
   /**
    * Perform an atomic operation
    */
   async atomicOperation<T>(callback: (db: any) => Promise<T>): Promise<T> {
-    return await this.indexedDBCalls.atomicOperation(callback);
+    return await IndexedDBManager.clientDB.atomicOperation(callback);
   }
 
   /**
    * Rollback user registration
    */
   async rollbackUserRegistration(nearAccountId: string): Promise<void> {
-    return await this.indexedDBCalls.rollbackUserRegistration(nearAccountId);
-  }
-
-  // === VRF MANAGER ACCESS ===
-
-  /**
-   * Get the VRF manager instance
-   */
-  getVRFManager(): VRFManager {
-    return this.vrfManager;
+    return await IndexedDBManager.clientDB.rollbackUserRegistration(nearAccountId);
   }
 
   // === CONVENIENCE METHODS ===
@@ -161,60 +133,15 @@ export class WebAuthnManager {
    * Check if a passkey credential exists for a NEAR account ID
    */
   async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
-    return await this.indexedDBCalls.hasPasskeyCredential(nearAccountId);
+    return await IndexedDBManager.clientDB.hasPasskeyCredential(nearAccountId);
   }
 
   /**
    * Get the last used NEAR account ID from stored user data
    */
   async getLastUsedNearAccountId(): Promise<string | null> {
-    const lastUser = await this.indexedDBCalls.getLastUser();
+    const lastUser = await IndexedDBManager.clientDB.getLastUser();
     return lastUser?.nearAccountId || null;
-  }
-
-  // === WEBAUTHN AUTHENTICATION & REGISTRATION ===
-
-  /**
-   * Authenticate with PRF - generate local challenge for serverless mode
-   */
-  async authenticateWithPrf(nearAccountId?: string): Promise<WebAuthnAuthenticationWithPrf> {
-    // For serverless mode, create local challenge
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-
-    // Get the target account ID for user-scoped salt
-    if (!nearAccountId) {
-      nearAccountId = await this.getLastUsedNearAccountId() || undefined;
-      if (!nearAccountId) {
-        throw new Error('Account ID required for user-scoped PRF salt generation');
-      }
-    }
-
-    const authenticationOptions: PublicKeyCredentialRequestOptions = {
-      challenge,
-      timeout: 60000,
-      rpId: window.location.hostname,
-      userVerification: 'preferred',
-      extensions: {
-        prf: {
-          eval: {
-            first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
-          }
-        }
-      }
-    };
-
-    const credential = await navigator.credentials.get({
-      publicKey: authenticationOptions
-    }) as PublicKeyCredential;
-
-    if (!credential) {
-      throw new Error('WebAuthn authentication failed');
-    }
-
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutput = (extensionResults as any).prf?.results?.first;
-
-    return { credential, prfOutput };
   }
 
   // === PRF OPERATIONS (Delegated to WebAuthnWorkers) ===
@@ -222,22 +149,24 @@ export class WebAuthnManager {
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
-  async secureRegistrationWithPrf(
+  async deriveNearKeypairAndEncrypt(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: { nearAccountId: string },
+    attestationObject: AuthenticatorAttestationResponse,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
-    return await this.webauthnWorkers.secureRegistrationWithPrf(
+    return await this.webauthnWorkers.deriveNearKeypairAndEncrypt(
       nearAccountId,
       prfOutput,
       payload,
+      attestationObject,
     );
   }
 
   /**
    * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
    */
-  async secureTransactionSigningWithPrf(
+  async decryptAndSignTransactionWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
@@ -251,7 +180,7 @@ export class WebAuthnManager {
       blockHashBytes: number[];
     }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
-    return await this.webauthnWorkers.secureTransactionSigningWithPrf(
+    return await this.webauthnWorkers.decryptAndSignTransactionWithPrf(
       nearAccountId,
       prfOutput,
       payload
@@ -261,7 +190,7 @@ export class WebAuthnManager {
   /**
    * Sign a NEAR Transfer transaction using PRF
    */
-  async signTransferTransactionWithPrf(
+  async signTransferTransaction(
     nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: {
@@ -272,7 +201,28 @@ export class WebAuthnManager {
       blockHashBytes: number[];
     }
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
-    return await this.webauthnWorkers.signTransferTransactionWithPrf(
+    return await this.webauthnWorkers.signTransferTransaction(
+      nearAccountId,
+      prfOutput,
+      payload
+    );
+  }
+
+  /**
+   * Sign a NEAR transaction with multiple actions using PRF
+   */
+  async signTransactionWithActions(
+    nearAccountId: string,
+    prfOutput: ArrayBuffer,
+    payload: {
+      nearAccountId: string;
+      receiverId: string;
+      actions: any[];
+      nonce: string;
+      blockHashBytes: number[];
+    }
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+    return await this.webauthnWorkers.signTransactionWithActions(
       nearAccountId,
       prfOutput,
       payload
@@ -282,11 +232,11 @@ export class WebAuthnManager {
   /**
    * Secure private key decryption with PRF
    */
-  async securePrivateKeyDecryptionWithPrf(
+  async decryptPrivateKeyWithPrf(
     nearAccountId: string,
     prfOutput: ArrayBuffer
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
-    return await this.webauthnWorkers.securePrivateKeyDecryptionWithPrf(
+    return await this.webauthnWorkers.decryptPrivateKeyWithPrf(
       nearAccountId,
       prfOutput
     );
@@ -297,8 +247,8 @@ export class WebAuthnManager {
   /**
    * Extract COSE public key from WebAuthn attestation object using WASM worker
    */
-  async extractCosePublicKeyFromAttestation(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return await this.webauthnWorkers.extractCosePublicKeyFromAttestation(attestationObjectBase64url);
+  async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
+    return await this.webauthnWorkers.extractCosePublicKey(attestationObjectBase64url);
   }
 
   // === VRF OPERATIONS (Delegated to WebAuthnWorkers) ===
@@ -314,7 +264,7 @@ export class WebAuthnManager {
    */
   async generateVrfKeypair(
     saveInMemory: boolean,
-    vrfInputParams?: {
+    vrfInputParams: {
       userId: string;
       rpId: string;
       sessionId: string;
@@ -324,14 +274,7 @@ export class WebAuthnManager {
     }
   ): Promise<{
     vrfPublicKey: string;
-    // Optional VRF challenge data (only if vrfInputParams provided)
-    vrfChallengeData?: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      rpId: string;
-    };
+    vrfChallenge: VRFChallenge;
   }> {
     return await this.vrfManager.generateVrfKeypair(saveInMemory, vrfInputParams);
   }
@@ -354,89 +297,7 @@ export class WebAuthnManager {
     return await this.vrfManager.encryptVrfKeypairWithPrf(expectedPublicKey, prfOutput);
   }
 
-  /**
-   * Generate VRF keypair and encrypt it using PRF output
-   *
-   * @param prfOutput - PRF output from WebAuthn ceremony for encryption
-   * @param saveInMemory - Whether to persist the generated VRF keypair in WASM worker memory
-   * @param vrfInputParams - Optional parameters to generate VRF challenge/proof in same call
-   * @returns VRF keypair data and optionally VRF challenge data
-   */
-  async generateVrfKeypairWithPrf(
-    prfOutput: ArrayBuffer,
-    saveInMemory: boolean,
-    vrfInputParams?: {
-      userId: string;
-      rpId: string;
-      sessionId: string;
-      blockHeight: number;
-      blockHashBytes: number[];
-      timestamp: number;
-    }
-  ): Promise<{
-    vrfPublicKey: string;
-    encryptedVrfKeypair: any;
-    // Optional VRF challenge data (only if vrfInputParams provided)
-    vrfChallengeData?: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      rpId: string;
-    };
-  }> {
-    return await this.vrfManager.generateVrfKeypairWithPrf(prfOutput, saveInMemory, vrfInputParams);
-  }
-
-  /**
-   * Generate VRF challenge and proof using encrypted VRF keypair
-   * This is used during authentication to create WebAuthn challenges
-   */
-  async generateVrfChallengeWithPrf(
-    prfOutput: ArrayBuffer,
-    encryptedVrfData: string,
-    encryptedVrfNonce: string,
-    userId: string,
-    rpId: string,
-    sessionId: string,
-    blockHeight: number,
-    blockHashBytes: number[],
-    timestamp: number
-  ): Promise<VRFChallenge> {
-    return await this.vrfManager.generateVrfChallengeWithPrf(
-      prfOutput,
-      encryptedVrfData,
-      encryptedVrfNonce,
-      userId,
-      rpId,
-      sessionId,
-      blockHeight,
-      blockHashBytes,
-      timestamp
-    );
-  }
-
   // === CONTRACT OPERATIONS (Delegated to WebAuthnContractCalls) ===
-
-  /**
-   * Call a smart contract method (simple delegation to contract calls module)
-   */
-  async callContract(
-    nearRpcProvider: Provider,
-    options: {
-      contractId: string;
-      methodName: string;
-      args: any;
-      gas?: string;
-      attachedDeposit?: string;
-      nearAccountId?: string;
-      prfOutput?: ArrayBuffer;
-      viewOnly?: boolean;
-      requiresAuth?: boolean;
-    }
-  ): Promise<any> {
-    return await this.contractCalls.callContract(nearRpcProvider, options);
-  }
 
   /**
    * Verify VRF authentication with the WebAuthn contract (gas-free view call)
@@ -480,7 +341,7 @@ export class WebAuthnManager {
    * Verify VRF registration with the WebAuthn contract
    * Calls verify_registration_response on the contract
    */
-  async verifyVrfRegistration(
+  async verifyVrfAndRegisterUserOnContract(
     nearRpcProvider: Provider,
     contractId: string,
     vrfChallenge: {
@@ -505,7 +366,7 @@ export class WebAuthnManager {
     transactionId?: string;
     error?: string;
   }> {
-    return await this.contractCalls.verifyVrfRegistration(
+    return await this.contractCalls.verifyVrfAndRegisterUserOnContract(
       nearRpcProvider,
       contractId,
       vrfChallenge,

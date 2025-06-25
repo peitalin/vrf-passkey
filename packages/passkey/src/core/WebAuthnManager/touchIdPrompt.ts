@@ -1,12 +1,17 @@
 import { generateUserScopedPrfSalt } from '@/utils';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 
-export interface TouchIdAndGenerateCredentialsArgs {
+export interface RegisterCredentialsArgs {
+  nearAccountId: string,
+  challenge: Uint8Array<ArrayBuffer>,
+}
+
+export interface AuthenticateCredentialsArgs {
   nearAccountId: string,
   challenge: Uint8Array<ArrayBuffer>,
   authenticators: ClientAuthenticatorData[],
 }
-export interface TouchIdAndGenerateCredentialsResult {
+export interface TouchIdCredentialsResult {
   credential: PublicKeyCredential,
   prfOutput: ArrayBuffer
 }
@@ -43,7 +48,7 @@ export class TouchIdPrompt {
     nearAccountId,
     challenge,
     authenticators,
-  }: TouchIdAndGenerateCredentialsArgs): Promise<TouchIdAndGenerateCredentialsResult> {
+  }: AuthenticateCredentialsArgs): Promise<TouchIdCredentialsResult> {
 
     const credential = await navigator.credentials.get({
       publicKey: {
@@ -79,6 +84,54 @@ export class TouchIdPrompt {
     return {
       credential,
       prfOutput
+    }
+  }
+
+  /**
+   * Generate WebAuthn registration credentials and PRF output for a new passkey
+   * @param nearAccountId - NEAR account ID to register the passkey for
+   * @param challenge - Random challenge bytes for the registration ceremony
+   * @returns Credential and PRF output for VRF keypair generation
+   */
+  async generateRegistrationCredentialsAndPrf({
+    nearAccountId,
+    challenge,
+  }: RegisterCredentialsArgs): Promise<TouchIdCredentialsResult> {
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: {
+          name: 'WebAuthn VRF Passkey',
+          id: window.location.hostname
+        },
+        user: {
+          id: new TextEncoder().encode(nearAccountId),
+          name: nearAccountId,
+          displayName: nearAccountId
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' }, // ES256
+          { alg: -257, type: 'public-key' } // RS256
+        ],
+        authenticatorSelection: {
+          residentKey: 'required',
+          userVerification: 'preferred'
+        },
+        timeout: 60000,
+        attestation: 'none',
+        extensions: {
+          prf: {
+            eval: {
+              first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
+            }
+          }
+        }
+      } as PublicKeyCredentialCreationOptions
+    }) as PublicKeyCredential;
+
+    return {
+      credential,
+      prfOutput: credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer
     }
   }
 }

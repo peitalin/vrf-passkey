@@ -95,7 +95,6 @@ export class VRFManager {
     if (this.initializationPromise) {
       return this.initializationPromise;
     }
-
     this.initializationPromise = this.initializeWebWorker();
     return this.initializationPromise;
   }
@@ -132,7 +131,6 @@ export class VRFManager {
     prfOutput: ArrayBuffer
   ): Promise<VRFWorkerResponse> {
     console.log(`VRF Manager: Unlocking VRF keypair for ${nearAccountId}`);
-
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized');
     }
@@ -148,13 +146,12 @@ export class VRFManager {
     };
 
     const response = await this.sendMessage(message);
-
     if (response.success) {
       // Track the current VRF session account at TypeScript level
       this.currentVrfAccountId = nearAccountId;
-      console.log(`✅ VRF Manager: VRF keypair unlocked for ${nearAccountId}`);
+      console.log(`VRF Manager: VRF keypair unlocked for ${nearAccountId}`);
     } else {
-      console.error('❌ VRF Manager: Failed to unlock VRF keypair:', response.error);
+      console.error('VRF Manager: Failed to unlock VRF keypair:', response.error);
     }
 
     return response;
@@ -303,7 +300,7 @@ export class VRFManager {
    */
   async generateVrfKeypair(
     saveInMemory: boolean,
-    vrfInputParams?: {
+    vrfInputParams: {
       userId: string;
       rpId: string;
       sessionId: string;
@@ -313,14 +310,7 @@ export class VRFManager {
     }
   ): Promise<{
     vrfPublicKey: string;
-    // Optional VRF challenge data (only if vrfInputParams provided)
-    vrfChallengeData?: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      rpId: string;
-    };
+    vrfChallenge: VRFChallenge;
   }> {
     console.log('VRF Manager: Generating bootstrap VRF keypair', {
       saveInMemory,
@@ -330,7 +320,6 @@ export class VRFManager {
     if (!this.vrfWorker) {
       await this.initialize();
     }
-
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized after initialization attempt');
     }
@@ -357,45 +346,29 @@ export class VRFManager {
       if (!response.success || !response.data) {
         throw new Error(`VRF bootstrap keypair generation failed: ${response.error}`);
       }
-
-      const result: {
-        vrfPublicKey: string;
-        vrfChallengeData?: {
-          vrfInput: string;
-          vrfOutput: string;
-          vrfProof: string;
-          vrfPublicKey: string;
-          rpId: string;
-        };
-      } = {
-        vrfPublicKey: response.data.vrf_public_key
-      };
-
       // If VRF challenge data was also generated, include it in the result
-      if (response.data.vrf_challenge_data) {
+      if (!response?.data?.vrf_challenge_data) {
+        throw new Error('VRF challenge data failed to be generated');
+      }
+      if (vrfInputParams && saveInMemory) {
         // Track the account ID for this VRF session if saving in memory
-        if (vrfInputParams && saveInMemory) {
-          this.currentVrfAccountId = vrfInputParams.userId;
-        }
+        this.currentVrfAccountId = vrfInputParams.userId;
+      }
 
-        result.vrfChallengeData = {
+      return {
+        vrfPublicKey: response.data.vrf_public_key,
+        vrfChallenge: new VRFChallenge({
           vrfInput: response.data.vrf_challenge_data.vrfInput,
           vrfOutput: response.data.vrf_challenge_data.vrfOutput,
           vrfProof: response.data.vrf_challenge_data.vrfProof,
           vrfPublicKey: response.data.vrf_challenge_data.vrfPublicKey,
-          rpId: response.data.vrf_challenge_data.rpId
-        };
-        console.log('✅ VRF Manager: Bootstrap VRF keypair + challenge generation successful', {
-          saveInMemory,
-          accountTracked: saveInMemory ? vrfInputParams?.userId : undefined
-        });
-      } else {
-        console.log('✅ VRF Manager: Bootstrap VRF keypair generation successful', {
-          saveInMemory
-        });
+          userId: response.data.vrf_challenge_data.userId,
+          rpId: response.data.vrf_challenge_data.rpId,
+          blockHeight: response.data.vrf_challenge_data.blockHeight,
+          blockHash: response.data.vrf_challenge_data.blockHash,
+        })
       }
 
-      return result;
     } catch (error: any) {
       console.error('❌ VRF Manager: Bootstrap VRF keypair generation failed:', error);
       throw new Error(`Failed to generate bootstrap VRF keypair: ${error.message}`);
@@ -452,205 +425,24 @@ export class VRFManager {
     }
   }
 
-  /**
-   * Generate VRF keypair and encrypt it using PRF output
-   *
-   * @param prfOutput - PRF output from WebAuthn ceremony for encryption
-   * @param saveInMemory - Whether to persist the generated VRF keypair in WASM worker memory
-   * @param vrfInputParams - Optional parameters to generate VRF challenge/proof in same call
-   * @returns VRF keypair data and optionally VRF challenge data
-   */
-  async generateVrfKeypairWithPrf(
-    prfOutput: ArrayBuffer,
-    saveInMemory: boolean,
-    vrfInputParams?: {
-      userId: string;
-      rpId: string;
-      sessionId: string;
-      blockHeight: number;
-      blockHashBytes: number[];
-      timestamp: number;
-    }
-  ): Promise<{
-    vrfPublicKey: string;
-    encryptedVrfKeypair: any;
-    // Optional VRF challenge data (only if vrfInputParams provided)
-    vrfChallengeData?: {
-      vrfInput: string;
-      vrfOutput: string;
-      vrfProof: string;
-      vrfPublicKey: string;
-      rpId: string;
-    };
-  }> {
-    console.log('VRF Manager: Generating VRF keypair with PRF', {
-      saveInMemory,
-      withChallenge: !!vrfInputParams
-    });
-
-    if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
-
-    try {
-      const message: VRFWorkerMessage = {
-        type: 'GENERATE_VRF_KEYPAIR',
-        id: this.generateMessageId(),
-        data: {
-          prfKey: Array.from(new Uint8Array(prfOutput)),
-          saveInMemory: saveInMemory,
-          // Include VRF input parameters if provided for challenge generation
-          vrfInputParams: vrfInputParams ? {
-            user_id: vrfInputParams.userId,
-            rp_id: vrfInputParams.rpId,
-            session_id: vrfInputParams.sessionId,
-            block_height: vrfInputParams.blockHeight,
-            block_hash: vrfInputParams.blockHashBytes,
-            timestamp: vrfInputParams.timestamp
-          } : undefined
-        }
-      };
-
-      const response = await this.sendMessage(message);
-
-      if (!response.success || !response.data) {
-        throw new Error(`VRF keypair generation failed: ${response.error}`);
-      }
-
-      const result: {
-        vrfPublicKey: string;
-        encryptedVrfKeypair: any;
-        vrfChallengeData?: {
-          vrfInput: string;
-          vrfOutput: string;
-          vrfProof: string;
-          vrfPublicKey: string;
-          rpId: string;
-        };
-      } = {
-        vrfPublicKey: response.data.vrf_public_key,
-        encryptedVrfKeypair: response.data.encrypted_vrf_keypair
-      };
-
-      // If VRF challenge data was also generated, include it in the result
-      if (response.data.vrf_challenge_data) {
-        // Track the account ID for this VRF session if saving in memory
-        if (vrfInputParams && saveInMemory) {
-          this.currentVrfAccountId = vrfInputParams.userId;
-        }
-
-        result.vrfChallengeData = {
-          vrfInput: response.data.vrf_challenge_data.vrfInput,
-          vrfOutput: response.data.vrf_challenge_data.vrfOutput,
-          vrfProof: response.data.vrf_challenge_data.vrfProof,
-          vrfPublicKey: response.data.vrf_challenge_data.vrfPublicKey,
-          rpId: response.data.vrf_challenge_data.rpId
-        };
-        console.log('✅ VRF Manager: VRF keypair + challenge generation successful', {
-          saveInMemory,
-          accountTracked: saveInMemory ? vrfInputParams?.userId : undefined
-        });
-      } else {
-        console.log('✅ VRF Manager: VRF keypair generation successful', {
-          saveInMemory
-        });
-      }
-
-      return result;
-    } catch (error: any) {
-      console.error('❌ VRF Manager: VRF keypair generation failed:', error);
-      throw new Error(`Failed to generate VRF keypair: ${error.message}`);
-    }
-  }
-
-  /**
-   * Generate VRF challenge and proof using encrypted VRF keypair
-   * This method uses the Web Worker for in-memory VRF operations during authentication
-   */
-  async generateVrfChallengeWithPrf(
-    prfOutput: ArrayBuffer,
-    encryptedVrfData: string,
-    encryptedVrfNonce: string,
-    userId: string,
-    rpId: string,
-    sessionId: string,
-    blockHeight: number,
-    blockHashBytes: number[],
-    timestamp: number
-  ): Promise<VRFChallenge> {
-    console.log('VRF Manager: Generating VRF challenge with Web Worker');
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized');
-    }
-
-    try {
-      // First unlock the VRF keypair in Web Worker if not already done
-      const vrfStatus = await this.getVRFStatus();
-      if (!vrfStatus.active) {
-        // Unlock VRF keypair with encrypted data
-        const unlockResult = await this.unlockVRFKeypair(
-          userId,
-          {
-            encrypted_vrf_data_b64u: encryptedVrfData,
-            aes_gcm_nonce_b64u: encryptedVrfNonce
-          },
-          prfOutput
-        );
-
-        if (!unlockResult.success) {
-          throw new Error(`Failed to unlock VRF keypair: ${unlockResult.error}`);
-        }
-      }
-
-      // Generate VRF challenge using Web Worker
-      const inputData: VRFInputData = {
-        userId,
-        rpId,
-        sessionId,
-        blockHeight,
-        blockHash: new Uint8Array(blockHashBytes),
-        timestamp
-      };
-
-      const vrfChallenge = await this.generateVRFChallenge(inputData);
-      console.log('✅ VRF Manager: VRF challenge generation successful');
-      return vrfChallenge;
-    } catch (error: any) {
-      console.error('❌ VRF Manager: VRF challenge generation failed:', error);
-      throw new Error(`Failed to generate VRF challenge: ${error.message}`);
-    }
-  }
-
-    // === PRIVATE METHODS ===
+  // === PRIVATE METHODS ===
 
   /**
    * Initialize Web Worker with client-hosted VRF worker
    */
   private async initializeWebWorker(): Promise<void> {
     try {
-      console.log('🔧 VRF Manager: Starting Web Worker initialization...');
-      console.log('🔧 VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
-
+      console.log('VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
       // Create Web Worker from client-hosted file
       this.vrfWorker = new Worker(this.config.vrfWorkerUrl!, { type: 'module' });
-
       // Set up error handling
       this.vrfWorker.onerror = (error) => {
-        console.error('❌ VRF Manager: Web Worker error:', error);
+        console.error('VRF Manager: Web Worker error:', error);
       };
-
       // Test communication with the Web Worker
-      console.log('🔍 VRF Manager: Testing Web Worker communication...');
       await this.testWebWorkerCommunication();
-      console.log('✅ VRF Manager: Web Worker initialized successfully');
 
     } catch (error: any) {
-      console.error('❌ VRF Manager: Web Worker initialization failed:', error);
       throw new Error(`VRF Web Worker initialization failed: ${error.message}`);
     }
   }
@@ -664,8 +456,7 @@ export class VRFManager {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        console.log(`🔍 VRF Manager: Communication test attempt ${attempt}/${maxAttempts}`);
-
+        console.log(`VRF Manager: Communication test attempt ${attempt}/${maxAttempts}`);
         const timeoutMs = attempt === 1 ? 8000 : 5000;
 
         const pingResponse = await this.sendMessage({
@@ -674,16 +465,16 @@ export class VRFManager {
           data: {}
         }, timeoutMs);
 
-        console.log('📨 VRF Manager: PING response received:', pingResponse);
+        console.log('VRF Manager: PING response received:', pingResponse);
 
         if (!pingResponse.success) {
           throw new Error(`VRF Web Worker PING failed: ${pingResponse.error}`);
         }
 
-        console.log('✅ VRF Manager: Web Worker communication verified');
+        console.log('VRF Manager: Web Worker communication verified');
         return;
       } catch (error: any) {
-        console.warn(`⚠️ VRF Manager: Communication test attempt ${attempt} failed:`, error.message);
+        console.warn(`️ VRF Manager: Communication test attempt ${attempt} failed:`, error.message);
 
         if (attempt === maxAttempts) {
           throw new Error(`Communication test failed after ${maxAttempts} attempts: ${error.message}`);
