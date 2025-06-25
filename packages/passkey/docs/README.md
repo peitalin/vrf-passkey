@@ -68,10 +68,9 @@ The registration system uses numbered steps (1-6) with Server-Sent Events (SSE) 
 | **0** | `registration-error` | Fatal error occurred | Instant | Fatal |
 
 ### Key Features
-- **🚀 Early Access**: Users can log in immediately after Step 2
-- **⚡ Concurrent Operations**: Steps 4-5 run simultaneously for performance
-- **🛡️ Error Resilience**: Non-fatal errors in steps 4-5 don't prevent usage
-- **📊 Real-time Progress**: Numbered steps enable precise progress tracking
+- **Concurrent Operations**: Steps 4-5 run simultaneously for performance
+- **Error Resilience**: Non-fatal errors in steps 4-5 don't prevent usage
+- **Real-time Progress**: Numbered steps enable precise progress tracking
 
 ## 🔐 Transaction Signing System
 

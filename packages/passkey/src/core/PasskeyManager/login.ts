@@ -4,7 +4,6 @@ import type {
   LoginResult,
   LoginEvent,
 } from '../types/passkeyManager';
-import { generateUserScopedPrfSalt } from '../../utils';
 
 /**
  * Core login function that handles passkey authentication without React dependencies

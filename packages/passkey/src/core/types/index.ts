@@ -4,6 +4,7 @@
 import type { PasskeyErrorDetails } from './errors';
 import { TxExecutionStatus } from '@near-js/types';
 import { CallFunctionRequest, RpcQueryRequest } from '@near-js/types';
+import { ActionType } from './worker';
 
 export interface NearRpcCallParams {
   jsonrpc: string;
@@ -22,21 +23,6 @@ export interface NearRpcCallParams {
 export type Result<T, E = PasskeyErrorDetails> =
   | { success: true; data: T }
   | { success: false; error: E };
-
-/**
- * ActionType is the type of action to be performed
- * Copied from server/src/types.ts for frontend use
- */
-export enum ActionType {
-  CreateAccount = "CreateAccount",
-  DeployContract = "DeployContract",
-  FunctionCall = "FunctionCall",
-  Transfer = "Transfer",
-  Stake = "Stake",
-  AddKey = "AddKey",
-  DeleteKey = "DeleteKey",
-  DeleteAccount = "DeleteAccount",
-}
 
 /**
  * Arguments for serializable NEAR actions that can be passed between contexts

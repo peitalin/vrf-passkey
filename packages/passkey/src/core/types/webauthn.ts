@@ -2,12 +2,6 @@
 // 0. CORE WEBAUTHN & BROWSER-API TYPES
 // =================================================================
 
-/** Transport modes for authenticators */
-export type AuthenticatorTransport = 'ble' | 'hybrid' | 'internal' | 'nfc' | 'usb';
-
-/** User verification requirement for WebAuthn operations */
-export type UserVerificationRequirement = 'discouraged' | 'preferred' | 'required';
-
 /** JSON-compatible version of PublicKeyCredentialCreationOptions */
 export interface PublicKeyCredentialCreationOptionsJSON {
   challenge: string;
@@ -59,7 +53,6 @@ export interface WebAuthnAuthenticationWithPrf {
   prfOutput?: ArrayBuffer;
   extensionResults?: AuthenticationExtensionsClientOutputs;
 }
-
 
 // =================================================================
 // 2. PRF MANAGEMENT
@@ -117,11 +110,6 @@ export interface RegistrationData {
   prfOutput: ArrayBuffer;
 }
 
-/** User data structure for transaction operations */
-export interface UserDataForTransaction {
-  clientNearPublicKey?: string;
-}
-
 /** Result of contract verification operations */
 export interface ContractVerificationResponse {
   verified: boolean;
@@ -142,13 +130,6 @@ export interface VrfRegistrationResult {
   verified?: boolean;
   transactionId?: string;
   error?: string;
-}
-
-/** Result of checking call permissions for an account */
-export interface CallPermissionsResult {
-  hasPermission: boolean;
-  allowedReceivers?: string[];
-  allowedMethods?: string[];
 }
 
 /** Network information for transaction building */

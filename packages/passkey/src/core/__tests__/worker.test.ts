@@ -3,7 +3,7 @@ import {
   WorkerResponseType,
   type WorkerRequest,
   type WorkerResponse,
-  type EncryptPrivateKeyWithPrfRequest,
+  type DeriveNearKeypairAndEncryptRequest ,
   type DecryptAndSignTransactionWithPrfRequest,
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
@@ -55,10 +55,11 @@ describe('Passkey Worker Tests', () => {
     it('should post messages to worker', () => {
       const worker = new MockWorker('/test-worker.js');
       const testMessage: WorkerRequest = {
-        type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF,
+        type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
         payload: {
           prfOutput: 'test-prf-output',
           nearAccountId: 'test.testnet',
+          attestationObjectBase64url: 'mock-attestation-object-base64url'
         }
       };
 
@@ -113,11 +114,12 @@ describe('Passkey Worker Tests', () => {
   describe('Worker Message Types', () => {
     it('should handle encryption requests', () => {
       const worker = new MockWorker('/test-worker.js');
-      const encryptionRequest: EncryptPrivateKeyWithPrfRequest = {
-        type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF,
+      const encryptionRequest: DeriveNearKeypairAndEncryptRequest  = {
+        type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
         payload: {
           prfOutput: 'test-prf-output',
-          nearAccountId: 'test.testnet'
+          nearAccountId: 'test.testnet',
+          attestationObjectBase64url: 'mock-attestation-object-base64url'
         }
       };
 
@@ -184,6 +186,22 @@ describe('Passkey Worker Tests', () => {
 
       worker.postMessage(validationRequest);
       expect(worker.postMessage).toHaveBeenCalledWith(validationRequest);
+    });
+
+    it('should handle message properly', () => {
+      const testMessage: WorkerRequest = {
+        type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
+        payload: {
+          prfOutput: 'test-prf',
+          nearAccountId: 'test.testnet',
+          attestationObjectBase64url: 'mock-attestation-object-base64url'
+        }
+      };
+
+      expect(testMessage.type).toBe(WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT);
+      expect(testMessage.payload.prfOutput).toBe('test-prf');
+      expect(testMessage.payload.nearAccountId).toBe('test.testnet');
+      expect(testMessage.payload.attestationObjectBase64url).toBe('mock-attestation-object-base64url');
     });
   });
 
@@ -267,7 +285,7 @@ describe('Passkey Worker Tests', () => {
       worker.onerror = jest.fn();
 
       // Send message
-      worker.postMessage({ type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF, payload: {} });
+      worker.postMessage({ type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT, payload: {} });
       expect(worker.postMessage).toHaveBeenCalled();
 
       // Terminate
@@ -283,10 +301,10 @@ describe('Passkey Worker Tests', () => {
       expect(worker1.scriptURL).toBe('/worker1.js');
       expect(worker2.scriptURL).toBe('/worker2.js');
 
-      worker1.postMessage({ type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF, payload: { id: 1 } });
+      worker1.postMessage({ type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT, payload: { id: 1 } });
       worker2.postMessage({ type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF, payload: { id: 2 } });
 
-      expect(worker1.postMessage).toHaveBeenCalledWith({ type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF, payload: { id: 1 } });
+      expect(worker1.postMessage).toHaveBeenCalledWith({ type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT, payload: { id: 1 } });
       expect(worker2.postMessage).toHaveBeenCalledWith({ type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF, payload: { id: 2 } });
     });
   });
@@ -316,7 +334,7 @@ describe('Passkey Worker Tests', () => {
       }, 100);
 
       // Don't send response to trigger timeout
-      worker.postMessage({ type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF, payload: {} });
+      worker.postMessage({ type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT, payload: {} });
     });
 
     it('should handle malformed responses', (done) => {

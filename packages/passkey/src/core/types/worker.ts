@@ -16,34 +16,6 @@ export interface UserData {
   };
 }
 
-// === CONTRACT & NETWORK CALL TYPES ===
-
-export interface ContractCallOptions {
-  contractId: string;
-  methodName: string;
-  args: any;
-  gas?: string;
-  attachedDeposit?: string;
-  nearAccountId?: string;
-  prfOutput?: ArrayBuffer;
-  viewOnly?: boolean;
-  requiresAuth?: boolean;
-}
-
-export interface NetworkAuthenticationOptions {
-  nearAccountId: string;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-}
-
-export interface AccessKeyView {
-  nonce: bigint;
-  permission: 'FullAccess' | { FunctionCall: any };
-}
-
 // === PAYLOAD TYPES FOR DIFFERENT OPERATIONS ===
 
 export interface RegistrationPayload {
@@ -64,9 +36,10 @@ export interface SigningPayload {
 // === WORKER MESSAGE TYPE ENUMS ===
 
 export enum WorkerRequestType {
-  ENCRYPT_PRIVATE_KEY_WITH_PRF = 'ENCRYPT_PRIVATE_KEY_WITH_PRF',
+  DERIVE_NEAR_KEYPAIR_AND_ENCRYPT = 'DERIVE_NEAR_KEYPAIR_AND_ENCRYPT',
   DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF = 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
+  // COSE operations
   EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
   VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY',
   GENERATE_VRF_KEYPAIR_WITH_PRF = 'GENERATE_VRF_KEYPAIR_WITH_PRF',
@@ -77,7 +50,7 @@ export enum WorkerRequestType {
 
 export enum WorkerResponseType {
   ENCRYPTION_SUCCESS = 'ENCRYPTION_SUCCESS',
-  ENCRYPTION_FAILURE = 'ENCRYPTION_FAILURE',
+  DERIVE_NEAR_KEY_FAILURE = 'DERIVE_NEAR_KEY_FAILURE',
   SIGNATURE_SUCCESS = 'SIGNATURE_SUCCESS',
   SIGNATURE_FAILURE = 'SIGNATURE_FAILURE',
   DECRYPTION_SUCCESS = 'DECRYPTION_SUCCESS',
@@ -131,13 +104,15 @@ export interface BaseWorkerRequest {
   timestamp?: number;
 }
 
-export interface EncryptPrivateKeyWithPrfRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF;
+export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
   payload: {
     /** Base64-encoded PRF output from WebAuthn */
     prfOutput: string;
     /** NEAR account ID to associate with the encrypted key */
     nearAccountId: string;
+    /** Base64url-encoded WebAuthn attestation object for deterministic key derivation */
+    attestationObjectBase64url: string;
   };
 }
 
@@ -154,37 +129,22 @@ export enum ActionType {
   DeleteAccount = "DeleteAccount",
 }
 
-export interface ActionParams {
-  actionType: ActionType;
-  // Union type for all action-specific parameters
-  functionCall?: {
-    methodName: string;
-    args: Record<string, any>;
-    gas: string;
-    deposit: string;
-  };
-  transfer?: {
-    deposit: string;
-  };
-  createAccount?: {};
-  deployContract?: {
-    code: number[]; // WASM bytecode
-  };
-  stake?: {
-    stake: string;
-    publicKey: string;
-  };
-  addKey?: {
-    publicKey: string;
-    accessKey: any; // AccessKey object
-  };
-  deleteKey?: {
-    publicKey: string;
-  };
-  deleteAccount?: {
-    beneficiaryId: string;
-  };
-}
+// ActionParams now matches the Rust enum structure exactly
+export type ActionParams =
+  | { actionType: ActionType.CreateAccount }
+  | { actionType: ActionType.DeployContract; code: number[] }
+  | {
+      actionType: ActionType.FunctionCall;
+      method_name: string;
+      args: string; // JSON string, not object
+      gas: string;
+      deposit: string;
+    }
+  | { actionType: ActionType.Transfer; deposit: string }
+  | { actionType: ActionType.Stake; stake: string; public_key: string }
+  | { actionType: ActionType.AddKey; public_key: string; access_key: string }
+  | { actionType: ActionType.DeleteKey; public_key: string }
+  | { actionType: ActionType.DeleteAccount; beneficiary_id: string }
 
 // Legacy request (for backward compatibility during transition)
 export interface DecryptAndSignTransactionWithPrfRequest extends BaseWorkerRequest {
@@ -308,7 +268,7 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
 }
 
 export type WorkerRequest =
-  | EncryptPrivateKeyWithPrfRequest
+  | DeriveNearKeypairAndEncryptRequest
   | DecryptAndSignTransactionWithPrfRequest
   | DecryptPrivateKeyWithPrfRequest
   | ExtractCosePublicKeyRequest
@@ -341,7 +301,7 @@ export interface EncryptionSuccessResponse extends BaseWorkerResponse {
 }
 
 export interface EncryptionFailureResponse extends BaseWorkerResponse {
-  type: WorkerResponseType.ENCRYPTION_FAILURE;
+  type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE;
   payload: {
     /** Error message describing the failure */
     error: string;
@@ -558,7 +518,7 @@ export function isVRFChallengeSuccess(response: WorkerResponse): response is VRF
 export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
   return [
     WorkerResponseType.ERROR,
-    WorkerResponseType.ENCRYPTION_FAILURE,
+    WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
     WorkerResponseType.SIGNATURE_FAILURE,
     WorkerResponseType.DECRYPTION_FAILURE,
     WorkerResponseType.COSE_KEY_FAILURE,
@@ -588,21 +548,27 @@ export function isWorkerSuccess(response: WorkerResponse): response is Encryptio
 export function validateActionParams(actionParams: ActionParams): void {
   switch (actionParams.actionType) {
     case ActionType.FunctionCall:
-      if (!actionParams.functionCall?.methodName) {
-        throw new Error('methodName required for FunctionCall');
+      if (!actionParams.method_name) {
+        throw new Error('method_name required for FunctionCall');
       }
-      if (!actionParams.functionCall?.args) {
+      if (!actionParams.args) {
         throw new Error('args required for FunctionCall');
       }
-      if (!actionParams.functionCall?.gas) {
+      if (!actionParams.gas) {
         throw new Error('gas required for FunctionCall');
       }
-      if (!actionParams.functionCall?.deposit) {
+      if (!actionParams.deposit) {
         throw new Error('deposit required for FunctionCall');
+      }
+      // Validate args is valid JSON string
+      try {
+        JSON.parse(actionParams.args);
+      } catch {
+        throw new Error('FunctionCall action args must be valid JSON string');
       }
       break;
     case ActionType.Transfer:
-      if (!actionParams.transfer?.deposit) {
+      if (!actionParams.deposit) {
         throw new Error('deposit required for Transfer');
       }
       break;
@@ -610,38 +576,38 @@ export function validateActionParams(actionParams: ActionParams): void {
       // No additional validation needed
       break;
     case ActionType.DeployContract:
-      if (!actionParams.deployContract?.code || actionParams.deployContract.code.length === 0) {
+      if (!actionParams.code || actionParams.code.length === 0) {
         throw new Error('code required for DeployContract');
       }
       break;
     case ActionType.Stake:
-      if (!actionParams.stake?.stake) {
+      if (!actionParams.stake) {
         throw new Error('stake amount required for Stake');
       }
-      if (!actionParams.stake?.publicKey) {
-        throw new Error('publicKey required for Stake');
+      if (!actionParams.public_key) {
+        throw new Error('public_key required for Stake');
       }
       break;
     case ActionType.AddKey:
-      if (!actionParams.addKey?.publicKey) {
-        throw new Error('publicKey required for AddKey');
+      if (!actionParams.public_key) {
+        throw new Error('public_key required for AddKey');
       }
-      if (!actionParams.addKey?.accessKey) {
-        throw new Error('accessKey required for AddKey');
+      if (!actionParams.access_key) {
+        throw new Error('access_key required for AddKey');
       }
       break;
     case ActionType.DeleteKey:
-      if (!actionParams.deleteKey?.publicKey) {
-        throw new Error('publicKey required for DeleteKey');
+      if (!actionParams.public_key) {
+        throw new Error('public_key required for DeleteKey');
       }
       break;
     case ActionType.DeleteAccount:
-      if (!actionParams.deleteAccount?.beneficiaryId) {
-        throw new Error('beneficiaryId required for DeleteAccount');
+      if (!actionParams.beneficiary_id) {
+        throw new Error('beneficiary_id required for DeleteAccount');
       }
       break;
     default:
-      throw new Error(`Unsupported action type: ${actionParams.actionType}`);
+      throw new Error(`Unsupported action type: ${(actionParams as any).actionType}`);
   }
 }
 
@@ -702,8 +668,8 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
   // Determine operation type from response type
   let operation: WorkerRequestType;
   switch (response.type) {
-    case WorkerResponseType.ENCRYPTION_FAILURE:
-      operation = WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF;
+    case WorkerResponseType.DERIVE_NEAR_KEY_FAILURE:
+      operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
       break;
     case WorkerResponseType.SIGNATURE_FAILURE:
       operation = WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF;
@@ -724,7 +690,7 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
       operation = WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF;
       break;
     default:
-      operation = WorkerRequestType.ENCRYPT_PRIVATE_KEY_WITH_PRF; // fallback
+      operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT; // fallback
   }
 
   return {

@@ -199,45 +199,6 @@ describe('WebAuthnManager', () => {
     });
   });
 
-  describe('WebAuthn Authentication with PRF', () => {
-    const testNearAccountId = 'test.testnet';
-
-    it('should authenticate with PRF (serverless mode)', async () => {
-      const result = await webAuthnManager.authenticateWithPrf(testNearAccountId);
-
-      expect(result.credential).toBeDefined();
-      expect(result.prfOutput).toBeDefined();
-      expect(mockNavigator.credentials.get).toHaveBeenCalled();
-    });
-
-    it('should authenticate with PRF and server URL', async () => {
-      const testServerUrl = 'https://test-server.com';
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValue({
-          challenge: 'YXV0aC1jaGFsbGVuZ2UtczItYnl0ZXMtbW9yZQ', // Valid base64url encoded challenge
-          rpId: 'localhost'
-        })
-      });
-
-      const result = await webAuthnManager.authenticateWithPrf(
-        testNearAccountId
-      );
-
-      expect(result.credential).toBeDefined();
-      expect(result.prfOutput).toBeDefined();
-    });
-
-    it('should throw error when authentication fails', async () => {
-      mockNavigator.credentials.get.mockResolvedValue(null);
-
-      await expect(
-        webAuthnManager.authenticateWithPrf(testNearAccountId)
-      ).rejects.toThrow('WebAuthn authentication failed');
-    });
-  });
-
   describe('VRF Operations', () => {
     const testPrfOutput = new ArrayBuffer(32);
     const mockVrfResult = {
@@ -247,88 +208,6 @@ describe('WebAuthnManager', () => {
         aes_gcm_nonce_b64u: 'test-nonce'
       }
     };
-
-    it('should generate VRF keypair with PRF', async () => {
-      // Mock the VRFManager method
-      const mockGenerateVrfKeypairWithPrf = jest.fn().mockResolvedValue(mockVrfResult);
-      (webAuthnManager as any).vrfManager.generateVrfKeypairWithPrf = mockGenerateVrfKeypairWithPrf;
-
-      const result = await webAuthnManager.generateVrfKeypairWithPrf(testPrfOutput, false);
-
-      expect(result).toEqual(mockVrfResult);
-      expect(mockGenerateVrfKeypairWithPrf).toHaveBeenCalledWith(testPrfOutput, false, undefined);
-    });
-
-    it('should generate VRF keypair with PRF and challenge data in one call', async () => {
-      const mockVrfResultWithChallenge = {
-        ...mockVrfResult,
-        vrfChallengeData: {
-          vrfInput: 'test-vrf-input',
-          vrfOutput: 'test-vrf-output',
-          vrfProof: 'test-vrf-proof',
-          vrfPublicKey: 'test-vrf-public-key',
-          rpId: 'localhost'
-        }
-      };
-
-      const vrfInputParams = {
-        userId: 'test.testnet',
-        rpId: 'localhost',
-        sessionId: 'session-123',
-        blockHeight: 1000,
-        blockHashBytes: [1, 2, 3, 4],
-        timestamp: Date.now()
-      };
-
-      // Mock the VRFManager method
-      const mockGenerateVrfKeypairWithPrf = jest.fn().mockResolvedValue(mockVrfResultWithChallenge);
-      (webAuthnManager as any).vrfManager.generateVrfKeypairWithPrf = mockGenerateVrfKeypairWithPrf;
-
-      const result = await webAuthnManager.generateVrfKeypairWithPrf(testPrfOutput, true, vrfInputParams);
-
-      expect(result).toEqual(mockVrfResultWithChallenge);
-      expect(result.vrfChallengeData).toBeDefined();
-      expect(mockGenerateVrfKeypairWithPrf).toHaveBeenCalledWith(testPrfOutput, true, vrfInputParams);
-    });
-
-    it('should generate VRF challenge with PRF', async () => {
-      const mockVrfChallengeResult = {
-        vrfInput: 'test-vrf-input',
-        vrfOutput: 'test-vrf-output',
-        vrfProof: 'test-vrf-proof',
-        vrfPublicKey: 'test-vrf-public-key',
-        rpId: 'localhost'
-      };
-
-      // Mock the VRFManager method
-      const mockGenerateVrfChallengeWithPrf = jest.fn().mockResolvedValue(mockVrfChallengeResult);
-      (webAuthnManager as any).vrfManager.generateVrfChallengeWithPrf = mockGenerateVrfChallengeWithPrf;
-
-      const result = await webAuthnManager.generateVrfChallengeWithPrf(
-        testPrfOutput,
-        'encrypted-vrf-data',
-        'test-nonce',
-        'test.testnet',
-        'localhost',
-        'session-123',
-        1000,
-        [1, 2, 3, 4],
-        Date.now()
-      );
-
-      expect(result).toEqual(mockVrfChallengeResult);
-      expect(mockGenerateVrfChallengeWithPrf).toHaveBeenCalledWith(
-        testPrfOutput,
-        'encrypted-vrf-data',
-        'test-nonce',
-        'test.testnet',
-        'localhost',
-        'session-123',
-        1000,
-        [1, 2, 3, 4],
-        expect.any(Number)
-      );
-    });
 
     it('should verify VRF authentication with contract', async () => {
       const mockNearRpcProvider = {
@@ -402,7 +281,7 @@ describe('WebAuthnManager', () => {
       const mockVerifyVrfRegistration = jest.fn().mockResolvedValue(mockRegistrationResult);
       (webAuthnManager as any).contractCalls.verifyVrfRegistration = mockVerifyVrfRegistration;
 
-      const result = await webAuthnManager.verifyVrfRegistration(
+      const result = await webAuthnManager.verifyVrfAndRegisterUserOnContract(
         mockNearRpcProvider as any,
         'test-contract.testnet',
         mockVrfChallengeData,

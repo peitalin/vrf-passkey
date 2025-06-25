@@ -1,8 +1,8 @@
-import { WebAuthnManager } from '../WebAuthnManager';
-import { IndexedDBManager } from '../IndexedDBManager';
-import { VRFManager } from '../WebAuthnManager/vrfManager';
-import { generateUserScopedPrfSalt } from '../../utils';
+import type { Provider } from '@near-js/providers';
+import { TxExecutionStatus } from '@near-js/types';
 
+import { WebAuthnManager } from '../WebAuthnManager';
+import { VRFManager } from '../WebAuthnManager/vrfManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
@@ -16,8 +16,6 @@ import type {
   ActionResult
 } from '../types/passkeyManager';
 import type { SerializableActionArgs } from '../types';
-import type { Provider } from '@near-js/providers';
-import { TxExecutionStatus } from '@near-js/types';
 
 // See default finality settings
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
@@ -267,7 +265,7 @@ export class PasskeyManager {
     });
 
     // Use WASM worker to decrypt private key
-    const decryptionResult = await this.webAuthnManager.securePrivateKeyDecryptionWithPrf(
+    const decryptionResult = await this.webAuthnManager.decryptPrivateKeyWithPrf(
       nearAccountId,
       prfOutput
     );

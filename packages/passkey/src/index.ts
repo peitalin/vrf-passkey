@@ -1,4 +1,4 @@
-// === MAIN EXPORTS ===
+
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { IndexedDBManager } from './core/IndexedDBManager';
@@ -28,7 +28,7 @@ export {
 export type {
   WorkerRequest,
   WorkerResponse as TypedWorkerResponse,
-  EncryptPrivateKeyWithPrfRequest,
+  DeriveNearKeypairAndEncryptRequest ,
   DecryptAndSignTransactionWithPrfRequest,
   DecryptPrivateKeyWithPrfRequest,
   EncryptionSuccessResponse,

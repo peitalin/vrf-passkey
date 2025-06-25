@@ -1,23 +1,25 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
 import { TxExecutionStatus } from '@near-js/types';
-import { sha256 } from 'js-sha256';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
-import { base64UrlDecode } from '../../utils/encoders';
 import type { SerializableActionArgs } from '../types';
 import type { NearRpcCallParams } from '../types';
-
 import type { PasskeyManager } from './index';
-import type { ActionOptions, ActionResult, LoginEvent } from '../types/passkeyManager';
-import { generateUserScopedPrfSalt } from '../../utils';
+import type { ActionOptions, ActionResult } from '../types/passkeyManager';
+import { ActionParams, ActionType } from '../types/worker';
 
-// See default finality settings
+// See default finality settings:
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
 // export const DEFAULT_WAIT_STATUS: TxExecutionStatus = "INCLUDED_FINAL";
 export const DEFAULT_WAIT_STATUS: TxExecutionStatus = "EXECUTED_OPTIMISTIC";
 
-// === TYPE DEFINITIONS FOR INTERNAL CONTEXT ===
+interface BlockInfo {
+  header: {
+    hash: string;
+    height: number;
+  };
+}
 
 interface ValidationContext {
   userData: any;
@@ -39,12 +41,6 @@ interface EventOptions {
   onEvent?: (event: any) => void;
   onError?: (error: Error) => void;
   hooks?: any;
-}
-
-interface BlockInfo {
-  header: {
-    hash: string;
-  };
 }
 
 interface RpcErrorData {
@@ -428,26 +424,31 @@ async function verifyVrfAuthAndSignTransaction(
       blockHashBytes: validationContext.transactionBlockHashBytes,
     };
 
-    signingResult = await webAuthnManager.signTransferTransactionWithPrf(
+    signingResult = await webAuthnManager.signTransferTransaction(
       nearAccountId,
       prfOutput,
       transferPayload
     );
 
   } else if (actionArgs.action_type === 'FunctionCall') {
-    // Use the existing WASM worker transaction signing for function calls
+    // Use the modern action-based WASM worker transaction signing for function calls
+    const functionCallAction: ActionParams = {
+      actionType: ActionType.FunctionCall,
+      method_name: actionArgs.method_name!,
+      args: actionArgs.args!, // Keep as JSON string
+      gas: actionArgs.gas || DEFAULT_GAS_STRING,
+      deposit: actionArgs.deposit || "0"
+    };
+
     const signingPayload = {
       nearAccountId: nearAccountId,
       receiverId: actionArgs.receiver_id!,
-      contractMethodName: actionArgs.method_name!,
-      contractArgs: JSON.parse(actionArgs.args!),
-      gasAmount: actionArgs.gas || DEFAULT_GAS_STRING,
-      depositAmount: actionArgs.deposit || "0",
+      actions: [functionCallAction],
       nonce: validationContext.nonce.toString(),
       blockHashBytes: validationContext.transactionBlockHashBytes,
     };
 
-    signingResult = await webAuthnManager.secureTransactionSigningWithPrf(
+    signingResult = await webAuthnManager.signTransactionWithActions(
       nearAccountId,
       prfOutput,
       signingPayload
