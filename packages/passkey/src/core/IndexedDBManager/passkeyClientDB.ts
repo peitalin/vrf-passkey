@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import { type ValidationResult, validateNearAccountId } from './utils/validation';
+import { type ValidationResult, validateNearAccountId } from '../utils/validation';
 
-// === UNIFIED TYPE DEFINITIONS ===
+// === TYPE DEFINITIONS ===
 export interface ClientUserData {
   // Primary key
   nearAccountId: string;
@@ -54,7 +54,7 @@ interface AppStateEntry<T = any> {
   value: T;
 }
 
-interface IndexedDBManagerConfig {
+interface PasskeyClientDBConfig {
   dbName: string;
   dbVersion: number;
   userStore: string;
@@ -63,7 +63,7 @@ interface IndexedDBManagerConfig {
 }
 
 // === CONSTANTS ===
-const DB_CONFIG: IndexedDBManagerConfig = {
+const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
   dbVersion: 4, // Increment version for schema changes
   userStore: 'users',
@@ -71,11 +71,11 @@ const DB_CONFIG: IndexedDBManagerConfig = {
   authenticatorStore: 'authenticators'
 } as const;
 
-class IndexedDBManagerClass {
-  private config: IndexedDBManagerConfig;
+export class PasskeyClientDBManager {
+  private config: PasskeyClientDBConfig;
   private db: IDBPDatabase | null = null;
 
-  constructor(config: IndexedDBManagerConfig) {
+  constructor(config: PasskeyClientDBConfig = DB_CONFIG) {
     this.config = config;
   }
 
@@ -100,13 +100,13 @@ class IndexedDBManagerClass {
         }
       },
       blocked() {
-        console.warn('IndexDB connection is blocked.');
+        console.warn('PasskeyClientDB connection is blocked.');
       },
       blocking() {
-        console.warn('IndexDB connection is blocking another connection.');
+        console.warn('PasskeyClientDB connection is blocking another connection.');
       },
       terminated: () => {
-        console.warn('IndexDB connection has been terminated.');
+        console.warn('PasskeyClientDB connection has been terminated.');
         this.db = null;
       },
     });
@@ -164,17 +164,6 @@ class IndexedDBManagerClass {
   }
 
   // === USER MANAGEMENT METHODS ===
-
-  async storeUser(userData: ClientUserData): Promise<void> {
-    const validation = this.validateNearAccountId(userData.nearAccountId);
-    if (!validation.valid) {
-      throw new Error(`Cannot store user with invalid account ID: ${validation.error}`);
-    }
-
-    const db = await this.getDB();
-    await db.put(DB_CONFIG.userStore, userData);
-    await this.setAppState('lastUserAccountId', userData.nearAccountId);
-  }
 
   async getUser(nearAccountId: string): Promise<ClientUserData | null> {
     if (!nearAccountId) return null;
@@ -274,7 +263,16 @@ class IndexedDBManagerClass {
     }
   }
 
-  // === WEBAUTHN COMPATIBILITY METHODS ===
+  private async storeUser(userData: ClientUserData): Promise<void> {
+    const validation = this.validateNearAccountId(userData.nearAccountId);
+    if (!validation.valid) {
+      throw new Error(`Cannot store user with invalid account ID: ${validation.error}`);
+    }
+
+    const db = await this.getDB();
+    await db.put(DB_CONFIG.userStore, userData);
+    await this.setAppState('lastUserAccountId', userData.nearAccountId);
+  }
 
   /**
    * Store WebAuthn user data (compatibility with WebAuthnManager)
@@ -315,39 +313,6 @@ class IndexedDBManagerClass {
     });
   }
 
-  /**
-   * Get WebAuthn user data (compatibility with WebAuthnManager)
-   * @param nearAccountId - Full NEAR account ID
-   */
-  async getWebAuthnUserData(nearAccountId: string): Promise<{
-    nearAccountId: string;
-    clientNearPublicKey?: string;
-    lastUpdated: number;
-    prfSupported?: boolean;
-    passkeyCredential?: {
-      id: string;
-      rawId: string;
-    };
-    vrfCredentials?: {
-      encrypted_vrf_data_b64u: string;
-      aes_gcm_nonce_b64u: string;
-    };
-  } | null> {
-    const user = await this.getUser(nearAccountId);
-    if (!user) return null;
-
-    return {
-      nearAccountId: user.nearAccountId,
-      clientNearPublicKey: user.clientNearPublicKey,
-      lastUpdated: user.lastUpdated,
-      prfSupported: user.prfSupported,
-      passkeyCredential: user.passkeyCredential,
-      vrfCredentials: user.vrfCredentials
-    };
-  }
-
-  // === UTILITY METHODS ===
-
   async getAllUsers(): Promise<ClientUserData[]> {
     const db = await this.getDB();
     return db.getAll(DB_CONFIG.userStore);
@@ -369,8 +334,6 @@ class IndexedDBManagerClass {
     const db = await this.getDB();
     await db.clear(DB_CONFIG.appStateStore);
   }
-
-  // === AUTHENTICATOR CACHE METHODS ===
 
   /**
    * Store authenticator data for a user
@@ -472,18 +435,6 @@ class IndexedDBManagerClass {
     }
   }
 
-  /**
-   * Get the latest (first registered) authenticator for a user
-   */
-  async getLatestAuthenticatorByUser(nearAccountId: string): Promise<{ credentialID: string } | null> {
-    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
-    if (authenticators.length === 0) return null;
-
-    // Sort by registered date (earliest first)
-    authenticators.sort((a, b) => new Date(a.registered).getTime() - new Date(b.registered).getTime());
-    return { credentialID: authenticators[0].credentialID };
-  }
-
   // === ATOMIC OPERATIONS AND ROLLBACK METHODS ===
 
   /**
@@ -509,23 +460,11 @@ class IndexedDBManagerClass {
   }
 
   /**
-   * Delete WebAuthn user data
-   */
-  async deleteWebAuthnUserData(nearAccountId: string): Promise<void> {
-    const db = await this.getDB();
-    await db.delete(DB_CONFIG.userStore, nearAccountId);
-    console.log(`Deleted WebAuthn user data for: ${nearAccountId}`);
-  }
-
-  /**
    * Atomic operation wrapper for multiple IndexedDB operations
    * Either all operations succeed or all are rolled back
    */
-  async atomicOperation<T>(
-    operation: (db: IDBPDatabase) => Promise<T>
-  ): Promise<T> {
+  async atomicOperation<T>(operation: (db: IDBPDatabase) => Promise<T>): Promise<T> {
     const db = await this.getDB();
-
     try {
       const result = await operation(db);
       return result;
@@ -540,7 +479,7 @@ class IndexedDBManagerClass {
    * Deletes user, authenticators, and WebAuthn data atomically
    */
   async rollbackUserRegistration(nearAccountId: string): Promise<void> {
-    console.log(`🔄 Rolling back registration data for ${nearAccountId}`);
+    console.log(`Rolling back registration data for ${nearAccountId}`);
 
     await this.atomicOperation(async (db) => {
       // Delete all authenticators for this user
@@ -560,6 +499,3 @@ class IndexedDBManagerClass {
     });
   }
 }
-
-// Export a singleton instance
-export const IndexedDBManager = new IndexedDBManagerClass(DB_CONFIG);
