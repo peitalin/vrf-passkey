@@ -10,7 +10,7 @@ This document describes the **WebAuthn VRF Protocol for NEAR** - a serverless au
 
 This design eliminates contract dependencies while maintaining security guarantees and **reduces authentication to a single TouchID prompt**.
 
-## 🧠 **Key Innovations**
+## **Key Innovations**
 
 ### 1. **Web Worker Architecture**
 - **Client-Side Hosting**: Worker files hosted by user (via build tool integration)
@@ -31,11 +31,6 @@ This design eliminates contract dependencies while maintaining security guarante
 - **Login Flow**: Decrypt VRF keypair into Worker memory using WebAuthn PRF (Single TouchID)
 - **Authentication Flow**: Worker generates challenges automatically without TouchID
 
-### 3. **Real VRF Cryptography**
-- Uses `vrf-wasm` library with browser-optimized features
-- RFC-compliant VRF implementation using Ed25519 curves
-- Proper VRF proof generation and verification
-- Deterministic yet unpredictable challenge generation
 
 ### 4. **Stateless Operations**
 Single contract call that verifies both VRF proof and WebAuthn response simultaneously.
@@ -43,7 +38,7 @@ Single contract call that verifies both VRF proof and WebAuthn response simultan
 ### 5. **NEAR Integration**
 Uses NEAR block data for freshness guarantees and replay protection.
 
-## 🔧 **VRF Challenge Construction Specification**
+## **VRF Challenge Construction Specification**
 
 ### **Secure Input Construction**
 ```rust
@@ -85,7 +80,7 @@ let (vrf_output, vrf_proof) = vrf_keypair.prove(&vrf_input);
 6. **Fork Protection**: Block hash prevents challenges from being valid across chain forks
 7. **Temporal Binding**: Timestamp provides auditability and expiry semantics
 
-## 🔄 **Three-Flow Implementation**
+## **Three-Flow Implementation**
 
 ### **Flow 1: VRF Registration** (First-time users - One-time setup)
 
@@ -188,7 +183,7 @@ sequenceDiagram
 - ✅ **VRF keypair encrypted at rest** (AES-GCM with PRF-derived key)
 - ✅ **WASM memory isolation** (VRF private keys secured in WASM linear memory)
 
-## 🏗️ **Implementation Architecture**
+## **Implementation Architecture**
 
 ### **File Structure**
 ```
@@ -435,76 +430,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
 }
 ```
 
-### **Dependencies** (`packages/passkey/src/wasm-vrf-worker/Cargo.toml`)
-```toml
-[package]
-name = "vrf-service-worker"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.6"
-getrandom = { version = "0.2", features = ["js"] }
-console_error_panic_hook = "0.1"
-
-# VRF and cryptography
-vrf-wasm = { version = "0.8", features = ["browser"] }
-ed25519-dalek = "2.0"
-aes-gcm = "0.10"
-sha2 = "0.10"
-hkdf = "0.12"
-base64 = "0.22"
-serde_json = "1.0"
-bincode = "1.3"
-rand_core = "0.6"
-
-# Async support for Service Worker
-wasm-bindgen-futures = "0.4"
-
-[dependencies.web-sys]
-version = "0.3"
-features = ["console"]
-```
-
-## 📋 **Implementation Status**
-
-### ✅ **Completed**
-- [x] WASM-based VRF Service Worker with real VRF cryptography
-- [x] VRF Manager client interface (`vrf-manager.ts`)
-- [x] Service Worker persistence across browser tabs and sessions
-- [x] Encrypted VRF keypair storage in IndexedDB
-- [x] VRF keypair generation and encryption with WebAuthn PRF
-- [x] VRF login flow (decrypt keypair into Service Worker memory)
-- [x] VRF authentication flow (in-memory challenge generation)
-- [x] Global state management in WASM with thread-local storage
-- [x] HKDF-based key derivation for enhanced security
-- [x] Contract integration with VRF verification methods
-- [x] `vrf-wasm` library integration with browser features
-- [x] Proper bincode serialization for contract compatibility
-- [x] Build system with asset copying (`copy-wasm-assets.sh`)
-- [x] Message-based Service Worker communication with MessageChannel
-- [x] Comprehensive error handling and session management
-
-### 🚧 **In Progress**
-- [ ] Contract integration with `verify_authentication_response` calls
-- [ ] Performance testing and optimization
-- [ ] Browser compatibility testing across different platforms
-- [ ] VRF challenge freshness validation with block height checks
-
-### 📝 **Next Steps**
-1. **Contract Integration**: Complete verify_authentication_response implementation
-2. **Performance Testing**: Benchmark WASM VRF performance vs JavaScript
-3. **Browser Compatibility**: Test Service Worker + WASM across browsers
-4. **Documentation**: Add integration examples and troubleshooting guides
-5. **Block Height Validation**: Add NEAR block height freshness checks
-
-## 🔐 **Security Model**
+## **Security Model**
 
 ### **VRF Security Guarantees**
 1. **Unpredictability**: VRF outputs are indistinguishable from random to attackers
@@ -590,75 +516,10 @@ pub struct VRFAuthenticationData {
 }
 ```
 
-## 📊 **Performance Characteristics**
 
-### **Client-Side**
-- **VRF Generation**: ~1-2ms (WASM ed25519)
-- **WebAuthn Ceremony**: ~100-500ms (user interaction)
-- **Service Worker Communication**: ~1-5ms
-- **Total Client Time**: ~100-500ms
+## **WASM Worker SDK Integration Guide**
 
-### **Service Worker**
-- **WASM Module Load**: ~10-50ms (one-time)
-- **VRF Challenge Generation**: ~1-2ms
-- **Memory Management**: ~0.1ms
-- **Cross-Tab Communication**: ~1-5ms
-
-### **Contract**
-- **VRF Verification**: ~2-5ms
-- **WebAuthn Verification**: ~3-8ms
-- **Storage Operations**: ~1-2ms
-- **Total Contract Gas**: ~50-100 TGas
-
-### **Storage Costs**
-- **Registration**: ~0.01 NEAR (one-time)
-- **Authentication**: ~0 NEAR (read-only)
-
-## 🌐 **Production Benefits**
-
-1. **🚀 Serverless**: No backend infrastructure required
-2. **💰 Cost-Effective**: Minimal gas costs, no server hosting
-3. **🔒 Secure**: Cryptographic guarantees without server trust
-4. **⚡ Fast**: Single contract call for complete verification
-5. **🔄 Stateless**: No session management or server state
-6. **📱 Universal**: Works across all WebAuthn-compatible devices
-7. **🌍 Decentralized**: No reliance on centralized authentication servers
-8. **👆 Single TouchID**: Only one TouchID prompt per authentication operation
-9. **🔐 Encrypted at Rest**: VRF keypairs stored securely with WebAuthn PRF encryption
-10. **⚡ Session-Based**: VRF keypair unlocked once per session, enabling rapid subsequent authentications
-11. **🦀 WASM-Powered**: High-performance VRF operations using Rust and WebAssembly
-12. **🔒 Memory Isolation**: VRF private keys secured in WASM linear memory
-13. **⚡ Simplified Workers**: Web Workers avoid Service Worker scope and activation complexity
-14. **🔧 Build Tool Friendly**: Standard file copying without MIME type or registration issues
-
-## 🎯 **UX Improvements**
-
-### **Before**: Traditional Two-TouchID Flow
-- TouchID #1: Decrypt VRF keypair
-- TouchID #2: Sign WebAuthn challenge
-- **Total**: 2 user interactions per authentication
-
-### **After**: Optimized Single-TouchID Flow
-- **Login**: TouchID once to unlock VRF keypair into Service Worker memory
-- **Authentication**: TouchID once to sign VRF-generated challenge
-- **Subsequent Authentications**: Automatic VRF challenge generation (no additional TouchID)
-- **Cross-Tab**: Same VRF session available across all tabs
-- **Total**: 1 user interaction per authentication (50% reduction)
-
-### **Web Worker Benefits vs Service Workers**
-- **Simplified Setup**: Standard file copying without Service Worker scope or registration complexity
-- **Immediate Initialization**: Web Workers start instantly without waiting for activation events
-- **Direct Communication**: Standard Worker messaging without MessageChannel complexity
-- **No Scope Issues**: Avoids Service Worker scope configuration and path resolution problems
-- **Build Tool Friendly**: Works with standard build processes without special MIME type handling
-
-This implementation provides a production-ready, secure, and cost-effective authentication system that leverages the best of VRF cryptography, WebAuthn standards, WASM security, simplified Web Workers, and NEAR's blockchain infrastructure while delivering a clean developer experience without Service Worker complexity.
-
-## 🔧 **Integration Guide**
-
-### **Setup Requirements**
-
-VRF functionality requires hosting the Web Worker files (much simpler than Service Workers):
+VRF functionality requires hosting the Web Worker files:
 
 #### **Option 1: Manual File Copying** (Development)
 ```bash
@@ -735,123 +596,6 @@ const copyWorkers = async () => {
    }
    ```
 
-### **Error Handling**
-
-```typescript
-try {
-  await passkeyManager.initializeVRFServiceWorker();
-} catch (error) {
-  if (error.message.includes('Service Workers not supported')) {
-    // Fallback to traditional authentication
-    console.warn('VRF not available, using fallback auth');
-  } else {
-    console.error('VRF initialization failed:', error);
-  }
-}
-```
-
-### **Browser Compatibility**
-
-- ✅ **Chrome/Edge**: Full support (Service Workers + WASM + WebAuthn PRF)
-- ✅ **Firefox**: Full support with VRF Service Worker
-- ✅ **Safari**: Partial support (requires WebAuthn PRF polyfill)
-- ❌ **IE**: Not supported (missing Service Workers)
-
-## 📋 **Contract Integration Usage**
-
-### **VRF Authentication with Contract Verification**
-
-The VRF authentication system now includes full contract integration with `verify_authentication_response` calls. Here's how to use it:
-
-#### **1. Complete VRF Authentication with Contract Verification**
-
-```typescript
-import { PasskeyManager } from '@web3authn/passkey';
-
-const passkeyManager = new PasskeyManager(config, nearRpcProvider);
-
-// Method 1: Full authentication with automatic contract verification
-const result = await passkeyManager.vrfAuthenticationWithContract(
-  'alice.testnet'
-);
-
-if (result.success && result.verified) {
-  console.log('✅ VRF authentication verified by contract');
-  console.log('Transaction ID:', result.transactionId);
-} else {
-  console.error('❌ Authentication failed:', result.error);
-}
-```
-
-#### **2. Manual Contract Verification**
-
-```typescript
-// Method 2: Get VRF data and verify manually
-const authResult = await passkeyManager.authenticateWithVRF(
-  'alice.testnet',
-  crypto.randomUUID(), // sessionId
-  {
-    verifyWithContract: true,
-    contractId: 'webauthn.testnet'
-  }
-);
-
-if (authResult.success) {
-  const { vrfChallengeData, webauthnCredential, contractVerification } = authResult;
-
-  if (contractVerification?.verified) {
-    console.log('✅ Contract verification successful');
-    console.log('Transaction ID:', contractVerification.transactionId);
-  }
-}
-```
-
-#### **3. Service Worker VRF Authentication Flow**
-
-```typescript
-// Initialize VRF Service Worker
-await passkeyManager.initializeVRFServiceWorker();
-
-// Check if ready
-const isReady = await passkeyManager.isVRFServiceWorkerReady();
-if (!isReady) {
-  throw new Error('VRF Service Worker not ready');
-}
-
-// Login to unlock VRF keypair in Service Worker memory
-const loginResult = await passkeyManager.loginPasskey('alice.testnet');
-if (!loginResult.success) {
-  throw new Error('Login failed');
-}
-
-// Now can perform multiple authentications without additional TouchID
-const auth1 = await passkeyManager.authenticateWithVRF('alice.testnet');
-const auth2 = await passkeyManager.authenticateWithVRF('alice.testnet');
-// Both authentications use the same VRF keypair from Service Worker memory
-```
-
-#### **4. Direct Contract Verification**
-
-```typescript
-// For advanced users who want direct control
-const webAuthnManager = passkeyManager.getWebAuthnManager();
-
-const verificationResult = await webAuthnManager.verifyVrfAuthentication(
-  nearRpcProvider,
-  'webauthn.testnet', // contract ID
-  {
-    vrfInput: vrfChallengeData.vrfInput,
-    vrfOutput: vrfChallengeData.vrfOutput,
-    vrfProof: vrfChallengeData.vrfProof,
-    vrfPublicKey: vrfChallengeData.vrfPublicKey,
-    rpId: vrfChallengeData.rpId,
-    blockHeight: vrfChallengeData.blockHeight,
-    blockHash: vrfChallengeData.blockHash,
-  },
-  webauthnCredential,
-  'alice.testnet'
-);
-```
 
 ### **Contract Method Details**
 
@@ -871,6 +615,7 @@ pub fn verify_authentication_response(
 - `vrf_output`: VRF output used as WebAuthn challenge (Vec<u8>)
 - `vrf_proof`: Bincode-serialized VRF proof (Vec<u8>)
 - `public_key`: Bincode-serialized VRF public key (Vec<u8>)
+- `user_id`: Account ID (String)
 - `rp_id`: Relying Party ID (String)
 - `block_height`: NEAR block height for freshness (u64)
 - `block_hash`: NEAR block hash for entropy (Vec<u8>)
@@ -880,53 +625,3 @@ pub fn verify_authentication_response(
 - `raw_id`: Raw credential ID (Vec<u8>)
 - `response`: WebAuthn assertion response
 - Standard WebAuthn fields for contract verification
-
-### **Authentication Flow Benefits**
-
-#### **Before Contract Integration:**
-1. VRF challenge generation ✅
-2. WebAuthn authentication ✅
-3. Manual contract verification ❌
-
-#### **After Contract Integration:**
-1. VRF challenge generation ✅
-2. WebAuthn authentication ✅
-3. Automatic contract verification ✅
-4. Single method call for complete flow ✅
-5. Proper error handling ✅
-6. Transaction ID tracking ✅
-
-### **Security Guarantees**
-
-- ✅ **Cryptographic VRF Proofs**: Contract verifies VRF proof matches input/output
-- ✅ **WebAuthn Verification**: Contract validates WebAuthn signature
-- ✅ **Challenge Binding**: VRF output used as WebAuthn challenge
-- ✅ **Freshness**: NEAR block height ensures recent challenges
-- ✅ **Origin Binding**: RP ID prevents cross-origin attacks
-- ✅ **Replay Protection**: Block height + nonce prevent replay
-- ✅ **On-Chain Verification**: All verification happens on-chain
-
-### **Error Handling**
-
-```typescript
-const result = await passkeyManager.authenticateWithVRF('alice.testnet', undefined, {
-  verifyWithContract: true,
-  contractId: 'webauthn.testnet'
-});
-
-if (!result.success) {
-  console.error('Authentication failed:', result.error);
-  return;
-}
-
-if (result.contractVerification && !result.contractVerification.verified) {
-  console.error('Contract verification failed');
-  // Handle verification failure
-  return;
-}
-
-// Authentication and verification successful
-console.log('✅ Complete VRF authentication verified');
-```
-
-This completes the VRF contract integration, providing a seamless experience from VRF challenge generation through contract verification in a single, easy-to-use API.

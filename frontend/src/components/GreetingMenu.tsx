@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { usePasskeyContext } from '@web3authn/passkey/react';
 import { RefreshIcon } from './icons/RefreshIcon';
-import { Toggle } from './Toggle';
 import { shortenString } from '../utils/strings';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import toast from 'react-hot-toast';
@@ -30,7 +29,7 @@ export function GreetingMenu() {
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   // NEAR transfer state
-  const [transferRecipient, setTransferRecipient] = useState('');
+  const [transferRecipient, setTransferRecipient] = useState('web3-authn.testnet');
   const [transferAmount, setTransferAmount] = useState('');
 
   const {
@@ -170,7 +169,7 @@ export function GreetingMenu() {
         afterCall: (success: boolean, result?: any) => {
           if (success) {
             // Reset transfer inputs on successful transaction
-            setTransferRecipient("");
+            setTransferRecipient("web3-authn.testnet");
             setTransferAmount("");
           }
 

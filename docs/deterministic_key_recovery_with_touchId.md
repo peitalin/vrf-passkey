@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Reveries Passkey system implements **deterministic key recovery** that allows users to recover their NEAR private keys even if their local browser storage (IndexedDB) is accidentally deleted. This recovery mechanism leverages the cryptographic properties of WebAuthn credentials and deterministic key derivation.
+The Web3authn Passkey system implements **deterministic key recovery** that allows users to recover their NEAR private keys even if their local browser storage (IndexedDB) is accidentally deleted. This recovery mechanism leverages the cryptographic properties of WebAuthn credentials and deterministic key derivation.
 
 ## The Problem
 
