@@ -29,7 +29,6 @@ export class PasskeyManager {
   private webAuthnManager: WebAuthnManager;
   private nearRpcProvider: Provider;
   private config: PasskeyManagerConfig;
-  private vrfWorkerManager: VrfWorkerManager;
   private vrfInitializationPromise: Promise<void> | null = null;
 
   constructor(
@@ -39,7 +38,6 @@ export class PasskeyManager {
     this.config = config;
     this.nearRpcProvider = nearRpcProvider;
     this.webAuthnManager = new WebAuthnManager();
-    this.vrfWorkerManager = new VrfWorkerManager();
     // Initialize VRF Web Worker automatically in the background
     this.vrfInitializationPromise = this.initializeVrfWorkerManager();
   }
@@ -50,18 +48,22 @@ export class PasskeyManager {
    */
   private async initializeVrfWorkerManager(): Promise<void> {
     try {
-      await this.vrfWorkerManager.initialize();
+      console.log('PasskeyManager: Initializing VRF Web Worker...');
+      await this.webAuthnManager.initializeVrfWorkerManager();
     } catch (error: any) {
       console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
     }
   }
 
-  forceClearVrfManager(): Promise<void> {
-    return this.vrfWorkerManager.forceClearVrfManager();
+  /**
+   * Logout: Clear VRF session (clear VRF keypair in worker)
+   */
+  async clearVrfSession(): Promise<void> {
+    return this.webAuthnManager.clearVrfSession();
   }
 
   async getVrfWorkerStatus(): Promise<VRFWorkerStatus> {
-    return this.vrfWorkerManager.getVrfWorkerStatus();
+    return this.webAuthnManager.getVrfWorkerStatus();
   }
 
   getConfig(): PasskeyManagerConfig {
@@ -74,10 +76,6 @@ export class PasskeyManager {
 
   getWebAuthnManager(): WebAuthnManager {
     return this.webAuthnManager;
-  }
-
-  getVrfWorkerManager(): VrfWorkerManager {
-    return this.vrfWorkerManager;
   }
 
   getNearRpcProvider(): Provider {
@@ -154,7 +152,7 @@ export class PasskeyManager {
       const userData = await this.webAuthnManager.getUser(targetAccountId);
 
       // Check VRF Web Worker status
-      const vrfStatus = await this.vrfWorkerManager.getVrfWorkerStatus();
+      const vrfStatus = await this.webAuthnManager.getVrfWorkerStatus();
       const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
 
       // Get public key
@@ -186,80 +184,13 @@ export class PasskeyManager {
   }
 
   /**
-   * Export private key using PRF-based decryption
-   *
-   * SECURITY MODEL: Local random challenge is sufficient for private key export because:
-   * - User must possess physical authenticator device
-   * - Device enforces biometric/PIN verification before PRF access
-   * - No network communication or replay attack surface
-   * - Challenge only needs to be random to prevent pre-computation
-   * - Security comes from device possession + biometrics, not challenge validation
-   */
-  async exportPrivateKey(nearAccountId?: string): Promise<string> {
-    // If no nearAccountId provided, try to get the last used account
-    if (!nearAccountId) {
-      const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
-      if (!lastUsedNearAccountId) {
-        throw new Error('No NEAR account ID provided and no last used account found');
-      }
-      nearAccountId = lastUsedNearAccountId;
-    }
-
-    // Get user data to verify user exists
-    const userData = await this.webAuthnManager.getUser(nearAccountId);
-    if (!userData) {
-      throw new Error(`No user data found for ${nearAccountId}`);
-    }
-    if (!userData.prfSupported) {
-      throw new Error('PRF is required for private key export but not supported by this user\'s authenticator');
-    }
-
-    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
-    // For private key export, we can use direct WebAuthn authentication with local random challenge
-    // This is secure because the security comes from device possession + biometrics, not challenge validation
-    console.log('Using local authentication for private key export');
-
-    // Get stored authenticator data for this user
-    const authenticators = await this.webAuthnManager.getAuthenticatorsByUser(nearAccountId);
-    if (authenticators.length === 0) {
-      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
-    }
-
-    // Generate local random challenge - this is sufficient for local key export security
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const { prfOutput } = await this.webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
-      nearAccountId,
-      challenge,
-      authenticators,
-    });
-
-    // Use WASM worker to decrypt private key
-    const decryptionResult = await this.webAuthnManager.decryptPrivateKeyWithPrf(
-      nearAccountId,
-      prfOutput
-    );
-
-    console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);
-    return decryptionResult.decryptedPrivateKey;
-  }
-
-  /**
    * Export key pair (both private and public keys)
    */
-  async exportKeyPair(nearAccountId?: string): Promise<{
+  async exportKeyPair(nearAccountId: string): Promise<{
     userAccountId: string;
     privateKey: string;
     publicKey: string
   }> {
-    // If no nearAccountId provided, try to get the last used account
-    if (!nearAccountId) {
-      const lastUsedNearAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
-      if (!lastUsedNearAccountId) {
-        throw new Error('No NEAR account ID provided and no last used account found');
-      }
-      nearAccountId = lastUsedNearAccountId;
-    }
-
     // Get user data to retrieve public key
     const userData = await this.webAuthnManager.getUser(nearAccountId);
     if (!userData) {
@@ -277,6 +208,40 @@ export class PasskeyManager {
       privateKey,
       publicKey: userData.clientNearPublicKey
     };
+  }
+
+  /**
+   * Export private key using PRF-based decryption
+   *
+   * SECURITY MODEL: Local random challenge is sufficient for private key export because:
+   * - User must possess physical authenticator device
+   * - Device enforces biometric/PIN verification before PRF access
+   * - No network communication or replay attack surface
+   * - Challenge only needs to be random to prevent pre-computation
+   * - Security comes from device possession + biometrics, not challenge validation
+   */
+  private async exportPrivateKey(nearAccountId: string): Promise<string> {
+    // Get user data to verify user exists
+    const userData = await this.webAuthnManager.getUser(nearAccountId);
+    if (!userData) {
+      throw new Error(`No user data found for ${nearAccountId}`);
+    }
+
+    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
+    // Get stored authenticator data for this user
+    const authenticators = await this.webAuthnManager.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+    }
+
+    // Use WASM worker to decrypt private key
+    const decryptionResult = await this.webAuthnManager.decryptPrivateKeyWithPrf(
+      nearAccountId,
+      authenticators
+    );
+
+    console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);
+    return decryptionResult.decryptedPrivateKey;
   }
 
 }

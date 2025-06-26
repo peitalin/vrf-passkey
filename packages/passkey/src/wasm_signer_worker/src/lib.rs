@@ -4,6 +4,7 @@ mod actions;
 mod crypto;
 mod transaction;
 mod cose;
+mod http;
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +28,16 @@ use crate::cose::{
     extract_cose_public_key_from_attestation_core,
     validate_cose_key_format_core,
 };
+use crate::http::{
+    perform_contract_verification_wasm,
+    perform_contract_registration_wasm,
+    base64url_decode,
+    VrfData,
+    WebAuthnAuthenticationCredential,
+    WebAuthnAuthenticationResponse,
+    WebAuthnRegistrationCredential,
+    WebAuthnRegistrationResponse,
+};
 
 // === CONSOLE LOGGING ===
 
@@ -39,6 +50,9 @@ extern "C" {
     fn warn(s: &str);
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn error(s: &str);
+    // Import JavaScript function for sending progress messages
+    #[wasm_bindgen(js_name = "sendProgressMessage")]
+    fn send_progress_message(message_type: &str, step: &str, message: &str, data: &str);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -49,6 +63,12 @@ macro_rules! console_log {
 #[cfg(not(target_arch = "wasm32"))]
 macro_rules! console_log {
     ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn send_progress_message(_message_type: &str, _step: &str, _message: &str, _data: &str) {
+    // No-op for non-WASM builds
+    eprintln!("[PROGRESS] {}: {} - {}", _message_type, _step, _message);
 }
 
 // === WASM INITIALIZATION ===
@@ -119,98 +139,6 @@ pub fn decrypt_private_key_with_prf_as_string(
     Ok(private_key_near_format)
 }
 
-// === WASM BINDINGS FOR TRANSACTION SIGNING ===
-
-#[wasm_bindgen]
-pub fn sign_near_transaction_with_actions(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    receiver_account_id: &str,
-    nonce: u64,
-    block_hash_bytes: &[u8],
-    actions_json: &str, // JSON array of ActionParams
-) -> Result<Vec<u8>, JsValue> {
-    console_log!("RUST: Starting NEAR transaction signing with multiple actions");
-
-    // 1. Decrypt private key using PRF
-    let private_key = decrypt_private_key_with_prf_core(
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
-    ).map_err(|e| JsValue::from_str(&e))?;
-
-    // 2. Parse actions
-    let action_params: Vec<ActionParams> = serde_json::from_str(actions_json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse actions: {}", e)))?;
-
-    console_log!("RUST: Parsed {} actions", action_params.len());
-
-    // 3. Build actions using handlers
-    let actions = build_actions_from_params(action_params)
-        .map_err(|e| JsValue::from_str(&e))?;
-
-    console_log!("RUST: Built {} actions successfully", actions.len());
-
-    // 4. Build transaction
-    let transaction = build_transaction_with_actions(
-        signer_account_id,
-        receiver_account_id,
-        nonce,
-        block_hash_bytes,
-        &private_key,
-        actions,
-    ).map_err(|e| JsValue::from_str(&e))?;
-
-    // 5. Sign transaction
-    let signed_tx_bytes = sign_transaction(transaction, &private_key)
-        .map_err(|e| JsValue::from_str(&e))?;
-
-    console_log!("RUST: Successfully signed multi-action transaction, {} bytes", signed_tx_bytes.len());
-    Ok(signed_tx_bytes)
-}
-
-#[wasm_bindgen]
-pub fn sign_near_transfer_transaction(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    receiver_account_id: &str,
-    deposit_amount: &str,
-    nonce: u64,
-    block_hash_bytes: &[u8],
-) -> Result<Vec<u8>, JsValue> {
-    console_log!("RUST: Signing Transfer transaction with PRF");
-
-    // Build single transfer action
-    let actions = vec![ActionParams::Transfer {
-        deposit: deposit_amount.to_string(),
-    }];
-
-    let actions_json = serde_json::to_string(&actions)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize transfer action: {}", e)))?;
-
-    // Use the multi-action function
-    sign_near_transaction_with_actions(
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
-        signer_account_id,
-        receiver_account_id,
-        nonce,
-        block_hash_bytes,
-        &actions_json,
-    )
-}
-
 // === WASM BINDINGS FOR COSE OPERATIONS ===
 
 #[wasm_bindgen]
@@ -223,4 +151,323 @@ pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -
 pub fn validate_cose_key_format(cose_key_bytes: &[u8]) -> Result<String, JsValue> {
     validate_cose_key_format_core(cose_key_bytes)
         .map_err(|e| JsValue::from_str(&e))
+}
+
+// === WASM BINDINGS FOR TRANSACTION SIGNING ===
+// COMBINED VERIFICATION + SIGNING WITH PROGRESS
+
+#[wasm_bindgen]
+pub async fn verify_and_sign_near_transaction_with_actions(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    receiver_account_id: &str,
+    nonce: u64,
+    block_hash_bytes: &[u8],
+    actions_json: &str,
+
+    // Verification parameters
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_credential_json: &str,
+    near_rpc_url: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting combined verification + signing with progress");
+
+    // Step 1: Send verification progress
+    send_progress_message(
+        "VERIFICATION_PROGRESS",
+        "contract_verification",
+        "Verifying authentication with contract...",
+        &format!(r#"{{"contractId": "{}"}}"#, contract_id)
+    );
+
+    // Step 2: Perform contract verification via WASM HTTP
+    let verification_result = {
+
+        // Parse VRF challenge data
+        let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+
+        // Parse WebAuthn credential
+        let webauthn_credential: serde_json::Value = serde_json::from_str(webauthn_credential_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn credential: {}", e)))?;
+
+        // Extract WebAuthn authentication fields
+        let auth_id = webauthn_credential["id"].as_str().ok_or("Missing WebAuthn id")?;
+        let raw_id = webauthn_credential["rawId"].as_str().ok_or("Missing WebAuthn rawId")?;
+        let response = &webauthn_credential["response"];
+        let client_data_json = response["clientDataJSON"].as_str().ok_or("Missing clientDataJSON")?;
+        let authenticator_data = response["authenticatorData"].as_str().ok_or("Missing authenticatorData")?;
+        let signature = response["signature"].as_str().ok_or("Missing signature")?;
+        let user_handle = response["userHandle"].as_str();
+        // NOTE: do not send PRF outputs, should be kept private
+
+        // Construct WebAuthnAuthentication struct
+        let webauthn_auth = WebAuthnAuthenticationCredential {
+            id: auth_id.to_string(),
+            raw_id: raw_id.to_string(),
+            response: WebAuthnAuthenticationResponse {
+                client_data_json: client_data_json.to_string(),
+                authenticator_data: authenticator_data.to_string(),
+                signature: signature.to_string(),
+                user_handle: user_handle.map(|s| s.to_string()),
+            },
+            authenticator_attachment: webauthn_credential["authenticatorAttachment"].as_str().map(|s| s.to_string()),
+            auth_type: "public-key".to_string(),
+        };
+
+        // Perform verification using pure WASM HTTP
+        perform_contract_verification_wasm(contract_id, vrf_data, webauthn_auth, near_rpc_url)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Contract verification failed: {}", e)))?
+    };
+
+    // Parse verification result
+    let verification_success = verification_result.verified;
+    let _verification_logs = verification_result.logs.join(", ");
+
+    // Step 3: Send verification complete
+    send_progress_message(
+        "VERIFICATION_COMPLETE",
+        "verification_complete",
+        if verification_success { "Contract verification successful" } else { "Contract verification failed" },
+        &format!(r#"{{"success": {}, "logs": {:?}}}"#, verification_success, verification_result.logs)
+    );
+
+    if !verification_success {
+        let error_msg = verification_result.error.unwrap_or_else(|| "Contract verification failed".to_string());
+        return Err(JsValue::from_str(&error_msg));
+    }
+
+    // Step 4: Send signing progress
+    send_progress_message(
+        "SIGNING_PROGRESS",
+        "transaction_signing",
+        "Signing transaction in secure WASM context...",
+        &format!(r#"{{"signerAccountId": "{}", "receiverId": "{}"}}"#, signer_account_id, receiver_account_id)
+    );
+
+    // Step 5: Perform transaction signing (existing logic)
+    let private_key = match decrypt_private_key_with_prf_core(
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+    ) {
+        Ok(key) => key,
+        Err(e) => {
+            let error_msg = format!("Failed to decrypt private key: {:?}", e);
+            send_progress_message(
+                "SIGNING_COMPLETE",
+                "signing_failed",
+                &error_msg,
+                r#"{"success": false}"#
+            );
+            return Err(JsValue::from_str(&error_msg));
+        }
+    };
+
+    // Parse and build actions
+    let action_params: Vec<ActionParams> = serde_json::from_str(actions_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse actions: {}", e)))?;
+
+    let actions = build_actions_from_params(action_params)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    // Build and sign transaction
+    let transaction = build_transaction_with_actions(
+        signer_account_id,
+        receiver_account_id,
+        nonce,
+        block_hash_bytes,
+        &private_key,
+        actions,
+    ).map_err(|e| JsValue::from_str(&e))?;
+
+    let signed_tx_bytes = sign_transaction(transaction, &private_key)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    // Step 6: Send signing complete with final result
+    send_progress_message(
+        "SIGNING_COMPLETE",
+        "signing_complete",
+        "Transaction signed successfully",
+        &format!(r#"{{"signedTransactionBorsh": {:?}, "verificationLogs": {:?}}}"#,
+            signed_tx_bytes,
+            verification_result.logs
+        )
+    );
+
+    console_log!("RUST: Combined verification + signing completed successfully");
+    Ok(signed_tx_bytes)
+}
+
+#[wasm_bindgen]
+pub async fn verify_and_sign_near_transfer_transaction(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    receiver_account_id: &str,
+    deposit_amount: &str,
+    nonce: u64,
+    block_hash_bytes: &[u8],
+
+    // Verification parameters
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_credential_json: &str,
+    near_rpc_url: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting transfer transaction verification + signing with progress");
+
+    // Convert transfer parameters to action-based format
+    let transfer_actions = vec![ActionParams::Transfer {
+        deposit: deposit_amount.to_string(),
+    }];
+
+    let actions_json = serde_json::to_string(&transfer_actions)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize transfer action: {}", e)))?;
+
+    // Delegate to the main verification + signing function
+    verify_and_sign_near_transaction_with_actions(
+        // Authentication
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+
+        // Transaction details
+        signer_account_id,
+        receiver_account_id,
+        nonce,
+        block_hash_bytes,
+        &actions_json,
+
+        // Verification parameters
+        contract_id,
+        vrf_challenge_data_json,
+        webauthn_credential_json,
+        near_rpc_url,
+    ).await
+}
+
+/// Register a new WebAuthn credential with VRF using contract verification
+#[wasm_bindgen]
+pub async fn register_with_prf(
+    // VRF challenge data
+    vrf_challenge_data_json: &str,
+    // WebAuthn registration credential
+    webauthn_registration_json: &str,
+    // Contract parameters
+    contract_id: &str,
+    near_rpc_url: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: Starting registration with VRF verification and progress");
+
+    // Step 1: Send registration progress
+    send_progress_message(
+        "REGISTRATION_PROGRESS",
+        "contract_verification",
+        "Verifying registration with contract...",
+        &format!(r#"{{"contractId": "{}"}}"#, contract_id)
+    );
+
+    // Step 2: Parse VRF challenge data
+    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+
+    // Step 3: Parse WebAuthn registration credential
+    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
+
+    // Step 5: Extract WebAuthn registration fields
+    let reg_id = webauthn_registration_data["id"].as_str().ok_or("Missing WebAuthn id")?;
+    let raw_id = webauthn_registration_data["rawId"].as_str().ok_or("Missing WebAuthn rawId")?;
+    let response = &webauthn_registration_data["response"];
+    let client_data_json = response["clientDataJSON"].as_str().ok_or("Missing clientDataJSON")?;
+    let attestation_object = response["attestationObject"].as_str().ok_or("Missing attestationObject")?;
+    let transports = response["transports"].as_array().map(|arr| {
+        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect()
+    });
+
+    // Construct WebAuthnRegistration struct
+    let webauthn_registration = WebAuthnRegistrationCredential {
+        id: reg_id.to_string(),
+        raw_id: raw_id.to_string(),
+        response: WebAuthnRegistrationResponse {
+            client_data_json: client_data_json.to_string(),
+            attestation_object: attestation_object.to_string(),
+            transports,
+        },
+        authenticator_attachment: webauthn_registration_data["authenticatorAttachment"].as_str().map(|s| s.to_string()),
+        reg_type: "public-key".to_string(),
+    };
+
+    // Step 6: Perform registration verification using pure WASM HTTP
+    let registration_result = perform_contract_registration_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
+        .await
+        .map_err(|e| JsValue::from_str(&format!("Contract registration failed: {}", e)))?;
+
+    // Step 7: Send registration complete
+    let registration_success = registration_result.verified;
+    send_progress_message(
+        "REGISTRATION_COMPLETE",
+        "registration_complete",
+        if registration_success { "Contract registration successful" } else { "Contract registration failed" },
+        &format!(r#"{{"success": {}, "logs": {:?}}}"#, registration_success, registration_result.logs)
+    );
+
+    if !registration_success {
+        let error_msg = registration_result.error.unwrap_or_else(|| "Contract registration failed".to_string());
+        return Err(JsValue::from_str(&error_msg));
+    }
+
+    // Step 8: Return registration result as JSON
+    let result = serde_json::json!({
+        "verified": registration_result.verified,
+        "registration_info": registration_result.registration_info,
+        "logs": registration_result.logs
+    });
+
+    console_log!("RUST: Registration with VRF completed successfully");
+    Ok(result.to_string())
+}
+
+pub fn parse_vrf_challenge(vrf_challenge_data_json: &str) -> Result<VrfData, JsValue> {
+
+    let vrf_challenge_data: serde_json::Value = serde_json::from_str(vrf_challenge_data_json)
+    .map_err(|e| JsValue::from_str(&format!("Failed to parse VRF Challenge data: {}", e)))?;
+
+    let vrf_input = vrf_challenge_data["vrfInput"].as_str().ok_or("Missing vrfInput")?;
+    let vrf_output = vrf_challenge_data["vrfOutput"].as_str().ok_or("Missing vrfOutput")?;
+    let vrf_proof = vrf_challenge_data["vrfProof"].as_str().ok_or("Missing vrfProof")?;
+    let vrf_public_key = vrf_challenge_data["vrfPublicKey"].as_str().ok_or("Missing vrfPublicKey")?;
+    let user_id = vrf_challenge_data["userId"].as_str().ok_or("Missing userId")?;
+    let rp_id = vrf_challenge_data["rpId"].as_str().ok_or("Missing rpId")?;
+    let block_height = vrf_challenge_data["blockHeight"].as_u64().ok_or("Missing blockHeight")?;
+    let block_hash = vrf_challenge_data["blockHash"].as_str().ok_or("Missing blockHash")?;
+
+    // Construct VrfData struct
+    let vrf_data = VrfData {
+        vrf_input_data: base64url_decode(vrf_input)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decode VRF input: {}", e)))?,
+        vrf_output: base64url_decode(vrf_output)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decode VRF output: {}", e)))?,
+        vrf_proof: base64url_decode(vrf_proof)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decode VRF proof: {}", e)))?,
+        public_key: base64url_decode(vrf_public_key)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decode VRF public key: {}", e)))?,
+        user_id: user_id.to_string(),
+        rp_id: rp_id.to_string(),
+        block_height,
+        block_hash: base64url_decode(block_hash)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decode block hash: {}", e)))?,
+    };
+
+    Ok(vrf_data)
 }

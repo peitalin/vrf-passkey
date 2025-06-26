@@ -51,7 +51,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
       nearNetwork: 'testnet' as const,
       relayerAccount: 'web3-authn.testnet',
       contractId: 'web3-authn.testnet',
-      debugMode: false
+      nearRpcUrl: 'https://rpc.testnet.near.org'
     };
 
     const finalConfig = { ...defaultConfig, ...userConfig };
@@ -101,7 +101,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const logout = useCallback(async () => {
     try {
       // Clear VRF session when user logs out
-      await passkeyManager.getVRFManager().logout();
+      await passkeyManager.clearVrfSession();
     } catch (error) {
       console.warn('VRF logout warning:', error);
     }

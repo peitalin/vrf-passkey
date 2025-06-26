@@ -1,5 +1,4 @@
 import { RELAYER_ACCOUNT_ID } from '../../config';
-import { ContractResponse } from '../WebAuthnManager/contract-calls';
 
 export interface ValidationResult {
   valid: boolean;

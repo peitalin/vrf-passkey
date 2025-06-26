@@ -13,9 +13,13 @@ import {
   type DeriveNearKeypairAndEncryptRequest,
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
-  type ValidateCoseKeyRequest
+  type ValidateCoseKeyRequest,
+  type RegisterWithPrfRequest,
+  SerializableWebAuthnCredential,
+  takePrfOutputFromCredential,
 } from './types/worker.js';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
+import { bufferEncode } from '../utils/encoders.js';
 
 // Buffer polyfill for Web Workers
 // Workers don't inherit main thread polyfills, they run in an isolated environment
@@ -31,15 +35,58 @@ const WASM_CACHE_NAME = 'web3authn-signer-worker-v1';
 const {
   // Registration
   derive_near_keypair_from_cose_and_encrypt_with_prf,
+  register_with_prf,
   // Key exports/decryption
   decrypt_private_key_with_prf_as_string,
-  // Transaction signing
-  sign_near_transaction_with_actions,
-  sign_near_transfer_transaction,
+  // Transaction signing: combined verification + signing
+  verify_and_sign_near_transaction_with_actions,
+  verify_and_sign_near_transfer_transaction,
   // COSE keys
   extract_cose_public_key_from_attestation,
   validate_cose_key_format,
 } = wasmModule;
+
+// === WASM IMPORTED FUNCTIONS ===
+// These functions will be imported by WASM and called during execution
+
+/**
+ * Function called by WASM to send progress messages
+ * This is imported into the WASM module as sendProgressMessage
+ */
+function sendProgressMessage(messageType: string, step: string, message: string, data: string): void {
+  console.log(`[wasm-progress]: ${messageType} - ${step}: ${message}`);
+
+  // Parse data if provided
+  const parsedData = data ? JSON.parse(data) : undefined;
+
+  // Create the base payload
+  const payload: any = {
+    step: step,
+    message: message,
+    data: parsedData
+  };
+
+  // Handle specific message type payload formats to match caller expectations
+  if (messageType === 'VERIFICATION_COMPLETE' && parsedData) {
+    // Caller expects: payload.success, payload.logs, payload.error
+    payload.success = parsedData.success;
+    payload.logs = parsedData.logs;
+    payload.error = parsedData.error;
+  } else if (messageType === 'SIGNING_COMPLETE') {
+    // Caller expects: payload.success = true, payload.data = { signedTransactionBorsh, verificationLogs }
+    payload.success = true;
+  }
+
+  // Send progress message to main thread
+  self.postMessage({
+    type: messageType,
+    payload: payload
+  });
+}
+
+// Make sendProgressMessage available globally for WASM imports
+(globalThis as any).sendProgressMessage = sendProgressMessage;
+
 
 // Create database manager instance
 const nearKeysDB = new PasskeyNearKeysDBManager();
@@ -102,12 +149,19 @@ function sendResponseAndTerminate(response: WorkerResponse): void {
   self.close();
 }
 
+// Send progress message without terminating
+function sendProgress(response: WorkerResponse): void {
+  self.postMessage(response);
+}
+
 function createErrorResponse(error: string): WorkerResponse {
   return {
     type: WorkerResponseType.ERROR,
     payload: { error }
   };
 }
+
+
 
 interface WasmResult {
   publicKey: string;
@@ -152,12 +206,16 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
         await handleDeriveNearKeypairAndEncrypt(payload);
         break;
 
+      case WorkerRequestType.REGISTER_WITH_PRF:
+        await handleRegisterWithPrf(payload);
+        break;
+
       case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
         await handleDecryptPrivateKeyWithPrf(payload);
         break;
 
       case WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS:
-        await handleSignTransactionWithActions(payload);
+        await handleVerifyAndSignNearTransactionWithActions(payload);
         break;
 
       case WorkerRequestType.SIGN_TRANSFER_TRANSACTION:
@@ -291,100 +349,175 @@ async function handleDecryptPrivateKeyWithPrf(
   }
 }
 
+/**
+ * Handle WebAuthn registration with VRF verification
+ * Calls verify_registration_response on the contract to register a new credential
+ */
+async function handleRegisterWithPrf(
+  payload: RegisterWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      vrfChallenge,
+      webauthnCredential,
+      contractId,
+      nearRpcUrl
+    } = payload;
+
+    console.log('[signer-worker]: Starting WebAuthn registration with VRF verification');
+
+    // Validate required parameters
+    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl) {
+      throw new Error('Missing required parameters for registration: vrfChallenge, webauthnCredential, contractId, nearRpcUrl');
+    }
+
+    console.log('[signer-worker]: Calling register_with_prf WASM function');
+
+    // Call the WASM function that handles registration verification
+    const registrationResultJson = await register_with_prf(
+      JSON.stringify(vrfChallenge),
+      JSON.stringify(webauthnCredential),
+      contractId,
+      nearRpcUrl
+    );
+
+    // Parse the result
+    const registrationResult = JSON.parse(registrationResultJson);
+    console.log('[signer-worker]: Registration result:', {
+      verified: registrationResult.verified,
+      hasRegistrationInfo: !!registrationResult.registration_info
+    });
+
+    if (!registrationResult.verified) {
+      throw new Error('Registration verification failed');
+    }
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_SUCCESS,
+      payload: {
+        verified: registrationResult.verified,
+        registrationInfo: registrationResult.registration_info,
+        logs: registrationResult.logs
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Registration with PRF failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_FAILURE,
+      payload: { error: error.message || 'Registration with PRF failed' }
+    });
+  }
+}
+
 // === NEW ACTION-BASED TRANSACTION SIGNING HANDLERS ===
 
 /**
- * Handle signing a NEAR transaction with multiple actions
- * @param payload - The transaction signing request payload
- * @param payload.nearAccountId - NEAR account ID whose key should be used for signing
- * @param payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
- * @param payload.receiverId - Receiver account ID for the transaction
- * @param payload.actions - Array of actions to include in the transaction
- * @param payload.nonce - Transaction nonce as string
- * @param payload.blockHashBytes - Block hash bytes for the transaction
- * @returns Promise that resolves when signing is complete
+ * Enhanced transaction signing with RPC verification and progress updates
+ * NOTE: PRF output is extracted from credential in worker for security
+ * Sends multiple messages: verification progress, verification complete, signing progress, signing complete
  */
-async function handleSignTransactionWithActions(
+async function handleVerifyAndSignNearTransactionWithActions(
   payload: SignTransactionWithActionsRequest['payload']
 ): Promise<void> {
   try {
-    const { nearAccountId, prfOutput, receiverId, actions, nonce, blockHashBytes } = payload;
+    const {
+      nearAccountId,
+      receiverId,
+      actions,
+      nonce,
+      blockHashBytes,
+      contractId,
+      vrfChallenge,
+      webauthnCredential,
+      nearRpcUrl
+    } = payload;
 
-    // actions comes as a JSON string from webauthn-workers.ts
-    const actionsStr = typeof actions === 'string' ? actions : JSON.stringify(actions);
+    console.log('[signer-worker]: Starting enhanced verify and sign with pure WASM implementation');
 
-    console.log('[signer-worker]: Starting multi-action transaction signing');
-    console.log('[signer-worker]: Actions to process:', actionsStr);
-
-    // Validate all required parameters are defined
-    const requiredFields = ['nearAccountId', 'receiverId', 'actions', 'nonce'];
-    const missingFields = requiredFields.filter(field => !payload[field as keyof typeof payload]);
-
-    if (missingFields.length > 0) {
-      throw new Error(`Missing required fields for multi-action transaction signing: ${missingFields.join(', ')}`);
+    // Validate required parameters
+    if (!nearAccountId || !receiverId || !actions || !nonce || !blockHashBytes) {
+      throw new Error('Missing required transaction parameters');
     }
-    if (!blockHashBytes || blockHashBytes.length === 0) {
-      throw new Error('blockHashBytes is required and cannot be empty');
-    }
-    if (!prfOutput || prfOutput.length === 0) {
-      throw new Error('PRF output is required and cannot be empty');
+    if (!contractId || !vrfChallenge || !webauthnCredential || !nearRpcUrl) {
+      throw new Error('Missing required verification parameters');
     }
 
-    console.log('[signer-worker]: Getting encrypted key data for account:', nearAccountId);
+    // Get encrypted key data for the account
     const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    console.log('[signer-worker]: Using new multi-action WASM function');
-    // Call the new WASM function for multi-action signing
-    const signedTransactionBorsh = sign_near_transaction_with_actions(
-      prfOutput,
+    // Extract PRF output using the method you wanted
+    if (!webauthnCredential.clientExtensionResults?.prf?.results?.first) {
+      throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
+    }
+    console.log('[signer-worker]: PRF output extracted via getClientExtensionResults()');
+
+    let { credentialWithoutPrf, prfOutput } = takePrfOutputFromCredential(webauthnCredential);
+
+    // Call the pure WASM function that handles verification + signing with progress messages
+    const _signedTransactionBorsh = await verify_and_sign_near_transaction_with_actions(
+      // Authentication
+      prfOutput, // Keep as base64 string - will be converted by WASM internally
       encryptedKeyData.encryptedData,
       encryptedKeyData.iv,
+
+      // Transaction details
       nearAccountId,
       receiverId,
       BigInt(nonce),
       new Uint8Array(blockHashBytes),
-      actionsStr // actions as JSON string
+      actions, // JSON string from signerWorkerManager
+
+      // Verification parameters
+      contractId,
+      JSON.stringify(vrfChallenge),
+      JSON.stringify(credentialWithoutPrf),
+      nearRpcUrl
     );
 
-    console.log('[signer-worker]: Multi-action transaction signing completed successfully');
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_SUCCESS,
-      payload: {
-        signedTransactionBorsh: Array.from(signedTransactionBorsh),
-        nearAccountId
-      }
-    });
+    console.log('[signer-worker]: Pure WASM verify and sign completed successfully');
+    // WASM handles ALL messaging including the final SIGNING_COMPLETE message
+    // The function sends::
+    // - VERIFICATION_PROGRESS,
+    // - VERIFICATION_COMPLETE,
+    // - SIGNING_PROGRESS, and
+    // - SIGNING_COMPLETE with the final result: _signedTransactionBorsh
+    //
+    // Do not send any additional messages to avoid duplication
+    // The worker will be terminated by the caller after receiving SIGNING_COMPLETE
   } catch (error: any) {
-    console.error('[signer-worker]: Multi-action transaction signing failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_FAILURE,
-      payload: { error: error.message || 'Multi-action transaction signing failed' }
-    });
+    console.error('[signer-worker]: Enhanced verify and sign failed:', error);
+    sendResponseAndTerminate(createErrorResponse(
+      `Enhanced verify and sign failed: ${error.message}`
+    ));
   }
 }
 
 /**
- * Handle Transfer transaction signing with PRF
- * @param payload - The transaction signing request payload
- * @param payload.nearAccountId - NEAR account ID whose key should be used for signing
- * @param payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
- * @param payload.receiverId - Receiver account ID for the transaction
- * @param payload.depositAmount - Deposit amount in string format
- * @param payload.nonce - Transaction nonce as string
- * @param payload.blockHashBytes - Block hash bytes for the transaction
- * @returns Promise that resolves when signing is complete
+ * Handle Transfer transaction signing with PRF extracted from credential in worker
+ * Enhanced mode with contract verification (PRF extracted in worker for security)
  */
 async function handleSignTransferTransaction(
   payload: SignTransferTransactionRequest['payload']
 ): Promise<void> {
   try {
-    const { nearAccountId, prfOutput, receiverId, depositAmount, nonce, blockHashBytes } = payload;
+    const {
+      nearAccountId,
+      receiverId,
+      depositAmount,
+      nonce,
+      blockHashBytes,
+      // Verification parameters for enhanced mode (all required)
+      contractId,
+      vrfChallenge,
+      webauthnCredential,
+      nearRpcUrl
+    } = payload;
+
     console.log('[signer-worker]: Starting Transfer transaction signing');
-    console.log('[signer-worker]: Transfer amount:', depositAmount);
 
     // Validate all required parameters
     const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce'];
@@ -396,38 +529,53 @@ async function handleSignTransferTransaction(
     if (!blockHashBytes || blockHashBytes.length === 0) {
       throw new Error('blockHashBytes is required and cannot be empty');
     }
-    if (!prfOutput || prfOutput.length === 0) {
-      throw new Error('PRF output is required and cannot be empty');
+    // All verification parameters are required
+    if (!contractId || !vrfChallenge || !webauthnCredential || !nearRpcUrl) {
+      throw new Error('All verification parameters are required: contractId, vrfChallenge, webauthnCredential, nearRpcUrl');
     }
 
-    console.log('[signer-worker]: Getting encrypted key data for account:', nearAccountId);
+    // Get PRF output from serialized credential (extracted in main thread with minimal exposure)
+    console.log('[signer-worker]: Getting PRF output from serialized credential');
+    const prfOutput = webauthnCredential.clientExtensionResults?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
+    }
+    console.log('[signer-worker]: PRF output available for secure signing');
+
     const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
     if (!encryptedKeyData) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    console.log('[signer-worker]: Using new transfer WASM function');
-    // Call the new WASM function for transfer signing
-    const signedTransactionBorsh = sign_near_transfer_transaction(
-      prfOutput,
-      encryptedKeyData.encryptedData,
-      encryptedKeyData.iv,
-      nearAccountId,
-      receiverId,
-      depositAmount,
-      BigInt(nonce),
-      new Uint8Array(blockHashBytes)
-    );
+    console.log('[signer-worker]: Using enhanced mode with contract verification');
 
-    console.log('[signer-worker]: Transfer transaction signing completed successfully');
+      // Use the transfer-specific verify+sign WASM function
+      const _signedTransactionBorsh = await verify_and_sign_near_transfer_transaction(
+        // Authentication
+        prfOutput, // Keep as base64 string - WASM function expects string
+        encryptedKeyData.encryptedData,
+        encryptedKeyData.iv,
 
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_SUCCESS,
-      payload: {
-        signedTransactionBorsh: Array.from(signedTransactionBorsh),
-        nearAccountId
-      }
-    });
+        // Transaction details
+        nearAccountId,
+        receiverId,
+        depositAmount,
+        BigInt(nonce),
+        new Uint8Array(blockHashBytes),
+
+        // Verification parameters
+        contractId,
+        JSON.stringify(vrfChallenge),
+        JSON.stringify(webauthnCredential),
+        nearRpcUrl
+      );
+
+      console.log('[signer-worker]: Enhanced Transfer transaction signing completed successfully');
+
+      // WASM handles ALL messaging including the final SIGNING_COMPLETE message
+      // which contains the `signedTransactionBorsh` result
+      // We should not send any additional messages to avoid duplication
+
   } catch (error: any) {
     console.error('[signer-worker]: Transfer transaction signing failed:', error);
     sendResponseAndTerminate({
@@ -500,6 +648,23 @@ async function handleValidateCoseKey(
     });
   }
 }
+
+// === ERROR HANDLING ===
+self.onerror = (message, filename, lineno, colno, error) => {
+  console.error('[signer-worker]: Global error:', {
+    message: typeof message === 'string' ? message : 'Unknown error',
+    filename: filename || 'unknown',
+    lineno: lineno || 0,
+    colno: colno || 0,
+    error: error
+  });
+  console.error('[signer-worker]: Error stack:', error?.stack);
+};
+
+self.onunhandledrejection = (event) => {
+  console.error('[signer-worker]: Unhandled promise rejection:', event.reason);
+  event.preventDefault();
+};
 
 // === EXPORTS ===
 export type {

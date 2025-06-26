@@ -1,4 +1,3 @@
-
 export { PasskeyManager } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { IndexedDBManager } from './core/IndexedDBManager';
@@ -28,11 +27,15 @@ export {
 export type {
   WorkerRequest,
   WorkerResponse as TypedWorkerResponse,
-  DeriveNearKeypairAndEncryptRequest ,
-  DecryptAndSignTransactionWithPrfRequest,
+  DeriveNearKeypairAndEncryptRequest,
+  RegisterWithPrfRequest,
   DecryptPrivateKeyWithPrfRequest,
+  SignTransactionWithActionsRequest,
+  SignTransferTransactionRequest,
   EncryptionSuccessResponse,
   EncryptionFailureResponse,
+  RegistrationSuccessResponse,
+  RegistrationFailureResponse,
   SignatureSuccessResponse,
   SignatureFailureResponse,
   DecryptionSuccessResponse,
@@ -42,9 +45,14 @@ export type {
 
 export {
   isEncryptionSuccess,
+  isRegistrationSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
-  isWorkerError
+  isWorkerError,
+  serializeCredentialAndCreatePRF,
+  serializeRegistrationCredentialAndCreatePRF,
+  takePrfOutputFromCredential,
+  takePrfOutputFromRegistrationCredential,
 } from './core/types/worker';
 
 // === UTILITIES ===

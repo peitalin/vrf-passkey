@@ -188,11 +188,11 @@ export interface ActionResult {
 
 // PasskeyManager Configuration
 export interface PasskeyManagerConfig {
-  serverUrl?: string; // Optional - enables serverless mode when not provided
+  relayServerUrl?: string; // Relay Server for creating new NEAR accounts
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;
   contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
-  debugMode?: boolean;
+  nearRpcUrl: string;
 }
 
 // === TRANSACTION TYPES ===

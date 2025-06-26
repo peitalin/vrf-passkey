@@ -1,4 +1,7 @@
-import { bufferEncode, base64UrlDecode, base64UrlEncode } from '../../../utils/encoders';
+import type { Provider } from '@near-js/providers';
+import type { AccessKeyView } from '@near-js/types';
+
+import { bufferEncode } from '../../../utils/encoders';
 import { validateNearAccountId } from '../../utils/validation';
 import type { PasskeyManager } from '../../PasskeyManager';
 import type {
@@ -10,7 +13,8 @@ import type {
 import { createAccountRelayServer } from './createAccountRelayServer';
 import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
 import { WebAuthnManager } from '../../WebAuthnManager';
-import { VRFChallenge } from '@/core/WebAuthnManager/vrfWorkerManager';
+import { VRFChallenge } from '../../types/webauthn';
+import { generateSessionId } from '../../../utils';
 
 
 /**
@@ -67,7 +71,7 @@ export async function registerPasskey(
 
   const { onEvent, onError, hooks } = options;
   // Generate a temporary sessionId for client-side events before SSE stream starts
-  const tempSessionId = `client_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+  const tempSessionId = generateSessionId();
 
   // Emit started event
   onEvent?.({
@@ -198,17 +202,15 @@ async function handleRegistration(
       message: 'Generating VRF credentials...'
     });
 
-    // Step 2: Get latest NEAR block for VRF input construction
-    console.log('VRF Registration Step 2: Get NEAR block data');
+    // Step 1: Get latest NEAR block for VRF input construction
+    console.log('Registration Step 1: Get NEAR block data');
 
     const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
     const blockHeight = blockInfo.header.height;
     const blockHashBytes = new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'));
 
-    console.log(`Using NEAR block ${blockHeight} for VRF input construction`);
-
-    // Step 3: Generate bootstrap VRF keypair + challenge for registration
-    console.log('VRF Registration Step 3: Generating VRF keypair + challenge for registration ceremony');
+    // Step 2: Generate bootstrap VRF keypair + challenge for registration
+    console.log('Registration Step 2: Generating VRF keypair + challenge for registration');
 
     const vrfChallenge = await generateBootstrapVrfChallenge(
       webAuthnManager,
@@ -218,14 +220,12 @@ async function handleRegistration(
       tempSessionId
     );
 
-    // Step 4: Use VRF output as WebAuthn challenge
-    console.log('VRF Registration Step 4: Use VRF output as WebAuthn challenge');
-
-    // Decode VRF output and use first 32 bytes as WebAuthn challenge
+    // Step 3: Use VRF output as WebAuthn challenge
+    console.log('Registration Step 4: Use VRF output as WebAuthn challenge');
     const vrfChallengeBytes = vrfChallenge.outputAs32Bytes();
 
-    // Step 5: WebAuthn registration ceremony with PRF (using VRF challenge)
-    console.log('VRF Registration Step 5: WebAuthn registration ceremony with VRF challenge');
+    // Step 4: WebAuthn registration ceremony with PRF (TouchID)
+    console.log('Registration Step 5: WebAuthn registration ceremony with VRF challenge');
 
     onEvent?.({
       step: 1,
@@ -253,20 +253,17 @@ async function handleRegistration(
       message: 'WebAuthn ceremony successful, PRF output obtained'
     });
 
-    // Step 6: Encrypt the existing VRF keypair with real PRF for storage and future authentication
-    console.log('VRF Registration Step 6: Encrypting existing VRF keypair with real PRF for storage');
-    // Encrypt the SAME VRF keypair that generated the WebAuthn challenge using dedicated method
-    // This ensures perfect consistency between WebAuthn ceremony and contract verification
+    // Step 5: Encrypt the existing VRF keypair with real PRF for storage and future authentication
+    console.log('Registration Step 6: Encrypting existing VRF keypair with real PRF for storage');
+    // Encrypt the VRF keypair that generated the WebAuthn challenge (in VRF worker memory)
     const encryptedVrfResult = await webAuthnManager.encryptVrfKeypairWithPrf(
       vrfChallenge.vrfPublicKey,
       prfOutput
     );
-    console.log('✅ VRF keypair encrypted with real PRF using dedicated method');
 
-    // Step 7: Generate NEAR keypair using PRF (for traditional NEAR transactions)
-    console.log('VRF Registration Step 7: Generating NEAR keypair with PRF');
+    // Step 6: Generate NEAR keypair and encrypt using PRF (for NEAR transactions)
+    console.log('Registration Step 7: Generating NEAR keypair with PRF');
     const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt(
-      nearAccountId,
       prfOutput,
       { nearAccountId },
       credential.response as AuthenticatorAttestationResponse
@@ -275,24 +272,22 @@ async function handleRegistration(
       throw new Error('Failed to generate NEAR keypair with PRF');
     }
 
-    // Step 8: Encrypt VRF keypair with real PRF
-    console.log('VRF Registration Step 8: Encrypt VRF keypair with real PRF');
-
     onEvent?.({
       step: 2,
       sessionId: tempSessionId,
       phase: 'user-ready',
       status: 'success',
       timestamp: Date.now(),
-      message: 'VRF registration completed with challenge consistency!',
+      message: 'Registration completed with challenge consistency!',
       verified: true,
       nearAccountId: nearAccountId,
       clientNearPublicKey: undefined,
       mode: 'VRF'
     });
 
-    // Step 9: Create account using testnet faucet service (before storing data)
-    console.log('VRF Registration Step 9: Creating NEAR account via faucet service');
+    // Step 7: Create account using faucet service (before storing data)
+    // Gives generated NEAR keypair an accountId
+    console.log('Registration Step 8: Creating NEAR account via faucet service');
 
     onEvent?.({
       step: 3,
@@ -310,16 +305,13 @@ async function handleRegistration(
       onEvent
     );
 
-    // Brief delay to allow account creation to propagate
-    await new Promise(resolve => setTimeout(resolve, 600));
-
     if (!accountCreationResult.success) {
       console.error('❌ Account creation failed, initiating complete rollback');
-      const error = new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
-      onError?.(error);
-      hooks?.afterCall?.(false, error);
-      throw error;
+      throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
     }
+
+    // Check for access key to be available
+    await waitForAccessKey(nearRpcProvider, nearAccountId, keyGenResult.publicKey);
 
     onEvent?.({
       step: 3,
@@ -339,64 +331,45 @@ async function handleRegistration(
       message: 'Account creation verified successfully'
     });
 
-    // Step 10: Contract verification (before data storage)
-    console.log('VRF Registration Step 10: Contract verification');
+    // Step 9: Contract verification (before data storage)
+    console.log('Registration Step 9: Contract verification');
 
     let contractVerified = false;
     let contractTransactionId: string | null = null;
 
-    onEvent?.({
-      step: 6,
-      sessionId: tempSessionId,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Verifying VRF registration with contract...'
-    });
-
-    onEvent?.({
-      step: 6,
-      sessionId: tempSessionId,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Calling verify_registration_response on contract...'
-    });
-
-    try {
-      // verify registration and save authenticator credentials on-chain
-      const contractVerificationResult = await webAuthnManager.verifyVrfAndRegisterUserOnContract(
-        nearRpcProvider,
-        config.contractId,
-        vrfChallenge,
-        credential,
-        nearAccountId,
-        {
-          nearPublicKey: keyGenResult.publicKey,
-          prfOutput: prfOutput
-        }
-      );
-
-      contractVerified = contractVerificationResult.success && !!contractVerificationResult.verified;
-      contractTransactionId = contractVerificationResult.transactionId || null;
-
-      if (contractVerified) {
+    // verify registration and save authenticator credentials on-chain
+    const contractRegistrationResult = await webAuthnManager.registerWithPrf({
+      contractId: config.contractId,
+      webauthnCredential: credential,
+      vrfChallenge: vrfChallenge,
+      onProgress: (progress) => {
+        console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
         onEvent?.({
           step: 6,
           sessionId: tempSessionId,
           phase: 'contract-registration',
-          status: 'success',
+          status: 'progress',
           timestamp: Date.now(),
-          message: `VRF registration successful, transaction ID: ${contractTransactionId}`
+          message: `VRF registration progress: ${progress.step} - ${progress.message}`
         });
-      } else {
-        console.warn(`️Contract verification failed: ${ contractVerificationResult.error}`);
-        throw new Error(contractVerificationResult.error);
-      }
+      },
+    });
 
-    } catch (contractError: any) {
-      console.warn(`️Contract verification failed: ${contractError.message}`);
-      throw new Error(contractError.message);
+    contractVerified = contractRegistrationResult.success && !!contractRegistrationResult.verified;
+    contractTransactionId = contractRegistrationResult.transactionId || null;
+
+    if (contractVerified) {
+      onEvent?.({
+        step: 6,
+        sessionId: tempSessionId,
+        phase: 'contract-registration',
+        status: 'success',
+        timestamp: Date.now(),
+        message: `VRF registration successful, transaction ID: ${contractTransactionId}`
+      });
+    } else {
+      console.warn(`️Contract verification failed: ${ contractRegistrationResult.error}`);
+      throw new Error(contractRegistrationResult.error);
     }
 
     // Step 11: Store user data with VRF credentials atomically
@@ -481,11 +454,11 @@ async function handleRegistration(
     console.log('VRF Registration Step 13: Unlocking VRF keypair for immediate login');
 
     try {
-      const unlockResult = await webAuthnManager.unlockVRFKeypair(
-        nearAccountId,
-        encryptedVrfResult.encryptedVrfKeypair,
-        prfOutput
-      );
+      const unlockResult = await webAuthnManager.unlockVRFKeypair({
+        nearAccountId: nearAccountId,
+        vrfCredentials: encryptedVrfResult.encryptedVrfKeypair,
+        prfOutput: prfOutput,
+      });
 
       if (unlockResult.success) {
         console.log('✅ VRF keypair unlocked in memory - user is now logged in');
@@ -535,7 +508,8 @@ async function handleRegistration(
     console.error('VRF registration error:', error);
     // Rollback VRF Service Worker state
     try {
-      await passkeyManager.forceClearVrfManager();
+      const webAuthnManager = passkeyManager.getWebAuthnManager();
+      await webAuthnManager.forceCleanupVrfManager();
       console.log('VRF Service Worker cleaned up');
     } catch (vrfError: any) {
       console.warn('️VRF cleanup partial failure:', vrfError.message);
@@ -577,4 +551,42 @@ async function handleRegistration(
       error: error.message
     };
   }
+}
+
+/**
+ * Wait for access key to be available with retry logic
+ * Account creation via faucet may have propagation delays
+ */
+async function waitForAccessKey(
+  nearRpcProvider: Provider,
+  nearAccountId: string,
+  nearPublicKey: string,
+  maxRetries: number = 10,
+  delayMs: number = 1000
+): Promise<AccessKeyView> {
+  console.debug(`Waiting for access key to be available for ${nearAccountId}...`);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const accessKeyInfo = await nearRpcProvider.viewAccessKey(
+        nearAccountId,
+        nearPublicKey,
+      ) as AccessKeyView;
+
+      console.debug(`Access key found on attempt ${attempt}`);
+      return accessKeyInfo;
+    } catch (error: any) {
+      console.debug(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
+
+      if (attempt === maxRetries) {
+        console.error(`Access key still not available after ${maxRetries} attempts`);
+        throw new Error(`Access key not available after ${maxRetries * delayMs}ms. Account creation may have failed.`);
+      }
+
+      // Wait before next attempt with exponential backoff
+      const delay = delayMs * Math.pow(1.5, attempt - 1);
+      console.debug(`   Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error('Unexpected error in waitForAccessKey');
 }

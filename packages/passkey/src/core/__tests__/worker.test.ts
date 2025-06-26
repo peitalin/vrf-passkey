@@ -4,7 +4,6 @@ import {
   type WorkerRequest,
   type WorkerResponse,
   type DeriveNearKeypairAndEncryptRequest ,
-  type DecryptAndSignTransactionWithPrfRequest,
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest,
@@ -127,26 +126,6 @@ describe('Passkey Worker Tests', () => {
       expect(worker.postMessage).toHaveBeenCalledWith(encryptionRequest);
     });
 
-    it('should handle signing requests', () => {
-      const worker = new MockWorker('/test-worker.js');
-      const signingRequest: DecryptAndSignTransactionWithPrfRequest = {
-        type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF,
-        payload: {
-          nearAccountId: 'test.testnet',
-          prfOutput: 'test-prf-output',
-          receiverId: 'contract.testnet',
-          contractMethodName: 'test_method',
-          contractArgs: { test: 'args' },
-          gasAmount: '100000000000000',
-          depositAmount: '0',
-          nonce: '123',
-          blockHashBytes: [1, 2, 3, 4]
-        }
-      };
-
-      worker.postMessage(signingRequest);
-      expect(worker.postMessage).toHaveBeenCalledWith(signingRequest);
-    });
 
     it('should handle decryption requests', () => {
       const worker = new MockWorker('/test-worker.js');

@@ -94,19 +94,19 @@ async function handleLoginUnlockVRF(
     ]).then(([userData, authenticators]) => {
       // Validate user data and authenticators
       if (!userData) {
-        throw new Error(`User data not found for ${nearAccountId} in IndexedDB. Please register an account first.`);
+        throw new Error(`User data not found for ${nearAccountId} in IndexedDB. Please register an account.`);
       }
       if (!userData.clientNearPublicKey) {
-        throw new Error(`No NEAR public key found for ${nearAccountId}. Please register an account first.`);
+        throw new Error(`No NEAR public key found for ${nearAccountId}. Please register an account.`);
       }
       if (
         !userData.vrfCredentials?.encrypted_vrf_data_b64u ||
         !userData.vrfCredentials?.aes_gcm_nonce_b64u
       ) {
-        throw new Error('No VRF credentials found. Please register an account first.');
+        throw new Error('No VRF credentials found. Please register an account.');
       }
       if (authenticators.length === 0) {
-        throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+        throw new Error(`No authenticators found for account ${nearAccountId}. Please register.`);
       }
       return { userData, authenticators };
     });
@@ -120,32 +120,14 @@ async function handleLoginUnlockVRF(
       }
     });
 
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-
-    const {
-      credential: _credential,
-      prfOutput
-    } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
-      nearAccountId,
-      challenge,
-      authenticators,
-    });
-
-    // Step 3: Unlock VRF keypair in VRF Worker memory
-    onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 'verifying-server',
-        message: 'Unlocking VRF keypair in secure memory...'
+    const unlockResult = await webAuthnManager.unlockVRFKeypair({
+      nearAccountId: nearAccountId,
+      vrfCredentials: userData.vrfCredentials!, // non-null assertion; validated above
+      authenticators: authenticators,
+      onEvent: (event: { type: string, data: { step: string, message: string } }) => {
+        onEvent?.(event as LoginEvent);
       }
     });
-
-    console.log('Unlocking VRF keypair in Service Worker memory');
-    const unlockResult = await webAuthnManager.unlockVRFKeypair(
-      nearAccountId,
-      userData.vrfCredentials!, // non-null assertion; validated above
-      prfOutput
-    );
 
     if (!unlockResult.success) {
       throw new Error(`Failed to unlock VRF keypair: ${unlockResult.error}`);

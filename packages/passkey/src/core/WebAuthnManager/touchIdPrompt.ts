@@ -47,7 +47,7 @@ export class TouchIdPrompt {
   async getCredentialsAndPrf({
     nearAccountId,
     challenge,
-    authenticators,
+    authenticators
   }: AuthenticateCredentialsArgs): Promise<TouchIdCredentialsResult> {
 
     const credential = await navigator.credentials.get({

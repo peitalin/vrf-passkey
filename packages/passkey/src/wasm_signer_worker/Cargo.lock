@@ -3474,6 +3474,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.2.16",
  "hkdf",
+ "js-sys",
  "near-api",
  "near-crypto",
  "near-primitives",
@@ -3487,6 +3488,8 @@ dependencies = [
  "sha2 0.10.9",
  "vrf-wasm",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

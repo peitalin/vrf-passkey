@@ -3,6 +3,7 @@
  * Uses Web Workers for VRF keypair management with client-hosted worker files.
  */
 
+import { ClientAuthenticatorData } from '../IndexedDBManager/passkeyClientDB';
 import type {
   VRFKeypairData,
   EncryptedVRFData,
@@ -11,7 +12,8 @@ import type {
   VRFWorkerMessage,
   VRFWorkerResponse
 } from '../types/vrf';
-import { base64UrlDecode } from '../../utils';
+import { VRFChallenge } from '../types/webauthn';
+import { TouchIdPrompt } from './touchIdPrompt';
 
 export interface VrfWorkerManagerConfig {
   // URL to the VRF Web Worker file
@@ -32,33 +34,6 @@ export interface VRFWorkerStatus {
   active: boolean;
   nearAccountId: string | null;
   sessionDuration?: number;
-}
-
-export class VRFChallenge {
-  vrfInput: string;
-  vrfOutput: string;
-  vrfProof: string;
-  vrfPublicKey: string;
-  userId: string;
-  rpId: string;
-  blockHeight: number;
-  blockHash: string;
-
-  constructor(vrfChallengeData: VRFChallengeData) {
-    this.vrfInput = vrfChallengeData.vrfInput;
-    this.vrfOutput = vrfChallengeData.vrfOutput;
-    this.vrfProof = vrfChallengeData.vrfProof;
-    this.vrfPublicKey = vrfChallengeData.vrfPublicKey;
-    this.userId = vrfChallengeData.userId;
-    this.rpId = vrfChallengeData.rpId;
-    this.blockHeight = vrfChallengeData.blockHeight;
-    this.blockHash = vrfChallengeData.blockHash;
-  }
-
-  outputAs32Bytes(): Uint8Array {
-    let vrfOutputBytes = base64UrlDecode(this.vrfOutput);
-    return vrfOutputBytes.slice(0, 32);
-  }
 }
 
 /**
@@ -162,22 +137,50 @@ export class VrfWorkerManager {
    * Unlock VRF keypair in Web Worker memory using PRF output
    * This is called during login to decrypt and load the VRF keypair in-memory
    */
-  async unlockVRFKeypair(
+  async unlockVRFKeypair({
+    touchIdPrompt,
+    nearAccountId,
+    encryptedVrfData,
+    authenticators,
+    prfOutput,
+    onEvent,
+  }: {
+    touchIdPrompt: TouchIdPrompt,
     nearAccountId: string,
     encryptedVrfData: EncryptedVRFData,
-    prfOutput: ArrayBuffer
-  ): Promise<VRFWorkerResponse> {
+    authenticators: ClientAuthenticatorData[],
+    prfOutput?: ArrayBuffer,
+    onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
+  }): Promise<VRFWorkerResponse> {
 
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized');
+    }
+
+    if (!prfOutput) {
+      let challenge = crypto.getRandomValues(new Uint8Array(32));
+      let credentialsAndPrf = await touchIdPrompt.getCredentialsAndPrf({
+        nearAccountId,
+        challenge,
+        authenticators,
+      });
+      prfOutput = credentialsAndPrf.prfOutput;
+
+      onEvent?.({
+        type: 'loginProgress',
+        data: {
+          step: 'verifying-server',
+          message: 'TouchId success! Unlocking VRF keypair in secure memory...'
+        }
+      });
     }
 
     const message: VRFWorkerMessage = {
       type: 'UNLOCK_VRF_KEYPAIR',
       id: this.generateMessageId(),
       data: {
-      nearAccountId,
-      encryptedVrfData,
+        nearAccountId,
+        encryptedVrfData,
         prfKey: Array.from(new Uint8Array(prfOutput))
       }
     };
@@ -295,9 +298,10 @@ export class VrfWorkerManager {
 
   /**
    * Force cleanup of VRF Web Worker and sessions (for error recovery)
+   * calls clearVrfSession() and terminates the worker
    */
-  async forceClearVrfManager(): Promise<void> {
-    console.log('🧹 VRF Manager: Force cleanup initiated...');
+  async forceCleanupVrfManager(): Promise<void> {
+    console.log('VRF Manager: Force cleanup initiated...');
 
     try {
       // First try to logout gracefully
@@ -349,7 +353,10 @@ export class VrfWorkerManager {
       withChallenge: !!vrfInputParams
     });
 
-    if (!this.vrfWorker) {
+    // Wait for any existing initialization to complete before proceeding
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    } else if (!this.vrfWorker) {
       await this.initialize();
     }
     if (!this.vrfWorker) {

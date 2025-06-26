@@ -1,5 +1,8 @@
 /// <reference types="jest" />
 
+import { base64UrlDecode } from '../../utils/encoders';
+import { VRFChallenge } from '../types/webauthn';
+
 // Mock IndexedDBManager first
 const mockIndexedDBManager = {
   storeWebAuthnUserData: jest.fn().mockResolvedValue(undefined),
@@ -11,6 +14,7 @@ const mockIndexedDBManager = {
   storeAuthenticator: jest.fn().mockResolvedValue(undefined),
   syncAuthenticatorsFromContract: jest.fn().mockResolvedValue(undefined)
 };
+
 
 jest.mock('../IndexedDBManager', () => ({
   IndexedDBManager: mockIndexedDBManager
@@ -209,50 +213,6 @@ describe('WebAuthnManager', () => {
       }
     };
 
-    it('should verify VRF authentication with contract', async () => {
-      const mockNearRpcProvider = {
-        viewBlock: jest.fn().mockResolvedValue({
-          header: { height: 1000, hash: 'test-hash' }
-        })
-      };
-
-      const mockVrfChallengeData = {
-        vrfInput: 'test-vrf-input',
-        vrfOutput: 'test-vrf-output',
-        vrfProof: 'test-vrf-proof',
-        vrfPublicKey: 'test-vrf-public-key',
-        userId: 'test.testnet',
-        rpId: 'localhost',
-        blockHeight: 1000,
-        blockHash: 'test-hash'
-      };
-
-      const mockVerificationResult = {
-        success: true,
-        verified: true,
-        transactionId: 'test-tx-id'
-      };
-
-      // Mock the contract calls method
-      const mockVerifyVrfAuthentication = jest.fn().mockResolvedValue(mockVerificationResult);
-      (webAuthnManager as any).contractCalls.verifyVrfAuthentication = mockVerifyVrfAuthentication;
-
-      const result = await webAuthnManager.verifyVrfAuthentication(
-        mockNearRpcProvider as any,
-        'test-contract.testnet',
-        mockVrfChallengeData,
-        mockCredential as any
-      );
-
-      expect(result).toEqual(mockVerificationResult);
-      expect(mockVerifyVrfAuthentication).toHaveBeenCalledWith(
-        mockNearRpcProvider,
-        'test-contract.testnet',
-        mockVrfChallengeData,
-        mockCredential
-      );
-    });
-
     it('should verify VRF registration with contract', async () => {
       const mockNearRpcProvider = {
         viewBlock: jest.fn().mockResolvedValue({
@@ -260,7 +220,7 @@ describe('WebAuthnManager', () => {
         })
       };
 
-      const mockVrfChallengeData = {
+      const mockVrfChallengeData = new VRFChallenge({
         vrfInput: 'test-vrf-input',
         vrfOutput: 'test-vrf-output',
         vrfProof: 'test-vrf-proof',
@@ -269,7 +229,7 @@ describe('WebAuthnManager', () => {
         rpId: 'localhost',
         blockHeight: 1000,
         blockHash: 'test-hash'
-      };
+      });
 
       const mockRegistrationResult = {
         success: true,
@@ -281,13 +241,11 @@ describe('WebAuthnManager', () => {
       const mockVerifyVrfRegistration = jest.fn().mockResolvedValue(mockRegistrationResult);
       (webAuthnManager as any).contractCalls.verifyVrfRegistration = mockVerifyVrfRegistration;
 
-      const result = await webAuthnManager.verifyVrfAndRegisterUserOnContract(
-        mockNearRpcProvider as any,
-        'test-contract.testnet',
-        mockVrfChallengeData,
-        mockCredential as any,
-        'test.testnet'
-      );
+      const result = await webAuthnManager.registerWithPrf({
+        contractId: 'test-contract.testnet',
+        vrfChallenge: mockVrfChallengeData,
+        webauthnCredential: mockCredential as any,
+      });
 
       expect(result).toEqual(mockRegistrationResult);
       expect(mockVerifyVrfRegistration).toHaveBeenCalledWith(

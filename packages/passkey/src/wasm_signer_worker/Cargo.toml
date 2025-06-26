@@ -32,6 +32,17 @@ vrf-wasm = { version = "0.7", features = ["browser"] }
 rand_core = "0.6"
 rand_chacha = "0.3"
 
+# WASM HTTP dependencies
+web-sys = { version = "0.3", features = [
+  "console",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Headers"
+] }
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 
 [dev-dependencies]
 near-primitives = "0.30"

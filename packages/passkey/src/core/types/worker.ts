@@ -1,3 +1,6 @@
+import { VRFChallenge } from "./webauthn";
+import { bufferEncode } from "../../utils/encoders";
+
 // === USER DATA TYPES ===
 
 export interface UserData {
@@ -37,7 +40,7 @@ export interface SigningPayload {
 
 export enum WorkerRequestType {
   DERIVE_NEAR_KEYPAIR_AND_ENCRYPT = 'DERIVE_NEAR_KEYPAIR_AND_ENCRYPT',
-  DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF = 'DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF',
+  REGISTER_WITH_PRF = 'REGISTER_WITH_PRF',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
   // COSE operations
   EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
@@ -51,6 +54,8 @@ export enum WorkerRequestType {
 export enum WorkerResponseType {
   ENCRYPTION_SUCCESS = 'ENCRYPTION_SUCCESS',
   DERIVE_NEAR_KEY_FAILURE = 'DERIVE_NEAR_KEY_FAILURE',
+  REGISTRATION_SUCCESS = 'REGISTRATION_SUCCESS',
+  REGISTRATION_FAILURE = 'REGISTRATION_FAILURE',
   SIGNATURE_SUCCESS = 'SIGNATURE_SUCCESS',
   SIGNATURE_FAILURE = 'SIGNATURE_FAILURE',
   DECRYPTION_SUCCESS = 'DECRYPTION_SUCCESS',
@@ -64,6 +69,12 @@ export enum WorkerResponseType {
   VRF_CHALLENGE_SUCCESS = 'VRF_CHALLENGE_SUCCESS',
   VRF_CHALLENGE_FAILURE = 'VRF_CHALLENGE_FAILURE',
   ERROR = 'ERROR',
+  VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
+  VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
+  REGISTRATION_PROGRESS = 'REGISTRATION_PROGRESS',
+  REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
+  SIGNING_PROGRESS = 'SIGNING_PROGRESS',
+  SIGNING_COMPLETE = 'SIGNING_COMPLETE',
 }
 
 // === WORKER-RELATED TYPES ===
@@ -146,58 +157,265 @@ export type ActionParams =
   | { actionType: ActionType.DeleteKey; public_key: string }
   | { actionType: ActionType.DeleteAccount; beneficiary_id: string }
 
-// Legacy request (for backward compatibility during transition)
-export interface DecryptAndSignTransactionWithPrfRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF;
+// Registration request with VRF verification
+export interface RegisterWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.REGISTER_WITH_PRF;
   payload: {
-    /** NEAR account ID whose key should be used for signing */
-    nearAccountId: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-    /** Contract to call */
-    receiverId: string;
-    /** Method name on the contract */
-    contractMethodName: string;
-    /** Arguments to pass to the contract method */
-    contractArgs: Record<string, any>;
-    /** Gas amount in string format */
-    gasAmount: string;
-    /** Deposit amount in string format */
-    depositAmount: string;
-    /** Transaction nonce as string */
-    nonce: string;
-    /** Block hash bytes for the transaction */
-    blockHashBytes: number[];
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn registration credential */
+    webauthnCredential: SerializableWebAuthnRegistrationCredential;
+    /** Contract ID for verification */
+    contractId: string;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
   };
 }
 
-// New multi-action request
+// Serializable WebAuthn credential to send to the wasm worker
+export interface SerializableWebAuthnCredential {
+  id: string;
+  rawId: string; // base64-encoded
+  type: string;
+  authenticatorAttachment: string | null;
+  response: {
+    clientDataJSON: string; // base64url-encoded
+    authenticatorData: string; // base64url-encoded
+    signature: string; // base64url-encoded
+    userHandle: string | null; // base64url-encoded or null
+  };
+  // PRF output extracted in main thread just before transferring to worker
+  clientExtensionResults: {
+    prf: {
+      results: {
+        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.bufferEncode)
+      }
+    }
+  }
+}
+
+export interface SerializableWebAuthnRegistrationCredential {
+  id: string;
+  rawId: string; // base64-encoded
+  type: string;
+  authenticatorAttachment: string | null;
+  response: {
+    clientDataJSON: string,
+    attestationObject: string,
+    transports: string[],
+  };
+  // PRF output extracted in main thread just before transferring to worker
+  clientExtensionResults: {
+    prf: {
+      results: {
+        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.bufferEncode)
+      }
+    }
+  }
+}
+
+/**
+ * Symbol for storing PRF output - completely hidden from console.log and object inspection
+ * This ensures PRF data doesn't accidentally leak in logs while still being accessible programmatically
+ */
+const PRF_OUTPUT_SYMBOL = Symbol('prfOutput');
+
+/**
+ * Serialize PublicKeyCredential for worker communication with PRF handling
+ *
+ * ENCODING STRATEGY:
+ * - All fields (including PRF output) → base64url (via utils/encoders.bufferEncode) for WASM compatibility
+ *
+ * SECURITY FEATURES:
+ * ✅ Just-in-time serialization - minimal exposure time
+ * ✅ Consistent base64url encoding for proper WASM decoding
+ * ✅ Secure against encoding/decoding failures
+ */
+export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential): SerializableWebAuthnCredential {
+  // Extract PRF output immediately for secure transfer to worker
+  let prfOutput: string | undefined;
+  try {
+    const extensionResults = credential.getClientExtensionResults();
+    const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
+    if (prfOutputBuffer) {
+      // PRF output should use base64url encoding for consistency with WASM expectations
+      prfOutput = bufferEncode(prfOutputBuffer);
+    }
+  } catch (error) {
+    console.warn('[serialize]: PRF extraction failed:', error);
+    throw new Error('[serialize]: PRF extraction failed. Please try again.');
+  }
+
+  return {
+    id: credential.id,
+    rawId: bufferEncode(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: {
+      clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+      authenticatorData: bufferEncode((credential.response as any).authenticatorData),
+      signature: bufferEncode((credential.response as any).signature),
+      userHandle: (credential.response as any).userHandle ?
+        bufferEncode((credential.response as any).userHandle) : null,
+    },
+    clientExtensionResults: {
+      prf: {
+        results: {
+          first: prfOutput
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Serialize PublicKeyCredential for registration with PRF handling
+ *
+ * FOR REGISTRATION CREDENTIALS ONLY - uses AuthenticatorAttestationResponse fields
+ *
+ * ENCODING STRATEGY:
+ * - All fields (including PRF output) → base64url (via utils/encoders.bufferEncode) for WASM compatibility
+ *
+ * SECURITY FEATURES:
+ * ✅ Just-in-time serialization - minimal exposure time
+ * ✅ Consistent base64url encoding for proper WASM decoding
+ * ✅ Secure against encoding/decoding failures
+ */
+export function serializeRegistrationCredentialAndCreatePRF(credential: PublicKeyCredential): SerializableWebAuthnRegistrationCredential {
+  // Extract PRF output immediately for secure transfer to worker
+  let prfOutput: string | undefined;
+  try {
+    const extensionResults = credential.getClientExtensionResults();
+    const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
+    if (prfOutputBuffer) {
+      // PRF output should use base64url encoding for consistency with WASM expectations
+      prfOutput = bufferEncode(prfOutputBuffer);
+    }
+  } catch (error) {
+    console.warn('[serialize]: Registration PRF extraction failed:', error);
+    throw new Error('[serialize]: Registration PRF extraction failed. Please try again.');
+  }
+
+  // Cast to AuthenticatorAttestationResponse to access registration-specific fields
+  const attestationResponse = credential.response as AuthenticatorAttestationResponse;
+
+  return {
+    id: credential.id,
+    rawId: bufferEncode(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: {
+      clientDataJSON: bufferEncode(attestationResponse.clientDataJSON),
+      attestationObject: bufferEncode(attestationResponse.attestationObject),
+      transports: attestationResponse.getTransports() || [],
+    },
+    clientExtensionResults: {
+      prf: {
+        results: {
+          first: prfOutput
+        }
+      }
+    }
+  }
+}
+
+// Export the PRF symbol for use in extraction function
+export { PRF_OUTPUT_SYMBOL };
+
+// Removes the PRF output from the credential and returns the PRF output separately
+export function takePrfOutputFromCredential(credential: SerializableWebAuthnCredential): ({
+  credentialWithoutPrf: SerializableWebAuthnCredential,
+  prfOutput: string
+}) {
+  // Access PRF through the getter (which reads from Symbol property)
+  const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
+  if (!prfOutput) {
+    throw new Error('PRF output missing from credential.clientExtensionResults: required for secure key decryption');
+  }
+
+  // Create credential without PRF by removing the Symbol property
+  const credentialWithoutPrf = {
+    ...credential,
+    clientExtensionResults: {
+      ...credential.clientExtensionResults,
+      prf: {
+        ...credential.clientExtensionResults?.prf,
+        results: {
+          // Return undefined for first since Symbol is removed
+          first: undefined
+        }
+      }
+    }
+  };
+
+  return { credentialWithoutPrf, prfOutput };
+}
+
+// Removes the PRF output from the registration credential and returns the PRF output separately
+export function takePrfOutputFromRegistrationCredential(credential: SerializableWebAuthnRegistrationCredential): ({
+  credentialWithoutPrf: SerializableWebAuthnRegistrationCredential,
+  prfOutput: string
+}) {
+  // Access PRF through the extension results
+  const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
+  if (!prfOutput) {
+    throw new Error('PRF output missing from registration credential.clientExtensionResults: required for secure key operations');
+  }
+
+  // Create credential without PRF by removing the PRF output
+  const credentialWithoutPrf = {
+    ...credential,
+    clientExtensionResults: {
+      ...credential.clientExtensionResults,
+      prf: {
+        ...credential.clientExtensionResults?.prf,
+        results: {
+          // Return undefined for first since we're removing it
+          first: undefined
+        }
+      }
+    }
+  };
+
+  return { credentialWithoutPrf, prfOutput };
+}
+
+// Multi-action request with WebAuthn verification (PRF extracted in worker for security)
 export interface SignTransactionWithActionsRequest extends BaseWorkerRequest {
   type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS;
   payload: {
     /** NEAR account ID whose key should be used for signing */
     nearAccountId: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
     /** Receiver account ID */
     receiverId: string;
-    /** Array of actions to include in the transaction */
-    actions: ActionParams[];
+    /** JSON string containing array of actions to include in the transaction */
+    actions: string;
     /** Transaction nonce as string */
     nonce: string;
     /** Block hash bytes for the transaction */
     blockHashBytes: number[];
+
+    ////////////////////////////////////////////////////////
+    // WebAuthn verification parameters (required for enhanced verify+sign flow)
+    ////////////////////////////////////////////////////////
+
+    /** Contract ID for verification */
+    contractId: string;
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn credential (PRF extracted in worker for security) */
+    webauthnCredential: SerializableWebAuthnCredential;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
   };
 }
 
-// Convenience request for Transfer transactions
+// Convenience request for Transfer transactions (PRF extracted in worker for security)
 export interface SignTransferTransactionRequest extends BaseWorkerRequest {
   type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
   payload: {
     /** NEAR account ID whose key should be used for signing */
     nearAccountId: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
     /** Receiver account ID */
     receiverId: string;
     /** Deposit amount in string format */
@@ -206,6 +424,19 @@ export interface SignTransferTransactionRequest extends BaseWorkerRequest {
     nonce: string;
     /** Block hash bytes for the transaction */
     blockHashBytes: number[];
+
+    ////////////////////////////////////////////////////////
+    // WebAuthn verification parameters (required for enhanced verify+sign flow)
+    ////////////////////////////////////////////////////////
+
+    /** Contract ID for verification */
+    contractId: string;
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn credential (PRF extracted in worker for security) */
+    webauthnCredential: SerializableWebAuthnCredential;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
   };
 }
 
@@ -269,7 +500,7 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
 
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
-  | DecryptAndSignTransactionWithPrfRequest
+  | RegisterWithPrfRequest
   | DecryptPrivateKeyWithPrfRequest
   | ExtractCosePublicKeyRequest
   | ValidateCoseKeyRequest
@@ -302,6 +533,35 @@ export interface EncryptionSuccessResponse extends BaseWorkerResponse {
 
 export interface EncryptionFailureResponse extends BaseWorkerResponse {
   type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE;
+  payload: {
+    /** Error message describing the failure */
+    error: string;
+    /** Error code for programmatic handling */
+    errorCode?: WorkerErrorCode;
+    /** Additional error context */
+    context?: Record<string, any>;
+  };
+}
+
+export interface RegistrationSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.REGISTRATION_SUCCESS;
+  payload: {
+    /** Whether the registration was verified */
+    verified: boolean;
+    /** Registration information from the contract */
+    registrationInfo?: {
+      credential_id: number[];
+      credential_public_key: number[];
+      user_id: string;
+      vrf_public_key?: number[];
+    };
+    /** Contract logs from the registration verification */
+    logs?: string[];
+  };
+}
+
+export interface RegistrationFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.REGISTRATION_FAILURE;
   payload: {
     /** Error message describing the failure */
     error: string;
@@ -471,6 +731,8 @@ export interface ErrorResponse extends BaseWorkerResponse {
 export type WorkerResponse =
   | EncryptionSuccessResponse
   | EncryptionFailureResponse
+  | RegistrationSuccessResponse
+  | RegistrationFailureResponse
   | SignatureSuccessResponse
   | SignatureFailureResponse
   | DecryptionSuccessResponse
@@ -483,12 +745,18 @@ export type WorkerResponse =
   | VRFKeyPairFailureResponse
   | VRFChallengeSuccessResponse
   | VRFChallengeFailureResponse
+  | ProgressResponse
+  | CompletionResponse
   | ErrorResponse;
 
 // === TYPE GUARDS ===
 
 export function isEncryptionSuccess(response: WorkerResponse): response is EncryptionSuccessResponse {
   return response.type === WorkerResponseType.ENCRYPTION_SUCCESS;
+}
+
+export function isRegistrationSuccess(response: WorkerResponse): response is RegistrationSuccessResponse {
+  return response.type === WorkerResponseType.REGISTRATION_SUCCESS;
 }
 
 export function isSignatureSuccess(response: WorkerResponse): response is SignatureSuccessResponse {
@@ -515,10 +783,11 @@ export function isVRFChallengeSuccess(response: WorkerResponse): response is VRF
   return response.type === WorkerResponseType.VRF_CHALLENGE_SUCCESS;
 }
 
-export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
+export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | RegistrationFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
   return [
     WorkerResponseType.ERROR,
     WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
+    WorkerResponseType.REGISTRATION_FAILURE,
     WorkerResponseType.SIGNATURE_FAILURE,
     WorkerResponseType.DECRYPTION_FAILURE,
     WorkerResponseType.COSE_KEY_FAILURE,
@@ -528,9 +797,10 @@ export function isWorkerError(response: WorkerResponse): response is ErrorRespon
   ].includes(response.type);
 }
 
-export function isWorkerSuccess(response: WorkerResponse): response is EncryptionSuccessResponse | SignatureSuccessResponse | DecryptionSuccessResponse | CoseKeySuccessResponse | CoseValidationSuccessResponse | VRFKeyPairSuccessResponse | VRFChallengeSuccessResponse {
+export function isWorkerSuccess(response: WorkerResponse): response is EncryptionSuccessResponse | RegistrationSuccessResponse | SignatureSuccessResponse | DecryptionSuccessResponse | CoseKeySuccessResponse | CoseValidationSuccessResponse | VRFKeyPairSuccessResponse | VRFChallengeSuccessResponse {
   return [
     WorkerResponseType.ENCRYPTION_SUCCESS,
+    WorkerResponseType.REGISTRATION_SUCCESS,
     WorkerResponseType.SIGNATURE_SUCCESS,
     WorkerResponseType.DECRYPTION_SUCCESS,
     WorkerResponseType.COSE_KEY_SUCCESS,
@@ -671,8 +941,8 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
     case WorkerResponseType.DERIVE_NEAR_KEY_FAILURE:
       operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
       break;
-    case WorkerResponseType.SIGNATURE_FAILURE:
-      operation = WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF;
+    case WorkerResponseType.REGISTRATION_FAILURE:
+      operation = WorkerRequestType.REGISTER_WITH_PRF;
       break;
     case WorkerResponseType.DECRYPTION_FAILURE:
       operation = WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF;
@@ -699,5 +969,30 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
     operation,
     timestamp: response.timestamp || Date.now(),
     context: response.payload.context
+  };
+}
+
+// Progressive response interfaces
+export interface ProgressResponse {
+  type: WorkerResponseType.VERIFICATION_PROGRESS
+      | WorkerResponseType.SIGNING_PROGRESS
+      | WorkerResponseType.REGISTRATION_PROGRESS;
+  payload: {
+    step: string;
+    message: string;
+    logs?: string[];
+    data?: any;
+  };
+}
+
+export interface CompletionResponse {
+  type: WorkerResponseType.VERIFICATION_COMPLETE
+      | WorkerResponseType.SIGNING_COMPLETE
+      | WorkerResponseType.REGISTRATION_COMPLETE;
+  payload: {
+    success: boolean;
+    data?: any;
+    error?: string;
+    logs?: string[];
   };
 }

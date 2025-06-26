@@ -137,7 +137,7 @@ self.onmessage = async (event: MessageEvent) => {
 
     // For other messages, ensure WASM is initialized
     if (!wasmInitialized) {
-      console.log('🔧 [vrf-worker]: WASM not initialized, initializing now...');
+      console.log('[vrf-worker]: WASM not initialized, initializing now...');
       await initializeWasmModule();
     }
 

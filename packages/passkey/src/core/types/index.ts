@@ -3,7 +3,6 @@
 
 import type { PasskeyErrorDetails } from './errors';
 import { TxExecutionStatus } from '@near-js/types';
-import { CallFunctionRequest, RpcQueryRequest } from '@near-js/types';
 import { ActionType } from './worker';
 
 export interface NearRpcCallParams {

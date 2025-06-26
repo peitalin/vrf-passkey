@@ -7,7 +7,9 @@ import type { SerializableActionArgs } from '../types';
 import type { NearRpcCallParams } from '../types';
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
+import type { ClientUserData } from '../IndexedDBManager';
 import { ActionParams, ActionType } from '../types/worker';
+import { VerifyAndSignTransactionResult } from '../types/webauthn';
 
 // See default finality settings:
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
@@ -21,20 +23,13 @@ interface BlockInfo {
   };
 }
 
-interface ValidationContext {
-  userData: any;
+interface TransactionContext {
+  userData: ClientUserData;
   publicKeyStr: string;
   accessKeyInfo: AccessKeyView;
   transactionBlockInfo: BlockInfo;
   nonce: bigint;
   transactionBlockHashBytes: number[];
-}
-
-interface AuthContext extends ValidationContext {
-  vrfChallengeData: any;
-  credential: PublicKeyCredential;
-  prfOutput: ArrayBuffer;
-  contractVerificationResult: any;
 }
 
 interface EventOptions {
@@ -79,12 +74,12 @@ export async function executeAction(
     }
   });
 
-  try {
-    // Run beforeCall hook
-    await hooks?.beforeCall?.();
+  // Run beforeCall hook
+  await hooks?.beforeCall?.();
 
+  try {
     // 1. Validation
-    const validationContext = await validateActionInputs(
+    const transactionContext = await validateActionInputs(
       passkeyManager,
       nearAccountId,
       actionArgs,
@@ -95,7 +90,7 @@ export async function executeAction(
     const signingResult = await verifyVrfAuthAndSignTransaction(
       passkeyManager,
       nearAccountId,
-      validationContext,
+      transactionContext,
       actionArgs,
       { onEvent, onError, hooks }
     );
@@ -111,7 +106,7 @@ export async function executeAction(
     return actionResult;
 
   } catch (error: any) {
-    console.error('[Direct Action] Error during execution:', error);
+    console.error('[executeAction] Error during execution:', error);
     onError?.(error);
     onEvent?.({
       type: 'actionFailed',
@@ -125,7 +120,7 @@ export async function executeAction(
   }
 }
 
-// === PRIVATE HELPER FUNCTIONS ===
+// === HELPER FUNCTIONS ===
 
 /**
  * 1. Validation - Validates inputs and prepares transaction context
@@ -135,7 +130,7 @@ async function validateActionInputs(
   nearAccountId: string,
   actionArgs: SerializableActionArgs,
   eventOptions: EventOptions
-): Promise<ValidationContext> {
+): Promise<TransactionContext> {
   const { onEvent, onError, hooks } = eventOptions;
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager.getNearRpcProvider();
@@ -168,14 +163,6 @@ async function validateActionInputs(
   // Check if user has PRF support
   const userData = await webAuthnManager.getUser(nearAccountId);
   const usesPrf = userData?.prfSupported === true;
-
-  console.log('DEBUG: User Data from IndexDB:');
-  console.log(`  - Account ID: ${nearAccountId}`);
-  console.log(`  - Has user data: ${!!userData}`);
-  console.log(`  - PRF supported: ${userData?.prfSupported}`);
-  console.log(`  - Client NEAR public key: ${userData?.clientNearPublicKey}`);
-  console.log(`  - Has VRF credentials: ${!!userData?.vrfCredentials}`);
-  console.log(`  - Passkey credential ID: ${userData?.passkeyCredential?.id}`);
 
   if (!usesPrf) {
     const errorMsg = 'This application requires PRF support. Please use a PRF-capable authenticator.';
@@ -284,10 +271,10 @@ async function validateActionInputs(
 async function verifyVrfAuthAndSignTransaction(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
-  validationContext: ValidationContext,
+  transactionContext: TransactionContext,
   actionArgs: SerializableActionArgs,
   eventOptions: EventOptions
-): Promise<AuthContext> {
+): Promise<VerifyAndSignTransactionResult> {
   const { onEvent, onError, hooks } = eventOptions;
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager.getNearRpcProvider();
@@ -301,13 +288,11 @@ async function verifyVrfAuthAndSignTransaction(
   });
 
   console.log('[Direct Action] Using VRF authentication flow with contract verification');
-
   // Get managers and check if VRF session is active
-  const vrfManager = passkeyManager.getVrfWorkerManager();
-  const vrfStatus = await vrfManager.getVrfWorkerStatus();
+  const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
 
   if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
-    const errorMsg = 'VRF keypair not unlocked - please login first to unlock VRF session';
+    const errorMsg = 'VRF keypair not unlocked - please login to unlock VRF session';
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
@@ -333,7 +318,7 @@ async function verifyVrfAuthAndSignTransaction(
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
-  const vrfChallenge = await vrfManager.generateVRFChallenge(vrfInputData);
+  const vrfChallenge = await webAuthnManager.generateVRFChallenge(vrfInputData);
 
   onEvent?.({
     type: 'actionProgress',
@@ -369,31 +354,28 @@ async function verifyVrfAuthAndSignTransaction(
     }
   });
 
-  console.log('Verifying VRF authentication with contract before transaction signing');
-  const contractVerificationResult = await webAuthnManager.verifyVrfAuthentication(
-    nearRpcProvider,
-    passkeyManager.getConfig().contractId,
-    vrfChallenge,
-    credential,
-    passkeyManager.getConfig().debugMode ?? false
-  );
+  // console.log('Verifying VRF authentication with contract before transaction signing');
+  // const contractVerificationResult = await webAuthnManager.verifyVrfAuthentication(
+  //   nearRpcProvider,
+  //   passkeyManager.getConfig().contractId,
+  //   vrfChallenge,
+  //   credential,
+  // );
 
-  if (!contractVerificationResult.success || !contractVerificationResult.verified) {
-    const errorMsg = `VRF authentication verification failed: ${contractVerificationResult.error || 'Unknown error'}`;
-    const error = new Error(errorMsg);
-    onError?.(error);
-    onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: nearAccountId || 'unknown'
-      }
-    });
-    hooks?.afterCall?.(false, error);
-    throw error;
-  }
-
-  console.log('✅ VRF authentication verified by contract - proceeding with transaction signing');
+  // if (!contractVerificationResult.success || !contractVerificationResult.verified) {
+  //   const errorMsg = `VRF authentication verification failed: ${contractVerificationResult.error || 'Unknown error'}`;
+  //   const error = new Error(errorMsg);
+  //   onError?.(error);
+  //   onEvent?.({
+  //     type: 'actionFailed',
+  //     data: {
+  //       error: errorMsg,
+  //       actionType: nearAccountId || 'unknown'
+  //     }
+  //   });
+  //   hooks?.afterCall?.(false, error);
+  //   throw error;
+  // }
 
   onEvent?.({
     type: 'actionProgress',
@@ -412,45 +394,42 @@ async function verifyVrfAuthAndSignTransaction(
   });
 
   // Handle different action types
-  let signingResult: any;
+  let signingResult: VerifyAndSignTransactionResult;
 
   if (actionArgs.action_type === 'Transfer') {
-    // Use the new Transfer transaction signing with WASM worker
-    const transferPayload = {
+    signingResult = await webAuthnManager.signTransferTransaction({
       nearAccountId: nearAccountId,
       receiverId: actionArgs.receiver_id!,
       depositAmount: actionArgs.amount!,
-      nonce: validationContext.nonce.toString(),
-      blockHashBytes: validationContext.transactionBlockHashBytes,
-    };
-
-    signingResult = await webAuthnManager.signTransferTransaction(
-      prfOutput,
-      transferPayload
-    );
+      nonce: transactionContext.nonce.toString(),
+      blockHashBytes: transactionContext.transactionBlockHashBytes,
+      // Webauthn verification parameters
+      contractId: passkeyManager.getConfig().contractId,
+      vrfChallenge: vrfChallenge,
+      webauthnCredential: credential
+    });
 
   } else if (actionArgs.action_type === 'FunctionCall') {
     // Use the modern action-based WASM worker transaction signing for function calls
-    const functionCallAction: ActionParams = {
-      actionType: ActionType.FunctionCall,
-      method_name: actionArgs.method_name!,
-      args: actionArgs.args!, // Keep as JSON string
-      gas: actionArgs.gas || DEFAULT_GAS_STRING,
-      deposit: actionArgs.deposit || "0"
-    };
-
-    const signingPayload = {
+    signingResult = await webAuthnManager.signTransactionWithActions({
       nearAccountId: nearAccountId,
       receiverId: actionArgs.receiver_id!,
-      actions: [functionCallAction],
-      nonce: validationContext.nonce.toString(),
-      blockHashBytes: validationContext.transactionBlockHashBytes,
-    };
-
-    signingResult = await webAuthnManager.signTransactionWithActions(
-      prfOutput,
-      signingPayload
-    );
+      actions: [
+        {
+          actionType: ActionType.FunctionCall,
+          method_name: actionArgs.method_name!,
+          args: actionArgs.args!, // Keep as JSON string
+          gas: actionArgs.gas || DEFAULT_GAS_STRING,
+          deposit: actionArgs.deposit || "0"
+        }
+      ] as ActionParams[],
+      nonce: transactionContext.nonce.toString(),
+      blockHashBytes: transactionContext.transactionBlockHashBytes,
+      // Webauthn verification parameters
+      contractId: passkeyManager.getConfig().contractId,
+      vrfChallenge: vrfChallenge,
+      webauthnCredential: credential,
+    });
 
   } else {
     const errorMsg = `Action type ${actionArgs.action_type} is not yet supported`;

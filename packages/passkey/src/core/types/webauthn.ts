@@ -1,6 +1,21 @@
+import { base64UrlDecode } from "../../utils/encoders";
+
 // =================================================================
 // 0. CORE WEBAUTHN & BROWSER-API TYPES
 // =================================================================
+
+export interface onProgressEvents {
+  step: string;
+  message: string;
+  data?: any;
+  logs?: string[];
+}
+
+export interface VerifyAndSignTransactionResult {
+  signedTransactionBorsh: number[];
+  nearAccountId: string;
+  logs?: string[];
+}
 
 /** JSON-compatible version of PublicKeyCredentialCreationOptions */
 export interface PublicKeyCredentialCreationOptionsJSON {
@@ -93,7 +108,10 @@ export interface StoredAuthenticator {
 // =================================================================
 
 /** VRF challenge data structure used in contract verification */
-export interface VrfChallengeData {
+// export interface VrfChallengeData {
+// }
+
+export class VRFChallenge {
   vrfInput: string;
   vrfOutput: string;
   vrfProof: string;
@@ -102,7 +120,37 @@ export interface VrfChallengeData {
   rpId: string;
   blockHeight: number;
   blockHash: string;
+
+  constructor(vrfChallengeData: {
+    vrfInput: string;
+    vrfOutput: string;
+    vrfProof: string;
+    vrfPublicKey: string;
+    userId: string;
+    rpId: string;
+    blockHeight: number;
+    blockHash: string;
+  }) {
+    this.vrfInput = vrfChallengeData.vrfInput;
+    this.vrfOutput = vrfChallengeData.vrfOutput;
+    this.vrfProof = vrfChallengeData.vrfProof;
+    this.vrfPublicKey = vrfChallengeData.vrfPublicKey;
+    this.userId = vrfChallengeData.userId;
+    this.rpId = vrfChallengeData.rpId;
+    this.blockHeight = vrfChallengeData.blockHeight;
+    this.blockHash = vrfChallengeData.blockHash;
+  }
+
+  /**
+   * Decode VRF output and use first 32 bytes as WebAuthn challenge
+   * @returns 32-byte Uint8Array
+   */
+  outputAs32Bytes(): Uint8Array {
+    let vrfOutputBytes = base64UrlDecode(this.vrfOutput);
+    return vrfOutputBytes.slice(0, 32);
+  }
 }
+
 
 /** Registration data provided during registration contract calls */
 export interface RegistrationData {
@@ -114,13 +162,6 @@ export interface RegistrationData {
 export interface ContractVerificationResponse {
   verified: boolean;
   transaction_id?: string;
-  error?: string;
-}
-
-/** Result of VRF authentication verification */
-export interface VrfAuthenticationResult {
-  success: boolean;
-  verified?: boolean;
   error?: string;
 }
 

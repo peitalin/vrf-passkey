@@ -7,14 +7,22 @@ import type {
 } from '../types/worker';
 import {
   WorkerRequestType,
+  WorkerResponseType,
   isEncryptionSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
   isCoseKeySuccess,
   isCoseValidationSuccess,
+  isRegistrationSuccess,
   validateActionParams,
   ActionType,
+  serializeCredentialAndCreatePRF,
+  serializeRegistrationCredentialAndCreatePRF,
 } from '../types/worker';
+import { ClientAuthenticatorData } from '../IndexedDBManager';
+import { TouchIdPrompt } from "./touchIdPrompt";
+import { VRFChallenge } from '../types/webauthn';
+import { RPC_NODE_URL } from "../../config";
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -49,30 +57,113 @@ export class SignerWorkerManager {
     }
   }
 
-  async executeWorkerOperation(
-    worker: Worker,
+  /**
+   * === UNIFIED WORKER OPERATION METHOD ===
+   * Execute worker operation with optional progress updates (handles both single and multiple response patterns)
+   *
+   * FEATURES:
+   * ✅ Single-response operations (traditional request-response)
+   * ✅ Multi-response operations with progress updates (streaming SSE-like pattern)
+   * ✅ Consistent error handling and timeouts
+   * ✅ Fallback behavior for backward compatibility
+   */
+  private async executeWorkerOperation({
+    message,
+    onProgress,
+    timeoutMs = 30_000 // 30s
+  }: {
     message: Record<string, any>,
-    timeoutMs: number = 30000
-  ): Promise<WorkerResponse> {
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void,
+    timeoutMs?: number
+  }): Promise<WorkerResponse> {
+
+    const worker = this.createSecureWorker();
+
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         worker.terminate();
         reject(new Error(`Worker operation timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
+      const responses: WorkerResponse[] = [];
+      let finalResponse: WorkerResponse | null = null;
+
       worker.onmessage = (event) => {
-        clearTimeout(timeoutId);
-        worker.terminate();
-        resolve(event.data as WorkerResponse);
+        const response = event.data as WorkerResponse;
+        responses.push(response);
+
+        // Handle progress updates
+        if (response.type === WorkerResponseType.VERIFICATION_PROGRESS ||
+            response.type === WorkerResponseType.SIGNING_PROGRESS ||
+            response.type === WorkerResponseType.REGISTRATION_PROGRESS) {
+          onProgress?.({
+            step: (response as any).payload.step,
+            message: (response as any).payload.message,
+            data: (response as any).payload.data,
+            logs: (response as any).payload.logs
+          });
+          return; // Continue listening for more messages
+        }
+
+        // Handle completion messages
+        if (response.type === WorkerResponseType.VERIFICATION_COMPLETE) {
+          const verificationResult = (response as any).payload;
+          onProgress?.({
+            step: 'verification_complete',
+            message: verificationResult.success ? 'Contract verification successful' : 'Contract verification failed',
+            data: verificationResult.data,
+            logs: verificationResult.logs
+          });
+
+          if (!verificationResult.success) {
+            clearTimeout(timeoutId);
+            worker.terminate();
+            reject(new Error(`Verification failed: ${verificationResult.error}`));
+            return;
+          }
+          return; // Continue listening for signing messages
+        }
+
+        // Handle final completion
+        if (response.type === WorkerResponseType.SIGNING_COMPLETE ||
+            response.type === WorkerResponseType.REGISTRATION_COMPLETE) {
+          clearTimeout(timeoutId);
+          worker.terminate();
+          finalResponse = response;
+          resolve(finalResponse);
+          return;
+        }
+
+        // Handle errors
+        if (response.type === WorkerResponseType.ERROR) {
+          clearTimeout(timeoutId);
+          worker.terminate();
+          reject(new Error((response as any).payload.error));
+          return;
+        }
+
+        // Handle other completion types (fallback to existing behavior)
+        if (response.type.includes('SUCCESS') || response.type.includes('FAILURE')) {
+          clearTimeout(timeoutId);
+          worker.terminate();
+          resolve(response);
+        }
       };
 
-      worker.onerror = (error) => {
+      worker.onerror = (event) => {
         clearTimeout(timeoutId);
         worker.terminate();
-        reject(new Error(`Worker error: ${error}`));
+        const errorMessage = event.error?.message || event.message || 'Unknown worker error';
+        console.error('Worker error details (progress):', {
+          message: errorMessage,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          error: event.error
+        });
+        reject(new Error(`Worker error: ${errorMessage}`));
       };
 
-      console.log('Sending message to worker:', { type: message.type });
       worker.postMessage(message);
     });
   }
@@ -83,7 +174,6 @@ export class SignerWorkerManager {
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
   async deriveNearKeypairAndEncrypt(
-    nearAccountId: string,
     prfOutput: ArrayBuffer,
     payload: RegistrationPayload,
     attestationObject: AuthenticatorAttestationResponse,
@@ -91,13 +181,14 @@ export class SignerWorkerManager {
     try {
       console.log('WebAuthnManager: Starting secure registration with PRF using deterministic derivation');
 
-      const worker = this.createSecureWorker();
-      const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
-        payload: {
-          prfOutput: bufferEncode(prfOutput),
-          nearAccountId: payload.nearAccountId,
-          attestationObjectBase64url: bufferEncode(attestationObject.attestationObject)
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
+          payload: {
+            prfOutput: bufferEncode(prfOutput),
+            nearAccountId: payload.nearAccountId,
+            attestationObjectBase64url: bufferEncode(attestationObject.attestationObject)
+          }
         }
       });
 
@@ -127,72 +218,6 @@ export class SignerWorkerManager {
   }
 
   /**
-   * Secure transaction signing with PRF: WebAuthn + WASM worker signing using PRF
-   * Note: No challenge validation needed - VRF provides cryptographic freshness
-   */
-  async decryptAndSignTransactionWithPrf(
-    nearAccountId: string,
-    prfOutput: ArrayBuffer,
-    payload: SigningPayload
-  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
-    try {
-      console.log('WebAuthnManager: Starting decrypt and sign transaction with PRF');
-      const worker = this.createSecureWorker();
-
-      const workerPayload = {
-        nearAccountId: payload.nearAccountId,
-        prfOutput: bufferEncode(prfOutput),
-        receiverId: payload.receiverId,
-        contractMethodName: payload.contractMethodName,
-        contractArgs: payload.contractArgs,
-        gasAmount: payload.gasAmount,
-        depositAmount: payload.depositAmount,
-        nonce: payload.nonce,
-        blockHashBytes: payload.blockHashBytes
-      };
-
-      // Validate all required parameters are defined
-      const requiredFields = ['nearAccountId', 'receiverId', 'contractMethodName', 'gasAmount', 'depositAmount', 'nonce'];
-      const missingFields = requiredFields.filter(field => !workerPayload[field as keyof typeof workerPayload]);
-
-      if (missingFields.length > 0) {
-        throw new Error(`Missing required fields for transaction signing: ${missingFields.join(', ')}`);
-      }
-      if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
-        throw new Error('blockHashBytes is required and cannot be empty');
-      }
-      if (!prfOutput || prfOutput.byteLength === 0) {
-        throw new Error('PRF output is required and cannot be empty');
-      }
-
-      const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.DECRYPT_AND_SIGN_TRANSACTION_WITH_PRF,
-        payload: workerPayload
-      });
-
-      console.log('WebAuthnManager: Worker response debug:', {
-        type: response.type,
-        hasPayload: !!response.payload,
-        isSignatureSuccessCheck: isSignatureSuccess(response)
-      });
-
-      if (response.type === 'SIGNATURE_SUCCESS' && response.payload?.signedTransactionBorsh) {
-        console.log('WebAuthnManager: PRF transaction signing successful');
-        return {
-          signedTransactionBorsh: response.payload.signedTransactionBorsh,
-          nearAccountId: payload.nearAccountId
-        };
-      } else {
-        console.error('WebAuthnManager: PRF transaction signing failed:', response);
-        throw new Error('Transaction signing failed');
-      }
-    } catch (error: any) {
-      console.error('WebAuthnManager: PRF transaction signing error:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Secure private key decryption with PRF
    *
    * For local private key export, we're just decrypting locally stored encrypted private keys
@@ -209,19 +234,32 @@ export class SignerWorkerManager {
    *    - Impossible to derive PRF output without the physical authenticator
    */
   async decryptPrivateKeyWithPrf(
+    touchIdPrompt: TouchIdPrompt,
     nearAccountId: string,
-    prfOutput: ArrayBuffer
+    authenticators: ClientAuthenticatorData[],
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
       console.log('WebAuthnManager: Starting private key decryption with PRF (local operation)');
       console.log('WebAuthnManager: Security enforced by device possession + biometrics + PRF cryptography');
 
-      const worker = this.createSecureWorker();
-      const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-        payload: {
-          nearAccountId: nearAccountId,
-          prfOutput: bufferEncode(prfOutput)
+      // For private key export, no VRF challenge is needed.
+      // we can use local random challenge for WebAuthn authentication.
+      // Security comes from device possession + biometrics, not challenge validation
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      // TouchID prompt
+      const { prfOutput } = await touchIdPrompt.getCredentialsAndPrf({
+        nearAccountId,
+        challenge,
+        authenticators,
+      });
+
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+          payload: {
+            nearAccountId: nearAccountId,
+            prfOutput: bufferEncode(prfOutput)
+          }
         }
       });
 
@@ -249,11 +287,12 @@ export class SignerWorkerManager {
   async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
     console.log('WebAuthnManager: Extracting COSE public key from attestation object');
 
-    const worker = this.createSecureWorker();
-    const response = await this.executeWorkerOperation(worker, {
-      type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
-      payload: {
-        attestationObjectBase64url
+    const response = await this.executeWorkerOperation({
+      message: {
+        type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
+        payload: {
+          attestationObjectBase64url
+        }
       }
     });
 
@@ -272,11 +311,12 @@ export class SignerWorkerManager {
   async validateCoseKey(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
     console.log('WebAuthnManager: Validating COSE key format');
 
-    const worker = this.createSecureWorker();
-    const response = await this.executeWorkerOperation(worker, {
-      type: WorkerRequestType.VALIDATE_COSE_KEY,
-      payload: {
-        coseKeyBytes: Array.from(coseKeyBytes)
+    const response = await this.executeWorkerOperation({
+      message: {
+        type: WorkerRequestType.VALIDATE_COSE_KEY,
+        payload: {
+          coseKeyBytes: Array.from(coseKeyBytes)
+        }
       }
     });
 
@@ -292,25 +332,78 @@ export class SignerWorkerManager {
     }
   }
 
+  /**
+   * Register WebAuthn credential with VRF verification
+   * Calls verify_registration_response on the contract to register a new credential
+   */
+  async registerWithPrf({
+    vrfChallenge,
+    webauthnCredential,
+    contractId,
+    onProgress,
+  }: {
+    vrfChallenge: VRFChallenge,
+    webauthnCredential: PublicKeyCredential,
+    contractId: string;
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[] }> {
+    try {
+      console.log('WebAuthnManager: Starting WebAuthn registration with VRF verification');
+
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.REGISTER_WITH_PRF,
+          payload: {
+            vrfChallenge,
+            webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
+            contractId,
+            nearRpcUrl: RPC_NODE_URL
+          }
+        },
+        onProgress,
+        timeoutMs: 60000 // Longer timeout for contract verification
+      });
+
+      if (isRegistrationSuccess(response)) {
+        console.log('WebAuthnManager: WebAuthn registration with VRF verification successful');
+        return {
+          verified: response.payload.verified,
+          registrationInfo: response.payload.registrationInfo,
+          logs: response.payload.logs
+        };
+      } else {
+        console.error('WebAuthnManager: WebAuthn registration with VRF verification failed:', response);
+        throw new Error('WebAuthn registration with VRF verification failed');
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: WebAuthn registration with VRF verification error:', error);
+      throw error;
+    }
+  }
+
   // === ACTION-BASED SIGNING METHODS ===
 
   /**
-   * Sign a NEAR transaction with multiple actions using PRF
+   * Enhanced transaction signing with contract verification and progress updates
+   * Demonstrates the "streaming" worker pattern similar to SSE
    */
   async signTransactionWithActions(
-    prfOutput: ArrayBuffer,
     payload: {
       nearAccountId: string;
       receiverId: string;
       actions: ActionParams[];
       nonce: string;
       blockHashBytes: number[];
-    }
-  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+      // Additional parameters for contract verification
+      contractId: string;
+      vrfChallenge: VRFChallenge;
+      webauthnCredential: PublicKeyCredential;
+    },
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
     try {
-      console.log('WebAuthnManager: Starting transaction signing with actions with PRF');
+      console.log('WebAuthnManager: Starting enhanced transaction signing with verification');
 
-      // Validate all actions
       payload.actions.forEach((action, index) => {
         try {
           validateActionParams(action);
@@ -319,147 +412,107 @@ export class SignerWorkerManager {
         }
       });
 
-      const worker = this.createSecureWorker();
-
-      const workerPayload = {
-        nearAccountId: payload.nearAccountId,
-        prfOutput: bufferEncode(prfOutput),
-        receiverId: payload.receiverId,
-        actions: payload.actions,
-        nonce: payload.nonce,
-        blockHashBytes: payload.blockHashBytes
-      };
-
-      // Validate required fields
-      const requiredFields = ['nearAccountId', 'receiverId', 'actions', 'nonce', 'blockHashBytes'];
-      const missingFields = requiredFields.filter(field => !workerPayload[field as keyof typeof workerPayload]);
-
-      if (missingFields.length > 0) {
-        throw new Error(`Missing required fields for multi-action transaction signing: ${missingFields.join(', ')}`);
-      }
-
-      if (!payload.actions || payload.actions.length === 0) {
-        throw new Error('At least one action is required');
-      }
-
-      if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
-        throw new Error('blockHashBytes is required and cannot be empty');
-      }
-
-      if (!prfOutput || prfOutput.byteLength === 0) {
-        throw new Error('PRF output is required and cannot be empty');
-      }
-
-      console.log('WebAuthnManager: Multi-action worker payload:', {
-        ...workerPayload,
-        prfOutput: `[${bufferEncode(prfOutput).length} chars]`,
-        actions: `[${payload.actions.length} actions]`,
-        blockHashBytes: `[${payload.blockHashBytes?.length || 0} bytes]`
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS,
+          payload: {
+            nearAccountId: payload.nearAccountId,
+            receiverId: payload.receiverId,
+            actions: JSON.stringify(payload.actions), // Convert actions array to JSON string
+            nonce: payload.nonce,
+            blockHashBytes: payload.blockHashBytes,
+            // Contract verification parameters
+            contractId: payload.contractId,
+            vrfChallenge: payload.vrfChallenge,
+            // Serialize credential right before sending - minimal exposure time
+            webauthnCredential: serializeCredentialAndCreatePRF(payload.webauthnCredential),
+            nearRpcUrl: RPC_NODE_URL
+          }
+        },
+        onProgress, // onProgress callback for wasm-worker events
+        timeoutMs: 60000 // Longer timeout for contract verification + signing
       });
 
-      const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS,
-        payload: {
-          nearAccountId: payload.nearAccountId,
-          prfOutput: bufferEncode(prfOutput),
-          receiverId: payload.receiverId,
-          actions: JSON.stringify(payload.actions), // Serialize actions for WASM
-          nonce: payload.nonce,
-          blockHashBytes: payload.blockHashBytes
-        }
-      });
-
-      if (response.type === 'SIGNATURE_SUCCESS' && response.payload?.signedTransactionBorsh) {
-        console.log('WebAuthnManager: Multi-action transaction signing successful');
+      if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
+        console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
         return {
-          signedTransactionBorsh: response.payload.signedTransactionBorsh,
-          nearAccountId: payload.nearAccountId
+          signedTransactionBorsh: (response as any).payload.data.signedTransactionBorsh,
+          nearAccountId: payload.nearAccountId,
+          logs: (response as any).payload.data.verificationLogs
         };
       } else {
-        console.error('WebAuthnManager: Multi-action transaction signing failed:', response);
-        throw new Error('Multi-action transaction signing failed');
+        console.error('WebAuthnManager: Enhanced transaction signing failed:', response);
+        throw new Error('Enhanced transaction signing failed');
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: Multi-action transaction signing error:', error);
+      console.error('WebAuthnManager: Enhanced transaction signing error:', error);
       throw error;
     }
   }
 
   /**
-   * Sign a NEAR Transfer transaction using PRF
+   * Enhanced Transfer transaction signing with contract verification and progress updates
+   * Uses the new verify+sign WASM function for secure, efficient transaction processing
    */
   async signTransferTransaction(
-    prfOutput: ArrayBuffer,
     payload: {
       nearAccountId: string;
       receiverId: string;
       depositAmount: string;
       nonce: string;
       blockHashBytes: number[];
-    }
-  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string }> {
+      // Additional parameters for contract verification
+      contractId: string;
+      vrfChallenge: VRFChallenge;
+      webauthnCredential: PublicKeyCredential;
+    },
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
     try {
-      console.log('WebAuthnManager: Starting transfer transaction signing with PRF');
+      console.log('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
 
-      // Validate transfer action
       const transferAction: ActionParams = {
         actionType: ActionType.Transfer,
         deposit: payload.depositAmount
       };
-
       validateActionParams(transferAction);
 
-      const worker = this.createSecureWorker();
-
-      const workerPayload = {
-        nearAccountId: payload.nearAccountId,
-        prfOutput: bufferEncode(prfOutput),
-        receiverId: payload.receiverId,
-        depositAmount: payload.depositAmount,
-        nonce: payload.nonce,
-        blockHashBytes: payload.blockHashBytes
-      };
-
-      // Validate required fields
-      const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce', 'blockHashBytes'];
-      const missingFields = requiredFields.filter(field => !workerPayload[field as keyof typeof workerPayload]);
-
-      if (missingFields.length > 0) {
-        throw new Error(`Missing required fields for transfer transaction signing: ${missingFields.join(', ')}`);
-      }
-
-      if (!payload.blockHashBytes || payload.blockHashBytes.length === 0) {
-        throw new Error('blockHashBytes is required and cannot be empty');
-      }
-
-      if (!prfOutput || prfOutput.byteLength === 0) {
-        throw new Error('PRF output is required and cannot be empty');
-      }
-
-      console.log('WebAuthnManager: Transfer worker payload:', {
-        ...workerPayload,
-        prfOutput: `[${bufferEncode(prfOutput).length} chars]`,
-        blockHashBytes: `[${payload.blockHashBytes?.length || 0} bytes]`
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION,
+          payload: {
+            nearAccountId: payload.nearAccountId,
+            receiverId: payload.receiverId,
+            depositAmount: payload.depositAmount,
+            nonce: payload.nonce,
+            blockHashBytes: payload.blockHashBytes,
+            // Contract verification parameters
+            contractId: payload.contractId,
+            vrfChallenge: payload.vrfChallenge,
+            // Serialize credential right before sending - minimal exposure time
+            webauthnCredential: serializeCredentialAndCreatePRF(payload.webauthnCredential),
+            nearRpcUrl: RPC_NODE_URL
+          }
+        },
+        onProgress, // onProgress callback for wasm-worker events
+        timeoutMs: 60000 // Longer timeout for contract verification + signing
       });
 
-      const response = await this.executeWorkerOperation(worker, {
-        type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION,
-        payload: workerPayload
-      });
-
-      if (response.type === 'SIGNATURE_SUCCESS' && response.payload?.signedTransactionBorsh) {
-        console.log('WebAuthnManager: Transfer transaction signing successful');
+      if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
+        console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
         return {
-          signedTransactionBorsh: response.payload.signedTransactionBorsh,
-          nearAccountId: payload.nearAccountId
+          signedTransactionBorsh: (response as any).payload.data.signedTransactionBorsh,
+          nearAccountId: payload.nearAccountId,
+          logs: (response as any).payload.data.verificationLogs
         };
       } else {
-        console.error('WebAuthnManager: Transfer transaction signing failed:', response);
-        throw new Error('Transfer transaction signing failed');
+        console.error('WebAuthnManager: Enhanced transfer transaction signing failed:', response);
+        throw new Error('Enhanced transfer transaction signing failed');
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: Transfer transaction signing error:', error);
+      console.error('WebAuthnManager: Enhanced transfer transaction signing error:', error);
       throw error;
     }
   }
+
 }
