@@ -104,6 +104,16 @@ impl WebAuthnContract {
 
     /// VRF Registration - First time users (one-time setup)
     /// Verifies VRF proof + WebAuthn registration, stores credentials on-chain
+    ///
+    /// # Arguments
+    /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
+    /// * `webauthn_registration` - WebAuthn registration credential from authenticator
+    ///
+    /// # Returns
+    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
+    ///
+    /// # Public
+    /// This is a public non-view function that modifies contract state
     pub fn verify_and_register_user(
         &mut self,
         vrf_data: VRFVerificationData,
@@ -137,7 +147,7 @@ impl WebAuthnContract {
         );
 
         // 7. If WebAuthn verification succeeded, store the authenticator and user data
-        if !webauthn_result.verified || webauthn_result.registration_info.is_none() {
+        if webauthn_result.verified {
             if let Some(registration_info) = webauthn_result.registration_info {
                 // Store the authenticator and user data
                 let storage_result = self.store_authenticator_and_user(
@@ -163,7 +173,16 @@ impl WebAuthnContract {
 
     /// VIEW VERSION: Check if user can register without modifying state
     /// Verifies VRF proof + WebAuthn registration but does NOT store any data
-    /// Returns: { verified: bool, user_exists: bool }
+    ///
+    /// # Arguments
+    /// * `vrf_data` - VRF verification data containing proof, challenge, and user info
+    /// * `webauthn_registration` - WebAuthn registration credential from authenticator
+    ///
+    /// # Returns
+    /// * `VerifyCanRegisterResponse` - Contains verification status and whether user exists
+    ///
+    /// # Public
+    /// This is a public view function that does not modify contract state
     pub fn verify_can_register_user(
         &self,
         vrf_data: VRFVerificationData,
@@ -229,6 +248,19 @@ impl WebAuthnContract {
     /// Returns the challenge and parameters needed for WebAuthn verification
     /// This function performs no state modifications and can be called from both
     /// registration and view functions
+    ///
+    /// # Arguments
+    /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
+    ///
+    /// # Returns
+    /// * `Result<(String, String, Vec<u8>), VerifyRegistrationResponse>` - On success returns:
+    ///   - WebAuthn challenge derived from VRF output (base64url encoded)
+    ///   - Expected origin for WebAuthn verification
+    ///   - VRF public key
+    ///   On failure returns VerifyRegistrationResponse with error details
+    ///
+    /// # Private
+    /// This is a private view function that only reads contract state
     fn validate_vrf_and_extract_challenge(
         &self,
         vrf_data: &VRFVerificationData,
@@ -289,15 +321,29 @@ impl WebAuthnContract {
         Ok((vrf_challenge_b64url, expected_origin, vrf_data.public_key.clone()))
     }
 
-    // This is the core WebAuthn attestation verification logic
+    /// Core WebAuthn attestation verification logic that validates the registration response
+    ///
+    /// # Arguments
+    /// * `credential` - The WebAuthn registration credential containing client data and attestation
+    /// * `expected_challenge` - Base64URL-encoded VRF-generated challenge that should match client data
+    /// * `expected_origin` - The expected origin URL that should match client data
+    /// * `expected_rp_id` - The expected Relying Party ID that should match attestation data
+    /// * `require_user_verification` - Whether to require user verification flag in attestation
+    /// * `vrf_public_key` - Optional VRF public key to store if this is a VRF registration
+    ///
+    /// # Returns
+    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
+    ///
+    /// # Private
+    /// This is a private view function that does not modify contract state
     fn internal_verify_registration_response(
         &self,
         credential: RegistrationCredential,
-        expected_challenge: String, // This is the VRF-generated challenge (base64url)
+        expected_challenge: String,
         expected_origin: String,
         expected_rp_id: String,
         require_user_verification: bool,
-        vrf_public_key: Option<Vec<u8>>, // Optional VRF public key for VRF registration
+        vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
         log!("Contract verification of registration response");
         log!("Expected challenge: {}", expected_challenge);
@@ -509,6 +555,24 @@ impl WebAuthnContract {
         }
     }
 
+    /// Stores the authenticator and user data after successful registration verification
+    ///
+    /// # Arguments
+    /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
+    /// * `credential` - The original registration credential containing transport info and attestation data
+    /// * `vrf_public_key` - Optional VRF public key to store if this is a VRF registration
+    ///
+    /// # Returns
+    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
+    ///
+    /// # Params
+    /// * `self` - Mutable reference to contract state
+    /// * `registration_info` - RegistrationInfo struct containing credential data
+    /// * `credential` - RegistrationCredential struct with transport and attestation data
+    /// * `vrf_public_key` - Optional Vec<u8> containing VRF public key
+    ///
+    /// # Private
+    /// This is a private non-view function that modifies contract state
     fn store_authenticator_and_user(
         &mut self,
         registration_info: RegistrationInfo,

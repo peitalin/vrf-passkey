@@ -41,6 +41,8 @@ export interface SigningPayload {
 export enum WorkerRequestType {
   DERIVE_NEAR_KEYPAIR_AND_ENCRYPT = 'DERIVE_NEAR_KEYPAIR_AND_ENCRYPT',
   REGISTER_WITH_PRF = 'REGISTER_WITH_PRF',
+  CHECK_CAN_REGISTER_USER = 'CHECK_CAN_REGISTER_USER',
+  VERIFY_AND_REGISTER_USER = 'VERIFY_AND_REGISTER_USER',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
   // COSE operations
   EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
@@ -169,6 +171,44 @@ export interface RegisterWithPrfRequest extends BaseWorkerRequest {
     contractId: string;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
+  };
+}
+
+// Check if user can register (view function - query RPC)
+export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.CHECK_CAN_REGISTER_USER;
+  payload: {
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn registration credential */
+    webauthnCredential: SerializableWebAuthnRegistrationCredential;
+    /** Contract ID for verification */
+    contractId: string;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
+  };
+}
+
+// Actually register user (state-changing function - send_tx RPC)
+export interface VerifyAndRegisterUserRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.VERIFY_AND_REGISTER_USER;
+  payload: {
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn registration credential */
+    webauthnCredential: SerializableWebAuthnRegistrationCredential;
+    /** Contract ID for verification */
+    contractId: string;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
+    /** Signer account ID for the transaction */
+    signerAccountId: string;
+    /** NEAR account ID that owns the keys to be used for registration */
+    nearAccountId: string;
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
   };
 }
 
@@ -501,6 +541,8 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
   | RegisterWithPrfRequest
+  | CheckCanRegisterUserRequest
+  | VerifyAndRegisterUserRequest
   | DecryptPrivateKeyWithPrfRequest
   | ExtractCosePublicKeyRequest
   | ValidateCoseKeyRequest

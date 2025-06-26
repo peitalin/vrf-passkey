@@ -30,7 +30,6 @@ use crate::cose::{
 };
 use crate::http::{
     perform_contract_verification_wasm,
-    perform_contract_registration_wasm,
     base64url_decode,
     VrfData,
     WebAuthnAuthenticationCredential,
@@ -409,7 +408,7 @@ pub async fn register_with_prf(
     };
 
     // Step 6: Perform registration verification using pure WASM HTTP
-    let registration_result = perform_contract_registration_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
+    let registration_result = crate::http::check_can_register_user_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
         .await
         .map_err(|e| JsValue::from_str(&format!("Contract registration failed: {}", e)))?;
 
@@ -435,6 +434,133 @@ pub async fn register_with_prf(
     });
 
     console_log!("RUST: Registration with VRF completed successfully");
+    Ok(result.to_string())
+}
+
+/// Check if user can register (VIEW FUNCTION - uses query RPC)
+#[wasm_bindgen]
+pub async fn check_can_register_user(
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_registration_json: &str,
+    near_rpc_url: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: Checking if user can register (view function)");
+
+    // Parse VRF challenge data
+    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+
+    // Parse WebAuthn registration credential
+    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
+
+    // Extract WebAuthn registration fields
+    let reg_id = webauthn_registration_data["id"].as_str().ok_or("Missing WebAuthn id")?;
+    let raw_id = webauthn_registration_data["rawId"].as_str().ok_or("Missing WebAuthn rawId")?;
+    let response = &webauthn_registration_data["response"];
+    let client_data_json = response["clientDataJSON"].as_str().ok_or("Missing clientDataJSON")?;
+    let attestation_object = response["attestationObject"].as_str().ok_or("Missing attestationObject")?;
+    let transports = response["transports"].as_array().map(|arr| {
+        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect()
+    });
+
+    // Construct WebAuthnRegistration struct
+    let webauthn_registration = WebAuthnRegistrationCredential {
+        id: reg_id.to_string(),
+        raw_id: raw_id.to_string(),
+        response: WebAuthnRegistrationResponse {
+            client_data_json: client_data_json.to_string(),
+            attestation_object: attestation_object.to_string(),
+            transports,
+        },
+        authenticator_attachment: webauthn_registration_data["authenticatorAttachment"].as_str().map(|s| s.to_string()),
+        reg_type: "public-key".to_string(),
+    };
+
+    // Call the http module function
+    let registration_result = crate::http::check_can_register_user_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
+        .await
+        .map_err(|e| JsValue::from_str(&format!("Registration check failed: {}", e)))?;
+
+    // Return result as JSON
+    let result = serde_json::json!({
+        "verified": registration_result.verified,
+        "registration_info": registration_result.registration_info,
+        "logs": registration_result.logs
+    });
+
+    Ok(result.to_string())
+}
+
+/// Actually register user (STATE-CHANGING FUNCTION - uses send_tx RPC)
+#[wasm_bindgen]
+pub async fn verify_and_register_user(
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_registration_json: &str,
+    near_rpc_url: &str,
+    signer_account_id: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+    prf_output_base64: &str,
+    nonce: u64,
+    block_hash_bytes: &[u8],
+) -> Result<String, JsValue> {
+    console_log!("RUST: Performing actual user registration (state-changing function)");
+
+    // Parse VRF challenge data
+    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+
+    // Parse WebAuthn registration credential
+    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
+
+    // Extract WebAuthn registration fields
+    let reg_id = webauthn_registration_data["id"].as_str().ok_or("Missing WebAuthn id")?;
+    let raw_id = webauthn_registration_data["rawId"].as_str().ok_or("Missing WebAuthn rawId")?;
+    let response = &webauthn_registration_data["response"];
+    let client_data_json = response["clientDataJSON"].as_str().ok_or("Missing clientDataJSON")?;
+    let attestation_object = response["attestationObject"].as_str().ok_or("Missing attestationObject")?;
+    let transports = response["transports"].as_array().map(|arr| {
+        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect()
+    });
+
+    // Construct WebAuthnRegistration struct
+    let webauthn_registration = WebAuthnRegistrationCredential {
+        id: reg_id.to_string(),
+        raw_id: raw_id.to_string(),
+        response: WebAuthnRegistrationResponse {
+            client_data_json: client_data_json.to_string(),
+            attestation_object: attestation_object.to_string(),
+            transports,
+        },
+        authenticator_attachment: webauthn_registration_data["authenticatorAttachment"].as_str().map(|s| s.to_string()),
+        reg_type: "public-key".to_string(),
+    };
+
+    // Call the http module function with transaction metadata
+    let registration_result = crate::http::perform_actual_registration_wasm(
+        contract_id,
+        vrf_data,
+        webauthn_registration,
+        near_rpc_url,
+        signer_account_id,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+        prf_output_base64,
+        nonce,
+        block_hash_bytes,
+    )
+    .await
+    .map_err(|e| JsValue::from_str(&format!("Actual registration failed: {}", e)))?;
+
+    // Return result as JSON
+    let result = serde_json::json!({
+        "verified": registration_result.verified,
+        "registration_info": registration_result.registration_info,
+        "logs": registration_result.logs
+    });
+
     Ok(result.to_string())
 }
 

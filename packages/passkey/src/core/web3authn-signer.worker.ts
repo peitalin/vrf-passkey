@@ -36,6 +36,8 @@ const {
   // Registration
   derive_near_keypair_from_cose_and_encrypt_with_prf,
   register_with_prf,
+  check_can_register_user,
+  verify_and_register_user,
   // Key exports/decryption
   decrypt_private_key_with_prf_as_string,
   // Transaction signing: combined verification + signing
@@ -208,6 +210,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 
       case WorkerRequestType.REGISTER_WITH_PRF:
         await handleRegisterWithPrf(payload);
+        break;
+
+      case WorkerRequestType.CHECK_CAN_REGISTER_USER:
+        await handleCheckCanRegisterUser(payload);
+        break;
+
+      case WorkerRequestType.VERIFY_AND_REGISTER_USER:
+        await handleVerifyAndRegisterUser(payload);
         break;
 
       case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
@@ -406,6 +416,146 @@ async function handleRegisterWithPrf(
     sendResponseAndTerminate({
       type: WorkerResponseType.REGISTRATION_FAILURE,
       payload: { error: error.message || 'Registration with PRF failed' }
+    });
+  }
+}
+
+/**
+ * Handle checking if user can register (view function)
+ * Calls verify_can_register_user on the contract to check eligibility
+ */
+async function handleCheckCanRegisterUser(
+  payload: any // CheckCanRegisterUserRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      vrfChallenge,
+      webauthnCredential,
+      contractId,
+      nearRpcUrl
+    } = payload;
+
+    console.log('[signer-worker]: Starting check if user can register (view function)');
+
+    // Validate required parameters
+    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl) {
+      throw new Error('Missing required parameters for registration check: vrfChallenge, webauthnCredential, contractId, nearRpcUrl');
+    }
+
+    console.log('[signer-worker]: Calling check_can_register_user function');
+
+    // Call the WASM function that handles registration eligibility check
+    const checkResultJson = await check_can_register_user(
+      contractId,
+      JSON.stringify(vrfChallenge),
+      JSON.stringify(webauthnCredential),
+      nearRpcUrl
+    );
+
+    // Parse the result
+    const checkResult = JSON.parse(checkResultJson);
+    console.log('[signer-worker]: Registration check result:', {
+      verified: checkResult.verified,
+      hasRegistrationInfo: !!checkResult.registration_info
+    });
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_SUCCESS,
+      payload: {
+        verified: checkResult.verified,
+        registrationInfo: checkResult.registration_info,
+        logs: checkResult.logs
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Check registration eligibility failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_FAILURE,
+      payload: { error: error.message || 'Check registration eligibility failed' }
+    });
+  }
+}
+
+/**
+ * Handle actual user registration (state-changing function)
+ * Calls verify_and_register_user on the contract via send_tx to actually register
+ */
+async function handleVerifyAndRegisterUser(
+  payload: any // VerifyAndRegisterUserRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      vrfChallenge,
+      webauthnCredential,
+      contractId,
+      nearRpcUrl,
+      signerAccountId,
+      nearAccountId,
+      nonce,
+      blockHashBytes
+    } = payload;
+
+    console.log('[signer-worker]: Starting actual user registration (state-changing function)');
+
+    // Validate required parameters
+    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
+      throw new Error('Missing required parameters for actual registration: vrfChallenge, webauthnCredential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
+    }
+
+    // Get encrypted key data for the account
+    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    // Extract PRF output from credential
+    const prfOutput = webauthnCredential.clientExtensionResults?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('PRF output missing from credential.extensionResults: required for secure registration');
+    }
+
+    console.log('[signer-worker]: Calling verify_and_register_user function with transaction metadata');
+
+    // Call the WASM function that handles actual registration (send_tx)
+    const registrationResultJson = await verify_and_register_user(
+      contractId,
+      JSON.stringify(vrfChallenge),
+      JSON.stringify(webauthnCredential),
+      nearRpcUrl,
+      signerAccountId,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv,
+      prfOutput,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes)
+    );
+
+    // Parse the result
+    const registrationResult = JSON.parse(registrationResultJson);
+    console.log('[signer-worker]: Actual registration result:', {
+      verified: registrationResult.verified,
+      hasRegistrationInfo: !!registrationResult.registration_info
+    });
+
+    if (!registrationResult.verified) {
+      throw new Error('Actual registration verification failed');
+    }
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_SUCCESS,
+      payload: {
+        verified: registrationResult.verified,
+        registrationInfo: registrationResult.registration_info,
+        logs: registrationResult.logs
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Actual user registration failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_FAILURE,
+      payload: { error: error.message || 'Actual user registration failed' }
     });
   }
 }

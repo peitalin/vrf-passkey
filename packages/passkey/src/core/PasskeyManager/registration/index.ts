@@ -337,11 +337,14 @@ async function handleRegistration(
     let contractVerified = false;
     let contractTransactionId: string | null = null;
 
-    // verify registration and save authenticator credentials on-chain
-    const contractRegistrationResult = await webAuthnManager.registerWithPrf({
+    const contractRegistrationResult = await webAuthnManager.registerUserOnChain({
       contractId: config.contractId,
       webauthnCredential: credential,
       vrfChallenge: vrfChallenge,
+      signerAccountId: nearAccountId,
+      nearAccountId: nearAccountId,
+      publicKeyStr: keyGenResult.publicKey,
+      nearRpcProvider: nearRpcProvider,
       onProgress: (progress) => {
         console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
         onEvent?.({
@@ -355,8 +358,26 @@ async function handleRegistration(
       },
     });
 
+    // // verify registration and save authenticator credentials on-chain
+    // const contractRegistrationResult = await webAuthnManager.registerWithPrf({
+    //   contractId: config.contractId,
+    //   webauthnCredential: credential,
+    //   vrfChallenge: vrfChallenge,
+    //   onProgress: (progress) => {
+    //     console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
+    //     onEvent?.({
+    //       step: 6,
+    //       sessionId: tempSessionId,
+    //       phase: 'contract-registration',
+    //       status: 'progress',
+    //       timestamp: Date.now(),
+    //       message: `VRF registration progress: ${progress.step} - ${progress.message}`
+    //     });
+    //   },
+    // });
+
     contractVerified = contractRegistrationResult.success && !!contractRegistrationResult.verified;
-    contractTransactionId = contractRegistrationResult.transactionId || null;
+    // contractTransactionId = contractRegistrationResult.transactionId || null;
 
     if (contractVerified) {
       onEvent?.({
@@ -564,7 +585,7 @@ async function waitForAccessKey(
   maxRetries: number = 10,
   delayMs: number = 1000
 ): Promise<AccessKeyView> {
-  console.debug(`Waiting for access key to be available for ${nearAccountId}...`);
+  console.log(`Waiting for access key to be available for ${nearAccountId}...`);
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const accessKeyInfo = await nearRpcProvider.viewAccessKey(
@@ -572,10 +593,10 @@ async function waitForAccessKey(
         nearPublicKey,
       ) as AccessKeyView;
 
-      console.debug(`Access key found on attempt ${attempt}`);
+      console.log(`Access key found on attempt ${attempt}`);
       return accessKeyInfo;
     } catch (error: any) {
-      console.debug(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
+      console.log(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
 
       if (attempt === maxRetries) {
         console.error(`Access key still not available after ${maxRetries} attempts`);

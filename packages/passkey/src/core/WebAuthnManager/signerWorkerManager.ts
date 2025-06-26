@@ -381,6 +381,100 @@ export class SignerWorkerManager {
     }
   }
 
+  /**
+   * Actually register user on-chain with transaction (STATE-CHANGING)
+   * This function performs the complete registration transaction including:
+   * 1. Get transaction metadata (nonce, block hash)
+   * 2. Decrypt NEAR keys with PRF
+   * 3. Build and sign registration transaction
+   * 4. Submit transaction to NEAR blockchain
+   */
+  async registerUserOnChain({
+    vrfChallenge,
+    webauthnCredential,
+    contractId,
+    signerAccountId,
+    nearAccountId,
+    publicKeyStr,
+    nearRpcProvider,
+    onProgress,
+  }: {
+    vrfChallenge: VRFChallenge,
+    webauthnCredential: PublicKeyCredential,
+    contractId: string;
+    signerAccountId: string;
+    nearAccountId: string;
+    publicKeyStr: string; // NEAR public key for nonce retrieval
+    nearRpcProvider: any; // NEAR RPC provider for getting transaction metadata
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[] }> {
+    try {
+      console.log('WebAuthnManager: Starting on-chain user registration with transaction');
+
+      // Step 1: Get transaction metadata
+      onProgress?.({
+        step: 'preparation',
+        message: 'Preparing transaction metadata...',
+      });
+
+      if (!publicKeyStr) {
+        throw new Error('Client NEAR public key not provided - cannot get access key nonce');
+      }
+
+      // Get access key and transaction block info concurrently
+      const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
+        nearRpcProvider.viewAccessKey(signerAccountId, publicKeyStr),
+        nearRpcProvider.viewBlock({ finality: 'final' })
+      ]);
+
+      const nonce = accessKeyInfo.nonce + BigInt(1);
+      const blockHashString = transactionBlockInfo.header.hash;
+      // Convert base58 block hash to bytes for WASM
+      const bs58 = (await import('bs58')).default;
+      const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
+
+      console.log('WebAuthnManager: Transaction metadata prepared', {
+        nonce: nonce.toString(),
+        blockHash: blockHashString,
+        blockHashBytesLength: transactionBlockHashBytes.length
+      });
+
+      // Step 2: Execute registration transaction via WASM
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.VERIFY_AND_REGISTER_USER,
+          payload: {
+            vrfChallenge,
+            webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
+            contractId,
+            nearRpcUrl: RPC_NODE_URL,
+            signerAccountId,
+            nearAccountId,
+            nonce: nonce.toString(),
+            blockHashBytes: transactionBlockHashBytes
+          }
+        },
+        onProgress,
+        timeoutMs: 90000 // Extended timeout for transaction processing
+      });
+
+      if (isRegistrationSuccess(response)) {
+        console.log('WebAuthnManager: On-chain user registration transaction successful');
+        return {
+          verified: response.payload.verified,
+          registrationInfo: response.payload.registrationInfo,
+          logs: response.payload.logs
+        };
+      } else {
+        console.error('WebAuthnManager: On-chain user registration transaction failed:', response);
+        throw new Error('On-chain user registration transaction failed');
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: On-chain user registration error:', error);
+      throw error;
+    }
+  }
+
   // === ACTION-BASED SIGNING METHODS ===
 
   /**
