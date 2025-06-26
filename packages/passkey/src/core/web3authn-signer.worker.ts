@@ -15,6 +15,7 @@ import {
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest,
   type RegisterWithPrfRequest,
+  type CheckCanRegisterUserRequest,
   SerializableWebAuthnCredential,
   takePrfOutputFromCredential,
 } from './types/worker.js';
@@ -422,10 +423,10 @@ async function handleRegisterWithPrf(
 
 /**
  * Handle checking if user can register (view function)
- * Calls verify_can_register_user on the contract to check eligibility
+ * Calls check_can_register_user on the contract to check eligibility
  */
 async function handleCheckCanRegisterUser(
-  payload: any // CheckCanRegisterUserRequest['payload']
+  payload: CheckCanRegisterUserRequest['payload']
 ): Promise<void> {
   try {
     const {

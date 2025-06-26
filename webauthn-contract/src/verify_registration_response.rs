@@ -183,7 +183,7 @@ impl WebAuthnContract {
     ///
     /// # Public
     /// This is a public view function that does not modify contract state
-    pub fn verify_can_register_user(
+    pub fn check_can_register_user(
         &self,
         vrf_data: VRFVerificationData,
         webauthn_registration: RegistrationCredential,
