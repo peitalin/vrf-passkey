@@ -276,7 +276,7 @@ async fn test_complete_vrf_user_journey_e2e() -> Result<(), Box<dyn std::error::
 
     // Perform registration
     let reg_result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
             "webauthn_registration": reg_webauthn_data
@@ -490,7 +490,7 @@ async fn test_vrf_public_key_retrieval() -> Result<(), Box<dyn std::error::Error
     let reg_webauthn_data = create_mock_webauthn_registration(&reg_vrf_data.output, rp_id);
 
     let _reg_result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": reg_vrf_data.to_vrf_authentication_data(),
             "webauthn_registration": reg_webauthn_data

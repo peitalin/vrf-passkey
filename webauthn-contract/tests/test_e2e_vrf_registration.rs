@@ -1,7 +1,7 @@
 //! End-to-End VRF WebAuthn Registration Test
 //!
 //! Comprehensive test suite for VRF-based WebAuthn registration flow.
-//! Tests the complete `verify_registration_response` method with:
+//! Tests the complete `verify_and_register_user` method with:
 //! - Real VRF proof generation using vrf-wasm
 //! - Mock WebAuthn registration responses using VRF output as challenge
 //! - Various error scenarios and edge cases
@@ -175,11 +175,11 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
     let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, rp_id);
     println!("\n\nWebAuthn registration data: {:?}\n\n", webauthn_registration);
 
-    println!("📋 Testing successful VRF registration flow...");
+    println!("Testing successful VRF registration flow...");
 
-    // Call verify_registration_response method
+    // Call verify_and_register_user method
     let result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
             "webauthn_registration": webauthn_registration
@@ -189,7 +189,7 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
         .await?;
 
     let registration_result: serde_json::Value = result.json()?;
-    println!("📊 Registration result: {}", serde_json::to_string_pretty(&registration_result)?);
+    println!("Registration result: {}", serde_json::to_string_pretty(&registration_result)?);
 
     // Note: Since we're using mock VRF data, the VRF verification will fail
     // This test validates the structure and flow of the method
@@ -223,7 +223,7 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
 
 #[tokio::test]
 async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing VRF registration with mismatched RP ID...");
+    println!("Testing VRF registration with mismatched RP ID...");
 
     let contract = deploy_test_contract().await?;
 
@@ -239,7 +239,7 @@ async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::E
     let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, webauthn_rp_id);
 
     let result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
             "webauthn_registration": webauthn_registration
@@ -259,7 +259,7 @@ async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::E
 
 #[tokio::test]
 async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing VRF registration with corrupted proof...");
+    println!("Testing VRF registration with corrupted proof...");
 
     let contract = deploy_test_contract().await?;
 
@@ -276,7 +276,7 @@ async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::erro
     let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, rp_id);
 
     let result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": {
                 "vrf_input_data": vrf_data.input_data,
@@ -305,7 +305,7 @@ async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::erro
 
 #[tokio::test]
 async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing VRF registration with challenge mismatch...");
+    println!("Testing VRF registration with challenge mismatch...");
 
     let contract = deploy_test_contract().await?;
 
@@ -320,7 +320,7 @@ async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::e
     let webauthn_registration = create_mock_webauthn_registration(&wrong_challenge, rp_id);
 
     let result = contract
-        .call("verify_registration_response")
+        .call("verify_and_register_user")
         .args_json(json!({
             "vrf_data": vrf_data.to_vrf_verification_data(),
             "webauthn_registration": webauthn_registration
@@ -340,7 +340,7 @@ async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::e
 
 #[tokio::test]
 async fn test_vrf_registration_input_construction_validation() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing VRF input construction format validation...");
+    println!("Testing VRF input construction format validation...");
 
     // Test different input constructions to ensure they produce different outputs
     let rp_id1 = "example.com";
@@ -368,7 +368,7 @@ async fn test_vrf_registration_input_construction_validation() -> Result<(), Box
 
 #[tokio::test]
 async fn test_vrf_data_structure_serialization() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing VRF data structure serialization...");
+    println!("Testing VRF data structure serialization...");
 
     let rp_id = "example.com";
     let user_id = "test_user";
@@ -418,7 +418,7 @@ async fn test_vrf_data_structure_serialization() -> Result<(), Box<dyn std::erro
 }
 
 async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn std::error::Error>> {
-    println!("🚀 Deploying test contract for VRF registration...");
+    println!("Deploying test contract for VRF registration...");
 
     let contract_wasm = near_workspaces::compile_project("./").await?;
     let sandbox = near_workspaces::sandbox().await?;
@@ -438,7 +438,7 @@ async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn std
 
 #[tokio::test]
 async fn test_vrf_registration_deterministic_generation() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 Testing deterministic VRF generation for registration...");
+    println!("Testing deterministic VRF generation for registration...");
 
     let rp_id = "example.com";
     let user_id = "test_user";

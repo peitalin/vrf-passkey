@@ -1,4 +1,67 @@
 
+// WebAuthn Authentication verification type (equivalent to @simplewebauthn/server types)
+// Differs from RegistrationCredential in the "response" field
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug, Clone)]
+pub struct AuthenticationCredential {
+    pub id: String, // Base64URL credential ID
+    #[serde(rename = "rawId")]
+    pub raw_id: String, // Base64URL credential ID
+    pub response: AuthenticatorAssertionResponse,
+    #[serde(rename = "authenticatorAttachment", skip_serializing_if = "Option::is_none")]
+    pub authenticator_attachment: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: String, // Should be "public-key"
+    #[serde(
+        rename = "clientExtensionResults",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[borsh(skip)]
+    pub client_extension_results: Option<serde_json::Value>,
+}
+
+// WebAuthn Registration credential (equivalent to @simplewebauthn/server types)
+// Differs from AuthenticationCredential in the "response" field
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug, Clone)]
+pub struct RegistrationCredential {
+    pub id: String, // Base64URL credential ID
+    #[serde(rename = "rawId")]
+    pub raw_id: String, // Base64URL credential ID
+    pub response: AttestationResponse,
+    #[serde(rename = "authenticatorAttachment", skip_serializing_if = "Option::is_none")]
+    pub authenticator_attachment: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: String, // Should be "public-key"
+    #[serde(
+        rename = "clientExtensionResults",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[borsh(skip)]
+    pub client_extension_results: Option<serde_json::Value>,
+}
+
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug, Clone)]
+pub struct AuthenticatorAssertionResponse {
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String, // Base64URL encoded
+    #[serde(rename = "authenticatorData")]
+    pub authenticator_data: String, // Base64URL encoded
+    pub signature: String, // Base64URL encoded
+    #[serde(rename = "userHandle", skip_serializing_if = "Option::is_none")]
+    pub user_handle: Option<String>, // Base64URL encoded
+}
+
+#[near_sdk::near(serializers = [json, borsh])]
+#[derive(Debug, Clone)]
+pub struct AttestationResponse {
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String,
+    #[serde(rename = "attestationObject")]
+    pub attestation_object: String,
+    pub transports: Option<Vec<String>>,
+}
 
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone, PartialEq)]

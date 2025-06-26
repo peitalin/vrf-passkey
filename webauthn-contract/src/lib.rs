@@ -15,24 +15,25 @@ pub use types::{
     AuthenticationOptionsJSON,
 };
 pub use types::{
-    RegistrationOptionsJSON,
     AuthenticatorTransport,
+    RegistrationOptionsJSON,
+    RegistrationCredential,
+    AuthenticationCredential,
+    AuthenticatorAssertionResponse,
+    AttestationResponse,
 };
 pub use authenticators::{
     StoredAuthenticator,
     UserProfile,
 };
 pub use verify_registration_response::{
-    VerifiedRegistrationResponse,
-    WebauthnRegistration,
-    AttestationResponse,
+    VerifyRegistrationResponse,
+    VerifyCanRegisterResponse,
     UserVerificationRequirement,
     VRFVerificationData,
 };
 pub use verify_authentication_response::{
     VerifiedAuthenticationResponse,
-    WebauthnAuthentication,
-    AuthenticatorAssertionResponse,
     AuthenticatorDevice,
     VRFAuthenticationData,
 };
@@ -210,7 +211,7 @@ mod tests {
 
 
     /// Create a valid mock WebAuthn registration response
-    fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> WebauthnRegistration {
+    fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> RegistrationCredential {
         let client_data = format!(
             r#"{{"type":"webauthn.create","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
             challenge_b64
@@ -261,7 +262,7 @@ mod tests {
         let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
         let attestation_object_b64 = BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-        WebauthnRegistration {
+        RegistrationCredential {
             id: "test_vrf_credential".to_string(),
             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
             response: AttestationResponse {
@@ -276,7 +277,7 @@ mod tests {
     }
 
     /// Create a valid mock WebAuthn authentication response
-    fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> WebauthnAuthentication {
+    fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> AuthenticationCredential {
         let client_data = format!(
             r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
             challenge_b64
@@ -292,7 +293,7 @@ mod tests {
 
         let auth_data_b64 = BASE64_URL_ENGINE.encode(&auth_data);
 
-        WebauthnAuthentication {
+        AuthenticationCredential {
             id: "test_vrf_credential".to_string(),
             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
             response: AuthenticatorAssertionResponse {

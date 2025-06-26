@@ -9,6 +9,8 @@ use crate::utils::{
 };
 use crate::types::{
     AuthenticatorTransport,
+    AuthenticatorAssertionResponse,
+    AuthenticationCredential,
 };
 use crate::verify_registration_response::ClientDataJSON;
 
@@ -40,38 +42,6 @@ pub struct VRFAuthenticationData {
     /// NOTE: NEAR contracts cannot access historical block hashes, so this is used
     /// purely for additional entropy in the VRF input construction
     pub block_hash: Vec<u8>,
-}
-
-// WebAuthn Authentication verification type (equivalent to @simplewebauthn/server types)
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug, Clone)]
-pub struct WebauthnAuthentication {
-    pub id: String, // Base64URL credential ID
-    #[serde(rename = "rawId")]
-    pub raw_id: String, // Base64URL credential ID
-    pub response: AuthenticatorAssertionResponse,
-    #[serde(rename = "authenticatorAttachment", skip_serializing_if = "Option::is_none")]
-    pub authenticator_attachment: Option<String>,
-    #[serde(rename = "type")]
-    pub type_: String, // Should be "public-key"
-    #[serde(
-        rename = "clientExtensionResults",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[borsh(skip)]
-    pub client_extension_results: Option<serde_json::Value>,
-}
-
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug, Clone)]
-pub struct AuthenticatorAssertionResponse {
-    #[serde(rename = "clientDataJSON")]
-    pub client_data_json: String, // Base64URL encoded
-    #[serde(rename = "authenticatorData")]
-    pub authenticator_data: String, // Base64URL encoded
-    pub signature: String, // Base64URL encoded
-    #[serde(rename = "userHandle", skip_serializing_if = "Option::is_none")]
-    pub user_handle: Option<String>, // Base64URL encoded
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
@@ -124,10 +94,20 @@ impl WebAuthnContract {
 
     /// VRF Authentication - Subsequent logins (stateless, view-only)
     /// Verifies VRF proof + WebAuthn authentication using stored credentials
+    ///
+    /// # Arguments
+    /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
+    /// * `webauthn_authentication` - WebAuthn authentication credential from authenticator
+    ///
+    /// # Returns
+    /// * `VerifiedAuthenticationResponse` - Contains verification status and authentication info
+    ///
+    /// # Public
+    /// This is a public view function that does not modify contract state
     pub fn verify_authentication_response(
         &self,
         vrf_data: VRFAuthenticationData,
-        webauthn_authentication: WebauthnAuthentication,
+        webauthn_authentication: AuthenticationCredential,
     ) -> VerifiedAuthenticationResponse {
         log!("VRF Authentication: Verifying VRF proof + WebAuthn authentication");
         log!("  - User ID: {}", vrf_data.user_id);
@@ -289,7 +269,7 @@ impl WebAuthnContract {
     #[private]
     pub fn internal_verify_authentication_response(
         &self,
-        response: WebauthnAuthentication,
+        response: AuthenticationCredential,
         expected_challenge: String,
         expected_origin: String,
         expected_rp_id: String,
@@ -494,7 +474,7 @@ impl WebAuthnContract {
     /// Supports multiple origins/RP IDs, token binding, and comprehensive validation
     pub fn internal_verify_authentication_response_enhanced(
         &mut self,
-        response: WebauthnAuthentication,
+        response: AuthenticationCredential,
         expected_challenges: Vec<String>,
         expected_origins: Vec<String>,
         expected_rp_ids: Vec<String>,
@@ -683,7 +663,7 @@ impl WebAuthnContract {
     /// Validate authentication inputs with comprehensive checks
     fn validate_authentication_inputs(
         &self,
-        response: &WebauthnAuthentication,
+        response: &AuthenticationCredential,
         _context: &ValidationContext,
     ) -> ValidationResult<()> {
         // Validate credential ID format
@@ -820,7 +800,7 @@ mod tests {
     }
 
     /// Create a mock WebAuthn authentication response using VRF challenge
-    fn create_mock_webauthn_authentication_with_vrf_challenge(vrf_output: &[u8]) -> WebauthnAuthentication {
+    fn create_mock_webauthn_authentication_with_vrf_challenge(vrf_output: &[u8]) -> AuthenticationCredential {
         // Use first 32 bytes of VRF output as WebAuthn challenge
         let webauthn_challenge = &vrf_output[0..32];
         let challenge_b64 = TEST_BASE64_URL_ENGINE.encode(webauthn_challenge);
@@ -840,7 +820,7 @@ mod tests {
 
         let auth_data_b64 = TEST_BASE64_URL_ENGINE.encode(&auth_data);
 
-        WebauthnAuthentication {
+        AuthenticationCredential {
             id: "test_vrf_credential_id_123".to_string(),
             raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_vrf_credential_id_123"),
             response: AuthenticatorAssertionResponse {
