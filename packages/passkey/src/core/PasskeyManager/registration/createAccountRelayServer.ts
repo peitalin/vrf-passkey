@@ -7,15 +7,13 @@ import { RegistrationSSEEvent } from '../../types/passkeyManager';
  * @param publicKey - The user's public key for the new account
  * @param serverUrl - The relayer server URL
  * @param onEvent - Event callback for progress updates
- * @param tempSessionId - Session ID for event tracking
  * @returns Promise with success status and details
  */
 export async function createAccountRelayServer(
   nearAccountId: string,
   publicKey: string,
   serverUrl: string,
-  onEvent?: (event: RegistrationSSEEvent) => void,
-  tempSessionId?: string
+  onEvent?: (event: RegistrationSSEEvent) => void
 ): Promise<{ success: boolean; message: string; transactionId?: string; error?: string }> {
   try {
     console.log('Creating NEAR account via relay server SSE');
@@ -94,7 +92,6 @@ export async function createAccountRelayServer(
                     // Forward registration SSE events with proper structure
                     onEvent?.({
                       step: data.step,
-                      sessionId: data.sessionId || tempSessionId || 'unknown',
                       phase: data.phase,
                       status: data.status,
                       timestamp: data.timestamp || Date.now(),
@@ -133,7 +130,6 @@ export async function createAccountRelayServer(
 
     onEvent?.({
       step: 0,
-      sessionId: tempSessionId || 'unknown',
       phase: 'registration-error',
       status: 'error',
       timestamp: Date.now(),

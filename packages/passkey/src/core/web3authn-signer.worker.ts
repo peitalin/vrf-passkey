@@ -18,7 +18,12 @@ import {
   type SignVerifyAndRegisterUserRequest,
   SerializableWebAuthnCredential,
   takePrfOutputFromCredential,
+  ProgressMessageType,
+  ProgressStep,
+  type ProgressMessageParams,
+  type WorkerProgressMessage,
 } from './types/worker.js';
+import type { onProgressEvents } from './types/webauthn.js';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
 import { bufferEncode } from '../utils/encoders.js';
 
@@ -54,32 +59,107 @@ const {
 /**
  * Function called by WASM to send progress messages
  * This is imported into the WASM module as sendProgressMessage
+ *
+ * Enhanced version that supports logs and creates consistent onProgressEvents output
+ *
+ * @param messageType - Type of message (e.g., 'VERIFICATION_PROGRESS', 'SIGNING_COMPLETE')
+ * @param step - Step identifier (e.g., 'contract_verification', 'transaction_signing')
+ * @param message - Human-readable progress message
+ * @param data - JSON string containing structured data
+ * @param logs - Optional JSON string containing array of log messages
  */
-function sendProgressMessage(messageType: string, step: string, message: string, data: string): void {
+function sendProgressMessage(
+  messageType: ProgressMessageType | string,
+  step: ProgressStep | string,
+  message: string,
+  data: string,
+  logs?: string
+): void {
   console.log(`[wasm-progress]: ${messageType} - ${step}: ${message}`);
 
   // Parse data if provided
-  const parsedData = data ? JSON.parse(data) : undefined;
+  let parsedData: any = undefined;
+  let parsedLogs: string[] = [];
 
-  // Create the base payload
-  const payload: any = {
-    step: step,
-    message: message,
-    data: parsedData
+  try {
+    if (data) {
+      parsedData = JSON.parse(data);
+      // Extract logs from data if present (for backward compatibility)
+      if (parsedData && Array.isArray(parsedData.logs)) {
+        parsedLogs = parsedData.logs;
+      }
+    }
+  } catch (e) {
+    console.warn('[wasm-progress]: Failed to parse data as JSON:', data);
+    parsedData = data; // Fallback to raw string
+  }
+
+  // Parse logs parameter if provided (takes precedence over logs in data)
+  if (logs) {
+    try {
+      const logsArray = JSON.parse(logs);
+      if (Array.isArray(logsArray)) {
+        parsedLogs = logsArray;
+      } else {
+        parsedLogs = [logs]; // Single log message
+      }
+    } catch (e) {
+      parsedLogs = [logs]; // Fallback to single string
+    }
+  }
+
+  // Map step strings to numbers for consistency with BaseSSEActionEvent
+  const stepMap: Record<ProgressStep | string, number> = {
+    [ProgressStep.PREPARATION]: 1,
+    [ProgressStep.AUTHENTICATION]: 2,
+    [ProgressStep.CONTRACT_VERIFICATION]: 3,
+    [ProgressStep.TRANSACTION_SIGNING]: 4,
+    [ProgressStep.BROADCASTING]: 5,
+    [ProgressStep.VERIFICATION_COMPLETE]: 3,
+    [ProgressStep.SIGNING_COMPLETE]: 6,
   };
 
-  // Handle specific message type payload formats to match caller expectations
+  // Map step strings to phase names
+  const phaseMap: Record<ProgressStep | string, onProgressEvents['phase']> = {
+    [ProgressStep.PREPARATION]: 'preparation',
+    [ProgressStep.AUTHENTICATION]: 'authentication',
+    [ProgressStep.CONTRACT_VERIFICATION]: 'contract-verification',
+    [ProgressStep.TRANSACTION_SIGNING]: 'transaction-signing',
+    [ProgressStep.BROADCASTING]: 'broadcasting',
+    [ProgressStep.VERIFICATION_COMPLETE]: 'contract-verification',
+    [ProgressStep.SIGNING_COMPLETE]: 'action-complete',
+  };
+
+  // Determine status from messageType
+  let status: 'progress' | 'success' | 'error' = 'progress';
+  if (messageType.includes('COMPLETE')) {
+    status = parsedData?.success === false ? 'error' : 'success';
+  } else if (messageType.includes('ERROR') || messageType.includes('FAILURE')) {
+    status = 'error';
+  }
+
+  // Create consolidated payload that works for both new and legacy callers
+  const payload: any = {
+    // New onProgressEvents-compatible fields
+    step: stepMap[step] || 1,
+    phase: phaseMap[step] || 'preparation',
+    status,
+    message: message,
+    data: parsedData,
+    logs: parsedLogs.length > 0 ? parsedLogs : undefined
+  };
+
+  // Add legacy fields for backward compatibility
   if (messageType === 'VERIFICATION_COMPLETE' && parsedData) {
-    // Caller expects: payload.success, payload.logs, payload.error
+    // Legacy callers expect: payload.success, payload.error
     payload.success = parsedData.success;
-    payload.logs = parsedData.logs;
     payload.error = parsedData.error;
   } else if (messageType === 'SIGNING_COMPLETE') {
-    // Caller expects: payload.success = true, payload.data = { signedTransactionBorsh, verificationLogs }
+    // Legacy callers expect: payload.success = true
     payload.success = true;
   }
 
-  // Send progress message to main thread
+  // Send single consolidated message
   self.postMessage({
     type: messageType,
     payload: payload
@@ -87,6 +167,7 @@ function sendProgressMessage(messageType: string, step: string, message: string,
 }
 
 // Make sendProgressMessage available globally for WASM imports
+// This function now supports the onProgressEvents interface
 (globalThis as any).sendProgressMessage = sendProgressMessage;
 
 

@@ -16,14 +16,15 @@ import {
   isCoseValidationSuccess,
   isRegistrationSuccess,
   validateActionParams,
-  ActionType,
   serializeCredentialAndCreatePRF,
   serializeRegistrationCredentialAndCreatePRF,
 } from '../types/worker';
+import { ActionType } from '../types';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
 import { RPC_NODE_URL } from "../../config";
+import type { onProgressEvents } from '../types/webauthn';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -70,11 +71,11 @@ export class SignerWorkerManager {
    */
   private async executeWorkerOperation({
     message,
-    onProgress,
+    onEvent,
     timeoutMs = 30_000 // 30s
   }: {
     message: Record<string, any>,
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void,
+    onEvent?: (update: onProgressEvents) => void,
     timeoutMs?: number
   }): Promise<WorkerResponse> {
 
@@ -97,24 +98,15 @@ export class SignerWorkerManager {
         if (response.type === WorkerResponseType.VERIFICATION_PROGRESS ||
             response.type === WorkerResponseType.SIGNING_PROGRESS ||
             response.type === WorkerResponseType.REGISTRATION_PROGRESS) {
-          onProgress?.({
-            step: (response as any).payload.step,
-            message: (response as any).payload.message,
-            data: (response as any).payload.data,
-            logs: (response as any).payload.logs
-          });
+          const payload = (response as any).payload;
+          onEvent?.(payload);
           return; // Continue listening for more messages
         }
 
         // Handle completion messages
         if (response.type === WorkerResponseType.VERIFICATION_COMPLETE) {
           const verificationResult = (response as any).payload;
-          onProgress?.({
-            step: 'verification_complete',
-            message: verificationResult.success ? 'Contract verification successful' : 'Contract verification failed',
-            data: verificationResult.data,
-            logs: verificationResult.logs
-          });
+          onEvent?.(verificationResult);
 
           if (!verificationResult.success) {
             clearTimeout(timeoutId);
@@ -337,12 +329,12 @@ export class SignerWorkerManager {
     vrfChallenge,
     webauthnCredential,
     contractId,
-    onProgress,
+    onEvent,
   }: {
     vrfChallenge: VRFChallenge,
     webauthnCredential: PublicKeyCredential,
     contractId: string;
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
     verified?: boolean;
@@ -364,7 +356,7 @@ export class SignerWorkerManager {
             nearRpcUrl: RPC_NODE_URL
           }
         },
-        onProgress,
+        onEvent,
         timeoutMs: 60000 // Longer timeout for contract verification
       });
 
@@ -409,7 +401,7 @@ export class SignerWorkerManager {
     nearAccountId,
     publicKeyStr,
     nearRpcProvider,
-    onProgress,
+    onEvent,
   }: {
     vrfChallenge: VRFChallenge,
     webauthnCredential: PublicKeyCredential,
@@ -418,14 +410,16 @@ export class SignerWorkerManager {
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
     nearRpcProvider: any; // NEAR RPC provider for getting transaction metadata
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[]; signedTransactionBorsh?: number[] }> {
     try {
       console.log('WebAuthnManager: Starting on-chain user registration with transaction');
 
       // Step 1: Get transaction metadata
-      onProgress?.({
-        step: 'preparation',
+      onEvent?.({
+        step: 1,
+        phase: 'preparation',
+        status: 'progress',
         message: 'Preparing transaction metadata...',
       });
 
@@ -466,7 +460,7 @@ export class SignerWorkerManager {
             blockHashBytes: transactionBlockHashBytes
           }
         },
-        onProgress,
+        onEvent,
         timeoutMs: 90000 // Extended timeout for transaction processing
       });
 
@@ -506,7 +500,7 @@ export class SignerWorkerManager {
       vrfChallenge: VRFChallenge;
       webauthnCredential: PublicKeyCredential;
     },
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
     try {
       console.log('WebAuthnManager: Starting enhanced transaction signing with verification');
@@ -536,7 +530,7 @@ export class SignerWorkerManager {
             nearRpcUrl: RPC_NODE_URL
           }
         },
-        onProgress, // onProgress callback for wasm-worker events
+        onEvent, // onEvent callback for wasm-worker events
         timeoutMs: 60000 // Longer timeout for contract verification + signing
       });
 
@@ -573,7 +567,7 @@ export class SignerWorkerManager {
       vrfChallenge: VRFChallenge;
       webauthnCredential: PublicKeyCredential;
     },
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
     try {
       console.log('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
@@ -601,7 +595,7 @@ export class SignerWorkerManager {
             nearRpcUrl: RPC_NODE_URL
           }
         },
-        onProgress, // onProgress callback for wasm-worker events
+        onEvent, // onEvent callback for wasm-worker events
         timeoutMs: 60000 // Longer timeout for contract verification + signing
       });
 

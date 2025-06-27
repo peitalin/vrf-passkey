@@ -67,7 +67,6 @@ export class WebAuthnManager {
     vrfInputParams: {
       userId: string;
       rpId: string;
-      sessionId: string;
       blockHeight: number;
       blockHashBytes: number[];
       timestamp: number;
@@ -262,11 +261,11 @@ export class WebAuthnManager {
       vrfChallenge: VRFChallenge;
       webauthnCredential: PublicKeyCredential;
     },
-    onProgress?: (update: onProgressEvents) => void
+    onEvent?: (update: onProgressEvents) => void
   ): Promise<VerifyAndSignTransactionResult> {
     return await this.signerWorkerManager.signTransferTransaction(
       payload,
-      onProgress
+      onEvent
     );
   }
 
@@ -286,7 +285,7 @@ export class WebAuthnManager {
    *   - contractId: Web3Authn contract ID for verification
    *   - vrfChallenge: VRF challenge used in authentication
    *   - webauthnCredential: WebAuthn credential from TouchID prompt
-   * @param onProgress - Optional callback for progress updates during signing
+   * @param onEvent - Optional callback for progress updates during signing
    */
   async signTransactionWithActions(
     payload: {
@@ -300,11 +299,11 @@ export class WebAuthnManager {
       vrfChallenge: VRFChallenge;
       webauthnCredential: PublicKeyCredential;
     },
-    onProgress?: (update: onProgressEvents) => void
+    onEvent?: (update: onProgressEvents) => void
   ): Promise<VerifyAndSignTransactionResult> {
     return await this.signerWorkerManager.signTransactionWithActions(
       payload,
-      onProgress
+      onEvent
     );
   }
 
@@ -325,12 +324,12 @@ export class WebAuthnManager {
     contractId,
     webauthnCredential,
     vrfChallenge,
-    onProgress,
+    onEvent,
   }: {
     contractId: string,
     webauthnCredential: PublicKeyCredential,
     vrfChallenge: VRFChallenge,
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
     verified?: boolean;
@@ -343,7 +342,7 @@ export class WebAuthnManager {
       contractId,
       webauthnCredential,
       vrfChallenge,
-      onProgress,
+      onEvent,
     });
   }
 
@@ -359,7 +358,7 @@ export class WebAuthnManager {
     nearAccountId,
     publicKeyStr,
     nearRpcProvider,
-    onProgress,
+    onEvent,
   }: {
     contractId: string,
     webauthnCredential: PublicKeyCredential,
@@ -368,7 +367,7 @@ export class WebAuthnManager {
     nearAccountId: string;
     publicKeyStr: string;
     nearRpcProvider: any;
-    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+    onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
     verified?: boolean;
@@ -386,7 +385,7 @@ export class WebAuthnManager {
         nearAccountId,
         publicKeyStr,
         nearRpcProvider,
-        onProgress,
+        onEvent,
       });
 
       console.debug("On-chain registration completed:", registrationResult);

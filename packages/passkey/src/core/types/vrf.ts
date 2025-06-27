@@ -17,7 +17,6 @@ export interface EncryptedVRFData {
 export interface VRFInputData {
   userId: string;
   rpId: string;
-  sessionId: string;
   blockHeight: number;
   blockHash: Uint8Array;
   timestamp: number;

@@ -10,16 +10,26 @@ export interface OperationHooks {
   ) => void | Promise<void>;
 }
 
-// SSE Registration Event Types
-export interface BaseSSERegistrationEvent {
+// Base SSE Event Types (unified for Registration and Actions)
+export interface BaseSSEEvent {
   step: number;
-  sessionId: string;
   phase: string;
   status: 'progress' | 'success' | 'error';
   timestamp: number;
   message: string;
 }
 
+// Registration-specific events
+export interface BaseSSERegistrationEvent extends BaseSSEEvent {
+  phase: 'webauthn-verification' | 'user-ready' | 'access-key-addition' | 'account-verification' | 'database-storage' | 'contract-registration' | 'registration-complete' | 'registration-error';
+}
+
+// Action-specific events
+export interface BaseSSEActionEvent extends BaseSSEEvent {
+  phase: 'preparation' | 'authentication' | 'contract-verification' | 'transaction-signing' | 'broadcasting' | 'action-complete' | 'action-error';
+}
+
+// Registration Event Types
 export interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
   step: 1;
   phase: 'webauthn-verification';
@@ -48,22 +58,21 @@ export interface AccountVerificationSSEEvent extends BaseSSERegistrationEvent {
 }
 
 export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
-  step: 4 | 5;
+  step: 5;
   phase: 'database-storage';
   error?: string;
 }
 
 export interface ContractRegistrationSSEEvent extends BaseSSERegistrationEvent {
-  step: 5 | 6;
+  step: 6;
   phase: 'contract-registration';
   error?: string;
 }
 
 export interface RegistrationCompleteSSEEvent extends BaseSSERegistrationEvent {
-  step: 6 | 7;
+  step: 7;
   phase: 'registration-complete';
   status: 'success';
-  sessionId: string;
 }
 
 export interface RegistrationErrorSSEEvent extends BaseSSERegistrationEvent {
@@ -83,13 +92,67 @@ export type RegistrationSSEEvent =
   | RegistrationCompleteSSEEvent
   | RegistrationErrorSSEEvent;
 
-// Login Events
+// Action Event Types
+export interface ActionPreparationSSEEvent extends BaseSSEActionEvent {
+  step: 1;
+  phase: 'preparation';
+}
+
+export interface ActionAuthenticationSSEEvent extends BaseSSEActionEvent {
+  step: 2;
+  phase: 'authentication';
+}
+
+export interface ActionContractVerificationSSEEvent extends BaseSSEActionEvent {
+  step: 3;
+  phase: 'contract-verification';
+  data?: any;
+  logs?: string[];
+}
+
+export interface ActionTransactionSigningSSEEvent extends BaseSSEActionEvent {
+  step: 4;
+  phase: 'transaction-signing';
+  data?: any;
+  logs?: string[];
+}
+
+export interface ActionBroadcastingSSEEvent extends BaseSSEActionEvent {
+  step: 5;
+  phase: 'broadcasting';
+}
+
+export interface ActionCompleteSSEEvent extends BaseSSEActionEvent {
+  step: 6;
+  phase: 'action-complete';
+  status: 'success';
+  data?: any;
+}
+
+export interface ActionErrorSSEEvent extends BaseSSEActionEvent {
+  step: 0;
+  phase: 'action-error';
+  status: 'error';
+  error: string;
+}
+
+export type ActionSSEEvent =
+  | ActionPreparationSSEEvent
+  | ActionAuthenticationSSEEvent
+  | ActionContractVerificationSSEEvent
+  | ActionTransactionSigningSSEEvent
+  | ActionBroadcastingSSEEvent
+  | ActionCompleteSSEEvent
+  | ActionErrorSSEEvent;
+
+// Login Events (keeping existing structure but with step as number for consistency)
 export interface LoginStartedEvent {
   nearAccountId?: string;
 }
 
 export interface LoginProgressEvent {
-  step: 'getting-options' | 'webauthn-assertion' | 'verifying-server';
+  step: number;
+  phase: 'getting-options' | 'webauthn-assertion' | 'verifying-server';
   message: string;
 }
 
@@ -109,7 +172,7 @@ export type LoginEvent =
   | { type: 'loginCompleted'; data: LoginCompletedEvent }
   | { type: 'loginFailed'; data: LoginFailedEvent };
 
-// Action Events
+// Legacy Action Events (for backward compatibility - to be deprecated)
 export interface ActionStartedEvent {
   actionType: string;
   receiverId: string;

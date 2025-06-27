@@ -15,7 +15,7 @@ import type {
   ActionOptions,
   ActionResult
 } from '../types/passkeyManager';
-import type { SerializableActionArgs } from '../types';
+import type { ActionArgs } from '../types';
 
 // See default finality settings
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
@@ -29,7 +29,6 @@ export class PasskeyManager {
   private webAuthnManager: WebAuthnManager;
   private nearRpcProvider: Provider;
   private config: PasskeyManagerConfig;
-  private vrfInitializationPromise: Promise<void> | null = null;
 
   constructor(
     config: PasskeyManagerConfig,
@@ -38,12 +37,12 @@ export class PasskeyManager {
     this.config = config;
     this.nearRpcProvider = nearRpcProvider;
     this.webAuthnManager = new WebAuthnManager();
-    // Initialize VRF Web Worker automatically in the background
-    this.vrfInitializationPromise = this.initializeVrfWorkerManager();
+    // Initialize VRF Worker in the background
+    this.initializeVrfWorkerManager();
   }
 
   /**
-   * Internal VRF Web Worker initialization that runs automatically
+   * Internal VRF Worker initialization that runs automatically
    * This abstracts VRF implementation details away from users
    */
   private async initializeVrfWorkerManager(): Promise<void> {
@@ -103,11 +102,31 @@ export class PasskeyManager {
   }
 
   /**
-   * Execute a blockchain action/transaction
+   * Execute a blockchain action/transaction using the new user-friendly API
+   *
+   * @example
+   * ```typescript
+   * // Function call
+   * await passkeyManager.executeAction('alice.near', {
+   *   type: 'FunctionCall',
+   *   receiverId: 'contract.near',
+   *   methodName: 'set_greeting',
+   *   args: { message: 'Hello World!' },
+   *   gas: '30000000000000',
+   *   deposit: '0'
+   * });
+   *
+   * // Transfer
+   * await passkeyManager.executeAction('alice.near', {
+   *   type: 'Transfer',
+   *   receiverId: 'bob.near',
+   *   amount: '1000000000000000000000000' // 1 NEAR
+   * });
+   * ```
    */
   async executeAction(
     nearAccountId: string,
-    actionArgs: SerializableActionArgs,
+    actionArgs: ActionArgs,
     options?: ActionOptions
   ): Promise<ActionResult> {
     if (!this.nearRpcProvider) {

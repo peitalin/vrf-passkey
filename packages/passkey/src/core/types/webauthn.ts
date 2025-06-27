@@ -1,11 +1,14 @@
 import { base64UrlDecode } from "../../utils/encoders";
+import type { BaseSSEActionEvent } from './passkeyManager';
 
 // =================================================================
 // 0. CORE WEBAUTHN & BROWSER-API TYPES
 // =================================================================
 
-export interface onProgressEvents {
-  step: string;
+export interface onProgressEvents extends Omit<BaseSSEActionEvent, 'timestamp'> {
+  step: number;
+  phase: 'preparation' | 'authentication' | 'contract-verification' | 'transaction-signing' | 'broadcasting' | 'action-complete' | 'action-error';
+  status: 'progress' | 'success' | 'error';
   message: string;
   data?: any;
   logs?: string[];

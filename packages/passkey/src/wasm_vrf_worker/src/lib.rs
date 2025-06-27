@@ -53,7 +53,6 @@ pub struct EncryptedVRFData {
 pub struct VRFInputData {
     pub user_id: String,
     pub rp_id: String,
-    pub session_id: String,
     pub block_height: u64,
     pub block_hash: Vec<u8>,
     pub timestamp: Option<u64>,
@@ -254,7 +253,6 @@ impl VRFKeyManager {
         console::log_1(&"VRF WASM Web Worker: Generating VRF challenge".into());
         console::log_1(&format!("  - User ID: {}", input_data.user_id).into());
         console::log_1(&format!("  - RP ID: {}", input_data.rp_id).into());
-        console::log_1(&format!("  - Session ID: {}", input_data.session_id).into());
         console::log_1(&format!("  - Block Height: {}", input_data.block_height).into());
 
         let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
@@ -263,7 +261,6 @@ impl VRFKeyManager {
         let domain_separator = b"web_authn_challenge_v1";
         let user_id_bytes = input_data.user_id.as_bytes();
         let rp_id_bytes = input_data.rp_id.as_bytes();
-        let session_id_bytes = input_data.session_id.as_bytes();
         let block_height_bytes = input_data.block_height.to_le_bytes();
         let timestamp = input_data.timestamp.unwrap_or_else(|| js_sys::Date::now() as u64);
         let timestamp_bytes = timestamp.to_le_bytes();
@@ -273,7 +270,6 @@ impl VRFKeyManager {
         vrf_input_data.extend_from_slice(domain_separator);
         vrf_input_data.extend_from_slice(user_id_bytes);
         vrf_input_data.extend_from_slice(rp_id_bytes);
-        vrf_input_data.extend_from_slice(session_id_bytes);
         vrf_input_data.extend_from_slice(&block_height_bytes);
         vrf_input_data.extend_from_slice(&input_data.block_hash);
         vrf_input_data.extend_from_slice(&timestamp_bytes);
@@ -308,14 +304,12 @@ impl VRFKeyManager {
         console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using provided keypair".into());
         console::log_1(&format!("  - User ID: {}", input_data.user_id).into());
         console::log_1(&format!("  - RP ID: {}", input_data.rp_id).into());
-        console::log_1(&format!("  - Session ID: {}", input_data.session_id).into());
         console::log_1(&format!("  - Block Height: {}", input_data.block_height).into());
 
         // Construct VRF input according to specification from the contract test
         let domain_separator = b"web_authn_challenge_v1";
         let user_id_bytes = input_data.user_id.as_bytes();
         let rp_id_bytes = input_data.rp_id.as_bytes();
-        let session_id_bytes = input_data.session_id.as_bytes();
         let block_height_bytes = input_data.block_height.to_le_bytes();
         let timestamp = input_data.timestamp.unwrap_or_else(|| js_sys::Date::now() as u64);
         let timestamp_bytes = timestamp.to_le_bytes();
@@ -325,7 +319,6 @@ impl VRFKeyManager {
         vrf_input_data.extend_from_slice(domain_separator);
         vrf_input_data.extend_from_slice(user_id_bytes);
         vrf_input_data.extend_from_slice(rp_id_bytes);
-        vrf_input_data.extend_from_slice(session_id_bytes);
         vrf_input_data.extend_from_slice(&block_height_bytes);
         vrf_input_data.extend_from_slice(&input_data.block_hash);
         vrf_input_data.extend_from_slice(&timestamp_bytes);

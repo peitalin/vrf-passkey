@@ -3,13 +3,14 @@ import type { AccessKeyView } from '@near-js/types';
 import { TxExecutionStatus } from '@near-js/types';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
-import type { SerializableActionArgs } from '../types';
+import { ActionParams } from '../types/worker';
+import { VerifyAndSignTransactionResult } from '../types/webauthn';
+import { ActionType } from '../types';
+import type { ActionArgs } from '../types';
 import type { NearRpcCallParams } from '../types';
 import type { PasskeyManager } from './index';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { ClientUserData } from '../IndexedDBManager';
-import { ActionParams, ActionType } from '../types/worker';
-import { VerifyAndSignTransactionResult } from '../types/webauthn';
 
 // See default finality settings:
 // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
@@ -59,7 +60,7 @@ interface RpcResponse {
 export async function executeAction(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
-  actionArgs: SerializableActionArgs,
+  actionArgs: ActionArgs,
   options?: ActionOptions,
 ): Promise<ActionResult> {
 
@@ -69,8 +70,8 @@ export async function executeAction(
   onEvent?.({
     type: 'actionStarted',
     data: {
-      actionType: actionArgs.method_name || actionArgs.action_type,
-      receiverId: actionArgs.receiver_id || 'unknown'
+      actionType: actionArgs.type,
+      receiverId: actionArgs.receiverId
     }
   });
 
@@ -95,7 +96,7 @@ export async function executeAction(
       { onEvent, onError, hooks }
     );
 
-    // 4. Transaction Broadcasting
+    // 3. Transaction Broadcasting
     const actionResult = await broadcastTransaction(
       signingResult,
       actionArgs,
@@ -112,7 +113,7 @@ export async function executeAction(
       type: 'actionFailed',
       data: {
         error: error.message,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -128,7 +129,7 @@ export async function executeAction(
 async function validateActionInputs(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
-  actionArgs: SerializableActionArgs,
+  actionArgs: ActionArgs,
   eventOptions: EventOptions
 ): Promise<TransactionContext> {
   const { onEvent, onError, hooks } = eventOptions;
@@ -145,7 +146,7 @@ async function validateActionInputs(
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -172,7 +173,7 @@ async function validateActionInputs(
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -189,7 +190,7 @@ async function validateActionInputs(
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -207,15 +208,15 @@ async function validateActionInputs(
   const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
 
   // Validate action-specific parameters
-  if (!actionArgs.receiver_id) {
-    const errorMsg = 'Missing required parameter: receiver_id';
+  if (!actionArgs.receiverId) {
+    const errorMsg = 'Missing required parameter: receiverId';
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -223,15 +224,15 @@ async function validateActionInputs(
   }
 
   // Additional validation for function calls
-  if (actionArgs.action_type === 'FunctionCall' && (!actionArgs.method_name || !actionArgs.args)) {
-    const errorMsg = 'Missing required parameters for function call: method_name or args';
+  if (actionArgs.type === ActionType.FunctionCall && (!actionArgs.methodName || actionArgs.args === undefined)) {
+    const errorMsg = 'Missing required parameters for function call: methodName or args';
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -239,7 +240,7 @@ async function validateActionInputs(
   }
 
   // Additional validation for transfers
-  if (actionArgs.action_type === 'Transfer' && !actionArgs.amount) {
+  if (actionArgs.type === ActionType.Transfer && !actionArgs.amount) {
     const errorMsg = 'Missing required parameter for transfer: amount';
     const error = new Error(errorMsg);
     onError?.(error);
@@ -247,7 +248,7 @@ async function validateActionInputs(
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -272,9 +273,10 @@ async function verifyVrfAuthAndSignTransaction(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
   transactionContext: TransactionContext,
-  actionArgs: SerializableActionArgs,
+  actionArgs: ActionArgs,
   eventOptions: EventOptions
 ): Promise<VerifyAndSignTransactionResult> {
+
   const { onEvent, onError, hooks } = eventOptions;
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager.getNearRpcProvider();
@@ -308,11 +310,10 @@ async function verifyVrfAuthAndSignTransaction(
   console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
 
   const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
-  // Generate VRF challenge using Service Worker
+  // Generate VRF challenge
   const vrfInputData = {
     userId: nearAccountId,
     rpId: window.location.hostname,
-    sessionId: crypto.randomUUID(),
     blockHeight: blockInfo.header.height,
     blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
     timestamp: Date.now()
@@ -334,49 +335,13 @@ async function verifyVrfAuthAndSignTransaction(
     throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
   }
 
-  const {
-    credential,
-    prfOutput
-  } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
+  const { credential } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
     nearAccountId,
     challenge: vrfChallenge.outputAs32Bytes(),
     authenticators,
   });
 
   console.log('✅ VRF WebAuthn authentication completed');
-
-  // Verify VRF authentication with contract
-  onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'authenticating',
-      message: 'Verifying authentication with contract...'
-    }
-  });
-
-  // console.log('Verifying VRF authentication with contract before transaction signing');
-  // const contractVerificationResult = await webAuthnManager.verifyVrfAuthentication(
-  //   nearRpcProvider,
-  //   passkeyManager.getConfig().contractId,
-  //   vrfChallenge,
-  //   credential,
-  // );
-
-  // if (!contractVerificationResult.success || !contractVerificationResult.verified) {
-  //   const errorMsg = `VRF authentication verification failed: ${contractVerificationResult.error || 'Unknown error'}`;
-  //   const error = new Error(errorMsg);
-  //   onError?.(error);
-  //   onEvent?.({
-  //     type: 'actionFailed',
-  //     data: {
-  //       error: errorMsg,
-  //       actionType: nearAccountId || 'unknown'
-  //     }
-  //   });
-  //   hooks?.afterCall?.(false, error);
-  //   throw error;
-  // }
-
   onEvent?.({
     type: 'actionProgress',
     data: {
@@ -396,11 +361,11 @@ async function verifyVrfAuthAndSignTransaction(
   // Handle different action types
   let signingResult: VerifyAndSignTransactionResult;
 
-  if (actionArgs.action_type === 'Transfer') {
+  if (actionArgs.type === ActionType.Transfer) {
     signingResult = await webAuthnManager.signTransferTransaction({
       nearAccountId: nearAccountId,
-      receiverId: actionArgs.receiver_id!,
-      depositAmount: actionArgs.amount!,
+      receiverId: actionArgs.receiverId,
+      depositAmount: actionArgs.amount,
       nonce: transactionContext.nonce.toString(),
       blockHashBytes: transactionContext.transactionBlockHashBytes,
       // Webauthn verification parameters
@@ -409,16 +374,16 @@ async function verifyVrfAuthAndSignTransaction(
       webauthnCredential: credential
     });
 
-  } else if (actionArgs.action_type === 'FunctionCall') {
+  } else if (actionArgs.type === 'FunctionCall') {
     // Use the modern action-based WASM worker transaction signing for function calls
     signingResult = await webAuthnManager.signTransactionWithActions({
       nearAccountId: nearAccountId,
-      receiverId: actionArgs.receiver_id!,
+      receiverId: actionArgs.receiverId,
       actions: [
         {
           actionType: ActionType.FunctionCall,
-          method_name: actionArgs.method_name!,
-          args: actionArgs.args!, // Keep as JSON string
+          method_name: actionArgs.methodName,
+          args: JSON.stringify(actionArgs.args), // Convert object to JSON string for worker
           gas: actionArgs.gas || DEFAULT_GAS_STRING,
           deposit: actionArgs.deposit || "0"
         }
@@ -432,14 +397,14 @@ async function verifyVrfAuthAndSignTransaction(
     });
 
   } else {
-    const errorMsg = `Action type ${actionArgs.action_type} is not yet supported`;
+    const errorMsg = `Action type ${actionArgs.type} is not yet supported`;
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
       type: 'actionFailed',
       data: {
         error: errorMsg,
-        actionType: actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -454,7 +419,7 @@ async function verifyVrfAuthAndSignTransaction(
  */
 async function broadcastTransaction(
   signingResult: VerifyAndSignTransactionResult,
-  actionArgs: SerializableActionArgs,
+  actionArgs: ActionArgs,
   eventOptions: EventOptions
 ): Promise<ActionResult> {
   const { onEvent, onError, hooks } = eventOptions;
@@ -496,7 +461,7 @@ async function broadcastTransaction(
       type: 'actionFailed',
       data: {
         error: errorMessage,
-        actionType: actionArgs.method_name || actionArgs.action_type
+        actionType: actionArgs.type
       }
     });
     hooks?.afterCall?.(false, error);
@@ -519,5 +484,6 @@ async function broadcastTransaction(
 
   return actionResult;
 }
+
 
 

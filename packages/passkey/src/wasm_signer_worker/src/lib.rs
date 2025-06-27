@@ -70,6 +70,31 @@ fn send_progress_message(_message_type: &str, _step: &str, _message: &str, _data
     eprintln!("[PROGRESS] {}: {} - {}", _message_type, _step, _message);
 }
 
+// Helper function to send progress with optional logs
+fn send_progress_with_logs(message_type: &str, step: &str, message: &str, data: &str, logs: Option<&[String]>) {
+    // Create enhanced data payload that includes logs
+    let enhanced_data = if let Some(log_array) = logs {
+        if !log_array.is_empty() {
+            // Parse existing data and add logs
+            let mut data_obj: serde_json::Value = serde_json::from_str(data)
+                .unwrap_or_else(|_| serde_json::json!({}));
+
+            // Add logs to the data object
+            if let serde_json::Value::Object(ref mut map) = data_obj {
+                map.insert("logs".to_string(), serde_json::json!(log_array));
+            }
+
+            serde_json::to_string(&data_obj).unwrap_or_else(|_| data.to_string())
+        } else {
+            data.to_string()
+        }
+    } else {
+        data.to_string()
+    };
+
+    send_progress_message(message_type, step, message, &enhanced_data);
+}
+
 // === WASM INITIALIZATION ===
 
 #[wasm_bindgen]
@@ -177,12 +202,19 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 ) -> Result<Vec<u8>, JsValue> {
     console_log!("RUST: Starting combined verification + signing with progress");
 
-    // Step 1: Send verification progress
-    send_progress_message(
+    // Step 1: Send verification progress with enhanced logging
+    let verification_logs = vec![
+        format!("Starting contract verification for {}", contract_id),
+        "Parsing VRF challenge data...".to_string(),
+        "Preparing WebAuthn credential for verification...".to_string()
+    ];
+
+    send_progress_with_logs(
         "VERIFICATION_PROGRESS",
         "contract_verification",
         "Verifying authentication with contract...",
-        &format!(r#"{{"contractId": "{}"}}"#, contract_id)
+        &format!(r#"{{"contractId": "{}"}}"#, contract_id),
+        Some(&verification_logs)
     );
 
     // Step 2: Perform contract verification via WASM HTTP
@@ -227,9 +259,8 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 
     // Parse verification result
     let verification_success = verification_result.verified;
-    let _verification_logs = verification_result.logs.join(", ");
 
-    // Step 3: Send verification complete
+    // Step 3: Send verification complete with logs
     send_progress_message(
         "VERIFICATION_COMPLETE",
         "verification_complete",

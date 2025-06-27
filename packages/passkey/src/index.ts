@@ -1,14 +1,22 @@
 export { PasskeyManager } from './core/PasskeyManager';
+export { DEFAULT_WAIT_STATUS } from './core/PasskeyManager';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { IndexedDBManager } from './core/IndexedDBManager';
 
 // === Re-exported from various type definition files ===
 export type {
-  PasskeyManagerConfig as PasskeyConfig,
+  PasskeyManagerConfig,
+  RegistrationOptions,
   RegistrationResult,
+  RegistrationSSEEvent,
+  LoginOptions,
   LoginResult,
-  ActionResult as SignTransactionResult,
-  TransactionParams
+  LoginEvent,
+  ActionOptions,
+  ActionResult,
+  ActionEvent,
+  EventCallback,
+  OperationHooks
 } from './core/types/passkeyManager';
 
 export type {
@@ -55,5 +63,40 @@ export {
 } from './core/types/worker';
 
 // === UTILITIES ===
-export * from './utils/encoders';
+export { bufferEncode, bufferDecode } from './utils/encoders';
 export * from './config';
+
+// === MAIN PASSKEY SDK EXPORTS ===
+
+// === TYPES ===
+export type {
+  ActionArgs,
+  FunctionCallAction,
+  TransferAction,
+  CreateAccountAction,
+  DeployContractAction,
+  StakeAction,
+  AddKeyAction,
+  DeleteKeyAction,
+  DeleteAccountAction
+} from './core/types';
+
+export {
+  ActionType
+} from './core/types';
+
+// Action helper functions for easy action creation
+export {
+  functionCall,
+  transfer,
+  createAccount,
+  deployContract,
+  stake,
+  addFullAccessKey,
+  addFunctionCallKey,
+  deleteKey,
+  deleteAccount
+} from './core/types';
+
+// === ERROR TYPES ===
+export type { PasskeyErrorDetails } from './core/types/errors';

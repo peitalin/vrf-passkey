@@ -249,7 +249,7 @@ describe('WebAuthnManager', () => {
         nearAccountId: 'test.testnet',
         publicKeyStr: 'ed25519:test-key',
         nearRpcProvider: mockNearRpcProvider,
-        onProgress: jest.fn()
+        onEvent: jest.fn()
       });
 
       expect(result).toEqual(mockRegistrationResult);

@@ -14,7 +14,6 @@ import { createAccountRelayServer } from './createAccountRelayServer';
 import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
 import { WebAuthnManager } from '../../WebAuthnManager';
 import { VRFChallenge } from '../../types/webauthn';
-import { generateSessionId } from '../../../utils';
 import { RPC_NODE_URL } from '../../../config';
 
 
@@ -38,7 +37,6 @@ async function generateBootstrapVrfChallenge(
   nearAccountId: string,
   blockHeight: number,
   blockHashBytes: Uint8Array,
-  sessionId: string
 ): Promise<VRFChallenge> {
   console.log('Generating VRF keypair for registration');
   // Generate VRF keypair and persist in worker memory
@@ -47,7 +45,6 @@ async function generateBootstrapVrfChallenge(
     {
       userId: nearAccountId,
       rpId: window.location.hostname,
-      sessionId: sessionId,
       blockHeight: blockHeight,
       blockHashBytes: Array.from(blockHashBytes),
       timestamp: Date.now()
@@ -71,13 +68,10 @@ export async function registerPasskey(
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, hooks } = options;
-  // Generate a sessionId for client-side events before SSE stream starts
-  const tempSessionId = generateSessionId();
 
   // Emit started event
   onEvent?.({
     step: 1,
-    sessionId: tempSessionId,
     phase: 'webauthn-verification',
     status: 'progress',
     timestamp: Date.now(),
@@ -89,13 +83,12 @@ export async function registerPasskey(
     await hooks?.beforeCall?.();
 
     // Validate registration inputs
-    validateRegistrationInputs(nearAccountId, tempSessionId, onEvent, onError, hooks);
+    validateRegistrationInputs(nearAccountId, onEvent, onError, hooks);
 
     console.log('⚡ Registration: Optimized VRF registration with single WebAuthn ceremony');
     return await handleRegistration(
       passkeyManager,
       nearAccountId,
-      tempSessionId,
       onEvent,
       onError,
       hooks,
@@ -112,7 +105,6 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 0,
-      sessionId: tempSessionId,
       phase: 'registration-error',
       status: 'error',
       timestamp: Date.now(),
@@ -130,7 +122,6 @@ export async function registerPasskey(
 
 const validateRegistrationInputs = (
   nearAccountId: string,
-  tempSessionId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
   hooks?: OperationHooks,
@@ -138,7 +129,6 @@ const validateRegistrationInputs = (
 
   onEvent?.({
     step: 1,
-    sessionId: tempSessionId,
     phase: 'webauthn-verification',
     status: 'progress',
     timestamp: Date.now(),
@@ -183,7 +173,6 @@ const validateRegistrationInputs = (
 async function handleRegistration(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
-  tempSessionId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
   hooks?: OperationHooks,
@@ -196,7 +185,6 @@ async function handleRegistration(
 
     onEvent?.({
       step: 1,
-      sessionId: tempSessionId,
       phase: 'webauthn-verification',
       status: 'progress',
       timestamp: Date.now(),
@@ -218,19 +206,17 @@ async function handleRegistration(
       nearAccountId,
       blockHeight,
       blockHashBytes,
-      tempSessionId
     );
 
     // Step 3: Use VRF output as WebAuthn challenge
-    console.log('Registration Step 4: Use VRF output as WebAuthn challenge');
+    console.log('Registration Step 3: Use VRF output as WebAuthn challenge');
     const vrfChallengeBytes = vrfChallenge.outputAs32Bytes();
 
     // Step 4: WebAuthn registration ceremony with PRF (TouchID)
-    console.log('Registration Step 5: WebAuthn registration ceremony with VRF challenge');
+    console.log('Registration Step 4: WebAuthn registration ceremony with VRF challenge');
 
     onEvent?.({
       step: 1,
-      sessionId: tempSessionId,
       phase: 'webauthn-verification',
       status: 'progress',
       timestamp: Date.now(),
@@ -247,7 +233,6 @@ async function handleRegistration(
 
     onEvent?.({
       step: 1,
-      sessionId: tempSessionId,
       phase: 'webauthn-verification',
       status: 'success',
       timestamp: Date.now(),
@@ -255,7 +240,7 @@ async function handleRegistration(
     });
 
     // Step 5: Encrypt the existing VRF keypair with real PRF for storage and future authentication
-    console.log('Registration Step 6: Encrypting existing VRF keypair with real PRF for storage');
+    console.log('Registration Step 5: Encrypting existing VRF keypair with real PRF for storage');
     // Encrypt the VRF keypair that generated the WebAuthn challenge (in VRF worker memory)
     const encryptedVrfResult = await webAuthnManager.encryptVrfKeypairWithPrf(
       vrfChallenge.vrfPublicKey,
@@ -263,7 +248,7 @@ async function handleRegistration(
     );
 
     // Step 6: Generate NEAR keypair and encrypt using PRF (for NEAR transactions)
-    console.log('Registration Step 7: Generating NEAR keypair with PRF');
+    console.log('Registration Step 6: Generating NEAR keypair with PRF');
     const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt(
       prfOutput,
       { nearAccountId },
@@ -275,24 +260,21 @@ async function handleRegistration(
 
     onEvent?.({
       step: 2,
-      sessionId: tempSessionId,
       phase: 'user-ready',
       status: 'success',
       timestamp: Date.now(),
       message: 'Registration completed with challenge consistency!',
       verified: true,
       nearAccountId: nearAccountId,
-      clientNearPublicKey: undefined,
+      clientNearPublicKey: keyGenResult.publicKey,
       mode: 'VRF'
     });
 
     // Step 7: Create account using faucet service (before storing data)
-    // Gives generated NEAR keypair an accountId
-    console.log('Registration Step 8: Creating NEAR account via faucet service');
+    console.log('Registration Step 7: Creating NEAR account via faucet service');
 
     onEvent?.({
       step: 3,
-      sessionId: tempSessionId,
       phase: 'access-key-addition',
       status: 'progress',
       timestamp: Date.now(),
@@ -304,15 +286,14 @@ async function handleRegistration(
       contractId: config.contractId,
       webauthnCredential: credential,
       vrfChallenge: vrfChallenge,
-      onProgress: (progress: any) => {
+      onEvent: (progress) => {
         console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
         onEvent?.({
           step: 4,
-          sessionId: tempSessionId,
           phase: 'account-verification',
           status: 'progress',
           timestamp: Date.now(),
-          message: `Checking registration progress: ${progress.step} - ${progress.message}`
+          message: `Checking registration: ${progress.message}`
         });
       },
     });
@@ -321,13 +302,10 @@ async function handleRegistration(
       throw new Error(`Registration check failed: ${canRegisterUserResult.error}`);
     }
 
-    // Step 7: Create account using faucet service (before storing data)
-    // Gives generated NEAR keypair an accountId
-    console.log('Registration Step 8: Creating NEAR account via faucet service');
+    // Create account using faucet service
     const accountCreationResult = await createAccountTestnetFaucet(
       nearAccountId,
       keyGenResult.publicKey,
-      tempSessionId,
       onEvent
     );
 
@@ -338,7 +316,6 @@ async function handleRegistration(
 
     onEvent?.({
       step: 3,
-      sessionId: tempSessionId,
       phase: 'access-key-addition',
       status: 'success',
       timestamp: Date.now(),
@@ -350,15 +327,14 @@ async function handleRegistration(
 
     onEvent?.({
       step: 4,
-      sessionId: tempSessionId,
       phase: 'account-verification',
       status: 'success',
       timestamp: Date.now(),
       message: 'Account creation verified successfully'
     });
 
-    // Step 9: Contract verification (before data storage)
-    console.log('Registration Step 9: Contract verification');
+    // Step 8: Contract verification and registration transaction
+    console.log('Registration Step 8: Contract verification and registration transaction');
     let contractVerified = false;
     let contractTransactionId: string | null = null;
 
@@ -370,15 +346,14 @@ async function handleRegistration(
       nearAccountId: nearAccountId,
       publicKeyStr: keyGenResult.publicKey,
       nearRpcProvider: nearRpcProvider,
-      onProgress: (progress) => {
+      onEvent: (progress) => {
         console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
         onEvent?.({
           step: 6,
-          sessionId: tempSessionId,
           phase: 'contract-registration',
           status: 'progress',
           timestamp: Date.now(),
-          message: `VRF registration progress: ${progress.step} - ${progress.message}`
+          message: `VRF registration: ${progress.message}`
         });
       },
     });
@@ -392,7 +367,6 @@ async function handleRegistration(
 
       onEvent?.({
         step: 6,
-        sessionId: tempSessionId,
         phase: 'contract-registration',
         status: 'progress',
         timestamp: Date.now(),
@@ -400,26 +374,24 @@ async function handleRegistration(
       });
 
       const transactionResult = await broadcastSignedTransaction(signedTransactionBorsh!);
-      const contractTransactionId = transactionResult.transactionId;
+      contractTransactionId = transactionResult.transactionId;
 
       onEvent?.({
         step: 6,
-        sessionId: tempSessionId,
         phase: 'contract-registration',
         status: 'success',
         timestamp: Date.now(),
         message: `VRF registration successful, transaction ID: ${contractTransactionId}`
       });
     } else {
-      console.warn(`️Contract verification failed: ${ contractRegistrationResult.error}`);
+      console.warn(`Contract verification failed: ${contractRegistrationResult.error}`);
       throw new Error(contractRegistrationResult.error || 'Registration verification failed');
     }
 
-    // Step 11: Store user data with VRF credentials atomically
-    console.log('VRF Registration Step 11: Storing VRF registration data atomically');
+    // Step 9: Store user data with VRF credentials atomically
+    console.log('Registration Step 9: Storing VRF registration data atomically');
     onEvent?.({
       step: 5,
-      sessionId: tempSessionId,
       phase: 'database-storage',
       status: 'progress',
       timestamp: Date.now(),
@@ -472,11 +444,10 @@ async function handleRegistration(
 
       onEvent?.({
         step: 5,
-        sessionId: tempSessionId,
         phase: 'database-storage',
         status: 'success',
         timestamp: Date.now(),
-          message: 'VRF registration data stored successfully'
+        message: 'VRF registration data stored successfully'
       });
 
     } catch (storageError: any) {
@@ -493,8 +464,8 @@ async function handleRegistration(
       };
     }
 
-    // Step 13: Unlock VRF keypair in memory for immediate login state
-    console.log('VRF Registration Step 13: Unlocking VRF keypair for immediate login');
+    // Step 10: Unlock VRF keypair in memory for immediate login state
+    console.log('Registration Step 10: Unlocking VRF keypair for immediate login');
 
     try {
       const unlockResult = await webAuthnManager.unlockVRFKeypair({
@@ -503,95 +474,104 @@ async function handleRegistration(
         prfOutput: prfOutput,
       });
 
-      if (unlockResult.success) {
-        console.log('✅ VRF keypair unlocked in memory - user is now logged in');
-      } else {
-        console.warn('️Failed to unlock VRF keypair after registration:', unlockResult.error);
+      if (!unlockResult.success) {
+        console.warn('VRF keypair unlock failed:', unlockResult.error);
+        // Non-fatal error - registration is still successful
       }
-    } catch (unlockError: any) {
-      console.warn('️VRF unlock failed after registration:', unlockError.message);
-    }
 
-    // Complete registration
-    onEvent?.({
-      step: 7,
-      sessionId: tempSessionId,
-      phase: 'registration-complete',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'VRF registration completed successfully!'
-    });
+      onEvent?.({
+        step: 7,
+        phase: 'registration-complete',
+        status: 'success',
+        timestamp: Date.now(),
+        message: 'Registration completed successfully'
+      });
 
-    console.log(`✅ VRF registration completed for ${nearAccountId}`);
-    console.log(`VRF credentials available for stateless authentication`);
-    console.log(`Contract verification implemented with verify_registration_response`);
-
-    const result: RegistrationResult = {
-      success: true,
-      clientNearPublicKey: keyGenResult.publicKey,
-      nearAccountId: nearAccountId,
-      transactionId: contractTransactionId,
-      vrfRegistration: {
+      hooks?.afterCall?.(true, {
         success: true,
-        vrfPublicKey: vrfChallenge.vrfPublicKey,
-        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
-        contractVerified
-      }
-    };
+        nearAccountId: nearAccountId,
+        clientNearPublicKey: keyGenResult.publicKey,
+        transactionId: contractTransactionId,
+        vrfRegistration: {
+          success: true,
+          vrfPublicKey: vrfChallenge.vrfPublicKey,
+          encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+          contractVerified: contractVerified
+        }
+      });
 
-    hooks?.afterCall?.(true, result);
-    return result;
+      return {
+        success: true,
+        nearAccountId: nearAccountId,
+        clientNearPublicKey: keyGenResult.publicKey,
+        transactionId: contractTransactionId,
+        vrfRegistration: {
+          success: true,
+          vrfPublicKey: vrfChallenge.vrfPublicKey,
+          encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+          contractVerified: contractVerified
+        }
+      };
+
+    } catch (unlockError: any) {
+      console.warn('VRF keypair unlock failed:', unlockError);
+      // Non-fatal error - registration is still successful
+
+      onEvent?.({
+        step: 7,
+        phase: 'registration-complete',
+        status: 'success',
+        timestamp: Date.now(),
+        message: 'Registration completed successfully (VRF session not unlocked)'
+      });
+
+      hooks?.afterCall?.(true, {
+        success: true,
+        nearAccountId: nearAccountId,
+        clientNearPublicKey: keyGenResult.publicKey,
+        transactionId: contractTransactionId,
+        vrfRegistration: {
+          success: true,
+          vrfPublicKey: vrfChallenge.vrfPublicKey,
+          encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+          contractVerified: contractVerified,
+          error: `VRF session unlock failed: ${unlockError.message}`
+        }
+      });
+
+      return {
+        success: true,
+        nearAccountId: nearAccountId,
+        clientNearPublicKey: keyGenResult.publicKey,
+        transactionId: contractTransactionId,
+        vrfRegistration: {
+          success: true,
+          vrfPublicKey: vrfChallenge.vrfPublicKey,
+          encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+          contractVerified: contractVerified,
+          error: `VRF session unlock failed: ${unlockError.message}`
+        }
+      };
+    }
 
   } catch (error: any) {
-
-    /////////////////////////////////////////
-    /// Catch all errors, and rollback all state
-    /////////////////////////////////////////
-
-    console.error('VRF registration error:', error);
-    // Rollback VRF Service Worker state
-    try {
-      const webAuthnManager = passkeyManager.getWebAuthnManager();
-      await webAuthnManager.forceCleanupVrfManager();
-      console.log('VRF Service Worker cleaned up');
-    } catch (vrfError: any) {
-      console.warn('️VRF cleanup partial failure:', vrfError.message);
-    }
-    // Rollback any stored registration data
-    try {
-      const webAuthnManager = passkeyManager.getWebAuthnManager();
-      await webAuthnManager.rollbackUserRegistration(nearAccountId);
-      console.log('Registration data rolled back');
-    } catch (rollbackError: any) {
-      console.warn('️Rollback partial failure:', rollbackError.message);
-    }
-
-    // TODO: If passkey was created, we should also try to delete it
-    // This is not currently possible with WebAuthn API, but we can at least
-    // clean up our local data and warn the user
-    console.warn('️WebAuthn credential may remain on device - manual deletion required');
-    // TODO: delete account from testnet faucet service,
-    // or alternatively:
-    // first verify the registration, then save the authenticator onchain.
-    // but this requires two contract calls
-    console.warn('Testnet account needs to be deleted');
+    console.error('Registration failed:', error.message, error.stack);
+    const errorMessage = `Registration failed: ${error.message}`;
+    onError?.(error);
 
     onEvent?.({
       step: 0,
-      sessionId: tempSessionId,
       phase: 'registration-error',
       status: 'error',
       timestamp: Date.now(),
-      message: 'VRF registration failed',
-      error: error.message
-    });
+      message: errorMessage,
+      error: errorMessage
+    } as RegistrationSSEEvent);
 
-    onError?.(error);
     hooks?.afterCall?.(false, error);
-
     return {
       success: false,
-      error: error.message
+      error: errorMessage
     };
   }
 }
@@ -649,7 +629,7 @@ async function broadcastSignedTransaction(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       jsonrpc: '2.0',
-      id: 'registration_broadcast',
+      id: crypto.randomUUID(),
       method: 'send_tx',
       params: {
         signed_tx_base64: signedTransactionBase64,
@@ -666,9 +646,7 @@ async function broadcastSignedTransaction(
   }
 
   const transactionId = result.result?.transaction_outcome?.id;
-  if (!transactionId) {
-    throw new Error('Transaction ID not found in response');
-  }
+  console.log(`✅ Registration transaction broadcast successful: ${transactionId}`);
 
   return {
     transactionId,

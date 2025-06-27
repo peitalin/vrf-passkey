@@ -214,7 +214,6 @@ export class VrfWorkerManager {
       data: {
         user_id: inputData.userId,
         rp_id: inputData.rpId,
-        session_id: inputData.sessionId,
         block_height: inputData.blockHeight,
         block_hash: Array.from(inputData.blockHash),
         timestamp: inputData.timestamp
@@ -339,7 +338,6 @@ export class VrfWorkerManager {
     vrfInputParams: {
       userId: string;
       rpId: string;
-      sessionId: string;
       blockHeight: number;
       blockHashBytes: number[];
       timestamp: number;
@@ -372,7 +370,6 @@ export class VrfWorkerManager {
           vrfInputParams: vrfInputParams ? {
             user_id: vrfInputParams.userId,
             rp_id: vrfInputParams.rpId,
-            session_id: vrfInputParams.sessionId,
             block_height: vrfInputParams.blockHeight,
             block_hash: vrfInputParams.blockHashBytes,
             timestamp: vrfInputParams.timestamp

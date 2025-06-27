@@ -11,7 +11,6 @@ All registration events extend this base interface:
 ```typescript
 interface BaseSSERegistrationEvent {
   step: number;           // 0-6, sequential step number
-  sessionId: string;      // Unique session identifier
   phase: string;          // Human-readable phase name
   status: 'progress' | 'success' | 'error';
   timestamp: number;      // Unix timestamp in milliseconds
@@ -53,7 +52,7 @@ interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
 }
 ```
 
-### Step 2: User Ready ⭐ Login Enabled
+### Step 2: User Ready - Login Enabled
 User verification complete - **login interface can be enabled**:
 
 ```typescript
@@ -111,7 +110,7 @@ function handleRegistrationEvent(event: RegistrationSSEEvent) {
       break;
 
     case 2:
-      // ⭐ Critical: Enable login interface immediately
+      // Critical: Enable login interface immediately
       enableLoginInterface();
       showProgress('Account ready! Creating blockchain account...');
       break;

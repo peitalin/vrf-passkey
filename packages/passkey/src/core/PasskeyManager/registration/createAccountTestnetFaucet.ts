@@ -7,7 +7,6 @@ import { RegistrationSSEEvent } from '../../types/passkeyManager';
 export async function createAccountTestnetFaucet(
   nearAccountId: string,
   publicKey: string,
-  tempSessionId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; error?: string }> {
   try {
@@ -15,7 +14,6 @@ export async function createAccountTestnetFaucet(
 
     onEvent?.({
       step: 3,
-      sessionId: tempSessionId,
       phase: 'access-key-addition',
       status: 'progress',
       timestamp: Date.now(),
@@ -44,7 +42,6 @@ export async function createAccountTestnetFaucet(
 
     onEvent?.({
       step: 3,
-      sessionId: tempSessionId,
       phase: 'access-key-addition',
       status: 'success',
       timestamp: Date.now(),
@@ -64,7 +61,6 @@ export async function createAccountTestnetFaucet(
       console.log('Account already exists, continuing with registration...');
       onEvent?.({
         step: 3,
-        sessionId: tempSessionId,
         phase: 'access-key-addition',
         status: 'success',
         timestamp: Date.now(),
@@ -80,7 +76,6 @@ export async function createAccountTestnetFaucet(
       console.warn('Faucet service failed, but continuing with local registration:', faucetError.message);
       onEvent?.({
         step: 3,
-        sessionId: tempSessionId || 'unknown',
         phase: 'access-key-addition',
         status: 'success',
         timestamp: Date.now(),

@@ -57,3 +57,30 @@ export type {
 export type { PasskeyManagerConfig as PasskeyConfig } from '../core/types/passkeyManager';
 export type { UserData } from '../core/types/worker';
 export { PasskeyManager } from '../core/PasskeyManager';
+
+// === RE-EXPORT ACTION TYPES ===
+export type {
+  ActionArgs,
+  FunctionCallAction,
+  TransferAction,
+  CreateAccountAction,
+  DeployContractAction,
+  StakeAction,
+  AddKeyAction,
+  DeleteKeyAction,
+  DeleteAccountAction
+} from '../core/types';
+
+// === RE-EXPORT ACTION HELPER FUNCTIONS ===
+export {
+  functionCall,
+  transfer,
+  createAccount,
+  deployContract,
+  stake,
+  addFullAccessKey,
+  addFunctionCallKey,
+  deleteKey,
+  deleteAccount,
+  ActionType
+} from '../core/types';

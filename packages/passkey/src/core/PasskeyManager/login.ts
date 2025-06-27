@@ -115,7 +115,8 @@ async function handleLoginUnlockVRF(
     onEvent?.({
       type: 'loginProgress',
       data: {
-        step: 'webauthn-assertion',
+        step: 2,
+        phase: 'webauthn-assertion',
         message: 'Authenticating to unlock VRF keypair...'
       }
     });

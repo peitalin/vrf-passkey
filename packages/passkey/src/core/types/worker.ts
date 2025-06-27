@@ -1,5 +1,6 @@
-import { VRFChallenge } from "./webauthn";
 import { bufferEncode } from "../../utils/encoders";
+import type { VRFChallenge } from "./webauthn";
+import { ActionType } from "./index";
 
 // === USER DATA TYPES ===
 
@@ -129,17 +130,6 @@ export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
 }
 
 // === ACTION TYPES ===
-
-export enum ActionType {
-  CreateAccount = "CreateAccount",
-  DeployContract = "DeployContract",
-  FunctionCall = "FunctionCall",
-  Transfer = "Transfer",
-  Stake = "Stake",
-  AddKey = "AddKey",
-  DeleteKey = "DeleteKey",
-  DeleteAccount = "DeleteAccount",
-}
 
 // ActionParams now matches the Rust enum structure exactly
 export type ActionParams =
@@ -513,8 +503,6 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
     userId: string;
     /** Relying Party ID for VRF input construction */
     rpId: string;
-    /** Session ID for VRF input construction */
-    sessionId: string;
     /** Block height from NEAR blockchain */
     blockHeight: number;
     /** Block hash bytes from NEAR blockchain */
@@ -535,6 +523,59 @@ export type WorkerRequest =
   | GenerateVrfChallengeWithPrfRequest
   | SignTransactionWithActionsRequest
   | SignTransferTransactionRequest;
+
+// === PROGRESS MESSAGE TYPES ===
+
+/**
+ * Progress message types that can be sent from WASM to the main thread
+ */
+export enum ProgressMessageType {
+  VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
+  VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
+  SIGNING_PROGRESS = 'SIGNING_PROGRESS',
+  SIGNING_COMPLETE = 'SIGNING_COMPLETE',
+  REGISTRATION_PROGRESS = 'REGISTRATION_PROGRESS',
+  REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
+}
+
+/**
+ * Step identifiers for progress tracking
+ */
+export enum ProgressStep {
+  PREPARATION = 'preparation',
+  AUTHENTICATION = 'authentication',
+  CONTRACT_VERIFICATION = 'contract_verification',
+  TRANSACTION_SIGNING = 'transaction_signing',
+  BROADCASTING = 'broadcasting',
+  VERIFICATION_COMPLETE = 'verification_complete',
+  SIGNING_COMPLETE = 'signing_complete',
+}
+
+/**
+ * Parameters for the sendProgressMessage function called by WASM
+ */
+export interface ProgressMessageParams {
+  /** Type of progress message */
+  messageType: ProgressMessageType | string;
+  /** Step identifier */
+  step: ProgressStep | string;
+  /** Human-readable progress message */
+  message: string;
+  /** JSON string containing structured data */
+  data: string;
+  /** Optional JSON string containing array of log messages */
+  logs?: string;
+}
+
+/**
+ * Worker progress message that gets posted to the main thread
+ */
+export interface WorkerProgressMessage {
+  /** Message type corresponding to WorkerResponseType */
+  type: string;
+  /** Payload containing onProgressEvents-compatible data plus legacy fields */
+  payload: any; // Will be properly typed when imported with onProgressEvents
+}
 
 // === RESPONSE MESSAGE INTERFACES ===
 
