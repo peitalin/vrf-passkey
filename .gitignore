@@ -5,6 +5,7 @@ server/node_modules
 
 # Environment variables (if any)
 frontend/.env
+server/.env
 relay-server/.env
 webauthn-contract/.env
 # All environment files
