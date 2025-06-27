@@ -10,12 +10,10 @@ use crate::types::AuthenticatorTransport;
 pub struct StoredAuthenticator {
     pub credential_public_key: Vec<u8>,
     pub transports: Option<Vec<AuthenticatorTransport>>,
-    pub client_managed_near_public_key: Option<String>,
-    pub registered: String, // ISO date string
-    pub last_used: Option<String>, // ISO date string
-    pub backed_up: bool,
-    // VRF support
-    pub vrf_public_key: Option<Vec<u8>>, // User's VRF public key for serverless mode
+    pub registered: String, // ISO timestamp of registration
+    pub last_used: Option<String>, // ISO timestamp of last authentication
+    pub backed_up: bool, // Based on authenticator backup state (BE flag)
+    pub vrf_public_key: Option<Vec<u8>>, // VRF public key for stateless authentication
 }
 
 #[near_sdk::near(serializers=[borsh, json])]
@@ -149,17 +147,14 @@ impl WebAuthnContract {
         credential_id: String,
         credential_public_key: Vec<u8>,
         transports: Option<Vec<AuthenticatorTransport>>,
-        client_managed_near_public_key: Option<String>,
         registered: String,
         backed_up: bool,
         vrf_public_key: Option<Vec<u8>>,
     ) -> bool {
-                let vrf_enabled = vrf_public_key.is_some();
 
         let authenticator = StoredAuthenticator {
             credential_public_key,
             transports,
-            client_managed_near_public_key,
             registered,
             last_used: None,
             backed_up,
@@ -173,10 +168,7 @@ impl WebAuthnContract {
             self.update_user_authenticator_count(user_id.clone());
         }
 
-        log!("Stored authenticator for user {} with VRF support: {}",
-             user_id,
-             if vrf_enabled { "enabled" } else { "disabled" });
-
+        log!("Stored authenticator for user {} with VRF support", user_id);
         true
     }
 
@@ -190,26 +182,6 @@ impl WebAuthnContract {
         let key = (user_id.clone(), credential_id.clone());
         if let Some(mut authenticator) = self.authenticators.get(&key).cloned() {
             authenticator.last_used = Some(last_used);
-            self.authenticators.insert(key, authenticator);
-
-            // Update user activity
-            self.update_user_activity(user_id);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Update the client-managed NEAR public key for an authenticator
-    pub fn update_authenticator_near_key(
-        &mut self,
-        user_id: AccountId,
-        credential_id: String,
-        client_managed_near_public_key: String,
-    ) -> bool {
-        let key = (user_id.clone(), credential_id.clone());
-        if let Some(mut authenticator) = self.authenticators.get(&key).cloned() {
-            authenticator.client_managed_near_public_key = Some(client_managed_near_public_key);
             self.authenticators.insert(key, authenticator);
 
             // Update user activity

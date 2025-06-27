@@ -12,15 +12,10 @@ mod verify_registration_response;
 use crate::utils::vrf_verifier;
 
 pub use types::{
-    AuthenticationOptionsJSON,
-};
-pub use types::{
-    AuthenticatorTransport,
-    RegistrationOptionsJSON,
     RegistrationCredential,
     AuthenticationCredential,
     AuthenticatorAssertionResponse,
-    AttestationResponse,
+    AuthenticatorAttestationResponse,
 };
 pub use authenticators::{
     StoredAuthenticator,
@@ -29,13 +24,10 @@ pub use authenticators::{
 pub use verify_registration_response::{
     VerifyRegistrationResponse,
     VerifyCanRegisterResponse,
-    UserVerificationRequirement,
     VRFVerificationData,
 };
 pub use verify_authentication_response::{
     VerifiedAuthenticationResponse,
-    AuthenticatorDevice,
-    VRFAuthenticationData,
 };
 use near_sdk::{env, log, near, AccountId, PanicOnDefault, BorshStorageKey};
 use near_sdk::store::{LookupMap, IterableSet, IterableMap};
@@ -265,7 +257,7 @@ mod tests {
         RegistrationCredential {
             id: "test_vrf_credential".to_string(),
             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
-            response: AttestationResponse {
+            response: AuthenticatorAttestationResponse {
                 client_data_json: client_data_b64,
                 attestation_object: attestation_object_b64,
                 transports: Some(vec!["internal".to_string()]),

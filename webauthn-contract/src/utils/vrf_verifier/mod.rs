@@ -61,38 +61,3 @@ impl From<vrf_contract_verifier::VerificationError> for VRFVerificationError {
         }
     }
 }
-
-/// Validate that the challenge is fresh based on block height
-pub fn validate_challenge_freshness(
-    components: &VRFInputComponents
-) -> Result<(), VRFVerificationError> {
-    let current_block = env::block_height();
-
-    // Check expiration if set
-    if let Some(expiration_block) = components.expiration_block {
-        if current_block > expiration_block {
-            log!("Challenge expired: current block {} > expiration {}",
-                 current_block, expiration_block);
-            return Err(VRFVerificationError::StaleChallenge);
-        }
-    }
-    // For block-based VRF, we validate the block height instead of timestamp
-    // Allow a reasonable window of recent blocks (e.g., last 10 blocks)
-    // Check that referenced block is not too old (max 100 blocks = ~5 minutes)
-    let max_block_age = 100u64;
-    if current_block < components.block_height {
-        log!("Challenge block is in the future: {} > {}",
-             components.block_height, current_block);
-        return Err(VRFVerificationError::StaleChallenge);
-    }
-
-    let block_age = current_block - components.block_height;
-    if block_age > max_block_age {
-        log!("Challenge too old: {} blocks ago (max: {})", block_age, max_block_age);
-        return Err(VRFVerificationError::StaleChallenge);
-    }
-
-    log!("Challenge freshness validated: block {}, age {} blocks",
-         components.block_height, block_age);
-    Ok(())
-}

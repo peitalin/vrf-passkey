@@ -1,69 +1,20 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
+use near_sdk::{env, log, near};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
+use base64::Engine;
+
 use crate::utils::{
     parsers::parse_authenticator_data,
     verifiers::verify_authentication_signature,
-    validation::{
-        ValidationContext, ValidationResult, WebAuthnValidationError,
-        validate_base64url, validate_credential_id, validate_origin_rp_id_match,
-    },
 };
 use crate::types::{
-    AuthenticatorTransport,
-    AuthenticatorAssertionResponse,
-    AuthenticationCredential,
+    AuthenticatorDevice,
+    AuthenticationCredential
 };
-use crate::verify_registration_response::ClientDataJSON;
-
-use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
-use base64::Engine;
-use near_sdk::{env, log, near};
-
-// VRF Verification Data Structure for Authentication
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug, Clone)]
-pub struct VRFAuthenticationData {
-    /// SHA256 hash of concatenated VRF input components:
-    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash + timestamp
-    /// This hashed data is used for VRF proof verification
-    pub vrf_input_data: Vec<u8>,
-    /// Used as the WebAuthn challenge (VRF output)
-    pub vrf_output: Vec<u8>,
-    /// Proves vrf_output was correctly derived from vrf_input_data
-    pub vrf_proof: Vec<u8>,
-    /// VRF public key used to verify the proof
-    pub public_key: Vec<u8>,
-    /// User ID (account_id in NEAR protocol) - cryptographically bound in VRF input
-    pub user_id: String,
-    /// Relying Party ID (domain) - cryptographically binds VRF to specific website
-    pub rp_id: String,
-    /// Block height for freshness validation (must be recent)
-    pub block_height: u64,
-    /// Block hash included in VRF input (for entropy only, not validated on-chain)
-    /// NOTE: NEAR contracts cannot access historical block hashes, so this is used
-    /// purely for additional entropy in the VRF input construction
-    pub block_hash: Vec<u8>,
-}
-
-#[near_sdk::near(serializers = [borsh, json])]
-#[derive(Debug, Clone)]
-pub struct AuthenticatorDevice {
-    pub credential_id: Vec<u8>,
-    pub credential_public_key: Vec<u8>,
-    pub counter: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transports: Option<Vec<AuthenticatorTransport>>,
-}
-
-impl Default for AuthenticatorDevice {
-    fn default() -> Self {
-        Self {
-            credential_id: vec![],
-            credential_public_key: vec![],
-            counter: 0,
-            transports: None,
-        }
-    }
-}
+use crate::verify_registration_response::{
+    ClientDataJSON,
+    VRFVerificationData
+};
 
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone)]
@@ -106,66 +57,25 @@ impl WebAuthnContract {
     /// This is a public view function that does not modify contract state
     pub fn verify_authentication_response(
         &self,
-        vrf_data: VRFAuthenticationData,
+        vrf_data: VRFVerificationData,
         webauthn_authentication: AuthenticationCredential,
     ) -> VerifiedAuthenticationResponse {
+
         log!("VRF Authentication: Verifying VRF proof + WebAuthn authentication");
         log!("  - User ID: {}", vrf_data.user_id);
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
 
-        // 1. Validate block height freshness
-        let current_height = env::block_height();
-        if current_height < vrf_data.block_height || current_height > vrf_data.block_height + self.vrf_settings.max_block_age {
-            log!("VRF challenge is stale or invalid: current_height={}, vrf_height={}",
-                 current_height, vrf_data.block_height);
-            return VerifiedAuthenticationResponse {
+        // 1. Validate VRF and extract WebAuthn challenge (view-only)
+        let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
+            Some(challenge) => challenge,
+            None => return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
-            };
-        }
+            },
+        };
+        log!("VRF proof verified, extracted challenge: {} bytes", vrf_challenge_b64url.len());
 
-        log!("VRF block height validation passed: current={}, vrf={}, window={} blocks",
-             current_height, vrf_data.block_height, self.vrf_settings.max_block_age);
-
-        // 2. Verify the VRF proof and extract challenge
-        log!("VRF Verification:");
-        log!("  - Input data: {} bytes", vrf_data.vrf_input_data.len());
-        log!("  - Expected output: {} bytes", vrf_data.vrf_output.len());
-        log!("  - Proof: {} bytes", vrf_data.vrf_proof.len());
-        log!("  - Public key: {} bytes", vrf_data.public_key.len());
-        log!("  - Block height: {}", vrf_data.block_height);
-
-        let vrf_verification = self.verify_vrf_1( // Using vrf-contract-verifier integration
-            vrf_data.vrf_proof.clone(),
-            vrf_data.public_key.clone(),
-            vrf_data.vrf_input_data.clone()
-        );
-
-        if !vrf_verification.verified {
-            log!("VRF proof verification failed");
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // 3. Validate that the claimed VRF output matches the verified output
-        let verified_vrf_output = vrf_verification.vrf_output.expect("VRF output should be present");
-        if verified_vrf_output != vrf_data.vrf_output {
-            log!("VRF output mismatch: client claimed output doesn't match verified output");
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // 4. Extract VRF output as challenge
-        let webauthn_challenge = &vrf_data.vrf_output[0..32]; // First 32 bytes as challenge
-        let challenge_b64url = BASE64_URL_ENGINE.encode(webauthn_challenge);
-
-        log!("VRF proof verified, extracted challenge: {} bytes", webauthn_challenge.len());
-
-        // 5. Look up stored authenticator using credential ID and provided user_id (account_id)
+        // 2. Look up stored authenticator using credential ID and provided user_id (account_id)
         let credential_id_b64url = webauthn_authentication.id.clone();
         let user_account_id = match near_sdk::AccountId::try_from(vrf_data.user_id.clone()) {
             Ok(account_id) => account_id,
@@ -189,7 +99,7 @@ impl WebAuthnContract {
             }
         };
 
-        // 6. Verify that the stored VRF public key matches the provided one
+        // 3. Verify that the stored VRF public key matches the provided one
         if let Some(stored_vrf_key) = &stored_authenticator.vrf_public_key {
             if *stored_vrf_key != vrf_data.public_key {
                 log!("VRF public key mismatch - authentication denied");
@@ -208,7 +118,7 @@ impl WebAuthnContract {
 
         log!("VRF public key matched stored credentials");
 
-        // 7. Create authenticator device for verification
+        // 4. Create authenticator device for verification
         let authenticator_device = AuthenticatorDevice {
             credential_id: BASE64_URL_ENGINE.decode(&credential_id_b64url).unwrap_or_default(),
             credential_public_key: stored_authenticator.credential_public_key.clone(),
@@ -216,7 +126,7 @@ impl WebAuthnContract {
             transports: stored_authenticator.transports.clone(),
         };
 
-        // 8. Extract RP ID from WebAuthn client data (more secure than trusting VRF data)
+        // 5. Extract clientDataJSON from WebAuthn client data
         let client_data_json_bytes = match BASE64_URL_ENGINE.decode(&webauthn_authentication.response.client_data_json) {
             Ok(bytes) => bytes,
             Err(_) => {
@@ -245,12 +155,12 @@ impl WebAuthnContract {
             .or_else(|| client_data.origin.strip_prefix("http://"))
             .unwrap_or(&client_data.origin);
 
-        // 9. Verify WebAuthn authentication with VRF-generated challenge
+        // 6. Verify WebAuthn authentication with VRF-generated challenge
         let webauthn_result = self.internal_verify_authentication_response(
             webauthn_authentication,
-            challenge_b64url, // VRF-generated challenge
+            vrf_challenge_b64url,       // VRF-generated challenge
             client_data.origin.clone(), // Use actual origin from WebAuthn
-            rp_id.to_string(), // Extract RP ID from origin
+            rp_id.to_string(),          // Extract RP ID from origin
             authenticator_device,
             Some(true), // require_user_verification for VRF mode
         );
@@ -466,264 +376,6 @@ impl WebAuthnContract {
         }
     }
 
-    // ============================================================================
-    // VALIDATION
-    // ============================================================================
-
-    /// Enhanced WebAuthn authentication verification with full validation features
-    /// Supports multiple origins/RP IDs, token binding, and comprehensive validation
-    pub fn internal_verify_authentication_response_enhanced(
-        &mut self,
-        response: AuthenticationCredential,
-        expected_challenges: Vec<String>,
-        expected_origins: Vec<String>,
-        expected_rp_ids: Vec<String>,
-        authenticator: AuthenticatorDevice,
-        require_user_verification: Option<bool>,
-        allow_http_origins: bool,
-    ) -> VerifiedAuthenticationResponse {
-
-        let require_user_verification = require_user_verification.unwrap_or(false);
-
-        // Create validation context
-        let mut validation_context = ValidationContext::new_for_authentication();
-        validation_context.expected_challenges = expected_challenges;
-        validation_context.expected_origins = expected_origins.clone();
-        validation_context.expected_rp_ids = expected_rp_ids.clone();
-        validation_context.require_user_verification = require_user_verification;
-        validation_context.require_user_presence = true;
-        validation_context.allow_http_origins = allow_http_origins;
-        validation_context.expected_token_binding = None; // Token binding not supported in this context
-        validation_context.minimum_counter = Some(authenticator.counter);
-
-        // Step 1: Comprehensive input validation
-        if let Err(validation_error) = self.validate_authentication_inputs(&response, &validation_context) {
-            validation_error.log_error();
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 2: Validate and parse client data JSON
-        let client_data = match validation_context.validate_client_data(&response.response.client_data_json) {
-            Ok(data) => data,
-            Err(validation_error) => {
-                validation_error.log_error();
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        // Extract validated values
-        let origin = client_data.get("origin").and_then(|v| v.as_str()).unwrap();
-
-        // Step 3: Validate RP ID matches origin (domain binding)
-        let matching_rp_id = match self.find_matching_rp_id(origin, &expected_rp_ids) {
-            Ok(rp_id) => rp_id,
-            Err(validation_error) => {
-                validation_error.log_error();
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        // Step 4: Parse and validate authenticator data
-        let authenticator_data_bytes = match validate_base64url(&response.response.authenticator_data, "authenticatorData") {
-            Ok(bytes) => bytes,
-            Err(validation_error) => {
-                validation_error.log_error();
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        let auth_data = match parse_authenticator_data(&authenticator_data_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse authenticator data: {}", e);
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        // Step 5: Verify RP ID hash
-        let expected_rp_id_hash = env::sha256(matching_rp_id.as_bytes());
-        if auth_data.rp_id_hash != expected_rp_id_hash {
-            log!("RP ID hash mismatch for RP ID: {}", matching_rp_id);
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 6: Validate authenticator flags
-        if let Err(validation_error) = validation_context.validate_authenticator_flags(auth_data.flags) {
-            validation_error.log_error();
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 7: Validate counter (anti-replay protection)
-        if let Err(validation_error) = validation_context.validate_counter(auth_data.counter) {
-            validation_error.log_error();
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 8: Verify signature
-        let signature_bytes = match validate_base64url(&response.response.signature, "signature") {
-            Ok(bytes) => bytes,
-            Err(validation_error) => {
-                validation_error.log_error();
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        // Construct the data that was signed
-        let client_data_hash = env::sha256(&validate_base64url(&response.response.client_data_json, "clientDataJSON").unwrap());
-        let mut signed_data = Vec::new();
-        signed_data.extend_from_slice(&authenticator_data_bytes);
-        signed_data.extend_from_slice(&client_data_hash);
-
-        // Verify signature using the stored public key
-        let signature_valid = match verify_authentication_signature(
-            &signature_bytes,
-            &signed_data,
-            &authenticator.credential_public_key,
-        ) {
-            Ok(valid) => valid,
-            Err(e) => {
-                log!("Error verifying authentication signature: {}", e);
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        if !signature_valid {
-            log!("Authentication signature verification failed");
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 9: Determine credential device type and backup status
-        let credential_backed_up = (auth_data.flags & 0x10) != 0; // BS flag
-        let credential_device_type = if (auth_data.flags & 0x20) != 0 { // BE flag
-            "multiDevice"
-        } else {
-            "singleDevice"
-        };
-
-        // Step 10: Update authenticator counter and last used timestamp
-        let user_account_id = env::predecessor_account_id();
-        let credential_id_b64url = BASE64_URL_ENGINE.encode(&authenticator.credential_id);
-        let current_timestamp = env::block_timestamp_ms().to_string();
-
-        self.update_authenticator_usage(
-            user_account_id,
-            credential_id_b64url,
-            current_timestamp,
-        );
-
-        log!("Enhanced authentication verification successful");
-
-        VerifiedAuthenticationResponse {
-            verified: true,
-            authentication_info: Some(AuthenticationInfo {
-                credential_id: authenticator.credential_id,
-                new_counter: auth_data.counter,
-                user_verified: (auth_data.flags & 0x04) != 0,
-                credential_device_type: credential_device_type.to_string(),
-                credential_backed_up,
-                origin: origin.to_string(),
-                rp_id: matching_rp_id,
-            }),
-        }
-    }
-
-    /// Validate authentication inputs with comprehensive checks
-    fn validate_authentication_inputs(
-        &self,
-        response: &AuthenticationCredential,
-        _context: &ValidationContext,
-    ) -> ValidationResult<()> {
-        // Validate credential ID format
-        validate_credential_id(&response.id)?;
-
-        // Validate that rawId matches id
-        let expected_raw_id = BASE64_URL_ENGINE.encode(
-            &validate_credential_id(&response.id)?
-        );
-        if response.raw_id != expected_raw_id {
-            return Err(WebAuthnValidationError::InvalidFieldValue {
-                field: "rawId".to_string(),
-                value: response.raw_id.clone(),
-                reason: "does not match encoded id field".to_string(),
-            });
-        }
-
-        // Validate response type
-        if response.type_ != "public-key" {
-            return Err(WebAuthnValidationError::InvalidFieldValue {
-                field: "type".to_string(),
-                value: response.type_.clone(),
-                reason: "must be 'public-key'".to_string(),
-            });
-        }
-
-        // Basic structure validation for assertion response
-        if response.response.client_data_json.is_empty() {
-            return Err(WebAuthnValidationError::MissingRequiredField("clientDataJSON".to_string()));
-        }
-
-        if response.response.authenticator_data.is_empty() {
-            return Err(WebAuthnValidationError::MissingRequiredField("authenticatorData".to_string()));
-        }
-
-        if response.response.signature.is_empty() {
-            return Err(WebAuthnValidationError::MissingRequiredField("signature".to_string()));
-        }
-
-        Ok(())
-    }
-
-    /// Find matching RP ID for the given origin
-    fn find_matching_rp_id(
-        &self,
-        origin: &str,
-        expected_rp_ids: &[String],
-    ) -> ValidationResult<String> {
-        for rp_id in expected_rp_ids {
-            if validate_origin_rp_id_match(origin, rp_id).is_ok() {
-                return Ok(rp_id.clone());
-            }
-        }
-
-        Err(WebAuthnValidationError::RpIdMismatch {
-            expected: expected_rp_ids.to_vec(),
-            received: format!("(no RP ID matches origin: {})", origin),
-        })
-    }
-
 }
 
 #[cfg(test)]
@@ -735,6 +387,7 @@ mod tests {
     use std::collections::BTreeMap;
     use sha2::{Sha256, Digest};
     use crate::authenticators::StoredAuthenticator;
+    use crate::types::AuthenticatorAssertionResponse;
 
     // Mock VRF dependencies for testing
     struct MockVRFData {
@@ -849,7 +502,6 @@ mod tests {
         StoredAuthenticator {
             credential_public_key,
             transports: Some(vec![crate::types::AuthenticatorTransport::Internal]),
-            client_managed_near_public_key: None,
             registered: "1234567890".to_string(),
             last_used: Some("1234567890".to_string()),
             backed_up: false,
@@ -879,7 +531,7 @@ mod tests {
         );
 
         // Create VRF authentication data
-        let vrf_data = VRFAuthenticationData {
+        let vrf_data = VRFVerificationData {
             vrf_input_data: mock_vrf.input_data,
             vrf_output: mock_vrf.output.clone(),
             vrf_proof: mock_vrf.proof,
@@ -887,7 +539,7 @@ mod tests {
             user_id: "alice.testnet".to_string(), // NEAR account_id
             rp_id: "example.com".to_string(),
             block_height: 54321u64,
-            block_hash: vec![0x12, 0x34, 0x56, 0x78], // Mock block hash
+            block_hash: b"mock_auth_block_hash_32_bytes_abc".to_vec(),
         };
 
         // Create WebAuthn authentication data using VRF output as challenge
@@ -924,7 +576,7 @@ mod tests {
     fn test_vrf_authentication_data_serialization() {
         let mock_vrf = MockVRFData::create_mock();
 
-        let vrf_data = VRFAuthenticationData {
+        let vrf_data = VRFVerificationData {
             vrf_input_data: mock_vrf.input_data,
             vrf_output: mock_vrf.output.clone(),
             vrf_proof: mock_vrf.proof,
@@ -932,7 +584,7 @@ mod tests {
             user_id: "alice.testnet".to_string(), // NEAR account_id
             rp_id: "example.com".to_string(),
             block_height: 54321u64,
-            block_hash: vec![0x12, 0x34, 0x56, 0x78], // Mock block hash
+            block_hash: b"mock_auth_block_hash_32_bytes_abc".to_vec(),
         };
 
         // Test that all data is properly structured
@@ -941,7 +593,7 @@ mod tests {
         assert_eq!(vrf_data.vrf_proof.len(), 80, "VRF proof should be 80 bytes");
         assert_eq!(vrf_data.public_key.len(), 32, "VRF public key should be 32 bytes (ed25519)");
 
-        println!("✅ VRFAuthenticationData structure test passed");
+        println!("✅ VRFVerificationData structure test passed");
     }
 
     #[test]
@@ -1075,7 +727,7 @@ mod tests {
 
         // Test VRF authentication data structure includes RP ID
         let mock_vrf = MockVRFData::create_mock();
-        let vrf_auth_data = VRFAuthenticationData {
+        let vrf_auth_data = VRFVerificationData {
             vrf_input_data: mock_vrf.input_data,
             vrf_output: mock_vrf.output,
             vrf_proof: mock_vrf.proof,
