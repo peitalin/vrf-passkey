@@ -1,32 +1,29 @@
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { usePasskeyContext } from '@web3authn/passkey/react';
 import { RefreshIcon } from './icons/RefreshIcon';
-import { shortenString } from '../utils/strings';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import toast from 'react-hot-toast';
-import type { ActionEvent } from '@web3authn/passkey/react';
-import type { SerializableActionArgs } from '../types';
-import { ActionType } from '../types';
+import type { ActionEvent, ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
+import { ActionType } from '@web3authn/passkey/react';
+import type { LastTxDetails } from '../types';
 import {
   WEBAUTHN_CONTRACT_ID,
   MUTED_GREEN,
   NEAR_EXPLORER_BASE_URL
 } from '../config';
 
-interface LastTxDetails {
-  id: string;
-  link: string;
-  message?: string;
+interface GreetingMenuProps {
+  disabled?: boolean;
+  onTransactionUpdate: (txDetails: LastTxDetails | null) => void;
 }
 
-export function GreetingMenu() {
+export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, onTransactionUpdate }) => {
   const {
     loginState: { isLoggedIn, nearAccountId },
     passkeyManager,
   } = usePasskeyContext();
 
   const [greetingInput, setGreetingInput] = useState('Hello from Passkey App!');
-  const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   // NEAR transfer state
   const [transferRecipient, setTransferRecipient] = useState('web3-authn.testnet');
@@ -57,16 +54,16 @@ export function GreetingMenu() {
 
     const newGreetingMessage = `${greetingInput.trim()} [updated: ${new Date().toLocaleTimeString()}]`;
 
-    const actionToExecute: SerializableActionArgs = {
-      action_type: ActionType.FunctionCall,
-      receiver_id: WEBAUTHN_CONTRACT_ID,
-      method_name: 'set_greeting',
-      args: JSON.stringify({ greeting: newGreetingMessage }),
+    const actionToExecute: FunctionCallAction = {
+      type: ActionType.FunctionCall,
+      receiverId: WEBAUTHN_CONTRACT_ID,
+      methodName: 'set_greeting',
+      args: { greeting: newGreetingMessage },
       gas: "30000000000000",
       deposit: "0",
     };
 
-    setLastTxDetails(null);
+    onTransactionUpdate(null); // Clear previous transaction details
 
     await passkeyManager.executeAction(nearAccountId, actionToExecute, {
       onEvent: (event: ActionEvent) => {
@@ -96,22 +93,22 @@ export function GreetingMenu() {
 
           if (success && result?.transactionId) {
             const txId = result.transactionId;
-            const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
+            const txLink = `${NEAR_EXPLORER_BASE_URL}/transactions/${txId}`;
 
-            setLastTxDetails({
+            onTransactionUpdate({
               id: txId,
               link: txLink,
               message: newGreetingMessage
             });
           } else if (success) {
-            setLastTxDetails({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
+            onTransactionUpdate({ id: 'N/A', link: '#', message: 'Success, no TxID in response' });
           } else {
-            setLastTxDetails({ id: 'N/A', link: '#', message: `Failed: ${result?.error || 'Unknown error'}` });
+            onTransactionUpdate({ id: 'N/A', link: '#', message: `Failed: ${result?.error || 'Unknown error'}` });
           }
         }
       }
     });
-  }, [greetingInput, isLoggedIn, nearAccountId, passkeyManager, fetchGreeting]);
+  }, [greetingInput, isLoggedIn, nearAccountId, passkeyManager, fetchGreeting, onTransactionUpdate]);
 
   const handleSendNear = useCallback(async () => {
     if (!transferRecipient.trim() || !transferAmount.trim() || !isLoggedIn) {
@@ -140,13 +137,13 @@ export function GreetingMenu() {
     const fracPart = (parts[1] || '').padEnd(24, '0').slice(0, 24);
     const yoctoAmount = wholePart + fracPart;
 
-    const transferAction: SerializableActionArgs = {
-      action_type: ActionType.Transfer,
-      receiver_id: recipient,
+    const transferAction: TransferAction = {
+      type: ActionType.Transfer,
+      receiverId: recipient,
       amount: yoctoAmount,
     };
 
-    setLastTxDetails(null);
+    onTransactionUpdate(null); // Clear previous transaction details
 
     await passkeyManager.executeAction(nearAccountId, transferAction, {
       onEvent: (event: ActionEvent) => {
@@ -175,21 +172,21 @@ export function GreetingMenu() {
 
           if (success && result?.transactionId) {
             const txId = result.transactionId;
-            const txLink = `${NEAR_EXPLORER_BASE_URL}/txns/${txId}`;
+            const txLink = `${NEAR_EXPLORER_BASE_URL}/transactions/${txId}`;
 
-            setLastTxDetails({
+            onTransactionUpdate({
               id: txId,
               link: txLink,
-              message: `Sent ${amount} NEAR to ${recipient}`
+              message: `Successfully sent ${amount} NEAR to ${recipient}`
             });
           } else if (success) {
-            setLastTxDetails({
+            onTransactionUpdate({
               id: 'N/A',
               link: '#',
               message: `Transfer successful: ${amount} NEAR to ${recipient}`
             });
           } else {
-            setLastTxDetails({
+            onTransactionUpdate({
               id: 'N/A',
               link: '#',
               message: `Transfer failed: ${result?.error || 'Unknown error'}`
@@ -198,7 +195,7 @@ export function GreetingMenu() {
         }
       }
     });
-  }, [transferRecipient, transferAmount, isLoggedIn, nearAccountId, passkeyManager]);
+  }, [transferRecipient, transferAmount, isLoggedIn, nearAccountId, passkeyManager, onTransactionUpdate]);
 
   if (!isLoggedIn) {
     return null;
@@ -233,18 +230,6 @@ export function GreetingMenu() {
             </button>
             <p><strong>{onchainGreeting || "..."}</strong></p>
           </div>
-
-          {lastTxDetails && lastTxDetails.id !== 'N/A' && (
-            <div className="last-tx-display">
-              <span>Transaction ID: </span>
-              <a href={lastTxDetails.link} target="_blank" rel="noopener noreferrer"
-                title={lastTxDetails.id}
-                className="tx-link"
-              >
-                {shortenString(lastTxDetails.id, 10, 6)}
-              </a>
-            </div>
-          )}
 
           <div className="greeting-input-group">
             <input
