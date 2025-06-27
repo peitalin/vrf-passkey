@@ -60,4 +60,3 @@ pnpm start      # Production server
 - **AccountService**: Manages NEAR account operations
 - **Transaction Queue**: Prevents nonce conflicts for relayer account
 - **Validation**: Account ID format and public key validation
-- **Error Handling**: Comprehensive error responses

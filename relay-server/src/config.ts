@@ -10,7 +10,6 @@ export interface AppConfig {
   networkId: string;
 }
 
-// Main configuration object
 const config: AppConfig = {
   port: process.env.PORT || 3001,
   expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',

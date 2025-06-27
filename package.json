@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "(cd frontend && pnpm dev)",
     "server": "(cd server && pnpm dev)",
+    "link-sdk": "sh ./npm_link_sdk.sh",
     "install-all": "pnpm install && (cd server && pnpm install) && (cd frontend && pnpm install)",
     "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)",
     "deploy-contract": "(cd webauthn-contract && sh ./deploy.sh)",

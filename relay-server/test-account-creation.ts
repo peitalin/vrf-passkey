@@ -17,14 +17,14 @@ async function checkServerHealth(): Promise<boolean> {
     const response = await fetch(`${RELAY_SERVER_URL}/`);
     const healthText = await response.text();
     if (response.ok) {
-      console.log('✅ Server is responding:', healthText.trim());
+      console.log('Server is responding:', healthText.trim());
       return true;
     } else {
-      console.log('❌ Server health check failed');
+      console.log('Server health check failed');
       return false;
     }
   } catch (error) {
-    console.error('❌ Server health check failed:', (error as Error).message);
+    console.error('Server health check failed:', (error as Error).message);
     return false;
   }
 }
@@ -59,19 +59,19 @@ async function createTestAccount(): Promise<boolean> {
     console.log(`Response:`, JSON.stringify(result, null, 2));
 
     if (response.ok && result.success) {
-      console.log(`\n✅ SUCCESS!`);
+      console.log(`\nSUCCESS!`);
       console.log(`   Account: ${result.accountId}`);
       console.log(`   Transaction: ${result.transactionHash}`);
       console.log(`   Link: https://testnet.nearblocks.io/txns/${result.transactionHash}`);
       return true;
     } else {
-      console.log(`\n❌ FAILED`);
+      console.log(`\nFAILED`);
       console.log(`   Error: ${result.error}`);
       return false;
     }
 
   } catch (error) {
-    console.error('\n❌ Test failed:', (error as Error).message);
+    console.error('\nTest failed:', (error as Error).message);
     return false;
   }
 }
@@ -83,7 +83,7 @@ async function waitForServer(maxAttempts = 10, delay = 1000): Promise<boolean> {
     try {
       const response = await fetch(RELAY_SERVER_URL);
       if (response.ok) {
-        console.log('✅ Server ready!');
+        console.log('Server ready!');
         return true;
       }
     } catch (error) {
@@ -96,7 +96,7 @@ async function waitForServer(maxAttempts = 10, delay = 1000): Promise<boolean> {
     }
   }
 
-  console.log('❌ Server not ready after all attempts');
+  console.log('Server not ready after all attempts');
   return false;
 }
 
@@ -107,7 +107,7 @@ async function runTests() {
   // Wait for server
   const serverReady = await waitForServer();
   if (!serverReady) {
-    console.log('\n❌ Server not available');
+    console.log('\nServer not available');
     console.log('Start with: pnpm run dev');
     process.exit(1);
   }
@@ -115,7 +115,7 @@ async function runTests() {
   // Check health
   const healthy = await checkServerHealth();
   if (!healthy) {
-    console.log('\n❌ Server unhealthy');
+    console.log('\nServer unhealthy');
     return;
   }
 
@@ -125,14 +125,7 @@ async function runTests() {
   // Summary
   console.log('\n' + '=' .repeat(40));
   console.log('Results:');
-  console.log(`   Server Health: ✅`);
-  console.log(`   Account Creation: ${success ? '✅' : '❌'}`);
-
-  if (success) {
-    console.log('\nAll tests passed!');
-  } else {
-    console.log('\nSome tests failed');
-  }
+  console.log(`   Account Creation: ${success ? 'SUCCESS' : 'FAILED'}`);
 }
 
 // Run tests if called directly
