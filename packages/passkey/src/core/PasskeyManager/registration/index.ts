@@ -15,6 +15,7 @@ import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
 import { WebAuthnManager } from '../../WebAuthnManager';
 import { VRFChallenge } from '../../types/webauthn';
 import { generateSessionId } from '../../../utils';
+import { RPC_NODE_URL } from '../../../config';
 
 
 /**
@@ -70,7 +71,7 @@ export async function registerPasskey(
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, hooks } = options;
-  // Generate a temporary sessionId for client-side events before SSE stream starts
+  // Generate a sessionId for client-side events before SSE stream starts
   const tempSessionId = generateSessionId();
 
   // Emit started event
@@ -298,6 +299,31 @@ async function handleRegistration(
       message: 'Creating NEAR account...'
     });
 
+    // First check if the user can be registered on-chain
+    const canRegisterUserResult = await webAuthnManager.checkCanRegisterUser({
+      contractId: config.contractId,
+      webauthnCredential: credential,
+      vrfChallenge: vrfChallenge,
+      onProgress: (progress: any) => {
+        console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
+        onEvent?.({
+          step: 4,
+          sessionId: tempSessionId,
+          phase: 'account-verification',
+          status: 'progress',
+          timestamp: Date.now(),
+          message: `Checking registration progress: ${progress.step} - ${progress.message}`
+        });
+      },
+    });
+
+    if (!canRegisterUserResult.verified) {
+      throw new Error(`Registration check failed: ${canRegisterUserResult.error}`);
+    }
+
+    // Step 7: Create account using faucet service (before storing data)
+    // Gives generated NEAR keypair an accountId
+    console.log('Registration Step 8: Creating NEAR account via faucet service');
     const accountCreationResult = await createAccountTestnetFaucet(
       nearAccountId,
       keyGenResult.publicKey,
@@ -310,9 +336,6 @@ async function handleRegistration(
       throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
     }
 
-    // Check for access key to be available
-    await waitForAccessKey(nearRpcProvider, nearAccountId, keyGenResult.publicKey);
-
     onEvent?.({
       step: 3,
       sessionId: tempSessionId,
@@ -321,6 +344,9 @@ async function handleRegistration(
       timestamp: Date.now(),
       message: 'NEAR account created successfully'
     });
+
+    // Check for access key to be available
+    await waitForAccessKey(nearRpcProvider, nearAccountId, keyGenResult.publicKey);
 
     onEvent?.({
       step: 4,
@@ -333,11 +359,10 @@ async function handleRegistration(
 
     // Step 9: Contract verification (before data storage)
     console.log('Registration Step 9: Contract verification');
-
     let contractVerified = false;
     let contractTransactionId: string | null = null;
 
-    const contractRegistrationResult = await webAuthnManager.registerUserOnChain({
+    const contractRegistrationResult = await webAuthnManager.signVerifyAndRegisterUser({
       contractId: config.contractId,
       webauthnCredential: credential,
       vrfChallenge: vrfChallenge,
@@ -358,28 +383,25 @@ async function handleRegistration(
       },
     });
 
-    // // verify registration and save authenticator credentials on-chain
-    // const contractRegistrationResult = await webAuthnManager.registerWithPrf({
-    //   contractId: config.contractId,
-    //   webauthnCredential: credential,
-    //   vrfChallenge: vrfChallenge,
-    //   onProgress: (progress) => {
-    //     console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
-    //     onEvent?.({
-    //       step: 6,
-    //       sessionId: tempSessionId,
-    //       phase: 'contract-registration',
-    //       status: 'progress',
-    //       timestamp: Date.now(),
-    //       message: `VRF registration progress: ${progress.step} - ${progress.message}`
-    //     });
-    //   },
-    // });
+    contractVerified = contractRegistrationResult.verified || false;
+    const signedTransactionBorsh = contractRegistrationResult.signedTransactionBorsh;
 
-    contractVerified = contractRegistrationResult.success && !!contractRegistrationResult.verified;
-    // contractTransactionId = contractRegistrationResult.transactionId || null;
+    if (contractVerified && signedTransactionBorsh) {
+      // Broadcast the signed transaction
+      console.log('Broadcasting registration transaction...');
 
-    if (contractVerified) {
+      onEvent?.({
+        step: 6,
+        sessionId: tempSessionId,
+        phase: 'contract-registration',
+        status: 'progress',
+        timestamp: Date.now(),
+        message: 'Broadcasting registration transaction...'
+      });
+
+      const transactionResult = await broadcastSignedTransaction(signedTransactionBorsh!);
+      const contractTransactionId = transactionResult.transactionId;
+
       onEvent?.({
         step: 6,
         sessionId: tempSessionId,
@@ -390,7 +412,7 @@ async function handleRegistration(
       });
     } else {
       console.warn(`️Contract verification failed: ${ contractRegistrationResult.error}`);
-      throw new Error(contractRegistrationResult.error);
+      throw new Error(contractRegistrationResult.error || 'Registration verification failed');
     }
 
     // Step 11: Store user data with VRF credentials atomically
@@ -611,3 +633,47 @@ async function waitForAccessKey(
   }
   throw new Error('Unexpected error in waitForAccessKey');
 }
+
+/**
+ * Broadcast signed transaction to NEAR network
+ */
+async function broadcastSignedTransaction(
+  signedTransactionBorsh: number[]
+): Promise<{ transactionId: string; result: any }> {
+  // Convert the signed transaction to base64
+  const signedTransactionBase64 = Buffer.from(signedTransactionBorsh).toString('base64');
+
+  // Broadcast using RPC
+  const response = await fetch(RPC_NODE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'registration_broadcast',
+      method: 'send_tx',
+      params: {
+        signed_tx_base64: signedTransactionBase64,
+        wait_until: 'EXECUTED_OPTIMISTIC'
+      }
+    })
+  });
+
+  const result = await response.json();
+
+  if (result.error) {
+    const errorMessage = result.error.data?.message || result.error.message || 'Transaction broadcast failed';
+    throw new Error(`Transaction broadcast failed: ${errorMessage}`);
+  }
+
+  const transactionId = result.result?.transaction_outcome?.id;
+  if (!transactionId) {
+    throw new Error('Transaction ID not found in response');
+  }
+
+  return {
+    transactionId,
+    result: result.result
+  };
+}
+
+

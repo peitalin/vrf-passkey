@@ -1,4 +1,5 @@
 import { bufferEncode } from '../../utils/encoders';
+import { FinalExecutionOutcome } from '@near-js/types';
 import type {
   WorkerResponse,
   RegistrationPayload,
@@ -332,11 +333,7 @@ export class SignerWorkerManager {
     }
   }
 
-  /**
-   * Register WebAuthn credential with VRF verification
-   * Calls verify_registration_response on the contract to register a new credential
-   */
-  async registerWithPrf({
+  async checkCanRegisterUser({
     vrfChallenge,
     webauthnCredential,
     contractId,
@@ -346,13 +343,20 @@ export class SignerWorkerManager {
     webauthnCredential: PublicKeyCredential,
     contractId: string;
     onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
-  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[] }> {
+  }): Promise<{
+    success: boolean;
+    verified?: boolean;
+    registrationInfo?: any;
+    logs?: string[];
+    signedTransactionBorsh?: number[];
+    error?: string;
+  }> {
     try {
-      console.log('WebAuthnManager: Starting WebAuthn registration with VRF verification');
+      console.log('WebAuthnManager: Checking if user can be registered on-chain');
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.REGISTER_WITH_PRF,
+          type: WorkerRequestType.CHECK_CAN_REGISTER_USER,
           payload: {
             vrfChallenge,
             webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
@@ -365,19 +369,27 @@ export class SignerWorkerManager {
       });
 
       if (isRegistrationSuccess(response)) {
-        console.log('WebAuthnManager: WebAuthn registration with VRF verification successful');
+        console.log('WebAuthnManager: User can be registered on-chain');
         return {
+          success: true,
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
-          logs: response.payload.logs
+          logs: response.payload.logs,
+          signedTransactionBorsh: response.payload.signedTransactionBorsh
         };
       } else {
-        console.error('WebAuthnManager: WebAuthn registration with VRF verification failed:', response);
-        throw new Error('WebAuthn registration with VRF verification failed');
+        console.error('WebAuthnManager: User cannot be registered on-chain:', response);
+        return {
+          success: false,
+          error: 'User cannot be registered - registration check failed'
+        };
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: WebAuthn registration with VRF verification error:', error);
-      throw error;
+      console.error('WebAuthnManager: User cannot be registered on-chain:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
@@ -389,7 +401,7 @@ export class SignerWorkerManager {
    * 3. Build and sign registration transaction
    * 4. Submit transaction to NEAR blockchain
    */
-  async registerUserOnChain({
+  async signVerifyAndRegisterUser({
     vrfChallenge,
     webauthnCredential,
     contractId,
@@ -407,7 +419,7 @@ export class SignerWorkerManager {
     publicKeyStr: string; // NEAR public key for nonce retrieval
     nearRpcProvider: any; // NEAR RPC provider for getting transaction metadata
     onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
-  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[] }> {
+  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[]; signedTransactionBorsh?: number[] }> {
     try {
       console.log('WebAuthnManager: Starting on-chain user registration with transaction');
 
@@ -442,7 +454,7 @@ export class SignerWorkerManager {
       // Step 2: Execute registration transaction via WASM
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.VERIFY_AND_REGISTER_USER,
+          type: WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER,
           payload: {
             vrfChallenge,
             webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
@@ -463,7 +475,8 @@ export class SignerWorkerManager {
         return {
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
-          logs: response.payload.logs
+          logs: response.payload.logs,
+          signedTransactionBorsh: response.payload.signedTransactionBorsh
         };
       } else {
         console.error('WebAuthnManager: On-chain user registration transaction failed:', response);

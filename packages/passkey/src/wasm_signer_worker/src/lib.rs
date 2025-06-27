@@ -356,86 +356,6 @@ pub async fn verify_and_sign_near_transfer_transaction(
     ).await
 }
 
-/// Register a new WebAuthn credential with VRF using contract verification
-#[wasm_bindgen]
-pub async fn register_with_prf(
-    // VRF challenge data
-    vrf_challenge_data_json: &str,
-    // WebAuthn registration credential
-    webauthn_registration_json: &str,
-    // Contract parameters
-    contract_id: &str,
-    near_rpc_url: &str,
-) -> Result<String, JsValue> {
-    console_log!("RUST: Starting registration with VRF verification and progress");
-
-    // Step 1: Send registration progress
-    send_progress_message(
-        "REGISTRATION_PROGRESS",
-        "contract_verification",
-        "Verifying registration with contract...",
-        &format!(r#"{{"contractId": "{}"}}"#, contract_id)
-    );
-
-    // Step 2: Parse VRF challenge data
-    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
-
-    // Step 3: Parse WebAuthn registration credential
-    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
-
-    // Step 5: Extract WebAuthn registration fields
-    let reg_id = webauthn_registration_data["id"].as_str().ok_or("Missing WebAuthn id")?;
-    let raw_id = webauthn_registration_data["rawId"].as_str().ok_or("Missing WebAuthn rawId")?;
-    let response = &webauthn_registration_data["response"];
-    let client_data_json = response["clientDataJSON"].as_str().ok_or("Missing clientDataJSON")?;
-    let attestation_object = response["attestationObject"].as_str().ok_or("Missing attestationObject")?;
-    let transports = response["transports"].as_array().map(|arr| {
-        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect()
-    });
-
-    // Construct WebAuthnRegistration struct
-    let webauthn_registration = WebAuthnRegistrationCredential {
-        id: reg_id.to_string(),
-        raw_id: raw_id.to_string(),
-        response: WebAuthnRegistrationResponse {
-            client_data_json: client_data_json.to_string(),
-            attestation_object: attestation_object.to_string(),
-            transports,
-        },
-        authenticator_attachment: webauthn_registration_data["authenticatorAttachment"].as_str().map(|s| s.to_string()),
-        reg_type: "public-key".to_string(),
-    };
-
-    // Step 6: Perform registration verification using pure WASM HTTP
-    let registration_result = crate::http::check_can_register_user_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
-        .await
-        .map_err(|e| JsValue::from_str(&format!("Contract registration failed: {}", e)))?;
-
-    // Step 7: Send registration complete
-    let registration_success = registration_result.verified;
-    send_progress_message(
-        "REGISTRATION_COMPLETE",
-        "registration_complete",
-        if registration_success { "Contract registration successful" } else { "Contract registration failed" },
-        &format!(r#"{{"success": {}, "logs": {:?}}}"#, registration_success, registration_result.logs)
-    );
-
-    if !registration_success {
-        let error_msg = registration_result.error.unwrap_or_else(|| "Contract registration failed".to_string());
-        return Err(JsValue::from_str(&error_msg));
-    }
-
-    // Step 8: Return registration result as JSON
-    let result = serde_json::json!({
-        "verified": registration_result.verified,
-        "registration_info": registration_result.registration_info,
-        "logs": registration_result.logs
-    });
-
-    console_log!("RUST: Registration with VRF completed successfully");
-    Ok(result.to_string())
-}
 
 /// Check if user can register (VIEW FUNCTION - uses query RPC)
 #[wasm_bindgen]
@@ -479,14 +399,15 @@ pub async fn check_can_register_user(
 
     // Call the http module function
     let registration_result = crate::http::check_can_register_user_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
-        .await
-        .map_err(|e| JsValue::from_str(&format!("Registration check failed: {}", e)))?;
+            .await
+    .map_err(|e| JsValue::from_str(&format!("Registration check failed: {}", e)))?;
 
     // Return result as JSON
     let result = serde_json::json!({
         "verified": registration_result.verified,
         "registration_info": registration_result.registration_info,
-        "logs": registration_result.logs
+        "logs": registration_result.logs,
+        "signed_transaction_borsh": registration_result.signed_transaction_borsh
     });
 
     Ok(result.to_string())
@@ -494,7 +415,7 @@ pub async fn check_can_register_user(
 
 /// Actually register user (STATE-CHANGING FUNCTION - uses send_tx RPC)
 #[wasm_bindgen]
-pub async fn verify_and_register_user(
+pub async fn sign_verify_and_register_user(
     contract_id: &str,
     vrf_challenge_data_json: &str,
     webauthn_registration_json: &str,
@@ -558,7 +479,8 @@ pub async fn verify_and_register_user(
     let result = serde_json::json!({
         "verified": registration_result.verified,
         "registration_info": registration_result.registration_info,
-        "logs": registration_result.logs
+        "logs": registration_result.logs,
+        "signed_transaction_borsh": registration_result.signed_transaction_borsh
     });
 
     Ok(result.to_string())

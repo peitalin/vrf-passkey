@@ -318,61 +318,40 @@ export class WebAuthnManager {
   }
 
   ///////////////////////////////////////
-  // REGISTRATION WITH PRF
+  // REGISTRATION
   ///////////////////////////////////////
 
-  // /**
-  //  * Verify VRF registration with the WebAuthn contract
-  //  * Calls verify_registration_response on the contract
-  //  */
-  // async registerWithPrf({
-  //   contractId,
-  //   webauthnCredential,
-  //   vrfChallenge,
-  //   onProgress,
-  // }: {
-  //   contractId: string,
-  //   webauthnCredential: PublicKeyCredential,
-  //   vrfChallenge: VRFChallenge,
-  //   onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
-  // }): Promise<{
-  //   success: boolean;
-  //   verified?: boolean;
-  //   transactionId?: string;
-  //   error?: string;
-  // }> {
-
-  //   const registrationResult = await this.signerWorkerManager.registerWithPrf({
-  //     vrfChallenge,
-  //     webauthnCredential,
-  //     contractId,
-  //     onProgress,
-  //   });
-
-  //   console.debug("Registration verification completed:", registrationResult);
-
-  //   if (registrationResult.verified) {
-  //     console.debug('✅ VRF registration verified by contract');
-  //     return {
-  //       success: true,
-  //       verified: true,
-  //       transactionId: undefined, // Direct registration doesn't have transaction ID
-  //     };
-  //   } else {
-  //     console.warn('❌ VRF registration verification failed');
-  //     return {
-  //       success: false,
-  //       verified: false,
-  //       error: 'Contract registration verification failed',
-  //     };
-  //   }
-  // }
+  async checkCanRegisterUser({
+    contractId,
+    webauthnCredential,
+    vrfChallenge,
+    onProgress,
+  }: {
+    contractId: string,
+    webauthnCredential: PublicKeyCredential,
+    vrfChallenge: VRFChallenge,
+    onProgress?: (update: { step: string; message: string; data?: any; logs?: string[] }) => void
+  }): Promise<{
+    success: boolean;
+    verified?: boolean;
+    registrationInfo?: any;
+    logs?: string[];
+    signedTransactionBorsh?: number[];
+    error?: string;
+  }> {
+    return await this.signerWorkerManager.checkCanRegisterUser({
+      contractId,
+      webauthnCredential,
+      vrfChallenge,
+      onProgress,
+    });
+  }
 
   /**
    * Register user on-chain with transaction (STATE-CHANGING)
    * This performs the actual on-chain registration transaction
    */
-  async registerUserOnChain({
+  async signVerifyAndRegisterUser({
     contractId,
     webauthnCredential,
     vrfChallenge,
@@ -395,10 +374,11 @@ export class WebAuthnManager {
     verified?: boolean;
     registrationInfo?: any;
     logs?: string[];
+    signedTransactionBorsh?: number[];
     error?: string;
   }> {
     try {
-      const registrationResult = await this.signerWorkerManager.registerUserOnChain({
+      const registrationResult = await this.signerWorkerManager.signVerifyAndRegisterUser({
         vrfChallenge,
         webauthnCredential,
         contractId,
@@ -418,6 +398,7 @@ export class WebAuthnManager {
           verified: true,
           registrationInfo: registrationResult.registrationInfo,
           logs: registrationResult.logs,
+          signedTransactionBorsh: registrationResult.signedTransactionBorsh,
         };
       } else {
         console.warn('❌ On-chain user registration failed');

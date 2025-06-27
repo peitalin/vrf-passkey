@@ -28,7 +28,6 @@ export type {
   WorkerRequest,
   WorkerResponse as TypedWorkerResponse,
   DeriveNearKeypairAndEncryptRequest,
-  RegisterWithPrfRequest,
   DecryptPrivateKeyWithPrfRequest,
   SignTransactionWithActionsRequest,
   SignTransferTransactionRequest,

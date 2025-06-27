@@ -14,8 +14,8 @@ import {
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest,
-  type RegisterWithPrfRequest,
   type CheckCanRegisterUserRequest,
+  type SignVerifyAndRegisterUserRequest,
   SerializableWebAuthnCredential,
   takePrfOutputFromCredential,
 } from './types/worker.js';
@@ -36,9 +36,8 @@ const WASM_CACHE_NAME = 'web3authn-signer-worker-v1';
 const {
   // Registration
   derive_near_keypair_from_cose_and_encrypt_with_prf,
-  register_with_prf,
   check_can_register_user,
-  verify_and_register_user,
+  sign_verify_and_register_user,
   // Key exports/decryption
   decrypt_private_key_with_prf_as_string,
   // Transaction signing: combined verification + signing
@@ -209,16 +208,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
         await handleDeriveNearKeypairAndEncrypt(payload);
         break;
 
-      case WorkerRequestType.REGISTER_WITH_PRF:
-        await handleRegisterWithPrf(payload);
-        break;
-
       case WorkerRequestType.CHECK_CAN_REGISTER_USER:
         await handleCheckCanRegisterUser(payload);
         break;
 
-      case WorkerRequestType.VERIFY_AND_REGISTER_USER:
-        await handleVerifyAndRegisterUser(payload);
+      case WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER:
+        await handleSignVerifyAndRegisterUser(payload);
         break;
 
       case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
@@ -361,67 +356,6 @@ async function handleDecryptPrivateKeyWithPrf(
 }
 
 /**
- * Handle WebAuthn registration with VRF verification
- * Calls verify_registration_response on the contract to register a new credential
- */
-async function handleRegisterWithPrf(
-  payload: RegisterWithPrfRequest['payload']
-): Promise<void> {
-  try {
-    const {
-      vrfChallenge,
-      webauthnCredential,
-      contractId,
-      nearRpcUrl
-    } = payload;
-
-    console.log('[signer-worker]: Starting WebAuthn registration with VRF verification');
-
-    // Validate required parameters
-    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl) {
-      throw new Error('Missing required parameters for registration: vrfChallenge, webauthnCredential, contractId, nearRpcUrl');
-    }
-
-    console.log('[signer-worker]: Calling register_with_prf WASM function');
-
-    // Call the WASM function that handles registration verification
-    const registrationResultJson = await register_with_prf(
-      JSON.stringify(vrfChallenge),
-      JSON.stringify(webauthnCredential),
-      contractId,
-      nearRpcUrl
-    );
-
-    // Parse the result
-    const registrationResult = JSON.parse(registrationResultJson);
-    console.log('[signer-worker]: Registration result:', {
-      verified: registrationResult.verified,
-      hasRegistrationInfo: !!registrationResult.registration_info
-    });
-
-    if (!registrationResult.verified) {
-      throw new Error('Registration verification failed');
-    }
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_SUCCESS,
-      payload: {
-        verified: registrationResult.verified,
-        registrationInfo: registrationResult.registration_info,
-        logs: registrationResult.logs
-      }
-    });
-
-  } catch (error: any) {
-    console.error('[signer-worker]: Registration with PRF failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_FAILURE,
-      payload: { error: error.message || 'Registration with PRF failed' }
-    });
-  }
-}
-
-/**
  * Handle checking if user can register (view function)
  * Calls check_can_register_user on the contract to check eligibility
  */
@@ -443,13 +377,14 @@ async function handleCheckCanRegisterUser(
       throw new Error('Missing required parameters for registration check: vrfChallenge, webauthnCredential, contractId, nearRpcUrl');
     }
 
+    const { credentialWithoutPrf } = takePrfOutputFromCredential(webauthnCredential);
     console.log('[signer-worker]: Calling check_can_register_user function');
 
     // Call the WASM function that handles registration eligibility check
     const checkResultJson = await check_can_register_user(
       contractId,
       JSON.stringify(vrfChallenge),
-      JSON.stringify(webauthnCredential),
+      JSON.stringify(credentialWithoutPrf),
       nearRpcUrl
     );
 
@@ -457,7 +392,8 @@ async function handleCheckCanRegisterUser(
     const checkResult = JSON.parse(checkResultJson);
     console.log('[signer-worker]: Registration check result:', {
       verified: checkResult.verified,
-      hasRegistrationInfo: !!checkResult.registration_info
+      hasRegistrationInfo: !!checkResult.registration_info,
+      signedTransactionBorsh: checkResult.signed_transaction_borsh
     });
 
     sendResponseAndTerminate({
@@ -465,7 +401,8 @@ async function handleCheckCanRegisterUser(
       payload: {
         verified: checkResult.verified,
         registrationInfo: checkResult.registration_info,
-        logs: checkResult.logs
+        logs: checkResult.logs,
+        signedTransactionBorsh: checkResult.signed_transaction_borsh
       }
     });
 
@@ -480,10 +417,10 @@ async function handleCheckCanRegisterUser(
 
 /**
  * Handle actual user registration (state-changing function)
- * Calls verify_and_register_user on the contract via send_tx to actually register
+ * Calls sign_verify_and_register_user on the contract via send_tx to actually register
  */
-async function handleVerifyAndRegisterUser(
-  payload: any // VerifyAndRegisterUserRequest['payload']
+async function handleSignVerifyAndRegisterUser(
+  payload: SignVerifyAndRegisterUserRequest['payload']
 ): Promise<void> {
   try {
     const {
@@ -516,13 +453,15 @@ async function handleVerifyAndRegisterUser(
       throw new Error('PRF output missing from credential.extensionResults: required for secure registration');
     }
 
-    console.log('[signer-worker]: Calling verify_and_register_user function with transaction metadata');
+    console.log('[signer-worker]: Calling sign_verify_and_register_user function with transaction metadata');
+
+    const { credentialWithoutPrf } = takePrfOutputFromCredential(webauthnCredential);
 
     // Call the WASM function that handles actual registration (send_tx)
-    const registrationResultJson = await verify_and_register_user(
+    const registrationResultJson = await sign_verify_and_register_user(
       contractId,
       JSON.stringify(vrfChallenge),
-      JSON.stringify(webauthnCredential),
+      JSON.stringify(credentialWithoutPrf),
       nearRpcUrl,
       signerAccountId,
       encryptedKeyData.encryptedData,
@@ -536,7 +475,8 @@ async function handleVerifyAndRegisterUser(
     const registrationResult = JSON.parse(registrationResultJson);
     console.log('[signer-worker]: Actual registration result:', {
       verified: registrationResult.verified,
-      hasRegistrationInfo: !!registrationResult.registration_info
+      hasRegistrationInfo: !!registrationResult.registration_info,
+      signedTransactionBorsh: registrationResult.signed_transaction_borsh
     });
 
     if (!registrationResult.verified) {
@@ -548,7 +488,8 @@ async function handleVerifyAndRegisterUser(
       payload: {
         verified: registrationResult.verified,
         registrationInfo: registrationResult.registration_info,
-        logs: registrationResult.logs
+        logs: registrationResult.logs,
+        signedTransactionBorsh: registrationResult.signed_transaction_borsh
       }
     });
 

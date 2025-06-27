@@ -241,10 +241,15 @@ describe('WebAuthnManager', () => {
       const mockVerifyVrfRegistration = jest.fn().mockResolvedValue(mockRegistrationResult);
       (webAuthnManager as any).contractCalls.verifyVrfRegistration = mockVerifyVrfRegistration;
 
-      const result = await webAuthnManager.registerWithPrf({
+      const result = await webAuthnManager.signVerifyAndRegisterUser({
         contractId: 'test-contract.testnet',
         vrfChallenge: mockVrfChallengeData,
         webauthnCredential: mockCredential as any,
+        signerAccountId: 'test.testnet',
+        nearAccountId: 'test.testnet',
+        publicKeyStr: 'ed25519:test-key',
+        nearRpcProvider: mockNearRpcProvider,
+        onProgress: jest.fn()
       });
 
       expect(result).toEqual(mockRegistrationResult);

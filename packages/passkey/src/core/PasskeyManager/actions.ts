@@ -453,7 +453,7 @@ async function verifyVrfAuthAndSignTransaction(
  * 3. Transaction Broadcasting - Broadcasts the signed transaction to NEAR network
  */
 async function broadcastTransaction(
-  signingResult: any,
+  signingResult: VerifyAndSignTransactionResult,
   actionArgs: SerializableActionArgs,
   eventOptions: EventOptions
 ): Promise<ActionResult> {

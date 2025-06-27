@@ -40,9 +40,8 @@ export interface SigningPayload {
 
 export enum WorkerRequestType {
   DERIVE_NEAR_KEYPAIR_AND_ENCRYPT = 'DERIVE_NEAR_KEYPAIR_AND_ENCRYPT',
-  REGISTER_WITH_PRF = 'REGISTER_WITH_PRF',
   CHECK_CAN_REGISTER_USER = 'CHECK_CAN_REGISTER_USER',
-  VERIFY_AND_REGISTER_USER = 'VERIFY_AND_REGISTER_USER',
+  SIGN_VERIFY_AND_REGISTER_USER = 'SIGN_VERIFY_AND_REGISTER_USER',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
   // COSE operations
   EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
@@ -159,21 +158,6 @@ export type ActionParams =
   | { actionType: ActionType.DeleteKey; public_key: string }
   | { actionType: ActionType.DeleteAccount; beneficiary_id: string }
 
-// Registration request with VRF verification
-export interface RegisterWithPrfRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.REGISTER_WITH_PRF;
-  payload: {
-    /** VRF challenge data for verification */
-    vrfChallenge: VRFChallenge;
-    /** Serialized WebAuthn registration credential */
-    webauthnCredential: SerializableWebAuthnRegistrationCredential;
-    /** Contract ID for verification */
-    contractId: string;
-    /** NEAR RPC provider URL for verification */
-    nearRpcUrl: string;
-  };
-}
-
 // Check if user can register (view function - query RPC)
 export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
   type: WorkerRequestType.CHECK_CAN_REGISTER_USER;
@@ -190,8 +174,8 @@ export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
 }
 
 // Actually register user (state-changing function - send_tx RPC)
-export interface VerifyAndRegisterUserRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.VERIFY_AND_REGISTER_USER;
+export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER;
   payload: {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
@@ -321,7 +305,9 @@ export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential)
  * ✅ Consistent base64url encoding for proper WASM decoding
  * ✅ Secure against encoding/decoding failures
  */
-export function serializeRegistrationCredentialAndCreatePRF(credential: PublicKeyCredential): SerializableWebAuthnRegistrationCredential {
+export function serializeRegistrationCredentialAndCreatePRF(
+  credential: PublicKeyCredential
+): SerializableWebAuthnRegistrationCredential {
   // Extract PRF output immediately for secure transfer to worker
   let prfOutput: string | undefined;
   try {
@@ -359,12 +345,12 @@ export function serializeRegistrationCredentialAndCreatePRF(credential: PublicKe
   }
 }
 
-// Export the PRF symbol for use in extraction function
-export { PRF_OUTPUT_SYMBOL };
+
+type SerializableCredential = SerializableWebAuthnCredential | SerializableWebAuthnRegistrationCredential;
 
 // Removes the PRF output from the credential and returns the PRF output separately
-export function takePrfOutputFromCredential(credential: SerializableWebAuthnCredential): ({
-  credentialWithoutPrf: SerializableWebAuthnCredential,
+export function takePrfOutputFromCredential(credential: SerializableCredential): ({
+  credentialWithoutPrf: SerializableCredential,
   prfOutput: string
 }) {
   // Access PRF through the getter (which reads from Symbol property)
@@ -540,9 +526,8 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
 
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
-  | RegisterWithPrfRequest
   | CheckCanRegisterUserRequest
-  | VerifyAndRegisterUserRequest
+  | SignVerifyAndRegisterUserRequest
   | DecryptPrivateKeyWithPrfRequest
   | ExtractCosePublicKeyRequest
   | ValidateCoseKeyRequest
@@ -599,6 +584,8 @@ export interface RegistrationSuccessResponse extends BaseWorkerResponse {
     };
     /** Contract logs from the registration verification */
     logs?: string[];
+    /** Signed transaction bytes for state-changing registrations */
+    signedTransactionBorsh?: number[];
   };
 }
 
@@ -984,7 +971,7 @@ export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails
       operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
       break;
     case WorkerResponseType.REGISTRATION_FAILURE:
-      operation = WorkerRequestType.REGISTER_WITH_PRF;
+      operation = WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER;
       break;
     case WorkerResponseType.DECRYPTION_FAILURE:
       operation = WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF;
