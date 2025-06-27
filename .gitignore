@@ -8,11 +8,11 @@ frontend/.env
 server/.env
 relay-server/.env
 webauthn-contract/.env
+contract/.env
 # All environment files
 .env
 **/.env
 **/.env.*
-
 
 # WASM workers
 packages/passkey/dist
@@ -33,14 +33,13 @@ packages/passkey/src/wasm_vrf_worker/wasm_vrf_worker.d.ts
 
 frontend/public/workers
 
-# Database files
-server/passkey_users.db
-
 # Build output
 frontend/dist
 frontend/dist-ssr
 server/dist
+relay-server/dist
 webauthn-contract/target
+contract/target
 target
 
 commands.sh
