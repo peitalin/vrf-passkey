@@ -3,7 +3,7 @@ import type { AccessKeyView } from '@near-js/types';
 import { TxExecutionStatus } from '@near-js/types';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
-import { ActionParams } from '../types/worker';
+import { ActionParams } from '../types/signer-worker';
 import { VerifyAndSignTransactionResult } from '../types/webauthn';
 import { ActionType } from '../types';
 import type { ActionArgs } from '../types';

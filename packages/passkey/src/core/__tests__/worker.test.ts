@@ -12,7 +12,7 @@ import {
   type ErrorResponse,
   isEncryptionSuccess,
   isSignatureSuccess,
-} from '../types/worker';
+} from '../types/signer-worker';
 
 // Basic worker tests without external dependencies
 describe('Passkey Worker Tests', () => {

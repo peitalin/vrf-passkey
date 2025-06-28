@@ -11,7 +11,7 @@ import type {
   VRFChallengeData,
   VRFWorkerMessage,
   VRFWorkerResponse
-} from '../types/vrf';
+} from '../types/vrf-worker';
 import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 

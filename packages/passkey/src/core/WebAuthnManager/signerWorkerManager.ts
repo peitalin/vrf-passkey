@@ -1,11 +1,11 @@
+import type { Provider } from '@near-js/providers';
 import { bufferEncode } from '../../utils/encoders';
-import { FinalExecutionOutcome } from '@near-js/types';
 import type {
   WorkerResponse,
   RegistrationPayload,
   SigningPayload,
   ActionParams
-} from '../types/worker';
+} from '../types/signer-worker';
 import {
   WorkerRequestType,
   WorkerResponseType,
@@ -18,7 +18,7 @@ import {
   validateActionParams,
   serializeCredentialAndCreatePRF,
   serializeRegistrationCredentialAndCreatePRF,
-} from '../types/worker';
+} from '../types/signer-worker';
 import { ActionType } from '../types';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { TouchIdPrompt } from "./touchIdPrompt";
@@ -391,7 +391,7 @@ export class SignerWorkerManager {
    * 1. Get transaction metadata (nonce, block hash)
    * 2. Decrypt NEAR keys with PRF
    * 3. Build and sign registration transaction
-   * 4. Submit transaction to NEAR blockchain
+   * 4. Return signed transaction for main thread to dispatch
    */
   async signVerifyAndRegisterUser({
     vrfChallenge,
@@ -409,7 +409,7 @@ export class SignerWorkerManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
-    nearRpcProvider: any; // NEAR RPC provider for getting transaction metadata
+    nearRpcProvider: Provider; // NEAR RPC provider for getting transaction metadata
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[]; signedTransactionBorsh?: number[] }> {
     try {
@@ -453,7 +453,6 @@ export class SignerWorkerManager {
             vrfChallenge,
             webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
             contractId,
-            nearRpcUrl: RPC_NODE_URL,
             signerAccountId,
             nearAccountId,
             nonce: nonce.toString(),

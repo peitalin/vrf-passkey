@@ -51,6 +51,10 @@ export enum WorkerRequestType {
   GENERATE_VRF_CHALLENGE_WITH_PRF = 'GENERATE_VRF_CHALLENGE_WITH_PRF',
   SIGN_TRANSACTION_WITH_ACTIONS = 'SIGN_TRANSACTION_WITH_ACTIONS',
   SIGN_TRANSFER_TRANSACTION = 'SIGN_TRANSFER_TRANSACTION',
+  // New action-specific functions
+  ADD_KEY_WITH_PRF = 'ADD_KEY_WITH_PRF',
+  DELETE_KEY_WITH_PRF = 'DELETE_KEY_WITH_PRF',
+  ROLLBACK_FAILED_REGISTRATION_WITH_PRF = 'ROLLBACK_FAILED_REGISTRATION_WITH_PRF',
 }
 
 export enum WorkerResponseType {
@@ -173,8 +177,6 @@ export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
     webauthnCredential: SerializableWebAuthnRegistrationCredential;
     /** Contract ID for verification */
     contractId: string;
-    /** NEAR RPC provider URL for verification */
-    nearRpcUrl: string;
     /** Signer account ID for the transaction */
     signerAccountId: string;
     /** NEAR account ID that owns the keys to be used for registration */
@@ -498,7 +500,7 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
     /** Base64url-encoded encrypted VRF data */
     encryptedVrfData: string;
     /** Base64url-encoded AES-GCM nonce for VRF decryption */
-    encryptedVrfNonce: string;
+    aesGcmNonce: string;
     /** User ID for VRF input construction */
     userId: string;
     /** Relying Party ID for VRF input construction */
@@ -512,6 +514,96 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
+// New request interfaces for the action-specific functions
+
+export interface AddKeyWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.ADD_KEY_WITH_PRF;
+  payload: {
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Encrypted private key data */
+    encryptedPrivateKeyData: string;
+    /** Encrypted private key IV */
+    encryptedPrivateKeyIv: string;
+    /** Signer account ID */
+    signerAccountId: string;
+    /** The public key to add (in "ed25519:..." format) */
+    newPublicKey: string;
+    /** JSON-serialized AccessKey */
+    accessKeyJson: string;
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
+    /** Contract ID for verification */
+    contractId: string;
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn credential */
+    webauthnCredential: SerializableWebAuthnCredential;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
+  };
+}
+
+export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.DELETE_KEY_WITH_PRF;
+  payload: {
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Encrypted private key data */
+    encryptedPrivateKeyData: string;
+    /** Encrypted private key IV */
+    encryptedPrivateKeyIv: string;
+    /** Signer account ID */
+    signerAccountId: string;
+    /** The public key to delete (in "ed25519:..." format) */
+    publicKeyToDelete: string;
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
+    /** Contract ID for verification */
+    contractId: string;
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn credential */
+    webauthnCredential: SerializableWebAuthnCredential;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
+  };
+}
+
+export interface RollbackFailedRegistrationWithPrfRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.ROLLBACK_FAILED_REGISTRATION_WITH_PRF;
+  payload: {
+    /** Base64-encoded PRF output from WebAuthn */
+    prfOutput: string;
+    /** Encrypted private key data */
+    encryptedPrivateKeyData: string;
+    /** Encrypted private key IV */
+    encryptedPrivateKeyIv: string;
+    /** Signer account ID (account to delete) */
+    signerAccountId: string;
+    /** Beneficiary account ID (where remaining balance goes) */
+    beneficiaryAccountId: string;
+    /** Transaction nonce as string */
+    nonce: string;
+    /** Block hash bytes for the transaction */
+    blockHashBytes: number[];
+    /** Contract ID for verification */
+    contractId: string;
+    /** VRF challenge data for verification */
+    vrfChallenge: VRFChallenge;
+    /** Serialized WebAuthn credential */
+    webauthnCredential: SerializableWebAuthnCredential;
+    /** NEAR RPC provider URL for verification */
+    nearRpcUrl: string;
+    /** SECURITY: Name of the calling function for validation */
+    callerFunction: string;
+  };
+}
+
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
   | CheckCanRegisterUserRequest
@@ -522,7 +614,10 @@ export type WorkerRequest =
   | GenerateVrfKeypairWithPrfRequest
   | GenerateVrfChallengeWithPrfRequest
   | SignTransactionWithActionsRequest
-  | SignTransferTransactionRequest;
+  | SignTransferTransactionRequest
+  | AddKeyWithPrfRequest
+  | DeleteKeyWithPrfRequest
+  | RollbackFailedRegistrationWithPrfRequest;
 
 // === PROGRESS MESSAGE TYPES ===
 
@@ -845,14 +940,6 @@ export function isCoseValidationSuccess(response: WorkerResponse): response is C
   return response.type === WorkerResponseType.COSE_VALIDATION_SUCCESS;
 }
 
-export function isVRFKeyPairSuccess(response: WorkerResponse): response is VRFKeyPairSuccessResponse {
-  return response.type === WorkerResponseType.VRF_KEYPAIR_SUCCESS;
-}
-
-export function isVRFChallengeSuccess(response: WorkerResponse): response is VRFChallengeSuccessResponse {
-  return response.type === WorkerResponseType.VRF_CHALLENGE_SUCCESS;
-}
-
 export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | RegistrationFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
   return [
     WorkerResponseType.ERROR,
@@ -949,97 +1036,6 @@ export function validateActionParams(actionParams: ActionParams): void {
     default:
       throw new Error(`Unsupported action type: ${(actionParams as any).actionType}`);
   }
-}
-
-/**
- * Check if a worker request is for action-based signing
- */
-export function isActionBasedSigningRequest(request: WorkerRequest): request is SignTransactionWithActionsRequest | SignTransferTransactionRequest {
-  return request.type === WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS ||
-         request.type === WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
-}
-
-/**
- * Check if a worker request is a multi-action signing request
- */
-export function isMultiActionSigningRequest(request: WorkerRequest): request is SignTransactionWithActionsRequest {
-  return request.type === WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS;
-}
-
-/**
- * Check if a worker request is a transfer transaction signing request
- */
-export function isTransferSigningRequest(request: WorkerRequest): request is SignTransferTransactionRequest {
-  return request.type === WorkerRequestType.SIGN_TRANSFER_TRANSACTION;
-}
-
-// === UTILITY FUNCTIONS ===
-
-/**
- * Create a standardized worker error response
- */
-export function createWorkerErrorResponse(
-  error: string,
-  errorCode: WorkerErrorCode = WorkerErrorCode.UNKNOWN_ERROR,
-  context?: Record<string, any>
-): ErrorResponse {
-  return {
-    type: WorkerResponseType.ERROR,
-    payload: {
-      error,
-      errorCode,
-      context
-    },
-    timestamp: Date.now()
-  };
-}
-
-/**
- * Extract error details from a worker response
- */
-export function extractWorkerError(response: WorkerResponse): WorkerErrorDetails | null {
-  if (!isWorkerError(response)) {
-    return null;
-  }
-
-  const errorCode = response.payload.errorCode || WorkerErrorCode.UNKNOWN_ERROR;
-  const message = response.payload.error || 'Unknown worker error';
-
-  // Determine operation type from response type
-  let operation: WorkerRequestType;
-  switch (response.type) {
-    case WorkerResponseType.DERIVE_NEAR_KEY_FAILURE:
-      operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
-      break;
-    case WorkerResponseType.REGISTRATION_FAILURE:
-      operation = WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER;
-      break;
-    case WorkerResponseType.DECRYPTION_FAILURE:
-      operation = WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF;
-      break;
-    case WorkerResponseType.COSE_KEY_FAILURE:
-      operation = WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY;
-      break;
-    case WorkerResponseType.COSE_VALIDATION_FAILURE:
-      operation = WorkerRequestType.VALIDATE_COSE_KEY;
-      break;
-    case WorkerResponseType.VRF_KEYPAIR_FAILURE:
-      operation = WorkerRequestType.GENERATE_VRF_KEYPAIR_WITH_PRF;
-      break;
-    case WorkerResponseType.VRF_CHALLENGE_FAILURE:
-      operation = WorkerRequestType.GENERATE_VRF_CHALLENGE_WITH_PRF;
-      break;
-    default:
-      operation = WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT; // fallback
-  }
-
-  return {
-    code: errorCode,
-    message,
-    operation,
-    timestamp: response.timestamp || Date.now(),
-    context: response.payload.context
-  };
 }
 
 // Progressive response interfaces

@@ -3,7 +3,7 @@ import { SignerWorkerManager } from './signerWorkerManager';
 import { IndexedDBManager } from '../IndexedDBManager';
 import { VrfWorkerManager, VRFWorkerStatus } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
-import type { UserData, ActionParams } from '../types/worker';
+import type { UserData, ActionParams } from '../types/signer-worker';
 import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { EncryptedVRFData, VRFInputData } from './vrfWorkerManager';
@@ -366,7 +366,7 @@ export class WebAuthnManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string;
-    nearRpcProvider: any;
+    nearRpcProvider: Provider;
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;

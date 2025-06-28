@@ -2,6 +2,7 @@ import type { Provider } from '@near-js/providers';
 import type { AccessKeyView } from '@near-js/types';
 
 import { bufferEncode } from '../../../utils/encoders';
+import { getCallerFunctionName, isAuthorizedForDeleteAccount } from '../../../utils';
 import { validateNearAccountId } from '../../utils/validation';
 import type { PasskeyManager } from '../../PasskeyManager';
 import type {
@@ -653,5 +654,3 @@ async function broadcastSignedTransaction(
     result: result.result
   };
 }
-
-

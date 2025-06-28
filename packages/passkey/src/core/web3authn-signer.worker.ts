@@ -1,5 +1,5 @@
 // WASM-only transaction signing worker
-// This worker handles all NEAR transaction operations using WASM functions only.
+// This worker handles all NEAR transaction operations using WASM functions
 
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
@@ -22,7 +22,9 @@ import {
   ProgressStep,
   type ProgressMessageParams,
   type WorkerProgressMessage,
-} from './types/worker.js';
+  DeleteKeyWithPrfRequest,
+  RollbackFailedRegistrationWithPrfRequest,
+} from './types/signer-worker.js';
 import type { onProgressEvents } from './types/webauthn.js';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
 import { bufferEncode } from '../utils/encoders.js';
@@ -37,7 +39,13 @@ globalThis.Buffer = Buffer;
 const wasmUrl = new URL('./wasm_signer_worker_bg.wasm', import.meta.url);
 const WASM_CACHE_NAME = 'web3authn-signer-worker-v1';
 
+// Create database manager instance
+const nearKeysDB = new PasskeyNearKeysDBManager();
+
+/////////////////////////////////////
 // === WASM MODULE FUNCTIONS ===
+/////////////////////////////////////
+
 const {
   // Registration
   derive_near_keypair_from_cose_and_encrypt_with_prf,
@@ -48,132 +56,14 @@ const {
   // Transaction signing: combined verification + signing
   verify_and_sign_near_transaction_with_actions,
   verify_and_sign_near_transfer_transaction,
+  // New action-specific functions (will be available after WASM rebuild)
+  add_key_with_prf,
+  delete_key_with_prf,
+  rollback_failed_registration_with_prf,
   // COSE keys
   extract_cose_public_key_from_attestation,
   validate_cose_key_format,
 } = wasmModule;
-
-// === WASM IMPORTED FUNCTIONS ===
-// These functions will be imported by WASM and called during execution
-
-/**
- * Function called by WASM to send progress messages
- * This is imported into the WASM module as sendProgressMessage
- *
- * Enhanced version that supports logs and creates consistent onProgressEvents output
- *
- * @param messageType - Type of message (e.g., 'VERIFICATION_PROGRESS', 'SIGNING_COMPLETE')
- * @param step - Step identifier (e.g., 'contract_verification', 'transaction_signing')
- * @param message - Human-readable progress message
- * @param data - JSON string containing structured data
- * @param logs - Optional JSON string containing array of log messages
- */
-function sendProgressMessage(
-  messageType: ProgressMessageType | string,
-  step: ProgressStep | string,
-  message: string,
-  data: string,
-  logs?: string
-): void {
-  console.log(`[wasm-progress]: ${messageType} - ${step}: ${message}`);
-
-  // Parse data if provided
-  let parsedData: any = undefined;
-  let parsedLogs: string[] = [];
-
-  try {
-    if (data) {
-      parsedData = JSON.parse(data);
-      // Extract logs from data if present (for backward compatibility)
-      if (parsedData && Array.isArray(parsedData.logs)) {
-        parsedLogs = parsedData.logs;
-      }
-    }
-  } catch (e) {
-    console.warn('[wasm-progress]: Failed to parse data as JSON:', data);
-    parsedData = data; // Fallback to raw string
-  }
-
-  // Parse logs parameter if provided (takes precedence over logs in data)
-  if (logs) {
-    try {
-      const logsArray = JSON.parse(logs);
-      if (Array.isArray(logsArray)) {
-        parsedLogs = logsArray;
-      } else {
-        parsedLogs = [logs]; // Single log message
-      }
-    } catch (e) {
-      parsedLogs = [logs]; // Fallback to single string
-    }
-  }
-
-  // Map step strings to numbers for consistency with BaseSSEActionEvent
-  const stepMap: Record<ProgressStep | string, number> = {
-    [ProgressStep.PREPARATION]: 1,
-    [ProgressStep.AUTHENTICATION]: 2,
-    [ProgressStep.CONTRACT_VERIFICATION]: 3,
-    [ProgressStep.TRANSACTION_SIGNING]: 4,
-    [ProgressStep.BROADCASTING]: 5,
-    [ProgressStep.VERIFICATION_COMPLETE]: 3,
-    [ProgressStep.SIGNING_COMPLETE]: 6,
-  };
-
-  // Map step strings to phase names
-  const phaseMap: Record<ProgressStep | string, onProgressEvents['phase']> = {
-    [ProgressStep.PREPARATION]: 'preparation',
-    [ProgressStep.AUTHENTICATION]: 'authentication',
-    [ProgressStep.CONTRACT_VERIFICATION]: 'contract-verification',
-    [ProgressStep.TRANSACTION_SIGNING]: 'transaction-signing',
-    [ProgressStep.BROADCASTING]: 'broadcasting',
-    [ProgressStep.VERIFICATION_COMPLETE]: 'contract-verification',
-    [ProgressStep.SIGNING_COMPLETE]: 'action-complete',
-  };
-
-  // Determine status from messageType
-  let status: 'progress' | 'success' | 'error' = 'progress';
-  if (messageType.includes('COMPLETE')) {
-    status = parsedData?.success === false ? 'error' : 'success';
-  } else if (messageType.includes('ERROR') || messageType.includes('FAILURE')) {
-    status = 'error';
-  }
-
-  // Create consolidated payload that works for both new and legacy callers
-  const payload: any = {
-    // New onProgressEvents-compatible fields
-    step: stepMap[step] || 1,
-    phase: phaseMap[step] || 'preparation',
-    status,
-    message: message,
-    data: parsedData,
-    logs: parsedLogs.length > 0 ? parsedLogs : undefined
-  };
-
-  // Add legacy fields for backward compatibility
-  if (messageType === 'VERIFICATION_COMPLETE' && parsedData) {
-    // Legacy callers expect: payload.success, payload.error
-    payload.success = parsedData.success;
-    payload.error = parsedData.error;
-  } else if (messageType === 'SIGNING_COMPLETE') {
-    // Legacy callers expect: payload.success = true
-    payload.success = true;
-  }
-
-  // Send single consolidated message
-  self.postMessage({
-    type: messageType,
-    payload: payload
-  });
-}
-
-// Make sendProgressMessage available globally for WASM imports
-// This function now supports the onProgressEvents interface
-(globalThis as any).sendProgressMessage = sendProgressMessage;
-
-
-// Create database manager instance
-const nearKeysDB = new PasskeyNearKeysDBManager();
-
 
 /**
  * Initialize WASM module with caching support
@@ -226,46 +116,9 @@ async function initializeWasmWithCache(): Promise<void> {
   }
 }
 
-// Send response message and terminate worker
-function sendResponseAndTerminate(response: WorkerResponse): void {
-  self.postMessage(response);
-  self.close();
-}
-
-// Send progress message without terminating
-function sendProgress(response: WorkerResponse): void {
-  self.postMessage(response);
-}
-
-function createErrorResponse(error: string): WorkerResponse {
-  return {
-    type: WorkerResponseType.ERROR,
-    payload: { error }
-  };
-}
-
-
-
-interface WasmResult {
-  publicKey: string;
-  encryptedPrivateKey: any;
-}
-
-function parseWasmResult(resultJson: string | object): WasmResult {
-  const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
-  const encryptedPrivateKey = typeof result.encryptedPrivateKey === 'string'
-    ? JSON.parse(result.encryptedPrivateKey)
-    : result.encryptedPrivateKey;
-
-  const finalResult = {
-    publicKey: result.publicKey,
-    encryptedPrivateKey
-  };
-  // console.log('[signer-worker]: parseWasmResult - Final result:', finalResult);
-  return finalResult;
-}
-
+/////////////////////////////////////
 // === MAIN MESSAGE HANDLER ===
+/////////////////////////////////////
 
 let messageProcessed = false;
 
@@ -315,6 +168,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 
       case WorkerRequestType.VALIDATE_COSE_KEY:
         await handleValidateCoseKey(payload);
+        break;
+
+      case WorkerRequestType.ADD_KEY_WITH_PRF:
+        await handleAddKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.DELETE_KEY_WITH_PRF:
+        await handleDeleteKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.ROLLBACK_FAILED_REGISTRATION_WITH_PRF:
+        await handleRollbackFailedRegistrationWithPrf(payload);
         break;
 
       default:
@@ -393,7 +258,9 @@ async function handleDeriveNearKeypairAndEncrypt(
   }
 }
 
+/////////////////////////////////////
 // === KEY EXPORT AND DECRYPTION HANDLER ===
+/////////////////////////////////////
 
 /**
  * Handle private key decryption with PRF
@@ -508,7 +375,6 @@ async function handleSignVerifyAndRegisterUser(
       vrfChallenge,
       webauthnCredential,
       contractId,
-      nearRpcUrl,
       signerAccountId,
       nearAccountId,
       nonce,
@@ -518,7 +384,7 @@ async function handleSignVerifyAndRegisterUser(
     console.log('[signer-worker]: Starting actual user registration (state-changing function)');
 
     // Validate required parameters
-    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
+    if (!vrfChallenge || !webauthnCredential || !contractId || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
       throw new Error('Missing required parameters for actual registration: vrfChallenge, webauthnCredential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
     }
 
@@ -543,7 +409,6 @@ async function handleSignVerifyAndRegisterUser(
       contractId,
       JSON.stringify(vrfChallenge),
       JSON.stringify(credentialWithoutPrf),
-      nearRpcUrl,
       signerAccountId,
       encryptedKeyData.encryptedData,
       encryptedKeyData.iv,
@@ -822,7 +687,160 @@ async function handleValidateCoseKey(
   }
 }
 
+/////////////////////////////////////
+// === PROGRESS MESSAGING ===
+/////////////////////////////////////
+
+/**
+ * Function called by WASM to send progress messages
+ * This is imported into the WASM module as sendProgressMessage
+ *
+ * Enhanced version that supports logs and creates consistent onProgressEvents output
+ *
+ * @param messageType - Type of message (e.g., 'VERIFICATION_PROGRESS', 'SIGNING_COMPLETE')
+ * @param step - Step identifier (e.g., 'contract_verification', 'transaction_signing')
+ * @param message - Human-readable progress message
+ * @param data - JSON string containing structured data
+ * @param logs - Optional JSON string containing array of log messages
+ */
+function sendProgressMessage(
+  messageType: ProgressMessageType | string,
+  step: ProgressStep | string,
+  message: string,
+  data: string,
+  logs?: string
+): void {
+  console.log(`[wasm-progress]: ${messageType} - ${step}: ${message}`);
+
+  // Parse data if provided
+  let parsedData: any = undefined;
+  let parsedLogs: string[] = [];
+
+  try {
+    if (data) {
+      parsedData = JSON.parse(data);
+      // Extract logs from data if present (for backward compatibility)
+      if (parsedData && Array.isArray(parsedData.logs)) {
+        parsedLogs = parsedData.logs;
+      }
+    }
+  } catch (e) {
+    console.warn('[wasm-progress]: Failed to parse data as JSON:', data);
+    parsedData = data; // Fallback to raw string
+  }
+
+  // Parse logs parameter if provided (takes precedence over logs in data)
+  if (logs) {
+    try {
+      const logsArray = JSON.parse(logs);
+      if (Array.isArray(logsArray)) {
+        parsedLogs = logsArray;
+      } else {
+        parsedLogs = [logs]; // Single log message
+      }
+    } catch (e) {
+      parsedLogs = [logs]; // Fallback to single string
+    }
+  }
+
+  // Map step strings to numbers for consistency with BaseSSEActionEvent
+  const stepMap: Record<ProgressStep | string, number> = {
+    [ProgressStep.PREPARATION]: 1,
+    [ProgressStep.AUTHENTICATION]: 2,
+    [ProgressStep.CONTRACT_VERIFICATION]: 3,
+    [ProgressStep.TRANSACTION_SIGNING]: 4,
+    [ProgressStep.BROADCASTING]: 5,
+    [ProgressStep.VERIFICATION_COMPLETE]: 3,
+    [ProgressStep.SIGNING_COMPLETE]: 6,
+  };
+
+  // Map step strings to phase names
+  const phaseMap: Record<ProgressStep | string, onProgressEvents['phase']> = {
+    [ProgressStep.PREPARATION]: 'preparation',
+    [ProgressStep.AUTHENTICATION]: 'authentication',
+    [ProgressStep.CONTRACT_VERIFICATION]: 'contract-verification',
+    [ProgressStep.TRANSACTION_SIGNING]: 'transaction-signing',
+    [ProgressStep.BROADCASTING]: 'broadcasting',
+    [ProgressStep.VERIFICATION_COMPLETE]: 'contract-verification',
+    [ProgressStep.SIGNING_COMPLETE]: 'action-complete',
+  };
+
+  // Determine status from messageType
+  let status: 'progress' | 'success' | 'error' = 'progress';
+  if (messageType.includes('COMPLETE')) {
+    status = parsedData?.success === false ? 'error' : 'success';
+  } else if (messageType.includes('ERROR') || messageType.includes('FAILURE')) {
+    status = 'error';
+  }
+
+  // Create consolidated payload that works for both new and legacy callers
+  const payload: any = {
+    // New onProgressEvents-compatible fields
+    step: stepMap[step] || 1,
+    phase: phaseMap[step] || 'preparation',
+    status,
+    message: message,
+    data: parsedData,
+    logs: parsedLogs.length > 0 ? parsedLogs : undefined
+  };
+
+  // Add legacy fields for backward compatibility
+  if (messageType === 'VERIFICATION_COMPLETE' && parsedData) {
+    // Legacy callers expect: payload.success, payload.error
+    payload.success = parsedData.success;
+    payload.error = parsedData.error;
+  } else if (messageType === 'SIGNING_COMPLETE') {
+    // Legacy callers expect: payload.success = true
+    payload.success = true;
+  }
+
+  // Send single consolidated message
+  self.postMessage({
+    type: messageType,
+    payload: payload
+  });
+}
+
+//////////////////////////////////////////////////////////////
+// Make sendProgressMessage available globally for WASM imports
+(globalThis as any).sendProgressMessage = sendProgressMessage;
+//////////////////////////////////////////////////////////////
+
+// Send response message and terminate worker
+function sendResponseAndTerminate(response: WorkerResponse): void {
+  self.postMessage(response);
+  self.close();
+}
+
+interface WasmResult {
+  publicKey: string;
+  encryptedPrivateKey: any;
+}
+
+function parseWasmResult(resultJson: string | object): WasmResult {
+  const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
+  const encryptedPrivateKey = typeof result.encryptedPrivateKey === 'string'
+    ? JSON.parse(result.encryptedPrivateKey)
+    : result.encryptedPrivateKey;
+
+  const finalResult = {
+    publicKey: result.publicKey,
+    encryptedPrivateKey
+  };
+  // console.log('[signer-worker]: parseWasmResult - Final result:', finalResult);
+  return finalResult;
+}
+
+/////////////////////////////////////
 // === ERROR HANDLING ===
+/////////////////////////////////////
+
+function createErrorResponse(error: string): WorkerResponse {
+  return {
+    type: WorkerResponseType.ERROR,
+    payload: { error }
+  };
+}
 self.onerror = (message, filename, lineno, colno, error) => {
   console.error('[signer-worker]: Global error:', {
     message: typeof message === 'string' ? message : 'Unknown error',
@@ -848,3 +866,202 @@ export type {
   ExtractCosePublicKeyRequest,
   ValidateCoseKeyRequest
 };
+
+/**
+ * Handle AddKey transaction with PRF authentication
+ */
+async function handleAddKeyWithPrf(
+  payload: any // TODO: Type properly once AddKeyWithPrfRequest is imported
+): Promise<void> {
+  try {
+    console.log('[signer-worker]: AddKey with PRF - WASM function not yet available');
+
+    const result = await add_key_with_prf(
+      payload.prfOutput,
+      payload.encryptedPrivateKeyData,
+      payload.encryptedPrivateKeyIv,
+      payload.signerAccountId,
+      payload.newPublicKey,
+      payload.accessKeyJson,
+      BigInt(payload.nonce),
+      new Uint8Array(payload.blockHashBytes),
+      payload.contractId,
+      JSON.stringify(payload.vrfChallenge),
+      JSON.stringify(payload.webauthnCredential),
+      payload.nearRpcUrl
+    );
+
+    // For now, use the general action-based function as a fallback
+    const actions = JSON.stringify([{
+      actionType: 'AddKey',
+      public_key: payload.newPublicKey,
+      access_key: payload.accessKeyJson
+    }]);
+
+    await verify_and_sign_near_transaction_with_actions(
+      payload.prfOutput,
+      payload.encryptedPrivateKeyData,
+      payload.encryptedPrivateKeyIv,
+      payload.signerAccountId,
+      payload.signerAccountId, // receiver same as signer for AddKey
+      BigInt(payload.nonce),
+      new Uint8Array(payload.blockHashBytes),
+      actions,
+      payload.contractId,
+      JSON.stringify(payload.vrfChallenge),
+      JSON.stringify(payload.webauthnCredential),
+      payload.nearRpcUrl
+    );
+
+  } catch (error: any) {
+    console.error('[signer-worker]: AddKey with PRF failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'AddKey transaction failed' }
+    });
+  }
+}
+
+/**
+ * Handle DeleteKey transaction with PRF authentication
+ */
+async function handleDeleteKeyWithPrf(
+  payload: DeleteKeyWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    console.log('[signer-worker]: DeleteKey with PRF - WASM function not yet available');
+
+    const result = await delete_key_with_prf(
+      payload.prfOutput,
+      payload.encryptedPrivateKeyData,
+      payload.encryptedPrivateKeyIv,
+      payload.signerAccountId,
+      payload.publicKeyToDelete,
+      BigInt(payload.nonce),
+      new Uint8Array(payload.blockHashBytes),
+      payload.contractId,
+      JSON.stringify(payload.vrfChallenge),
+      JSON.stringify(payload.webauthnCredential),
+      payload.nearRpcUrl
+    );
+
+    // For now, use the general action-based function as a fallback
+    const actions = JSON.stringify([{
+      actionType: 'DeleteKey',
+      public_key: payload.publicKeyToDelete
+    }]);
+
+    await verify_and_sign_near_transaction_with_actions(
+      payload.prfOutput,
+      payload.encryptedPrivateKeyData,
+      payload.encryptedPrivateKeyIv,
+      payload.signerAccountId,
+      payload.signerAccountId, // receiver same as signer for DeleteKey
+      BigInt(payload.nonce),
+      new Uint8Array(payload.blockHashBytes),
+      actions,
+      payload.contractId,
+      JSON.stringify(payload.vrfChallenge),
+      JSON.stringify(payload.webauthnCredential),
+      payload.nearRpcUrl
+    );
+
+  } catch (error: any) {
+    console.error('[signer-worker]: DeleteKey with PRF failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'DeleteKey transaction failed' }
+    });
+  }
+}
+
+/**
+ * Handle registration rollback with DeleteAccount (context-restricted)
+ */
+async function handleRollbackFailedRegistrationWithPrf(
+  payload: RollbackFailedRegistrationWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    console.log('[signer-worker]: Registration rollback with DeleteAccount - validating caller');
+
+    // SECURITY: Use the caller function name passed from main thread
+    // This prevents arbitrary calls to DeleteAccount
+    const callerFunction = payload.callerFunction;
+
+    if (!callerFunction || callerFunction === 'unknown') {
+      throw new Error('SECURITY: Invalid or missing caller function for DeleteAccount operation');
+    }
+
+    console.log(`[signer-worker]: DeleteAccount requested by caller: ${callerFunction}`);
+
+    const result = await (rollback_failed_registration_with_prf as any)(
+      payload.prfOutput,
+      payload.encryptedPrivateKeyData,
+      payload.encryptedPrivateKeyIv,
+      payload.signerAccountId,
+      payload.beneficiaryAccountId,
+      BigInt(payload.nonce),
+      new Uint8Array(payload.blockHashBytes),
+      payload.contractId,
+      JSON.stringify(payload.vrfChallenge),
+      JSON.stringify(payload.webauthnCredential),
+      payload.nearRpcUrl,
+      callerFunction // Pass actual caller function for security validation
+    );
+
+    // The WASM function handles all messaging including SIGNING_COMPLETE
+    console.log('[signer-worker]: Registration rollback completed successfully');
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Registration rollback failed:', error);
+
+    // Log security violations with more detail
+    if (error.message?.includes('SECURITY VIOLATION')) {
+      console.error('[signer-worker]: Unauthorized DeleteAccount attempt:', {
+        callerFunction: payload.callerFunction,
+        signerAccountId: payload.signerAccountId,
+        error: error.message
+      });
+    }
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'Registration rollback failed' }
+    });
+  }
+}
+
+/**
+ * Extract the calling function name from JavaScript stack trace
+ * This is used for security validation in context-restricted functions
+ */
+function extractCallerFunctionName(): string {
+  try {
+    const stack = new Error().stack;
+    if (!stack) return 'unknown';
+
+    // Parse stack trace to find the actual calling function
+    // Stack format: "at functionName (file:line:col)" or "at file:line:col"
+    const lines = stack.split('\n');
+
+    // Skip the first few lines which are internal calls
+    // Look for the first line that contains a recognizable function name
+    for (let i = 3; i < Math.min(lines.length, 10); i++) {
+      const line = lines[i];
+      if (line && line.includes('at ')) {
+        // Extract function name from "at functionName (" pattern
+        const match = line.match(/at\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
+        if (match && match[1] &&
+            !match[1].startsWith('handle') && // Skip worker handlers
+            !match[1].startsWith('execute') && // Skip generic execution functions
+            !match[1].includes('Worker')) { // Skip worker-related functions
+          return match[1];
+        }
+      }
+    }
+    return 'unknown';
+  } catch (error) {
+    console.warn('[security]: Failed to extract caller function name:', error);
+    return 'unknown';
+  }
+}
