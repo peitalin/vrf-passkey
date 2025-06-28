@@ -3,7 +3,7 @@ import { usePasskeyContext } from '@web3authn/passkey/react';
 import { RefreshIcon } from './icons/RefreshIcon';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import toast from 'react-hot-toast';
-import type { ActionEvent, ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
+import type { ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
 import { ActionType } from '@web3authn/passkey/react';
 import type { LastTxDetails } from '../types';
 import {
@@ -66,21 +66,28 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     onTransactionUpdate(null); // Clear previous transaction details
 
     await passkeyManager.executeAction(nearAccountId, actionToExecute, {
-      onEvent: (event: ActionEvent) => {
-        switch (event.type) {
-          case 'actionStarted':
+      onEvent: (event) => {
+        switch (event.phase) {
+          case 'preparation':
             toast.loading('Processing transaction...', { id: 'action' });
             break;
-          case 'actionProgress':
-            toast.loading(event.data.message, { id: 'action' });
+          case 'authentication':
+            toast.loading(event.message, { id: 'action' });
             break;
-          case 'actionCompleted':
+          case 'contract-verification':
+            toast.loading(event.message, { id: 'action' });
+            break;
+          case 'transaction-signing':
+          case 'broadcasting':
+            toast.loading(event.message, { id: 'action' });
+            break;
+          case 'action-complete':
             toast.success('Transaction completed successfully!', { id: 'action' });
             // Refresh greeting after successful update
             fetchGreeting();
             break;
-          case 'actionFailed':
-            toast.error(`Transaction failed: ${event.data.error}`, { id: 'action' });
+          case 'action-error':
+            toast.error(`Transaction failed: ${event.error}`, { id: 'action' });
             break;
         }
       },
@@ -146,19 +153,26 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     onTransactionUpdate(null); // Clear previous transaction details
 
     await passkeyManager.executeAction(nearAccountId, transferAction, {
-      onEvent: (event: ActionEvent) => {
-        switch (event.type) {
-          case 'actionStarted':
+      onEvent: (event) => {
+        switch (event.phase) {
+          case 'preparation':
             toast.loading('Processing NEAR transfer...', { id: 'transfer' });
             break;
-          case 'actionProgress':
-            toast.loading(event.data.message, { id: 'transfer' });
+          case 'authentication':
+            toast.loading(event.message, { id: 'transfer' });
             break;
-          case 'actionCompleted':
+          case 'contract-verification':
+            toast.loading(event.message, { id: 'transfer' });
+            break;
+          case 'transaction-signing':
+          case 'broadcasting':
+            toast.loading(event.message, { id: 'transfer' });
+            break;
+          case 'action-complete':
             toast.success(`Successfully sent ${amount} NEAR to ${recipient}!`, { id: 'transfer' });
             break;
-          case 'actionFailed':
-            toast.error(`Transfer failed: ${event.data.error}`, { id: 'transfer' });
+          case 'action-error':
+            toast.error(`Transfer failed: ${event.error}`, { id: 'transfer' });
             break;
         }
       },

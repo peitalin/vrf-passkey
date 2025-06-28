@@ -6,7 +6,7 @@
 import { ClientAuthenticatorData } from '../IndexedDBManager/passkeyClientDB';
 import type {
   VRFKeypairData,
-  EncryptedVRFData,
+  EncryptedVRFKeypair,
   VRFInputData,
   VRFChallengeData,
   VRFWorkerMessage,
@@ -140,14 +140,14 @@ export class VrfWorkerManager {
   async unlockVRFKeypair({
     touchIdPrompt,
     nearAccountId,
-    encryptedVrfData,
+    encryptedVrfKeypair,
     authenticators,
     prfOutput,
     onEvent,
   }: {
     touchIdPrompt: TouchIdPrompt,
     nearAccountId: string,
-    encryptedVrfData: EncryptedVRFData,
+    encryptedVrfKeypair: EncryptedVRFKeypair,
     authenticators: ClientAuthenticatorData[],
     prfOutput?: ArrayBuffer,
     onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
@@ -180,7 +180,7 @@ export class VrfWorkerManager {
       id: this.generateMessageId(),
       data: {
         nearAccountId,
-        encryptedVrfData,
+        encryptedVrfKeypair,
         prfKey: Array.from(new Uint8Array(prfOutput))
       }
     };
@@ -416,20 +416,24 @@ export class VrfWorkerManager {
    * This is called after WebAuthn ceremony to encrypt the same VRF keypair with real PRF
    *
    * @param expectedPublicKey - Expected VRF public key to verify we're encrypting the right keypair
-   * @param prfOutput - PRF output from WebAuthn ceremony for encryption
+   * @param credential - WebAuthn credentials for encryption
    * @returns Encrypted VRF keypair data ready for storage
    */
-  async encryptVrfKeypairWithPrf(
+  async encryptVrfKeypairWithCredentials(
     expectedPublicKey: string,
-    prfOutput: ArrayBuffer
+    credential: PublicKeyCredential
   ): Promise<{
     vrfPublicKey: string;
     encryptedVrfKeypair: any;
   }> {
     console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
-
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized');
+    }
+
+    const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+    if (!prfOutput) {
+      throw new Error('PRF output not found in WebAuthn credentials');
     }
 
     try {
@@ -504,7 +508,7 @@ export class VrfWorkerManager {
 // Export types
 export type {
   VRFKeypairData,
-  EncryptedVRFData,
+  EncryptedVRFKeypair,
   VRFInputData,
   VRFChallengeData
 };

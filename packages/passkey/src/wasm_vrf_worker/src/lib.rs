@@ -44,7 +44,7 @@ pub struct VRFKeypairData {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct EncryptedVRFData {
+pub struct EncryptedVRFKeypair {
     pub encrypted_vrf_data_b64u: String,
     pub aes_gcm_nonce_b64u: String,
 }
@@ -223,7 +223,7 @@ impl VRFKeyManager {
     pub fn unlock_vrf_keypair(
         &mut self,
         near_account_id: String,
-        encrypted_vrf_data: EncryptedVRFData,
+        encrypted_vrf_keypair: EncryptedVRFKeypair,
         prf_key: Vec<u8>,
     ) -> Result<(), String> {
         console::log_1(&format!("VRF WASM Web Worker: Unlocking VRF keypair for {}", near_account_id).into());
@@ -232,7 +232,7 @@ impl VRFKeyManager {
         self.vrf_keypair.take();
 
         // Decrypt VRF keypair using PRF-derived AES key
-        let decrypted_keypair = self.decrypt_vrf_keypair(encrypted_vrf_data, prf_key)?;
+        let decrypted_keypair = self.decrypt_vrf_keypair(encrypted_vrf_keypair, prf_key)?;
 
         // Wrap in secure container for automatic zeroization
         self.vrf_keypair = Some(SecureVRFKeyPair::new(decrypted_keypair));
@@ -379,7 +379,7 @@ impl VRFKeyManager {
 
     fn decrypt_vrf_keypair(
         &self,
-        encrypted_vrf_data: EncryptedVRFData,
+        encrypted_vrf_keypair: EncryptedVRFKeypair,
         prf_key: Vec<u8>,
     ) -> Result<ECVRFKeyPair, String> {
         // Use HKDF-SHA256 to derive AES key from PRF key for better security
@@ -391,9 +391,9 @@ impl VRFKeyManager {
             .map_err(|_| "HKDF key derivation failed".to_string())?;
 
         // Decode encrypted data and IV
-        let encrypted_data = base64_url_decode(&encrypted_vrf_data.encrypted_vrf_data_b64u)
+        let encrypted_data = base64_url_decode(&encrypted_vrf_keypair.encrypted_vrf_data_b64u)
             .map_err(|e| format!("Failed to decode encrypted data: {}", e))?;
-        let iv_nonce_bytes = base64_url_decode(&encrypted_vrf_data.aes_gcm_nonce_b64u)
+        let iv_nonce_bytes = base64_url_decode(&encrypted_vrf_keypair.aes_gcm_nonce_b64u)
             .map_err(|e| format!("Failed to decode IV: {}", e))?;
 
         if iv_nonce_bytes.len() != 12 {
@@ -624,15 +624,15 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                             .unwrap_or("");
 
                         // Debug: Log the received encrypted VRF data structure
-                        console::log_1(&format!("VRF WASM: Received encryptedVrfData: {}",
-                            serde_json::to_string_pretty(&data["encryptedVrfData"]).unwrap_or_else(|_| "failed to serialize".to_string())).into());
+                        console::log_1(&format!("VRF WASM: Received encryptedVrfKeypair: {}",
+                            serde_json::to_string_pretty(&data["encryptedVrfKeypair"]).unwrap_or_else(|_| "failed to serialize".to_string())).into());
 
-                        let encrypted_vrf_data_result = serde_json::from_value::<EncryptedVRFData>(data["encryptedVrfData"].clone());
+                        let encrypted_vrf_keypair_result = serde_json::from_value::<EncryptedVRFKeypair>(data["encryptedVrfKeypair"].clone());
 
                         // Debug: Log the parsing result
-                        match &encrypted_vrf_data_result {
-                            Ok(_) => console::log_1(&"VRF WASM: Successfully parsed EncryptedVRFData".into()),
-                            Err(e) => console::log_1(&format!("VRF WASM: Failed to parse EncryptedVRFData: {}", e).into()),
+                        match &encrypted_vrf_keypair_result {
+                            Ok(_) => console::log_1(&"VRF WASM: Successfully parsed EncryptedVRFKeypair".into()),
+                            Err(e) => console::log_1(&format!("VRF WASM: Failed to parse EncryptedVRFKeypair: {}", e).into()),
                         }
 
                         let prf_key: Vec<u8> = data["prfKey"].as_array()
@@ -648,9 +648,9 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                                 data: None,
                                 error: Some("Missing nearAccountId".to_string()),
                             }
-                        } else if let Ok(encrypted_vrf_data) = encrypted_vrf_data_result {
+                        } else if let Ok(encrypted_vrf_keypair) = encrypted_vrf_keypair_result {
                             let mut manager = manager.borrow_mut();
-                            match manager.unlock_vrf_keypair(near_account_id.to_string(), encrypted_vrf_data, prf_key) {
+                            match manager.unlock_vrf_keypair(near_account_id.to_string(), encrypted_vrf_keypair, prf_key) {
                                 Ok(_) => VRFWorkerResponse {
                                     id: message.id,
                                     success: true,

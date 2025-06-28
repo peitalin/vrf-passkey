@@ -24,13 +24,13 @@ export type {
   WebAuthnAuthenticationWithPrf,
 } from './core/types/webauthn';
 
-export type { UserData } from './core/types/worker';
+export type { UserData } from './core/types/signer-worker';
 
 // === WORKER TYPES ===
 export {
   WorkerRequestType,
   WorkerResponseType
-} from './core/types/worker';
+} from './core/types/signer-worker';
 
 export type {
   WorkerRequest,
@@ -48,7 +48,7 @@ export type {
   DecryptionSuccessResponse,
   DecryptionFailureResponse,
   ErrorResponse
-} from './core/types/worker';
+} from './core/types/signer-worker';
 
 export {
   isEncryptionSuccess,
@@ -60,7 +60,7 @@ export {
   serializeRegistrationCredentialAndCreatePRF,
   takePrfOutputFromCredential,
   takePrfOutputFromRegistrationCredential,
-} from './core/types/worker';
+} from './core/types/signer-worker';
 
 // === UTILITIES ===
 export { bufferEncode, bufferDecode } from './utils/encoders';

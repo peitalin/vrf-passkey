@@ -20,7 +20,7 @@ export interface ClientUserData {
   };
 
   // VRF credentials for stateless authentication
-  vrfCredentials?: {
+  encryptedVrfKeypair?: {
     encrypted_vrf_data_b64u: string;
     aes_gcm_nonce_b64u: string;
   };
@@ -287,7 +287,7 @@ export class PasskeyClientDBManager {
       id: string;
       rawId: string;
     };
-    vrfCredentials?: {
+    encryptedVrfKeypair?: {
       encrypted_vrf_data_b64u: string;
       aes_gcm_nonce_b64u: string;
     };
@@ -308,7 +308,7 @@ export class PasskeyClientDBManager {
       clientNearPublicKey: userData.clientNearPublicKey,
       prfSupported: userData.prfSupported,
       passkeyCredential: userData.passkeyCredential,
-      vrfCredentials: userData.vrfCredentials,
+      encryptedVrfKeypair: userData.encryptedVrfKeypair,
       lastUpdated: userData.lastUpdated || Date.now()
     });
   }

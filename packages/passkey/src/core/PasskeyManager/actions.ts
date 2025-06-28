@@ -33,12 +33,6 @@ interface TransactionContext {
   transactionBlockHashBytes: number[];
 }
 
-interface EventOptions {
-  onEvent?: (event: any) => void;
-  onError?: (error: Error) => void;
-  hooks?: any;
-}
-
 interface RpcErrorData {
   message?: string;
 }
@@ -68,11 +62,11 @@ export async function executeAction(
 
   // Emit started event
   onEvent?.({
-    type: 'actionStarted',
-    data: {
-      actionType: actionArgs.type,
-      receiverId: actionArgs.receiverId
-    }
+    step: 1,
+    phase: 'preparation',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: `Starting ${actionArgs.type} action to ${actionArgs.receiverId}`
   });
 
   // Run beforeCall hook
@@ -110,11 +104,12 @@ export async function executeAction(
     console.error('[executeAction] Error during execution:', error);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: error.message,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: `Action failed: ${error.message}`,
+      error: error.message
     });
     hooks?.afterCall?.(false, error);
     return { success: false, error: error.message };
@@ -130,9 +125,10 @@ async function validateActionInputs(
   passkeyManager: PasskeyManager,
   nearAccountId: string,
   actionArgs: ActionArgs,
-  eventOptions: EventOptions
+  options?: ActionOptions,
 ): Promise<TransactionContext> {
-  const { onEvent, onError, hooks } = eventOptions;
+
+  const { onEvent, onError, hooks } = options || {};
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager.getNearRpcProvider();
 
@@ -143,22 +139,23 @@ async function validateActionInputs(
     console.error('[Direct Action] Error:', errorMsg, nearAccountId);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
   }
 
   onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'preparing',
-      message: 'Preparing transaction...'
-    }
+    step: 1,
+    phase: 'preparation',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Preparing transaction...'
   });
 
   // Check if user has PRF support
@@ -170,11 +167,12 @@ async function validateActionInputs(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -187,11 +185,12 @@ async function validateActionInputs(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -213,11 +212,12 @@ async function validateActionInputs(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -229,11 +229,12 @@ async function validateActionInputs(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -245,11 +246,12 @@ async function validateActionInputs(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -274,19 +276,19 @@ async function verifyVrfAuthAndSignTransaction(
   nearAccountId: string,
   transactionContext: TransactionContext,
   actionArgs: ActionArgs,
-  eventOptions: EventOptions
+  options?: ActionOptions,
 ): Promise<VerifyAndSignTransactionResult> {
 
-  const { onEvent, onError, hooks } = eventOptions;
+  const { onEvent, onError, hooks } = options || {};
   const webAuthnManager = passkeyManager.getWebAuthnManager();
   const nearRpcProvider = passkeyManager.getNearRpcProvider();
 
   onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'authenticating',
-      message: 'Generating VRF challenge...'
-    }
+    step: 2,
+    phase: 'authentication',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Generating VRF challenge...'
   });
 
   console.log('[Direct Action] Using VRF authentication flow with contract verification');
@@ -298,11 +300,12 @@ async function verifyVrfAuthAndSignTransaction(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: nearAccountId || 'unknown'
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -322,40 +325,11 @@ async function verifyVrfAuthAndSignTransaction(
   const vrfChallenge = await webAuthnManager.generateVRFChallenge(vrfInputData);
 
   onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'authenticating',
-      message: 'Authenticating with VRF challenge...'
-    }
-  });
-
-  // Get stored authenticator data
-  const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
-  if (authenticators.length === 0) {
-    throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
-  }
-
-  const { credential } = await webAuthnManager.touchIdPrompt.getCredentialsAndPrf({
-    nearAccountId,
-    challenge: vrfChallenge.outputAs32Bytes(),
-    authenticators,
-  });
-
-  console.log('✅ VRF WebAuthn authentication completed');
-  onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'authenticating',
-      message: 'Authentication verified - preparing transaction...'
-    }
-  });
-
-  onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'signing',
-      message: 'Signing transaction in secure worker...'
-    }
+    step: 2,
+    phase: 'authentication',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Authenticating with VRF challenge...'
   });
 
   // Handle different action types
@@ -371,10 +345,9 @@ async function verifyVrfAuthAndSignTransaction(
       // Webauthn verification parameters
       contractId: passkeyManager.getConfig().contractId,
       vrfChallenge: vrfChallenge,
-      webauthnCredential: credential
     });
 
-  } else if (actionArgs.type === 'FunctionCall') {
+  } else if (actionArgs.type === ActionType.FunctionCall) {
     // Use the modern action-based WASM worker transaction signing for function calls
     signingResult = await webAuthnManager.signTransactionWithActions({
       nearAccountId: nearAccountId,
@@ -393,7 +366,6 @@ async function verifyVrfAuthAndSignTransaction(
       // Webauthn verification parameters
       contractId: passkeyManager.getConfig().contractId,
       vrfChallenge: vrfChallenge,
-      webauthnCredential: credential,
     });
 
   } else {
@@ -401,11 +373,12 @@ async function verifyVrfAuthAndSignTransaction(
     const error = new Error(errorMsg);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMsg,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMsg,
+      error: errorMsg
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -420,16 +393,16 @@ async function verifyVrfAuthAndSignTransaction(
 async function broadcastTransaction(
   signingResult: VerifyAndSignTransactionResult,
   actionArgs: ActionArgs,
-  eventOptions: EventOptions
+  options?: ActionOptions,
 ): Promise<ActionResult> {
-  const { onEvent, onError, hooks } = eventOptions;
+  const { onEvent, onError, hooks } = options || {};
 
   onEvent?.({
-    type: 'actionProgress',
-    data: {
-      step: 'broadcasting',
-      message: 'Broadcasting transaction...'
-    }
+    step: 5,
+    phase: 'broadcasting',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Broadcasting transaction...'
   });
 
   // The signingResult contains Borsh-serialized SignedTransaction bytes
@@ -458,11 +431,12 @@ async function broadcastTransaction(
     const error = new Error(errorMessage);
     onError?.(error);
     onEvent?.({
-      type: 'actionFailed',
-      data: {
-        error: errorMessage,
-        actionType: actionArgs.type
-      }
+      step: 0,
+      phase: 'action-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: errorMessage,
+      error: errorMessage
     });
     hooks?.afterCall?.(false, error);
     throw error;
@@ -475,7 +449,11 @@ async function broadcastTransaction(
   };
 
   onEvent?.({
-    type: 'actionCompleted',
+    step: 6,
+    phase: 'action-complete',
+    status: 'success',
+    timestamp: Date.now(),
+    message: 'Transaction completed successfully',
     data: {
       transactionId: actionResult.transactionId,
       result: actionResult.result

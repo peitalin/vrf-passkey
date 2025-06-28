@@ -55,7 +55,7 @@ export type {
 
 // === RE-EXPORT CORE ===
 export type { PasskeyManagerConfig as PasskeyConfig } from '../core/types/passkeyManager';
-export type { UserData } from '../core/types/worker';
+export type { UserData } from '../core/types/signer-worker';
 export { PasskeyManager } from '../core/PasskeyManager';
 
 // === RE-EXPORT ACTION TYPES ===

@@ -6,7 +6,7 @@ import { TouchIdPrompt } from './touchIdPrompt';
 import type { UserData, ActionParams } from '../types/signer-worker';
 import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
-import type { EncryptedVRFData, VRFInputData } from './vrfWorkerManager';
+import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -86,14 +86,17 @@ export class WebAuthnManager {
    * @param prfOutput - PRF output from WebAuthn ceremony for encryption
    * @returns Encrypted VRF keypair data ready for storage
    */
-  async encryptVrfKeypairWithPrf(
-    expectedPublicKey: string,
-    prfOutput: ArrayBuffer
-  ): Promise<{
+  async encryptVrfKeypairWithCredentials({
+    credential,
+    vrfPublicKey,
+  }: {
+    credential: PublicKeyCredential,
+    vrfPublicKey: string,
+  }): Promise<{
     vrfPublicKey: string;
     encryptedVrfKeypair: any;
   }> {
-    return await this.vrfWorkerManager.encryptVrfKeypairWithPrf(expectedPublicKey, prfOutput);
+    return await this.vrfWorkerManager.encryptVrfKeypairWithCredentials(vrfPublicKey, credential);
   }
 
   /**
@@ -101,33 +104,51 @@ export class WebAuthnManager {
    * This decrypts the stored VRF keypair and keeps it in memory for challenge generation
    *
    * @param nearAccountId - NEAR account ID associated with the VRF keypair
-   * @param vrfCredentials - Encrypted VRF keypair data from storage
-   * @param prfOutput - PRF output from WebAuthn ceremony for decryption
+   * @param encryptedVrfKeypair - Encrypted VRF keypair data from storage
+   * @param webauthnCredential - WebAuthn credential from TouchID prompt (optional)
+   * If not provided, will do a TouchID prompt (e.g. login flow)
    * @returns Success status and optional error message
    */
   async unlockVRFKeypair({
     nearAccountId,
-    vrfCredentials,
-    prfOutput,
+    encryptedVrfKeypair,
+    webauthnCredential,
     authenticators,
     onEvent
   }: {
     nearAccountId: string,
-    vrfCredentials: EncryptedVRFData,
-    prfOutput?: ArrayBuffer,
+    encryptedVrfKeypair: EncryptedVRFKeypair,
+    webauthnCredential?: PublicKeyCredential,
     authenticators?: ClientAuthenticatorData[],
     onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
   }): Promise<{ success: boolean; error?: string }> {
+
     if (!authenticators) {
       authenticators = await this.getAuthenticatorsByUser(nearAccountId);
       if (!authenticators || authenticators.length === 0) {
         throw new Error('No authenticators found for account ' + nearAccountId + '. Please register.');
       }
     }
+
+    if (!webauthnCredential) {
+      // login flow: unlock VRF generator with a normal TouchId prompt with JS RNG
+      const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+        nearAccountId,
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        authenticators,
+      });
+      webauthnCredential = credential
+    }
+
+    const prfOutput = webauthnCredential?.getClientExtensionResults().prf?.results?.first as ArrayBuffer;
+    if (!prfOutput) {
+      throw new Error('PRF output not found in WebAuthn credentials');
+    }
+
     return await this.vrfWorkerManager.unlockVRFKeypair({
       touchIdPrompt: this.touchIdPrompt,
       nearAccountId: nearAccountId,
-      encryptedVrfData: vrfCredentials,
+      encryptedVrfKeypair: encryptedVrfKeypair,
       authenticators,
       prfOutput,
       onEvent,
@@ -155,7 +176,7 @@ export class WebAuthnManager {
       prfSupported: user.prfSupported,
       deterministicKey: true,
       passkeyCredential: user.passkeyCredential,
-      vrfCredentials: user.vrfCredentials
+      encryptedVrfKeypair: user.encryptedVrfKeypair
     }));
   }
 
@@ -218,14 +239,23 @@ export class WebAuthnManager {
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
-  async deriveNearKeypairAndEncrypt(
-    prfOutput: ArrayBuffer,
-    payload: { nearAccountId: string },
-    attestationObject: AuthenticatorAttestationResponse,
-  ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
+  async deriveNearKeypairAndEncrypt({
+    credential,
+    nearAccountId,
+  }: {
+    credential: PublicKeyCredential,
+    nearAccountId: string,
+  }): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
+
+    const attestationObject = credential.response as AuthenticatorAttestationResponse
+    const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+    if (!prfOutput) {
+      throw new Error('PRF output not found in WebAuthn credentials');
+    }
+
     return await this.signerWorkerManager.deriveNearKeypairAndEncrypt(
       prfOutput,
-      payload,
+      nearAccountId,
       attestationObject,
     );
   }
@@ -259,12 +289,51 @@ export class WebAuthnManager {
       // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
-      webauthnCredential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<VerifyAndSignTransactionResult> {
+
+    const { nearAccountId, vrfChallenge } = payload;
+
+    onEvent?.({
+      step: 2,
+      phase: 'authentication',
+      status: 'progress',
+      message: 'Authenticating with VRF challenge...'
+    });
+
+    // Get stored authenticator data
+    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+    }
+
+    const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+      nearAccountId,
+      challenge: vrfChallenge.outputAs32Bytes(),
+      authenticators,
+    });
+
+    console.log('✅ VRF WebAuthn authentication completed');
+    onEvent?.({
+      step: 3,
+      phase: 'contract-verification',
+      status: 'progress',
+      message: 'Authentication verified - preparing transaction...'
+    });
+
+    onEvent?.({
+      step: 4,
+      phase: 'transaction-signing',
+      status: 'progress',
+      message: 'Signing transaction in secure worker...'
+    });
+
     return await this.signerWorkerManager.signTransferTransaction(
-      payload,
+      {
+        ...payload,
+        webauthnCredential: credential,
+      },
       onEvent
     );
   }
@@ -297,12 +366,51 @@ export class WebAuthnManager {
       // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
-      webauthnCredential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<VerifyAndSignTransactionResult> {
+
+    const { nearAccountId, vrfChallenge } = payload;
+
+    onEvent?.({
+      step: 2,
+      phase: 'authentication',
+      status: 'progress',
+      message: 'Authenticating with VRF challenge...'
+    });
+
+    // Get stored authenticator data
+    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+    }
+
+    const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+      nearAccountId,
+      challenge: vrfChallenge.outputAs32Bytes(),
+      authenticators,
+    });
+
+    console.log('✅ VRF WebAuthn authentication completed');
+    onEvent?.({
+      step: 3,
+      phase: 'contract-verification',
+      status: 'progress',
+      message: 'Authentication verified - preparing transaction...'
+    });
+
+    onEvent?.({
+      step: 4,
+      phase: 'transaction-signing',
+      status: 'progress',
+      message: 'Signing transaction in secure worker...'
+    });
+
     return await this.signerWorkerManager.signTransactionWithActions(
-      payload,
+      {
+        ...payload,
+        webauthnCredential: credential,
+      },
       onEvent
     );
   }

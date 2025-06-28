@@ -14,27 +14,10 @@ export interface UserData {
     id: string;
     rawId: string;
   };
-  vrfCredentials?: {
+  encryptedVrfKeypair?: {
     encrypted_vrf_data_b64u: string;
     aes_gcm_nonce_b64u: string;
   };
-}
-
-// === PAYLOAD TYPES FOR DIFFERENT OPERATIONS ===
-
-export interface RegistrationPayload {
-  nearAccountId: string;
-}
-
-export interface SigningPayload {
-  nearAccountId: string;
-  receiverId: string;
-  contractMethodName: string;
-  contractArgs: Record<string, any>;
-  gasAmount: string;
-  depositAmount: string;
-  nonce: string;
-  blockHashBytes: number[];
 }
 
 // === WORKER MESSAGE TYPE ENUMS ===
@@ -498,7 +481,7 @@ export interface GenerateVrfChallengeWithPrfRequest extends BaseWorkerRequest {
     /** Base64-encoded PRF output from WebAuthn */
     prfOutput: string;
     /** Base64url-encoded encrypted VRF data */
-    encryptedVrfData: string;
+    encryptedVrfKeypair: string;
     /** Base64url-encoded AES-GCM nonce for VRF decryption */
     aesGcmNonce: string;
     /** User ID for VRF input construction */

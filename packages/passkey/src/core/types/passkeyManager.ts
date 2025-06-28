@@ -145,32 +145,47 @@ export type ActionSSEEvent =
   | ActionCompleteSSEEvent
   | ActionErrorSSEEvent;
 
-// Login Events (keeping existing structure but with step as number for consistency)
-export interface LoginStartedEvent {
-  nearAccountId?: string;
+// Login Events (SSE format)
+export interface BaseSSELoginEvent extends BaseSSEEvent {
+  phase: 'preparation' | 'webauthn-assertion' | 'vrf-unlock' | 'login-complete' | 'login-error';
 }
 
-export interface LoginProgressEvent {
-  step: number;
-  phase: 'getting-options' | 'webauthn-assertion' | 'verifying-server';
-  message: string;
+export interface LoginPreparationSSEEvent extends BaseSSELoginEvent {
+  step: 1;
+  phase: 'preparation';
 }
 
-export interface LoginCompletedEvent {
+export interface LoginWebAuthnAssertionSSEEvent extends BaseSSELoginEvent {
+  step: 2;
+  phase: 'webauthn-assertion';
+}
+
+export interface LoginVrfUnlockSSEEvent extends BaseSSELoginEvent {
+  step: 3;
+  phase: 'vrf-unlock';
+}
+
+export interface LoginCompleteSSEEvent extends BaseSSELoginEvent {
+  step: 4;
+  phase: 'login-complete';
+  status: 'success';
   nearAccountId: string;
-  publicKey: string;
+  clientNearPublicKey: string;
 }
 
-export interface LoginFailedEvent {
+export interface LoginErrorSSEEvent extends BaseSSELoginEvent {
+  step: 0;
+  phase: 'login-error';
+  status: 'error';
   error: string;
-  nearAccountId?: string;
 }
 
 export type LoginEvent =
-  | { type: 'loginStarted'; data: LoginStartedEvent }
-  | { type: 'loginProgress'; data: LoginProgressEvent }
-  | { type: 'loginCompleted'; data: LoginCompletedEvent }
-  | { type: 'loginFailed'; data: LoginFailedEvent };
+  | LoginPreparationSSEEvent
+  | LoginWebAuthnAssertionSSEEvent
+  | LoginVrfUnlockSSEEvent
+  | LoginCompleteSSEEvent
+  | LoginErrorSSEEvent;
 
 // Legacy Action Events (for backward compatibility - to be deprecated)
 export interface ActionStartedEvent {
@@ -213,7 +228,7 @@ export interface LoginOptions {
 }
 
 export interface ActionOptions {
-  onEvent?: EventCallback<ActionEvent>;
+  onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }

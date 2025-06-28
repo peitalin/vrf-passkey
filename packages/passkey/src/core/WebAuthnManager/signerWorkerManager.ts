@@ -2,8 +2,6 @@ import type { Provider } from '@near-js/providers';
 import { bufferEncode } from '../../utils/encoders';
 import type {
   WorkerResponse,
-  RegistrationPayload,
-  SigningPayload,
   ActionParams
 } from '../types/signer-worker';
 import {
@@ -168,7 +166,7 @@ export class SignerWorkerManager {
    */
   async deriveNearKeypairAndEncrypt(
     prfOutput: ArrayBuffer,
-    payload: RegistrationPayload,
+    nearAccountId: string,
     attestationObject: AuthenticatorAttestationResponse,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
@@ -179,7 +177,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
           payload: {
             prfOutput: bufferEncode(prfOutput),
-            nearAccountId: payload.nearAccountId,
+            nearAccountId: nearAccountId,
             attestationObjectBase64url: bufferEncode(attestationObject.attestationObject)
           }
         }
@@ -189,14 +187,14 @@ export class SignerWorkerManager {
         console.log('WebAuthnManager: PRF registration successful with deterministic derivation');
         return {
           success: true,
-          nearAccountId: payload.nearAccountId,
+          nearAccountId: nearAccountId,
           publicKey: response.payload.publicKey
         };
       } else {
         console.error('WebAuthnManager: PRF registration failed:', response);
         return {
           success: false,
-          nearAccountId: payload.nearAccountId,
+          nearAccountId: nearAccountId,
           publicKey: ''
         };
       }
@@ -204,7 +202,7 @@ export class SignerWorkerManager {
       console.error('WebAuthnManager: PRF registration error:', error);
       return {
         success: false,
-        nearAccountId: payload.nearAccountId,
+        nearAccountId: nearAccountId,
         publicKey: ''
       };
     }

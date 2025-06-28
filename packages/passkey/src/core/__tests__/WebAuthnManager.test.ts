@@ -1,5 +1,6 @@
 /// <reference types="jest" />
 
+import type { Provider } from '@near-js/providers';
 import { base64UrlDecode } from '../../utils/encoders';
 import { VRFChallenge } from '../types/webauthn';
 
@@ -214,7 +215,7 @@ describe('WebAuthnManager', () => {
     };
 
     it('should verify VRF registration with contract', async () => {
-      const mockNearRpcProvider = {
+      const mockNearRpcProvider: Partial<Provider> = {
         viewBlock: jest.fn().mockResolvedValue({
           header: { height: 1000, hash: 'test-hash' }
         })
@@ -248,7 +249,7 @@ describe('WebAuthnManager', () => {
         signerAccountId: 'test.testnet',
         nearAccountId: 'test.testnet',
         publicKeyStr: 'ed25519:test-key',
-        nearRpcProvider: mockNearRpcProvider,
+        nearRpcProvider: mockNearRpcProvider as Provider,
         onEvent: jest.fn()
       });
 

@@ -8,6 +8,7 @@ import type {
   RegistrationSSEEvent,
   LoginEvent
 } from '@web3authn/passkey/react'
+import type { LastTxDetails } from '../types'
 
 export function PasskeyLoginMenu() {
   const {
@@ -32,6 +33,7 @@ export function PasskeyLoginMenu() {
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
+  const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   const usernameInputRef = useRef<HTMLInputElement>(null);
   const postfixRef = useRef<HTMLSpanElement>(null);
@@ -100,19 +102,21 @@ export function PasskeyLoginMenu() {
 
     console.log('Logging in with account:', targetAccountId);
     const result = await loginPasskey(targetAccountId, {
-      onEvent: (event: LoginEvent) => {
-        switch (event.type) {
-          case 'loginStarted':
+      onEvent: (event) => {
+        switch (event.phase) {
+          case 'preparation':
             toast.loading(`Logging in as ${targetAccountId}...`, { id: 'login' });
             break;
-          case 'loginProgress':
-            toast.loading(event.data.message, { id: 'login' });
+          case 'webauthn-assertion':
+            toast.loading(event.message, { id: 'login' });
             break;
-          case 'loginCompleted':
-            toast.success(`Logged in as ${event.data.nearAccountId}!`, { id: 'login' });
+          case 'vrf-unlock':
             break;
-          case 'loginFailed':
-            toast.error(event.data.error, { id: 'login' });
+          case 'login-complete':
+            toast.success(`Logged in as ${event.nearAccountId}!`, { id: 'login' });
+            break;
+          case 'login-error':
+            toast.error(event.error, { id: 'login' });
             break;
         }
       }
@@ -201,7 +205,7 @@ export function PasskeyLoginMenu() {
         ) : (
           <>
             {nearPublicKey ? (
-              <GreetingMenu />
+              <GreetingMenu onTransactionUpdate={setLastTxDetails} />
             ) : (
               <div className="info-box">
                 <p>✅ Passkey registered successfully!</p>

@@ -17,7 +17,13 @@ export async function loginPasskey(
   const { onEvent, onError, hooks } = options || {};
 
   // Emit started event
-  onEvent?.({ type: 'loginStarted', data: { nearAccountId } });
+  onEvent?.({
+    step: 1,
+    phase: 'preparation',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: `Starting login for ${nearAccountId}`
+  });
 
   try {
     // Run beforeCall hook
@@ -28,7 +34,14 @@ export async function loginPasskey(
       const errorMessage = 'Passkey operations require a secure context (HTTPS or localhost).';
       const error = new Error(errorMessage);
       onError?.(error);
-      onEvent?.({ type: 'loginFailed', data: { error: errorMessage, nearAccountId } });
+      onEvent?.({
+        step: 0,
+        phase: 'login-error',
+        status: 'error',
+        timestamp: Date.now(),
+        message: errorMessage,
+        error: errorMessage
+      });
       hooks?.afterCall?.(false, error);
       return { success: false, error: errorMessage };
     }
@@ -46,7 +59,14 @@ export async function loginPasskey(
   } catch (err: any) {
     console.error('Login error:', err.message, err.stack);
     onError?.(err);
-    onEvent?.({ type: 'loginFailed', data: { error: err.message, nearAccountId } });
+    onEvent?.({
+      step: 0,
+      phase: 'login-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: err.message,
+      error: err.message
+    });
     hooks?.afterCall?.(false, err);
     return { success: false, error: err.message };
   }
@@ -100,8 +120,8 @@ async function handleLoginUnlockVRF(
         throw new Error(`No NEAR public key found for ${nearAccountId}. Please register an account.`);
       }
       if (
-        !userData.vrfCredentials?.encrypted_vrf_data_b64u ||
-        !userData.vrfCredentials?.aes_gcm_nonce_b64u
+        !userData.encryptedVrfKeypair?.encrypted_vrf_data_b64u ||
+        !userData.encryptedVrfKeypair?.aes_gcm_nonce_b64u
       ) {
         throw new Error('No VRF credentials found. Please register an account.');
       }
@@ -113,28 +133,36 @@ async function handleLoginUnlockVRF(
 
     // Step 2: Perform initial WebAuthn authentication to get PRF output for VRF decryption
     onEvent?.({
-      type: 'loginProgress',
-      data: {
-        step: 2,
-        phase: 'webauthn-assertion',
-        message: 'Authenticating to unlock VRF keypair...'
-      }
+      step: 2,
+      phase: 'webauthn-assertion',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Authenticating to unlock VRF keypair...'
     });
 
     const unlockResult = await webAuthnManager.unlockVRFKeypair({
       nearAccountId: nearAccountId,
-      vrfCredentials: userData.vrfCredentials!, // non-null assertion; validated above
+      encryptedVrfKeypair: userData.encryptedVrfKeypair!, // non-null assertion; validated above
       authenticators: authenticators,
       onEvent: (event: { type: string, data: { step: string, message: string } }) => {
-        onEvent?.(event as LoginEvent);
+        // Convert legacy event format if needed, or ignore for now
+        console.debug('VRF unlock progress:', event);
       }
     });
 
     if (!unlockResult.success) {
       throw new Error(`Failed to unlock VRF keypair: ${unlockResult.error}`);
     }
-    console.log('✅ VRF session active - VRF keypair unlocked in VRF Worker memory');
-    // Step 4: Update local data and return success
+
+    onEvent?.({
+      step: 3,
+      phase: 'vrf-unlock',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'VRF keypair unlocked successfully'
+    });
+
+    // Step 3: Update local data and return success
     await webAuthnManager.updateLastLogin(nearAccountId);
 
     const result: LoginResult = {
@@ -145,20 +173,28 @@ async function handleLoginUnlockVRF(
     };
 
     onEvent?.({
-      type: 'loginCompleted',
-      data: {
-        nearAccountId: nearAccountId,
-        publicKey: userData?.clientNearPublicKey || ''
-      }
+      step: 4,
+      phase: 'login-complete',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'Login completed successfully',
+      nearAccountId: nearAccountId,
+      clientNearPublicKey: userData?.clientNearPublicKey || ''
     });
 
     hooks?.afterCall?.(true, result);
     return result;
 
   } catch (error: any) {
-    console.error('Serverless login error:', error);
     onError?.(error);
-    onEvent?.({ type: 'loginFailed', data: { error: error.message, nearAccountId } });
+    onEvent?.({
+      step: 0,
+      phase: 'login-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: error.message,
+      error: error.message
+    });
     hooks?.afterCall?.(false, error);
     return { success: false, error: error.message };
   }

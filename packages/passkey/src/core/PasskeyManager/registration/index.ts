@@ -225,8 +225,7 @@ async function handleRegistration(
     });
 
     const {
-      credential,
-      prfOutput
+      credential
     } = await webAuthnManager.touchIdPrompt.generateRegistrationCredentialsAndPrf({
       nearAccountId,
       challenge: vrfChallengeBytes,
@@ -243,18 +242,17 @@ async function handleRegistration(
     // Step 5: Encrypt the existing VRF keypair with real PRF for storage and future authentication
     console.log('Registration Step 5: Encrypting existing VRF keypair with real PRF for storage');
     // Encrypt the VRF keypair that generated the WebAuthn challenge (in VRF worker memory)
-    const encryptedVrfResult = await webAuthnManager.encryptVrfKeypairWithPrf(
-      vrfChallenge.vrfPublicKey,
-      prfOutput
-    );
+    const encryptedVrfResult = await webAuthnManager.encryptVrfKeypairWithCredentials({
+      credential,
+      vrfPublicKey: vrfChallenge.vrfPublicKey,
+    });
 
     // Step 6: Generate NEAR keypair and encrypt using PRF (for NEAR transactions)
     console.log('Registration Step 6: Generating NEAR keypair with PRF');
-    const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt(
-      prfOutput,
-      { nearAccountId },
-      credential.response as AuthenticatorAttestationResponse
-    );
+    const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
+      credential,
+      nearAccountId,
+    });
     if (!keyGenResult.success || !keyGenResult.publicKey) {
       throw new Error('Failed to generate NEAR keypair with PRF');
     }
@@ -436,7 +434,7 @@ async function handleRegistration(
             id: credential.id,
             rawId: credentialId
           },
-          vrfCredentials: encryptedVrfResult.encryptedVrfKeypair
+          encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair
         });
 
         console.log('✅ registration data stored atomically');
@@ -471,8 +469,8 @@ async function handleRegistration(
     try {
       const unlockResult = await webAuthnManager.unlockVRFKeypair({
         nearAccountId: nearAccountId,
-        vrfCredentials: encryptedVrfResult.encryptedVrfKeypair,
-        prfOutput: prfOutput,
+        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+        webauthnCredential: credential,
       });
 
       if (!unlockResult.success) {

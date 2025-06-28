@@ -262,7 +262,7 @@ export class VRFManager {
   // Unlock VRF keypair in Service Worker memory (login)
   async unlockVRFKeypair(
     nearAccountId: string,
-    encryptedVrfData: EncryptedVRFData,
+    encryptedVrfKeypair: EncryptedVRFData,
     prfOutput: ArrayBuffer
   ): Promise<ServiceWorkerResponse>
 
@@ -288,7 +288,7 @@ export class VRFManager {
 
   async generateVrfChallengeWithPrf(
     prfOutput: ArrayBuffer,
-    encryptedVrfData: string,
+    encryptedVrfKeypair: string,
     encryptedVrfNonce: string,
     userId: string,
     rpId: string,

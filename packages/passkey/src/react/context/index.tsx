@@ -117,7 +117,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
       onEvent: async (event) => {
-        if (event.type === 'loginCompleted') {
+        if (event.phase === 'login-complete' && event.status === 'success') {
           // Check VRF status to determine if user is truly logged in
           const currentLoginState = await passkeyManager.getLoginState(nearAccountId);
           const isVRFLoggedIn = currentLoginState.vrfActive;
@@ -125,8 +125,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
           setLoginState(prevState => ({
             ...prevState,
             isLoggedIn: isVRFLoggedIn,  // Only logged in if VRF is active
-            nearAccountId: event.data.nearAccountId || null,
-            nearPublicKey: event.data.publicKey || null,
+            nearAccountId: event.nearAccountId || null,
+            nearPublicKey: event.clientNearPublicKey || null,
           }));
 
           console.log('Login completed - VRF status:', {
