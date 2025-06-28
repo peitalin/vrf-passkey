@@ -15,6 +15,7 @@ use bs58;
 
 // Import from modules
 use crate::actions::ActionParams;
+use crate::actions::validate_delete_account_context;
 use crate::crypto::{
     decrypt_private_key_with_prf_core,
     internal_derive_near_keypair_from_cose_and_encrypt_with_prf,
@@ -450,7 +451,6 @@ pub async fn sign_verify_and_register_user(
     contract_id: &str,
     vrf_challenge_data_json: &str,
     webauthn_registration_json: &str,
-    near_rpc_url: &str,
     signer_account_id: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
@@ -491,11 +491,10 @@ pub async fn sign_verify_and_register_user(
     };
 
     // Call the http module function with transaction metadata
-    let registration_result = crate::http::perform_actual_registration_wasm(
+    let registration_result = crate::http::sign_registration_tx_wasm(
         contract_id,
         vrf_data,
         webauthn_registration,
-        near_rpc_url,
         signer_account_id,
         encrypted_private_key_data,
         encrypted_private_key_iv,
@@ -549,4 +548,169 @@ pub fn parse_vrf_challenge(vrf_challenge_data_json: &str) -> Result<VrfData, JsV
     };
 
     Ok(vrf_data)
+}
+
+/// Special function for rolling back failed registration by deleting the account
+/// This is the ONLY way to use DeleteAccount - it's context-restricted to registration rollback
+#[wasm_bindgen]
+pub async fn rollback_failed_registration_with_prf(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    beneficiary_account_id: &str, // Where any remaining balance goes
+    nonce: u64,
+    block_hash_bytes: &[u8],
+
+    // Verification parameters (to prove this is a legitimate rollback)
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_credential_json: &str,
+    near_rpc_url: &str,
+
+    // SECURITY: Actual calling function name for validation
+    caller_function: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting registration rollback with DeleteAccount (context-restricted)");
+
+    // Step 1: Validate context with ACTUAL caller function - this is the key security check
+    validate_delete_account_context("registration_rollback", caller_function)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    console_log!("RUST: Delete account context validation passed for caller '{}' - proceeding with rollback", caller_function);
+
+    // Step 2: Create DeleteAccount action
+    let delete_action = ActionParams::DeleteAccount {
+        beneficiary_id: beneficiary_account_id.to_string(),
+    };
+
+    let actions_json = serde_json::to_string(&vec![delete_action])
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize delete action: {}", e)))?;
+
+    // Step 3: Use the main verification + signing function
+    // This ensures the same security standards as other transactions
+    verify_and_sign_near_transaction_with_actions(
+        // Authentication
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+
+        // Transaction details - delete the signer account
+        signer_account_id,
+        signer_account_id, // receiver_id is same as signer for delete account
+        nonce,
+        block_hash_bytes,
+        &actions_json,
+
+        // Verification parameters
+        contract_id,
+        vrf_challenge_data_json,
+        webauthn_credential_json,
+        near_rpc_url,
+    ).await
+}
+
+/// Convenience function for adding keys with PRF authentication
+#[wasm_bindgen]
+pub async fn add_key_with_prf(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    new_public_key: &str,  // The public key to add (in "ed25519:..." format)
+    access_key_json: &str, // JSON-serialized AccessKey
+    nonce: u64,
+    block_hash_bytes: &[u8],
+
+    // Verification parameters
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_credential_json: &str,
+    near_rpc_url: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting AddKey transaction with PRF authentication");
+
+    let add_key_action = ActionParams::AddKey {
+        public_key: new_public_key.to_string(),
+        access_key: access_key_json.to_string(),
+    };
+
+    let actions_json = serde_json::to_string(&vec![add_key_action])
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize add key action: {}", e)))?;
+
+    verify_and_sign_near_transaction_with_actions(
+        // Authentication
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+
+        // Transaction details
+        signer_account_id,
+        signer_account_id, // receiver_id is same as signer for add key
+        nonce,
+        block_hash_bytes,
+        &actions_json,
+
+        // Verification parameters
+        contract_id,
+        vrf_challenge_data_json,
+        webauthn_credential_json,
+        near_rpc_url,
+    ).await
+}
+
+/// Convenience function for deleting keys with PRF authentication
+#[wasm_bindgen]
+pub async fn delete_key_with_prf(
+    // Authentication
+    prf_output_base64: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+
+    // Transaction details
+    signer_account_id: &str,
+    public_key_to_delete: &str, // The public key to delete (in "ed25519:..." format)
+    nonce: u64,
+    block_hash_bytes: &[u8],
+
+    // Verification parameters
+    contract_id: &str,
+    vrf_challenge_data_json: &str,
+    webauthn_credential_json: &str,
+    near_rpc_url: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: Starting DeleteKey transaction with PRF authentication");
+
+    let delete_key_action = ActionParams::DeleteKey {
+        public_key: public_key_to_delete.to_string(),
+    };
+
+    let actions_json = serde_json::to_string(&vec![delete_key_action])
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize delete key action: {}", e)))?;
+
+    verify_and_sign_near_transaction_with_actions(
+        // Authentication
+        prf_output_base64,
+        encrypted_private_key_data,
+        encrypted_private_key_iv,
+
+        // Transaction details
+        signer_account_id,
+        signer_account_id, // receiver_id is same as signer for delete key
+        nonce,
+        block_hash_bytes,
+        &actions_json,
+
+        // Verification parameters
+        contract_id,
+        vrf_challenge_data_json,
+        webauthn_credential_json,
+        near_rpc_url,
+    ).await
 }

@@ -4,6 +4,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
 use serde_json::Value;
 use base64::prelude::*;
 use bs58;
+use serde::{Serialize, Deserialize};
 
 #[cfg(target_arch = "wasm32")]
 macro_rules! console_log {
@@ -16,7 +17,7 @@ macro_rules! console_log {
 }
 
 /// Contract verification result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractVerificationResult {
     pub success: bool,
     pub verified: bool,
@@ -25,7 +26,7 @@ pub struct ContractVerificationResult {
 }
 
 /// Contract registration result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractRegistrationResult {
     pub success: bool,
     pub verified: bool,
@@ -40,11 +41,10 @@ pub struct ContractRegistrationResult {
 pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
     pub credential_public_key: Vec<u8>,
-    pub vrf_public_key: Option<Vec<u8>>,
 }
 
 /// VRF challenge data for contract verification
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct VrfData {
     pub vrf_input_data: Vec<u8>,
     pub vrf_output: Vec<u8>,
@@ -57,7 +57,7 @@ pub struct VrfData {
 }
 
 /// WebAuthn authentication data for contract verification
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct WebAuthnAuthenticationCredential {
     pub id: String,
     #[serde(rename = "rawId")]
@@ -69,7 +69,7 @@ pub struct WebAuthnAuthenticationCredential {
     pub auth_type: String,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct WebAuthnAuthenticationResponse {
     #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
@@ -81,7 +81,7 @@ pub struct WebAuthnAuthenticationResponse {
 }
 
 /// WebAuthn registration data for contract verification
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct WebAuthnRegistrationCredential {
     pub id: String,
     #[serde(rename = "rawId")]
@@ -93,7 +93,7 @@ pub struct WebAuthnRegistrationCredential {
     pub reg_type: String,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct WebAuthnRegistrationResponse {
     #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
@@ -189,11 +189,10 @@ pub async fn perform_contract_verification_wasm(
 
     // Since this is a view function, we don't get actual registration_info
     // Return minimal info if verification succeeds to maintain API compatibility
-    let registration_info = if verified {
+    let _registration_info = if verified {
         Some(RegistrationInfo {
             credential_id: vec![], // Empty since this is view-only verification
             credential_public_key: vec![], // Empty since this is view-only verification
-            vrf_public_key: None, // Empty since this is view-only verification
         })
     } else {
         None
@@ -260,11 +259,10 @@ pub async fn check_can_register_user_wasm(
 
 /// Actually register user (STATE-CHANGING FUNCTION - uses send_tx RPC)
 /// This function stores the user registration data on-chain
-pub async fn perform_actual_registration_wasm(
+pub async fn sign_registration_tx_wasm(
     contract_id: &str,
     vrf_data: VrfData,
     webauthn_registration_credential: WebAuthnRegistrationCredential,
-    rpc_url: &str,
     signer_account_id: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
@@ -482,11 +480,10 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
 
     // Since this is a view function, we don't get actual registration_info
     // Return minimal info if verification succeeds to maintain API compatibility
-    let registration_info = if verified {
+    let _registration_info = if verified {
         Some(RegistrationInfo {
             credential_id: vec![], // Empty since this is view-only verification
             credential_public_key: vec![], // Empty since this is view-only verification
-            vrf_public_key: None, // Empty since this is view-only verification
         })
     } else {
         None
@@ -509,7 +506,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
         verified,
         error: if verified { None } else { Some("Contract registration check failed".to_string()) },
         logs,
-        registration_info,
+        registration_info: None,
         signed_transaction_borsh: None, // View functions don't have transactions
     })
 }
@@ -604,4 +601,368 @@ fn extract_detailed_execution_error(execution_outcome: &Value) -> String {
     // If all else fails, return the full execution outcome
     format!("Unknown execution error. Full execution outcome: {}",
             serde_json::to_string_pretty(execution_outcome).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_base64url_decode() {
+        // Test valid base64url
+        let input = "SGVsbG8gV29ybGQ";
+        let result = base64url_decode(input).unwrap();
+        assert_eq!(result, b"Hello World");
+
+        // Test base64url with URL-safe characters
+        let input_urlsafe = "SGVsbG8gV29ybGQ";
+        let result_urlsafe = base64url_decode(input_urlsafe).unwrap();
+        assert_eq!(result_urlsafe, b"Hello World");
+
+        // Test with padding needed
+        let input_padding = "SGVsbG8";
+        let result_padding = base64url_decode(input_padding).unwrap();
+        assert_eq!(result_padding, b"Hello");
+
+        // Test invalid base64url
+        let invalid_input = "Invalid@#$%";
+        assert!(base64url_decode(invalid_input).is_err());
+
+        // Test empty string
+        let empty_result = base64url_decode("").unwrap();
+        assert_eq!(empty_result, b"");
+    }
+
+    #[test]
+    fn test_vrf_data_serialization() {
+        let vrf_data = VrfData {
+            vrf_input_data: vec![0x01, 0x02, 0x03],
+            vrf_output: vec![0x04, 0x05, 0x06],
+            vrf_proof: vec![0x07, 0x08, 0x09],
+            public_key: vec![0x0a, 0x0b, 0x0c],
+            user_id: "test.testnet".to_string(),
+            rp_id: "example.com".to_string(),
+            block_height: 12345,
+            block_hash: vec![0x0d, 0x0e, 0x0f],
+        };
+
+        // Test serialization
+        let serialized = serde_json::to_string(&vrf_data).unwrap();
+        assert!(serialized.contains("test.testnet"));
+        assert!(serialized.contains("example.com"));
+        assert!(serialized.contains("12345"));
+
+        // Test deserialization
+        let deserialized: VrfData = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.user_id, vrf_data.user_id);
+        assert_eq!(deserialized.rp_id, vrf_data.rp_id);
+        assert_eq!(deserialized.block_height, vrf_data.block_height);
+        assert_eq!(deserialized.vrf_input_data, vrf_data.vrf_input_data);
+    }
+
+    #[test]
+    fn test_webauthn_authentication_credential_serialization() {
+        let auth_credential = WebAuthnAuthenticationCredential {
+            id: "credential_id_123".to_string(),
+            raw_id: "cmF3X2lk".to_string(),
+            response: WebAuthnAuthenticationResponse {
+                client_data_json: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0".to_string(),
+                authenticator_data: "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAQ".to_string(),
+                signature: "MEUCIQDTGVxqmWd_BstOm8K-".to_string(),
+                user_handle: Some("dXNlcl9oYW5kbGU".to_string()),
+            },
+            authenticator_attachment: Some("platform".to_string()),
+            auth_type: "public-key".to_string(),
+        };
+
+        // Test serialization
+        let serialized = serde_json::to_string(&auth_credential).unwrap();
+        assert!(serialized.contains("credential_id_123"));
+        assert!(serialized.contains("public-key"));
+        assert!(serialized.contains("platform"));
+
+        // Test deserialization
+        let deserialized: WebAuthnAuthenticationCredential = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.id, auth_credential.id);
+        assert_eq!(deserialized.auth_type, auth_credential.auth_type);
+        assert_eq!(deserialized.authenticator_attachment, auth_credential.authenticator_attachment);
+    }
+
+    #[test]
+    fn test_webauthn_registration_credential_serialization() {
+        let reg_credential = WebAuthnRegistrationCredential {
+            id: "reg_credential_id_456".to_string(),
+            raw_id: "cmVnX3Jhd19pZA".to_string(),
+            response: WebAuthnRegistrationResponse {
+                client_data_json: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0".to_string(),
+                attestation_object: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVjE".to_string(),
+                transports: Some(vec!["internal".to_string(), "hybrid".to_string()]),
+            },
+            authenticator_attachment: Some("platform".to_string()),
+            reg_type: "public-key".to_string(),
+        };
+
+        // Test serialization
+        let serialized = serde_json::to_string(&reg_credential).unwrap();
+        assert!(serialized.contains("reg_credential_id_456"));
+        assert!(serialized.contains("internal"));
+        assert!(serialized.contains("hybrid"));
+
+        // Test deserialization
+        let deserialized: WebAuthnRegistrationCredential = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.id, reg_credential.id);
+        assert_eq!(deserialized.reg_type, reg_credential.reg_type);
+        assert_eq!(deserialized.response.transports, reg_credential.response.transports);
+    }
+
+    #[test]
+    fn test_contract_verification_result() {
+        let result = ContractVerificationResult {
+            success: true,
+            verified: true,
+            error: None,
+            logs: vec!["Verification successful".to_string()],
+        };
+
+        assert_eq!(result.success, true);
+        assert_eq!(result.verified, true);
+        assert!(result.error.is_none());
+        assert_eq!(result.logs.len(), 1);
+    }
+
+    #[test]
+    fn test_contract_registration_result() {
+        let result = ContractRegistrationResult {
+            success: true,
+            verified: true,
+            error: None,
+            logs: vec!["Registration completed".to_string()],
+            registration_info: Some(RegistrationInfo {
+                credential_id: vec![0x01, 0x02, 0x03],
+                credential_public_key: vec![0x04, 0x05, 0x06],
+            }),
+            signed_transaction_borsh: Some(vec![0x0a, 0x0b, 0x0c]),
+        };
+
+        assert_eq!(result.success, true);
+        assert_eq!(result.verified, true);
+        assert!(result.registration_info.is_some());
+        assert!(result.signed_transaction_borsh.is_some());
+    }
+
+    #[test]
+    fn test_registration_info_serialization() {
+        let reg_info = RegistrationInfo {
+            credential_id: vec![0x01, 0x02, 0x03, 0x04],
+            credential_public_key: vec![0x05, 0x06, 0x07, 0x08],
+        };
+
+        // Test serialization
+        let serialized = serde_json::to_string(&reg_info).unwrap();
+        let deserialized: RegistrationInfo = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.credential_id, reg_info.credential_id);
+        assert_eq!(deserialized.credential_public_key, reg_info.credential_public_key);
+    }
+
+    #[test]
+    fn test_parse_view_registration_response_success() {
+        let _mock_rpc_response = json!({
+            "result": {
+                "result": [118, 101, 114, 105, 102, 105, 101, 100, 58, 116, 114, 117, 101], // "verified:true" as bytes
+                "logs": ["VRF verification successful", "WebAuthn validation passed"]
+            }
+        });
+
+        // Create a simplified contract response that matches what would be in the bytes
+        let contract_response = json!({
+            "verified": true,
+            "user_exists": false
+        });
+
+        // Convert to bytes as the RPC would
+        let response_bytes: Vec<u8> = contract_response.to_string().as_bytes().to_vec();
+        let response_u8_array: Vec<serde_json::Value> = response_bytes.iter().map(|&b| json!(b)).collect();
+
+        let mock_response_with_bytes = json!({
+            "result": {
+                "result": response_u8_array,
+                "logs": ["VRF verification successful", "WebAuthn validation passed"]
+            }
+        });
+
+        let result = parse_view_registration_response(mock_response_with_bytes).unwrap();
+        assert_eq!(result.success, true);
+        assert_eq!(result.verified, true);
+        assert_eq!(result.logs.len(), 2);
+        assert!(result.logs.contains(&"VRF verification successful".to_string()));
+    }
+
+    #[test]
+    fn test_parse_view_registration_response_with_error() {
+        let mock_error_response = json!({
+            "error": {
+                "message": "Contract call failed"
+            }
+        });
+
+        let result = parse_view_registration_response(mock_error_response).unwrap();
+        assert_eq!(result.success, false);
+        assert_eq!(result.verified, false);
+        assert!(result.error.is_some());
+        assert!(result.error.unwrap().contains("Contract call failed"));
+    }
+
+    #[test]
+    fn test_parse_view_registration_response_missing_result() {
+        let mock_invalid_response = json!({
+            "jsonrpc": "2.0",
+            "id": "test"
+            // Missing "result" field
+        });
+
+        let result = parse_view_registration_response(mock_invalid_response);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing result in RPC response"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_function_call_error() {
+        let execution_outcome = json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 0,
+                    "kind": {
+                        "FunctionCallError": {
+                            "ExecutionError": "Smart contract panicked: assertion failed"
+                        }
+                    }
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("FunctionCall execution error"));
+        assert!(error_msg.contains("assertion failed"));
+        assert!(error_msg.contains("action 0"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_account_not_exist() {
+        let execution_outcome = json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 1,
+                    "kind": {
+                        "AccountDoesNotExist": {
+                            "account_id": "nonexistent.testnet"
+                        }
+                    }
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("Account does not exist"));
+        assert!(error_msg.contains("nonexistent.testnet"));
+        assert!(error_msg.contains("action 1"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_method_not_found() {
+        let execution_outcome = json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 0,
+                    "kind": {
+                        "FunctionCallError": {
+                            "MethodResolveError": "unknown_method"
+                        }
+                    }
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("Method not found"));
+        assert!(error_msg.contains("unknown_method"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_insufficient_stake() {
+        let execution_outcome = json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 2,
+                    "kind": {
+                        "InsufficientStake": {
+                            "minimum_stake": "100000000000000000000000000",
+                            "user_stake": "50000000000000000000000000"
+                        }
+                    }
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("Insufficient stake"));
+        assert!(error_msg.contains("minimum_stake=100000000000000000000000000"));
+        assert!(error_msg.contains("user_stake=50000000000000000000000000"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_simple_failure() {
+        let execution_outcome = json!({
+            "Failure": "Transaction validation failed"
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert_eq!(error_msg, "Transaction validation failed");
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_invalid_tx() {
+        let execution_outcome = json!({
+            "Failure": {
+                "InvalidTxError": {
+                    "InvalidNonce": {
+                        "tx_nonce": 42,
+                        "ak_nonce": 41
+                    }
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("Invalid transaction"));
+        assert!(error_msg.contains("InvalidNonce"));
+    }
+
+    #[test]
+    fn test_extract_detailed_execution_error_unknown_format() {
+        let execution_outcome = json!({
+            "Failure": {
+                "UnknownErrorType": {
+                    "data": "some unknown error data"
+                }
+            }
+        });
+
+        let error_msg = extract_detailed_execution_error(&execution_outcome);
+        assert!(error_msg.contains("Transaction failure"));
+        assert!(error_msg.contains("UnknownErrorType"));
+    }
+
+    #[test]
+    fn test_bs58_encode_decode() {
+        let test_data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
+        let encoded = bs58_encode(&test_data);
+        let decoded = bs58_decode(&encoded).unwrap();
+        assert_eq!(decoded, test_data);
+
+        // Test invalid base58
+        let invalid_b58 = "0OIl"; // Contains invalid characters
+        assert!(bs58_decode(invalid_b58).is_err());
+    }
 }
