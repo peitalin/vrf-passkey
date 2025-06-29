@@ -43,17 +43,11 @@ export function useAccountInput({
     indexDBAccounts: []
   });
 
-  const webAuthnManager = passkeyManager.getWebAuthnManager();
-
   // Load IndexDB accounts and determine account info
   const refreshAccountData = useCallback(async () => {
     try {
-      // Get all user accounts from IndexDB
-      const allUsersData = await webAuthnManager.getAllUserData();
-      const accountIds = allUsersData.map(user => user.nearAccountId);
+      const { accountIds, lastUsedAccountId } = await passkeyManager.getRecentLogins();
 
-      // Get last used account for initial state
-      const lastUsedAccountId = await webAuthnManager.getLastUsedNearAccountId();
       let lastUsername = '';
       let lastDomain = '';
 
@@ -73,7 +67,7 @@ export function useAccountInput({
     } catch (error) {
       console.warn('Error loading account data:', error);
     }
-  }, [webAuthnManager]);
+  }, [passkeyManager]);
 
   // Update derived state when inputs change
   const updateDerivedState = useCallback((username: string, accounts: string[]) => {
@@ -120,7 +114,7 @@ export function useAccountInput({
 
     // Check if account has credentials
     checkAccountExists(targetAccountId);
-  }, [useRelayer, relayerAccount, webAuthnManager]);
+  }, [useRelayer, relayerAccount, passkeyManager]);
 
   // Check if account has passkey credentials
   const checkAccountExists = useCallback(async (accountId: string) => {
@@ -130,13 +124,13 @@ export function useAccountInput({
     }
 
     try {
-      const hasCredential = await webAuthnManager.hasPasskeyCredential(accountId);
+      const hasCredential = await passkeyManager.hasPasskeyCredential(accountId);
       setState(prevState => ({ ...prevState, accountExists: hasCredential }));
     } catch (error) {
       console.warn('Error checking credentials:', error);
       setState(prevState => ({ ...prevState, accountExists: false }));
     }
-  }, [webAuthnManager]);
+  }, [passkeyManager]);
 
   // Handle username input changes
   const setInputUsername = useCallback((username: string) => {
@@ -155,7 +149,7 @@ export function useAccountInput({
         setState(prevState => ({ ...prevState, inputUsername: username }));
       } else {
         // No logged-in user, try to get last used account
-        const lastUsedAccountId = await webAuthnManager.getLastUsedNearAccountId();
+        const { lastUsedAccountId } = await passkeyManager.getRecentLogins();
         if (lastUsedAccountId) {
           const username = lastUsedAccountId.split('.')[0];
           setState(prevState => ({ ...prevState, inputUsername: username }));
@@ -164,7 +158,7 @@ export function useAccountInput({
     };
 
     initializeAccountInput();
-  }, [passkeyManager, isLoggedIn, currentNearAccountId, webAuthnManager]);
+  }, [passkeyManager, isLoggedIn, currentNearAccountId, passkeyManager]);
 
   // onLogout: Reset to last used account
   useEffect(() => {
@@ -172,7 +166,7 @@ export function useAccountInput({
       // Only reset if user just logged out (isLoggedIn is false but we had a nearAccountId before)
       if (!isLoggedIn && !currentNearAccountId) {
         try {
-          const lastUsedAccountId = await webAuthnManager.getLastUsedNearAccountId();
+        const { lastUsedAccountId } = await passkeyManager.getRecentLogins();
           if (lastUsedAccountId) {
             const username = lastUsedAccountId.split('.')[0];
             setState(prevState => ({ ...prevState, inputUsername: username }));
@@ -184,7 +178,7 @@ export function useAccountInput({
     };
 
     handleLogoutReset();
-  }, [isLoggedIn, currentNearAccountId, webAuthnManager]);
+  }, [isLoggedIn, currentNearAccountId, passkeyManager]);
 
   // Update derived state when dependencies change
   useEffect(() => {

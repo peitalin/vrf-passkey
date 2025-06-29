@@ -2,9 +2,7 @@ import type { Provider } from '@near-js/providers';
 import type { AccessKeyView } from '@near-js/types';
 
 import { bufferEncode } from '../../../utils/encoders';
-import { getCallerFunctionName, isAuthorizedForDeleteAccount } from '../../../utils';
 import { validateNearAccountId } from '../../utils/validation';
-import type { PasskeyManager } from '../../PasskeyManager';
 import type {
   RegistrationOptions,
   RegistrationResult,
@@ -16,7 +14,7 @@ import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
 import { WebAuthnManager } from '../../WebAuthnManager';
 import { VRFChallenge } from '../../types/webauthn';
 import { RPC_NODE_URL } from '../../../config';
-
+import type { PasskeyManagerContext } from '../index';
 
 /**
  * Generate a VRF keypair + challenge in VRF wasm worker for WebAuthn registration ceremony bootstrapping
@@ -63,7 +61,7 @@ async function generateBootstrapVrfChallenge(
  * Core registration function that handles passkey registration
  */
 export async function registerPasskey(
-  passkeyManager: PasskeyManager,
+  context: PasskeyManagerContext,
   nearAccountId: string,
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
@@ -88,7 +86,7 @@ export async function registerPasskey(
 
     console.log('⚡ Registration: Optimized VRF registration with single WebAuthn ceremony');
     return await handleRegistration(
-      passkeyManager,
+      context,
       nearAccountId,
       onEvent,
       onError,
@@ -172,17 +170,16 @@ const validateRegistrationInputs = (
  *    future stateless authentication
  */
 async function handleRegistration(
-  passkeyManager: PasskeyManager,
+  context: PasskeyManagerContext,
   nearAccountId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
   hooks?: OperationHooks,
 ): Promise<RegistrationResult> {
-  try {
 
-    const webAuthnManager = passkeyManager.getWebAuthnManager();
-    const nearRpcProvider = passkeyManager.getNearRpcProvider();
-    const config = passkeyManager.getConfig();
+  const { webAuthnManager, nearRpcProvider, configs } = context;
+
+  try {
 
     onEvent?.({
       step: 1,
@@ -282,7 +279,7 @@ async function handleRegistration(
 
     // First check if the user can be registered on-chain
     const canRegisterUserResult = await webAuthnManager.checkCanRegisterUser({
-      contractId: config.contractId,
+      contractId: webAuthnManager.configs.contractId,
       webauthnCredential: credential,
       vrfChallenge: vrfChallenge,
       onEvent: (progress) => {
@@ -338,7 +335,7 @@ async function handleRegistration(
     let contractTransactionId: string | null = null;
 
     const contractRegistrationResult = await webAuthnManager.signVerifyAndRegisterUser({
-      contractId: config.contractId,
+      contractId: webAuthnManager.configs.contractId,
       webauthnCredential: credential,
       vrfChallenge: vrfChallenge,
       signerAccountId: nearAccountId,

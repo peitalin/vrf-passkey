@@ -68,7 +68,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Use account input hook
   const accountInputHook = useAccountInput({
     passkeyManager,
-    relayerAccount: passkeyManager.getConfig().relayerAccount,
+    relayerAccount: passkeyManager.configs.relayerAccount,
     useRelayer: relayerHook.useRelayer,
     currentNearAccountId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn
@@ -101,7 +101,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const logout = useCallback(async () => {
     try {
       // Clear VRF session when user logs out
-      await passkeyManager.clearVrfSession();
+      await passkeyManager.logoutAndClearVrfSession();
     } catch (error) {
       console.warn('VRF logout warning:', error);
     }

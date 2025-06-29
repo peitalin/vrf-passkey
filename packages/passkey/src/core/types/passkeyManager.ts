@@ -265,7 +265,7 @@ export interface ActionResult {
 }
 
 // PasskeyManager Configuration
-export interface PasskeyManagerConfig {
+export interface PasskeyManagerConfigs {
   relayServerUrl?: string; // Relay Server for creating new NEAR accounts
   nearNetwork: 'testnet' | 'mainnet';
   relayerAccount: string;

@@ -3,6 +3,7 @@
 import type { Provider } from '@near-js/providers';
 import { base64UrlDecode } from '../../utils/encoders';
 import { VRFChallenge } from '../types/webauthn';
+import { PasskeyManagerConfigs } from '../types/passkeyManager';
 
 // Mock IndexedDBManager first
 const mockIndexedDBManager = {
@@ -95,7 +96,12 @@ describe('WebAuthnManager', () => {
   let webAuthnManager: WebAuthnManager;
 
   beforeEach(() => {
-    webAuthnManager = new WebAuthnManager();
+    webAuthnManager = new WebAuthnManager({
+      contractId: 'test-contract.testnet',
+      relayerAccount: 'test.testnet',
+      nearNetwork: 'testnet',
+      nearRpcUrl: 'https://rpc.testnet.near.org',
+    } as PasskeyManagerConfigs);
 
     // Reset all mocks
     jest.clearAllMocks();

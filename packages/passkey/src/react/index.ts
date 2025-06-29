@@ -54,7 +54,7 @@ export type {
 } from './components/ProfileSettingsButton/types';
 
 // === RE-EXPORT CORE ===
-export type { PasskeyManagerConfig as PasskeyConfig } from '../core/types/passkeyManager';
+export type { PasskeyManagerConfigs as PasskeyConfigs } from '../core/types/passkeyManager';
 export type { UserData } from '../core/types/signer-worker';
 export { PasskeyManager } from '../core/PasskeyManager';
 
@@ -69,7 +69,7 @@ export type {
   AddKeyAction,
   DeleteKeyAction,
   DeleteAccountAction
-} from '../core/types';
+} from '../core/types/actions';
 
 // === RE-EXPORT ACTION HELPER FUNCTIONS ===
 export {
@@ -83,4 +83,4 @@ export {
   deleteKey,
   deleteAccount,
   ActionType
-} from '../core/types';
+} from '../core/types/actions';

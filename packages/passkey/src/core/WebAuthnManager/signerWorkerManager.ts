@@ -17,7 +17,7 @@ import {
   serializeCredentialAndCreatePRF,
   serializeRegistrationCredentialAndCreatePRF,
 } from '../types/signer-worker';
-import { ActionType } from '../types';
+import { ActionType } from '../types/actions';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';

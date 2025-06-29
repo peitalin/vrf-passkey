@@ -1,21 +1,20 @@
-import type { PasskeyManager } from '../PasskeyManager';
 import type {
   LoginOptions,
   LoginResult,
   LoginEvent,
 } from '../types/passkeyManager';
+import type { PasskeyManagerContext } from './index';
 
 /**
  * Core login function that handles passkey authentication without React dependencies
  */
 export async function loginPasskey(
-  passkeyManager: PasskeyManager,
+  context: PasskeyManagerContext,
   nearAccountId: string,
   options?: LoginOptions
 ): Promise<LoginResult> {
 
   const { onEvent, onError, hooks } = options || {};
-
   // Emit started event
   onEvent?.({
     step: 1,
@@ -49,7 +48,7 @@ export async function loginPasskey(
     console.log('⚡ Login: VRF login with WASM worker contract calls');
     // Handle login and unlock VRF keypair in VRF WASM worker for WebAuthn challenge generation
     return await handleLoginUnlockVRF(
-      passkeyManager,
+      context,
       nearAccountId,
       onEvent,
       onError,
@@ -95,15 +94,16 @@ export async function loginPasskey(
  * - Eliminates server-side session state
  */
 async function handleLoginUnlockVRF(
-  passkeyManager: PasskeyManager,
+  context: PasskeyManagerContext,
   nearAccountId: string,
   onEvent?: (event: LoginEvent) => void,
   onError?: (error: Error) => void,
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
 ): Promise<LoginResult> {
-  try {
 
-    const webAuthnManager = passkeyManager.getWebAuthnManager();
+  const { webAuthnManager, nearRpcProvider, configs } = context;
+
+  try {
 
     // Step 1: Get VRF credentials and authenticators, and validate them
     const { userData, authenticators } = await Promise.all([

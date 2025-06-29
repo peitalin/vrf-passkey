@@ -7,6 +7,7 @@ import type { UserData, ActionParams } from '../types/signer-worker';
 import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
+import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -20,12 +21,14 @@ import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 export class WebAuthnManager {
   private readonly vrfWorkerManager: VrfWorkerManager;
   private readonly signerWorkerManager: SignerWorkerManager;
+  readonly configs: PasskeyManagerConfigs;
   readonly touchIdPrompt: TouchIdPrompt;
 
-  constructor() {
+  constructor(configs: PasskeyManagerConfigs) {
     this.vrfWorkerManager = new VrfWorkerManager();
     this.signerWorkerManager = new SignerWorkerManager();
     this.touchIdPrompt = new TouchIdPrompt();
+    this.configs = configs;
     console.log("PRIVATE: this.signerWorkerManager", this.signerWorkerManager);
   }
 
@@ -102,6 +105,7 @@ export class WebAuthnManager {
   /**
    * Unlock VRF keypair in VRF Worker memory using PRF output from WebAuthn ceremony
    * This decrypts the stored VRF keypair and keeps it in memory for challenge generation
+   * requires touchId (conditional - only if webauthnCredential not provided)
    *
    * @param nearAccountId - NEAR account ID associated with the VRF keypair
    * @param encryptedVrfKeypair - Encrypted VRF keypair data from storage
@@ -261,21 +265,54 @@ export class WebAuthnManager {
   }
 
   /**
-   * Secure private key decryption with PRF
+   * Export private key using PRF-based decryption
+   * Requires TouchId
+   *
+   * SECURITY MODEL: Local random challenge is sufficient for private key export because:
+   * - User must possess physical authenticator device
+   * - Device enforces biometric/PIN verification before PRF access
+   * - No network communication or replay attack surface
+   * - Challenge only needs to be random to prevent pre-computation
+   * - Security comes from device possession + biometrics, not challenge validation
    */
-  async decryptPrivateKeyWithPrf(
-    nearAccountId: string,
-    authenticators: ClientAuthenticatorData[],
-  ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
-    return await this.signerWorkerManager.decryptPrivateKeyWithPrf(
+  async exportNearKeypairWithTouchId(nearAccountId: string): Promise<{
+    accountId: string,
+    publicKey: string,
+    privateKey: string
+  }> {
+    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
+    // Get user data to verify user exists
+    const userData = await this.getUser(nearAccountId);
+    if (!userData) {
+      throw new Error(`No user data found for ${nearAccountId}`);
+    }
+    if (!userData.clientNearPublicKey) {
+      throw new Error(`No public key found for ${nearAccountId}`);
+    }
+    // Get stored authenticator data for this user
+    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
+    if (authenticators.length === 0) {
+      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+    }
+
+    // Use WASM worker to decrypt private key
+    const decryptionResult = await this.signerWorkerManager.decryptPrivateKeyWithPrf(
       this.touchIdPrompt,
       nearAccountId,
       authenticators,
     );
+
+    return {
+      accountId: userData.nearAccountId,
+      publicKey: userData.clientNearPublicKey,
+      privateKey: decryptionResult.decryptedPrivateKey,
+    }
   }
 
   /**
    * Sign a NEAR Transfer transaction using PRF
+   * Requires TouchId
+   *
    * Enhanced Transfer transaction signing with contract verification and progress updates
    * Uses the new verify+sign WASM function for secure, efficient transaction processing
    */
@@ -286,7 +323,6 @@ export class WebAuthnManager {
       depositAmount: string;
       nonce: string;
       blockHashBytes: number[];
-      // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
     },

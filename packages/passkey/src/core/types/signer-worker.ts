@@ -1,6 +1,6 @@
 import { bufferEncode } from "../../utils/encoders";
 import type { VRFChallenge } from "./webauthn";
-import { ActionType } from "./index";
+import { ActionType } from "./actions";
 
 // === USER DATA TYPES ===
 

@@ -56,16 +56,17 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
       disabled: false,
       onClick: async () => {
         try {
+
           const {
-            userAccountId,
+            accountId,
             privateKey,
             publicKey
-          } = await passkeyManager.exportKeyPair(nearAccountId!);
+          } = await passkeyManager.exportNearKeypairWithTouchId(nearAccountId!);
 
           // Small delay to allow document to regain focus after WebAuthn
           await new Promise(resolve => setTimeout(resolve, 150));
 
-          const keypair_msg = `Account ID:\n${userAccountId}\n\nPublic key:\n${publicKey}\n\nPrivate key:\n${privateKey}`;
+          const keypair_msg = `Account ID:\n${accountId}\n\nPublic key:\n${publicKey}\n\nPrivate key:\n${privateKey}`;
 
           // Simple clipboard approach with single fallback
           if (navigator.clipboard && window.isSecureContext) {

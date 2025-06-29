@@ -1,11 +1,11 @@
 export { PasskeyManager } from './core/PasskeyManager';
-export { DEFAULT_WAIT_STATUS } from './core/PasskeyManager';
+export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { IndexedDBManager } from './core/IndexedDBManager';
 
 // === Re-exported from various type definition files ===
 export type {
-  PasskeyManagerConfig,
+  PasskeyManagerConfigs,
   RegistrationOptions,
   RegistrationResult,
   RegistrationSSEEvent,
@@ -79,11 +79,11 @@ export type {
   AddKeyAction,
   DeleteKeyAction,
   DeleteAccountAction
-} from './core/types';
+} from './core/types/actions';
 
 export {
   ActionType
-} from './core/types';
+} from './core/types/actions';
 
 // Action helper functions for easy action creation
 export {
@@ -96,7 +96,7 @@ export {
   addFunctionCallKey,
   deleteKey,
   deleteAccount
-} from './core/types';
+} from './core/types/actions';
 
 // === ERROR TYPES ===
 export type { PasskeyErrorDetails } from './core/types/errors';

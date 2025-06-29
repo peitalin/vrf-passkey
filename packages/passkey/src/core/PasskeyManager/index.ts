@@ -1,13 +1,11 @@
 import type { Provider } from '@near-js/providers';
-import { TxExecutionStatus } from '@near-js/types';
 
 import { WebAuthnManager } from '../WebAuthnManager';
-import { VrfWorkerManager, VRFWorkerStatus } from '../WebAuthnManager/vrfWorkerManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
 import type {
-  PasskeyManagerConfig,
+  PasskeyManagerConfigs,
   RegistrationOptions,
   RegistrationResult,
   LoginOptions,
@@ -15,70 +13,35 @@ import type {
   ActionOptions,
   ActionResult
 } from '../types/passkeyManager';
-import type { ActionArgs } from '../types';
+import type { ActionArgs } from '../types/actions';
 
-// See default finality settings
-// https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
-export const DEFAULT_WAIT_STATUS: TxExecutionStatus = "INCLUDED_FINAL";
+export interface PasskeyManagerContext {
+  webAuthnManager: WebAuthnManager;
+  nearRpcProvider: Provider;
+  configs: PasskeyManagerConfigs;
+}
 
 /**
  * Main PasskeyManager class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
  */
 export class PasskeyManager {
-  private webAuthnManager: WebAuthnManager;
-  private nearRpcProvider: Provider;
-  private config: PasskeyManagerConfig;
+  private readonly webAuthnManager: WebAuthnManager;
+  private readonly nearRpcProvider: Provider;
+  readonly configs: PasskeyManagerConfigs;
 
   constructor(
-    config: PasskeyManagerConfig,
+    configs: PasskeyManagerConfigs,
     nearRpcProvider: Provider
   ) {
-    this.config = config;
+    if (!nearRpcProvider) {
+      throw new Error('NEAR RPC provider is required');
+    }
+    this.configs = configs;
     this.nearRpcProvider = nearRpcProvider;
-    this.webAuthnManager = new WebAuthnManager();
+    this.webAuthnManager = new WebAuthnManager(configs);
     // Initialize VRF Worker in the background
     this.initializeVrfWorkerManager();
-  }
-
-  /**
-   * Internal VRF Worker initialization that runs automatically
-   * This abstracts VRF implementation details away from users
-   */
-  private async initializeVrfWorkerManager(): Promise<void> {
-    try {
-      console.log('PasskeyManager: Initializing VRF Web Worker...');
-      await this.webAuthnManager.initializeVrfWorkerManager();
-    } catch (error: any) {
-      console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
-    }
-  }
-
-  /**
-   * Logout: Clear VRF session (clear VRF keypair in worker)
-   */
-  async clearVrfSession(): Promise<void> {
-    return this.webAuthnManager.clearVrfSession();
-  }
-
-  async getVrfWorkerStatus(): Promise<VRFWorkerStatus> {
-    return this.webAuthnManager.getVrfWorkerStatus();
-  }
-
-  getConfig(): PasskeyManagerConfig {
-    return { ...this.config };
-  }
-
-  updateConfig(newConfig: Partial<PasskeyManagerConfig>): void {
-    this.config = { ...this.config, ...newConfig };
-  }
-
-  getWebAuthnManager(): WebAuthnManager {
-    return this.webAuthnManager;
-  }
-
-  getNearRpcProvider(): Provider {
-    return this.nearRpcProvider;
   }
 
   /**
@@ -88,7 +51,7 @@ export class PasskeyManager {
     nearAccountId: string,
     options: RegistrationOptions
   ): Promise<RegistrationResult> {
-    return registerPasskey(this, nearAccountId, options);
+    return registerPasskey(this.getContext(), nearAccountId, options);
   }
 
   /**
@@ -98,7 +61,14 @@ export class PasskeyManager {
     nearAccountId: string,
     options?: LoginOptions
   ): Promise<LoginResult> {
-    return loginPasskey(this, nearAccountId, options);
+    return loginPasskey(this.getContext(), nearAccountId, options);
+  }
+
+  /**
+   * Logout: Clear VRF session (clear VRF keypair in worker)
+   */
+  async logoutAndClearVrfSession(): Promise<void> {
+    return this.webAuthnManager.clearVrfSession();
   }
 
   /**
@@ -129,11 +99,7 @@ export class PasskeyManager {
     actionArgs: ActionArgs,
     options?: ActionOptions
   ): Promise<ActionResult> {
-    if (!this.nearRpcProvider) {
-      throw new Error('NEAR RPC provider is required for action execution');
-    }
-
-    return executeAction(this, nearAccountId, actionArgs, options);
+    return executeAction(this.getContext(), nearAccountId, actionArgs, options);
   }
 
   /**
@@ -169,14 +135,10 @@ export class PasskeyManager {
 
       // Get comprehensive user data from IndexedDB (single call instead of two)
       const userData = await this.webAuthnManager.getUser(targetAccountId);
-
+      const publicKey = userData?.clientNearPublicKey || null;
       // Check VRF Web Worker status
       const vrfStatus = await this.webAuthnManager.getVrfWorkerStatus();
       const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
-
-      // Get public key
-      const publicKey = userData?.clientNearPublicKey || null;
-
       // Determine if user is considered "logged in"
       // User is logged in if they have user data and either VRF is active OR they have valid credentials
       const isLoggedIn = !!(userData && (vrfActive || userData.clientNearPublicKey));
@@ -202,65 +164,58 @@ export class PasskeyManager {
     }
   }
 
-  /**
-   * Export key pair (both private and public keys)
-   */
-  async exportKeyPair(nearAccountId: string): Promise<{
-    userAccountId: string;
-    privateKey: string;
-    publicKey: string
-  }> {
-    // Get user data to retrieve public key
-    const userData = await this.webAuthnManager.getUser(nearAccountId);
-    if (!userData) {
-      throw new Error(`No user data found for ${nearAccountId}`);
-    }
-    if (!userData.clientNearPublicKey) {
-      throw new Error(`No NEAR public key found for account ${nearAccountId}`);
-    }
+  async getRecentLogins(): Promise<{ accountIds: string[], lastUsedAccountId: string | null }> {
+      // Get all user accounts from IndexDB
+      const allUsersData = await this.webAuthnManager.getAllUserData();
+      const accountIds = allUsersData.map(user => user.nearAccountId);
+      // Get last used account for initial state
+      const lastUsedAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
 
-    // Export private key using the method above
-    const privateKey = await this.exportPrivateKey(nearAccountId);
+      return {
+        accountIds,
+        lastUsedAccountId,
+      }
+  }
 
-    return {
-      userAccountId: nearAccountId,
-      privateKey,
-      publicKey: userData.clientNearPublicKey
-    };
+  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
+    return await this.webAuthnManager.hasPasskeyCredential(nearAccountId);
   }
 
   /**
-   * Export private key using PRF-based decryption
-   *
-   * SECURITY MODEL: Local random challenge is sufficient for private key export because:
-   * - User must possess physical authenticator device
-   * - Device enforces biometric/PIN verification before PRF access
-   * - No network communication or replay attack surface
-   * - Challenge only needs to be random to prevent pre-computation
-   * - Security comes from device possession + biometrics, not challenge validation
+   * Export key pair (both private and public keys)
    */
-  private async exportPrivateKey(nearAccountId: string): Promise<string> {
-    // Get user data to verify user exists
-    const userData = await this.webAuthnManager.getUser(nearAccountId);
-    if (!userData) {
-      throw new Error(`No user data found for ${nearAccountId}`);
+  async exportNearKeypairWithTouchId(nearAccountId: string): Promise<{
+    accountId: string;
+    privateKey: string;
+    publicKey: string
+  }> {
+    // Export private key using the method above
+    return await this.webAuthnManager.exportNearKeypairWithTouchId(nearAccountId)
+  }
+
+  ///////////////////////////////////////
+  // PRIVATE FUNCTIONS
+  ///////////////////////////////////////
+
+  /**
+   * Internal VRF Worker initialization that runs automatically
+   * This abstracts VRF implementation details away from users
+   */
+  private async initializeVrfWorkerManager(): Promise<void> {
+    try {
+      console.log('PasskeyManager: Initializing VRF Web Worker...');
+      await this.webAuthnManager.initializeVrfWorkerManager();
+    } catch (error: any) {
+      console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
     }
+  }
 
-    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
-    // Get stored authenticator data for this user
-    const authenticators = await this.webAuthnManager.getAuthenticatorsByUser(nearAccountId);
-    if (authenticators.length === 0) {
-      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
+  private getContext(): PasskeyManagerContext {
+    return {
+      webAuthnManager: this.webAuthnManager,
+      nearRpcProvider: this.nearRpcProvider,
+      configs: this.configs
     }
-
-    // Use WASM worker to decrypt private key
-    const decryptionResult = await this.webAuthnManager.decryptPrivateKeyWithPrf(
-      nearAccountId,
-      authenticators
-    );
-
-    console.log(`✅ Private key exported successfully for account: ${nearAccountId}`);
-    return decryptionResult.decryptedPrivateKey;
   }
 
 }
@@ -268,7 +223,7 @@ export class PasskeyManager {
 
 // Re-export types for convenience
 export type {
-  PasskeyManagerConfig,
+  PasskeyManagerConfigs,
   RegistrationOptions,
   RegistrationResult,
   RegistrationSSEEvent,
