@@ -1,7 +1,8 @@
-/**
- * WASM-only transaction signing worker
- * This worker handles all NEAR transaction operations using WASM functions
- */
+// WASM-only transaction signing worker
+// This worker handles all NEAR transaction operations using WASM functions
+
+// Import WASM binary directly
+import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 import {
   WorkerRequestType,
   WorkerResponseType,
@@ -23,17 +24,20 @@ import {
   type WorkerProgressMessage,
   DeleteKeyWithPrfRequest,
   RollbackFailedRegistrationWithPrfRequest,
-} from './types/signer-worker';
-import type { onProgressEvents } from './types/webauthn';
-import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB';
-import { bufferEncode } from '../utils/encoders';
+} from './types/signer-worker.js';
+import type { onProgressEvents } from './types/webauthn.js';
+import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
+import { bufferEncode } from '../utils/encoders.js';
 
-// Import WASM binary directly
-import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
-import { initializeWasm } from './utils/wasmLoader';
-// Use a relative URL to the WASM file in the wasm_signer_worker directory
-const wasmUrl = new URL('../wasm_signer_worker/wasm_signer_worker_bg.wasm', import.meta.url);
-console.log('[signer-worker]: WASM URL resolved to:', wasmUrl.href);
+// Buffer polyfill for Web Workers
+// Workers don't inherit main thread polyfills, they run in an isolated environment
+// Manual polyfill is required for NEAR crypto operations that depend on Buffer.
+import { Buffer } from 'buffer';
+globalThis.Buffer = Buffer;
+
+// Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
+const wasmUrl = new URL('./wasm_signer_worker_bg.wasm', import.meta.url);
+const WASM_CACHE_NAME = 'web3authn-signer-worker-v1';
 
 // Create database manager instance
 const nearKeysDB = new PasskeyNearKeysDBManager();
@@ -61,7 +65,56 @@ const {
   validate_cose_key_format,
 } = wasmModule;
 
+/**
+ * Initialize WASM module with caching support
+ */
+async function initializeWasmWithCache(): Promise<void> {
+  try {
+    console.debug('[signer-worker]: Starting WASM initialization...', {
+      wasmUrl: wasmUrl.href,
+      userAgent: navigator.userAgent,
+      currentUrl: self.location.href
+    });
 
+    const cache = await caches.open(WASM_CACHE_NAME);
+    const cachedResponse = await cache.match(wasmUrl.href);
+    if (cachedResponse) {
+      const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
+      await init({ module: wasmModule });
+      console.debug('[signer-worker]: WASM initialized successfully from cache');
+      return;
+    }
+
+    console.debug('[signer-worker]: Fetching fresh WASM module from:', wasmUrl.href);
+    const response = await fetch(wasmUrl.href);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+    }
+
+    // console.log('[signer-worker]: WASM fetch successful, content-type:', response.headers.get('content-type'));
+    const responseToCache = response.clone();
+    const wasmModule = await WebAssembly.compileStreaming(response);
+
+    await cache.put(wasmUrl.href, responseToCache);
+    await init({ module: wasmModule });
+  } catch (error: any) {
+    console.error('[signer-worker]: WASM initialization failed, using fallback:', error);
+    console.error('[signer-worker]: Error details:', {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
+
+    try {
+      console.debug('[signer-worker]: Attempting fallback WASM initialization...');
+      await init();
+    } catch (fallbackError: any) {
+      console.error('[signer-worker]: Fallback WASM initialization also failed:', fallbackError);
+      throw new Error(`WASM initialization failed: ${error?.message || 'Unknown error'}. Fallback also failed: ${fallbackError?.message || 'Unknown fallback error'}`);
+    }
+  }
+}
 
 /////////////////////////////////////
 // === MAIN MESSAGE HANDLER ===
@@ -80,22 +133,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
   console.log('[signer-worker]: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
 
   try {
-
     console.log('[signer-worker]: Starting WASM initialization...');
-    // Initialize WASM module with robust loading strategies
-    // Handles MIME type issues and server configuration problems automatically
-    await initializeWasm({
-      workerName: 'signer-worker',
-      wasmUrl,
-      initFunction: async (wasmModule?: any) => {
-        if (wasmModule) {
-          await init({ module: wasmModule });
-        } else {
-          await init();
-        }
-      },
-      timeoutMs: 20000
-    });
+    await initializeWasmWithCache();
     console.log('[signer-worker]: WASM initialization completed, processing message...');
 
     switch (type) {

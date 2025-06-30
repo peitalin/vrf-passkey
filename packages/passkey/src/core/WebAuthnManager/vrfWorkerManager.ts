@@ -16,17 +16,8 @@ import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 
 export interface VrfWorkerManagerConfig {
-  // URL to the VRF Web Worker file
-  // Defaults to client-hosted worker file
-  //
-  // Examples:
-  // - undefined (uses default: '/workers/wasm_vrf_worker.js')
-  // - '/workers/wasm_vrf_worker.js' (client-hosted)
-  // - '/custom/path/wasm_vrf_worker.js' (custom location)
   vrfWorkerUrl?: string;
-  // Timeout for Web Worker initialization (ms)
   workerTimeout?: number;
-  // Whether to enable debug logging
   debug?: boolean;
 }
 

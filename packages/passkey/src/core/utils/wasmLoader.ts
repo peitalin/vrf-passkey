@@ -29,6 +29,28 @@ export interface WasmLoaderOptions {
 }
 
 /**
+ * Environment-aware WASM Loading Utility
+ *
+ * Handles WASM loading differences between development/test and production environments
+ */
+export async function loadWasm(
+  initFunction: (input?: any) => Promise<any>,
+  wasmFileName: string,
+  devMode: boolean = false
+): Promise<any> {
+  if (devMode || (import.meta as any).env?.MODE === 'test') {
+    // Dev/Test mode: Load WASM directly from source
+    console.log('[wasm-loader]: Development/test mode - loading WASM from source');
+    const wasmUrl = new URL(`../wasm_signer_worker/${wasmFileName}`, import.meta.url);
+    return await initFunction(wasmUrl);
+  } else {
+    // Production mode: Use bundled WASM (Rollup handles this)
+    console.log('[wasm-loader]: Production mode - using bundled WASM');
+    return await initFunction();
+  }
+}
+
+/**
  * Initialize WASM module with SDK-optimized loading strategy
  * Prioritizes bundled WASM for maximum reliability across deployment environments
  * Returns the initialized module or a fallback module with error handling

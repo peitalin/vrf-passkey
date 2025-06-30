@@ -154,7 +154,7 @@ export default [
       })
     ]
   },
-  // VRF Service Worker build (module mode)
+  // VRF Worker build (module mode)
   {
     input: 'src/core/web3authn-vrf.worker.ts',
     output: {
