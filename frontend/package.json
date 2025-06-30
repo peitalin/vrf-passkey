@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others \"vite\" \"caddy run\"",
+    "dev": "concurrently --kill-others \"vite\" \"sh run_caddy.sh\"",
     "build-wasm": "cd wasm-worker && wasm-pack build --target web ",
     "build": "pnpm build-wasm && tsc -b && vite build",
     "preview": "vite preview"

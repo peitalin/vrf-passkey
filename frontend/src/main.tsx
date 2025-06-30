@@ -19,7 +19,7 @@ function App() {
             nearNetwork: 'testnet',
             relayerOptions: {
               relayerAccount: 'web3-authn.testnet',
-              relayServerUrl: 'http://localhost:3000',
+              relayServerUrl: 'https://localhost:3000',
               initialUseRelayer: false
             },
             debugMode: false
