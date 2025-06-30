@@ -5,9 +5,9 @@
 
 import type { VRFWorkerMessage, VRFWorkerResponse } from './types/vrf-worker';
 // Import VRF WASM module directly
-import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker.js';
+import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker';
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./wasm_vrf_worker_bg.wasm', import.meta.url);
+const wasmUrl = new URL('../wasm_vrf_worker/wasm_vrf_worker_bg.wasm', import.meta.url);
 const { handle_message } = vrfWasmModule;
 
 // === WASM MODULE MANAGEMENT ===
@@ -16,7 +16,8 @@ let wasmModule: any | null = null;
 let wasmInitialized: boolean = false;
 
 /**
- * Initialize WASM module for VRF operations with timeout protection
+ * Initialize WASM module for VRF operations with robust loading and timeout protection
+ * Handles MIME type issues and server configuration problems automatically
  */
 async function initializeWasmModule(): Promise<void> {
   if (wasmInitialized) {
@@ -32,10 +33,29 @@ async function initializeWasmModule(): Promise<void> {
       console.log('[vrf-worker]: WASM URL:', wasmUrl.href);
       console.log('[vrf-worker]: Available functions:', Object.keys(vrfWasmModule));
 
-      // Initialize WASM module
-      console.log('[vrf-worker]: Calling init()...');
-      await init();
-      console.log('[vrf-worker]: init() completed successfully');
+      // Try robust WASM initialization with fallback strategies
+      try {
+        // First try: Direct WASM module initialization (streaming)
+        console.log('[vrf-worker]: Attempting streaming WASM initialization...');
+        await init();
+        console.log('[vrf-worker]: Streaming init() completed successfully');
+      } catch (streamError: any) {
+        console.warn('[vrf-worker]: Streaming initialization failed, trying ArrayBuffer approach:', streamError.message);
+
+        // Second try: Fetch WASM manually and use ArrayBuffer
+        const response = await fetch(wasmUrl.href);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get('content-type');
+        console.log('[vrf-worker]: WASM fetch successful, content-type:', contentType);
+
+        const arrayBuffer = await response.arrayBuffer();
+        const wasmModule = await WebAssembly.compile(arrayBuffer);
+        await init({ module: wasmModule });
+        console.log('[vrf-worker]: ArrayBuffer init() completed successfully');
+      }
 
       // Test that the handle_message function is available
       if (typeof handle_message !== 'function') {
@@ -98,10 +118,23 @@ async function initializeWasmModule(): Promise<void> {
     // Create a fallback module that returns errors
     wasmModule = {
       handle_message: (message: VRFWorkerMessage): VRFWorkerResponse => {
+        const helpfulMessage = `
+VRF WASM initialization failed. This may be due to:
+1. Server MIME type configuration (WASM files should be served with 'application/wasm')
+2. Network connectivity issues
+3. CORS policy restrictions
+4. Missing WASM files in deployment
+
+Original error: ${errorMessage}
+
+The SDK attempted multiple loading strategies but all failed.
+For production deployment, ensure your server serves .wasm files with the correct MIME type.
+        `.trim();
+
         return {
           id: message.id,
           success: false,
-          error: `WASM initialization failed: ${errorMessage}`
+          error: helpfulMessage
         };
       }
     };

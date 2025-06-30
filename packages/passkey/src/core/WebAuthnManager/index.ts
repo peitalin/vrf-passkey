@@ -29,7 +29,6 @@ export class WebAuthnManager {
     this.signerWorkerManager = new SignerWorkerManager();
     this.touchIdPrompt = new TouchIdPrompt();
     this.configs = configs;
-    console.log("PRIVATE: this.signerWorkerManager", this.signerWorkerManager);
   }
 
   ///////////////////////////////////////

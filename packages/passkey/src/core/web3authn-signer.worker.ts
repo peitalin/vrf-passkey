@@ -24,10 +24,10 @@ import {
   type WorkerProgressMessage,
   DeleteKeyWithPrfRequest,
   RollbackFailedRegistrationWithPrfRequest,
-} from './types/signer-worker.js';
-import type { onProgressEvents } from './types/webauthn.js';
-import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
-import { bufferEncode } from '../utils/encoders.js';
+} from './types/signer-worker';
+import type { onProgressEvents } from './types/webauthn';
+import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB';
+import { bufferEncode } from '../utils/encoders';
 
 // Buffer polyfill for Web Workers
 // Workers don't inherit main thread polyfills, they run in an isolated environment
@@ -35,8 +35,10 @@ import { bufferEncode } from '../utils/encoders.js';
 import { Buffer } from 'buffer';
 globalThis.Buffer = Buffer;
 
-// Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./wasm_signer_worker_bg.wasm', import.meta.url);
+/// NOTE-FIX:
+// Use a relative URL to the WASM file in the wasm_signer_worker directory
+const wasmUrl = new URL('../wasm_signer_worker/wasm_signer_worker_bg.wasm', import.meta.url);
+console.log('[signer-worker]: WASM URL resolved to:', wasmUrl.href);
 const WASM_CACHE_NAME = 'web3authn-signer-worker-v1';
 
 // Create database manager instance
@@ -66,52 +68,111 @@ const {
 } = wasmModule;
 
 /**
- * Initialize WASM module with caching support
+ * Initialize WASM module with SDK-optimized loading strategy
+ * Prioritizes bundled WASM for maximum reliability across deployment environments
  */
 async function initializeWasmWithCache(): Promise<void> {
   try {
-    console.debug('[signer-worker]: Starting WASM initialization...', {
+    console.log('[signer-worker]: Starting WASM initialization...', {
       wasmUrl: wasmUrl.href,
       userAgent: navigator.userAgent,
       currentUrl: self.location.href
     });
 
+    // PRIMARY: Use bundled WASM (most reliable for SDK distribution)
+    try {
+      console.log('[signer-worker]: Using bundled WASM (SDK-optimized approach)');
+      await init();
+      console.log('[signer-worker]: ✅ WASM initialized successfully via bundled approach');
+      return;
+    } catch (bundledError: any) {
+      console.warn('[signer-worker]: Bundled WASM failed, attempting network fallback:', bundledError.message);
+    }
+
+    // FALLBACK: Network-based loading with robust error handling
     const cache = await caches.open(WASM_CACHE_NAME);
     const cachedResponse = await cache.match(wasmUrl.href);
     if (cachedResponse) {
-      const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
-      await init({ module: wasmModule });
-      console.debug('[signer-worker]: WASM initialized successfully from cache');
-      return;
+      console.log('[signer-worker]: Found cached WASM, loading from cache');
+      try {
+        const wasmModule = await WebAssembly.compileStreaming(cachedResponse.clone());
+        await init({ module: wasmModule });
+        console.log('[signer-worker]: WASM initialized successfully from cache');
+        return;
+      } catch (streamError: any) {
+        console.warn('[signer-worker]: Streaming compilation from cache failed, trying ArrayBuffer approach:', streamError.message);
+        // Fallback for cached content
+        const arrayBuffer = await cachedResponse.arrayBuffer();
+        const wasmModule = await WebAssembly.compile(arrayBuffer);
+        await init({ module: wasmModule });
+        console.log('[signer-worker]: WASM initialized successfully from cache (ArrayBuffer fallback)');
+        return;
+      }
     }
 
-    console.debug('[signer-worker]: Fetching fresh WASM module from:', wasmUrl.href);
+    console.log('[signer-worker]: No cache found, fetching fresh WASM module from:', wasmUrl.href);
     const response = await fetch(wasmUrl.href);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
     }
 
-    // console.log('[signer-worker]: WASM fetch successful, content-type:', response.headers.get('content-type'));
-    const responseToCache = response.clone();
-    const wasmModule = await WebAssembly.compileStreaming(response);
+    const contentType = response.headers.get('content-type');
+    console.log('[signer-worker]: WASM fetch successful, content-type:', contentType);
 
-    await cache.put(wasmUrl.href, responseToCache);
-    await init({ module: wasmModule });
+    // Try streaming compilation first (most efficient)
+    try {
+      const responseToCache = response.clone();
+      const wasmModule = await WebAssembly.compileStreaming(response);
+      await cache.put(wasmUrl.href, responseToCache);
+      await init({ module: wasmModule });
+      console.log('[signer-worker]: WASM initialized successfully via streaming compilation');
+      return;
+    } catch (streamError: any) {
+      console.warn('[signer-worker]: Streaming compilation failed (likely MIME type issue):', streamError.message);
+
+      // Fallback: Use ArrayBuffer approach (works regardless of MIME type)
+      console.log('[signer-worker]: Attempting ArrayBuffer fallback for MIME type compatibility...');
+      const arrayBuffer = await response.clone().arrayBuffer();
+      const wasmModule = await WebAssembly.compile(arrayBuffer);
+
+      // Cache the response for future use
+      await cache.put(wasmUrl.href, response.clone());
+      await init({ module: wasmModule });
+      console.log('[signer-worker]: WASM initialized successfully via ArrayBuffer fallback');
+      return;
+    }
   } catch (error: any) {
-    console.error('[signer-worker]: WASM initialization failed, using fallback:', error);
+    console.error('[signer-worker]: Primary WASM initialization failed:', error);
     console.error('[signer-worker]: Error details:', {
       name: error?.name,
       message: error?.message,
       stack: error?.stack
     });
 
+    // Final fallback: Use bundled WASM (no network dependency)
     try {
-      console.debug('[signer-worker]: Attempting fallback WASM initialization...');
+      console.log('[signer-worker]: Attempting bundled WASM fallback...');
       await init();
+      console.log('[signer-worker]: Bundled WASM initialization succeeded');
     } catch (fallbackError: any) {
-      console.error('[signer-worker]: Fallback WASM initialization also failed:', fallbackError);
-      throw new Error(`WASM initialization failed: ${error?.message || 'Unknown error'}. Fallback also failed: ${fallbackError?.message || 'Unknown fallback error'}`);
+      console.error('[signer-worker]: All WASM initialization methods failed:', fallbackError);
+
+      // Provide helpful error message for developers
+      const helpfulMessage = `
+      WASM initialization failed. This may be due to:
+      1. Server MIME type configuration (WASM files should be served with 'application/wasm')
+      2. Network connectivity issues
+      3. CORS policy restrictions
+      4. Missing WASM files in deployment
+
+      Original error: ${error?.message}
+      Fallback error: ${fallbackError?.message}
+
+      For production deployment, ensure your server serves .wasm files with the correct MIME type.
+      `.trim();
+
+      throw new Error(helpfulMessage);
     }
   }
 }

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noEmit": false,
+    "noUnusedParameters": false,
+    "strict": false,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "types": ["mocha", "chai", "sinon", "node"]
+  },
+  "include": [
+    "src/__tests__/**/*"
+  ]
+}
