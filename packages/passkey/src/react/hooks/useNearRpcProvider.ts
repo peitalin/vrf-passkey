@@ -1,17 +1,16 @@
 import { useCallback } from 'react';
-import { getTestnetRpcProvider } from '@near-js/client';
-import type { Provider } from '@near-js/providers';
+import { DefaultNearClient, type NearClient } from '../../core/NearClient';
 import type { NearRpcProviderHook } from '../types';
 
-let frontendRpcProvider: Provider;
+let frontendNearClient: NearClient;
 
 export const useNearRpcProvider = (): NearRpcProviderHook => {
-  const getNearRpcProvider = useCallback((): Provider => {
-    if (!frontendRpcProvider) {
-      frontendRpcProvider = getTestnetRpcProvider();
+  const getNearRpcProvider = useCallback((): NearClient => {
+    if (!frontendNearClient) {
+      frontendNearClient = new DefaultNearClient('https://rpc.testnet.near.org');
     }
-    return frontendRpcProvider;
-  }, []); // Empty deps array since the provider is a singleton
+    return frontendNearClient;
+  }, []); // Empty deps array since the client is a singleton
 
   return { getNearRpcProvider };
 };

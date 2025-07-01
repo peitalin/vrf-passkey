@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { WebAuthnManager } from '../core/WebAuthnManager';
 import type { LoginOptions, RegistrationOptions, PasskeyManager} from '../core/PasskeyManager';
+import type { NearClient } from '../core/NearClient';
 
 // === CORE STATE TYPES ===
 
@@ -86,7 +86,7 @@ export interface ManagedToast {
 
 // === HOOK TYPES ===
 export interface NearRpcProviderHook {
-  getNearRpcProvider: () => import('@near-js/providers').Provider;
+  getNearRpcProvider: () => NearClient;
 }
 
 // Account input hook types

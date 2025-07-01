@@ -1,9 +1,8 @@
-import type { Provider } from '@near-js/providers';
-
 import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
+import { DefaultNearClient, type NearClient } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
   RegistrationOptions,
@@ -17,7 +16,7 @@ import type { ActionArgs } from '../types/actions';
 
 export interface PasskeyManagerContext {
   webAuthnManager: WebAuthnManager;
-  nearRpcProvider: Provider;
+  nearRpcProvider: NearClient;
   configs: PasskeyManagerConfigs;
 }
 
@@ -27,18 +26,16 @@ export interface PasskeyManagerContext {
  */
 export class PasskeyManager {
   private readonly webAuthnManager: WebAuthnManager;
-  private readonly nearRpcProvider: Provider;
+  private readonly nearRpcProvider: NearClient;
   readonly configs: PasskeyManagerConfigs;
 
   constructor(
     configs: PasskeyManagerConfigs,
-    nearRpcProvider: Provider
+    nearRpcProvider?: NearClient
   ) {
-    if (!nearRpcProvider) {
-      throw new Error('NEAR RPC provider is required');
-    }
     this.configs = configs;
-    this.nearRpcProvider = nearRpcProvider;
+    // Use provided client or create default one
+    this.nearRpcProvider = nearRpcProvider || new DefaultNearClient(configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(configs);
     // Initialize VRF Worker in the background
     this.initializeVrfWorkerManager();

@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import { type ValidationResult, validateNearAccountId } from '../utils/validation';
+import { type ValidationResult, validateNearAccountId } from '../../utils/validation';
 
 // === TYPE DEFINITIONS ===
 export interface ClientUserData {

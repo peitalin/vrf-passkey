@@ -106,10 +106,11 @@ async function handleLoginUnlockVRF(
   try {
 
     // Step 1: Get VRF credentials and authenticators, and validate them
-    const { userData, authenticators } = await Promise.all([
-      // fetch user data
+    const {
+      userData,
+      authenticators
+    } = await Promise.all([
       webAuthnManager.getUser(nearAccountId),
-      // fetch authenticators
       webAuthnManager.getAuthenticatorsByUser(nearAccountId),
     ]).then(([userData, authenticators]) => {
       // Validate user data and authenticators

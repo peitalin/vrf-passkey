@@ -1,6 +1,24 @@
 import { bufferEncode } from "../../utils/encoders";
 import type { VRFChallenge } from "./webauthn";
 import { ActionType } from "./actions";
+import type { SignedTransaction, Transaction, Signature } from '@near-js/transactions';
+
+// === TRANSACTION TYPES ===
+
+/**
+ * Structured SignedTransaction format that mirrors near-js
+ * Provides both the decoded transaction/signature and helper methods
+ */
+export interface StructuredSignedTransaction {
+  /** Decoded transaction object */
+  transaction: Transaction;
+  /** Decoded signature object */
+  signature: Signature;
+  /** Helper method to encode back to bytes */
+  encode: () => Uint8Array;
+  /** Raw access to the full SignedTransaction instance for advanced usage */
+  _raw: SignedTransaction;
+}
 
 // === USER DATA TYPES ===
 
@@ -37,7 +55,6 @@ export enum WorkerRequestType {
   // New action-specific functions
   ADD_KEY_WITH_PRF = 'ADD_KEY_WITH_PRF',
   DELETE_KEY_WITH_PRF = 'DELETE_KEY_WITH_PRF',
-  ROLLBACK_FAILED_REGISTRATION_WITH_PRF = 'ROLLBACK_FAILED_REGISTRATION_WITH_PRF',
 }
 
 export enum WorkerResponseType {
@@ -557,36 +574,6 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
-export interface RollbackFailedRegistrationWithPrfRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.ROLLBACK_FAILED_REGISTRATION_WITH_PRF;
-  payload: {
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-    /** Encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Encrypted private key IV */
-    encryptedPrivateKeyIv: string;
-    /** Signer account ID (account to delete) */
-    signerAccountId: string;
-    /** Beneficiary account ID (where remaining balance goes) */
-    beneficiaryAccountId: string;
-    /** Transaction nonce as string */
-    nonce: string;
-    /** Block hash bytes for the transaction */
-    blockHashBytes: number[];
-    /** Contract ID for verification */
-    contractId: string;
-    /** VRF challenge data for verification */
-    vrfChallenge: VRFChallenge;
-    /** Serialized WebAuthn credential */
-    credential: SerializableWebAuthnCredential;
-    /** NEAR RPC provider URL for verification */
-    nearRpcUrl: string;
-    /** SECURITY: Name of the calling function for validation */
-    callerFunction: string;
-  };
-}
-
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
   | CheckCanRegisterUserRequest
@@ -599,8 +586,7 @@ export type WorkerRequest =
   | SignTransactionWithActionsRequest
   | SignTransferTransactionRequest
   | AddKeyWithPrfRequest
-  | DeleteKeyWithPrfRequest
-  | RollbackFailedRegistrationWithPrfRequest;
+  | DeleteKeyWithPrfRequest;
 
 // === PROGRESS MESSAGE TYPES ===
 
@@ -703,8 +689,6 @@ export interface CheckRegistrationSuccessResponse extends BaseWorkerResponse {
     };
     /// Contract logs from the registration verification
     logs?: string[];
-    /// Signed transaction bytes for view functions (usually null for view calls)
-    signedTransactionBorsh: number[];
   };
 }
 
@@ -722,11 +706,10 @@ export interface RegistrationSuccessResponse extends BaseWorkerResponse {
     };
     /// Contract logs from the registration verification
     logs: string[];
-    /// Signed transaction bytes for state-changing registrations
-    signedTransactionBorsh: number[];
-    /// Pre-signed delete transaction for rollback (same nonce as registration)
-    /// Using the same nonce makes it mutually exclusive with the registration transaction
-    preSignedDeleteTransaction: number[];
+    /// Structured SignedTransaction object with embedded borsh bytes
+    signedTransaction: SignedTransaction;
+    /// Pre-signed delete transaction for rollback with embedded borsh bytes
+    preSignedDeleteTransaction: SignedTransaction;
   };
 }
 
@@ -745,10 +728,10 @@ export interface RegistrationFailureResponse extends BaseWorkerResponse {
 export interface SignatureSuccessResponse extends BaseWorkerResponse {
   type: WorkerResponseType.SIGNATURE_SUCCESS;
   payload: {
-    /** Signed transaction in Borsh format */
-    signedTransactionBorsh: number[];
     /** NEAR account ID that signed the transaction */
     nearAccountId: string;
+    /** Structured SignedTransaction object (new format, if available) */
+    signedTransaction: SignedTransaction;
   };
 }
 
@@ -1070,5 +1053,9 @@ export interface CompletionResponse {
     data?: any;
     error?: string;
     logs?: string[];
+    /** SignedTransaction object */
+    signedTransaction: SignedTransaction;
+    /** Account ID for transaction signing operations */
+    nearAccountId?: string;
   };
 }

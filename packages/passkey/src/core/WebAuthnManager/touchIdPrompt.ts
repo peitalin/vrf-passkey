@@ -1,5 +1,5 @@
-import { generateUserScopedPrfSalt } from '@/utils';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
+import { sha256 } from 'js-sha256';
 
 export interface RegisterCredentialsArgs {
   nearAccountId: string,
@@ -10,6 +10,17 @@ export interface AuthenticateCredentialsArgs {
   nearAccountId: string,
   challenge: Uint8Array<ArrayBuffer>,
   authenticators: ClientAuthenticatorData[],
+}
+
+/**
+ * Generate user-scoped PRF salt to prevent collision risks
+ * @param accountId - NEAR account ID to scope the salt to
+ * @returns 32-byte Uint8Array salt unique to the user
+ */
+export function generateUserScopedPrfSalt(accountId: string): Uint8Array {
+  const saltInput = `prf-salt:${accountId}`;
+  const hashArray = sha256.array(saltInput);
+  return new Uint8Array(hashArray);
 }
 
 /**

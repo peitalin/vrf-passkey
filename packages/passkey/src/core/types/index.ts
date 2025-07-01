@@ -7,3 +7,10 @@ import type { PasskeyErrorDetails } from './errors';
 export type Result<T, E = PasskeyErrorDetails> =
   | { success: true; data: T }
   | { success: false; error: E };
+
+// Export all types
+export * from './rpc'
+export * from './signer-worker'
+export * from './vrf-worker'
+export * from './webauthn'
+export * from './errors'

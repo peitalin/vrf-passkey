@@ -6,11 +6,11 @@ export default defineConfig({
   timeout: 30000,
   expect: { timeout: 5000 },
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: 'list',
+  forbidOnly: true,
+  retries: 1,
+  workers: 2,
   // reporter: 'html', // generate reports
+  reporter: 'list',
 
   use: {
     baseURL: 'https://example.localhost',
@@ -52,11 +52,4 @@ export default defineConfig({
       },
     }
   ],
-
-  webServer: {
-    command: 'cd ../../frontend && pnpm dev',
-    url: 'https://example.localhost',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
 })

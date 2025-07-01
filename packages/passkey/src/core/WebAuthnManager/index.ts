@@ -1,4 +1,4 @@
-import type { Provider } from '@near-js/providers';
+import type { NearClient } from '../NearClient';
 import { SignerWorkerManager } from './signerWorkerManager';
 import { IndexedDBManager } from '../IndexedDBManager';
 import { VrfWorkerManager, VRFWorkerStatus } from './vrfWorkerManager';
@@ -9,6 +9,7 @@ import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } f
 import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import { bufferEncode } from '../../utils/encoders';
+import { SignedTransaction } from "../NearClient";
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -496,7 +497,7 @@ export class WebAuthnManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string;
-    nearRpcProvider: Provider;
+    nearRpcProvider: NearClient;
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
@@ -528,8 +529,8 @@ export class WebAuthnManager {
           verified: true,
           registrationInfo: registrationResult.registrationInfo,
           logs: registrationResult.logs,
-          signedTransactionBorsh: registrationResult.signedTransactionBorsh,
-          preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction,
+          signedTransactionBorsh: registrationResult.signedTransaction?.borsh_bytes || [],
+          preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction?.borsh_bytes || [],
         };
       } else {
         console.warn('❌ On-chain user registration failed - WASM worker returned unverified result');

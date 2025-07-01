@@ -7,7 +7,7 @@ import type { VRFWorkerMessage, VRFWorkerResponse } from './types/vrf-worker';
 
 // Import VRF WASM module directly
 import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker';
-import { initializeWasm } from './utils/wasmLoader';
+import { initializeWasm } from './wasm/wasmLoader';
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
 const wasmUrl = new URL('../wasm_vrf_worker/wasm_vrf_worker_bg.wasm', import.meta.url);
 const { handle_message } = vrfWasmModule;

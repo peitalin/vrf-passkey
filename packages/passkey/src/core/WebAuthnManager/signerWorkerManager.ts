@@ -1,4 +1,5 @@
-import type { Provider } from '@near-js/providers';
+import type { NearClient } from '../NearClient';
+import { SignedTransaction } from "../NearClient";
 import { bufferEncode } from '../../utils/encoders';
 import type {
   WorkerResponse,
@@ -376,7 +377,6 @@ export class SignerWorkerManager {
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
           logs: response.payload.logs,
-          signedTransactionBorsh: response.payload.signedTransactionBorsh
         };
       } else {
         console.error('WebAuthnManager: User cannot be registered on-chain:', response);
@@ -418,14 +418,14 @@ export class SignerWorkerManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
-    nearRpcProvider: Provider; // NEAR RPC provider for getting transaction metadata
+    nearRpcProvider: NearClient; // NEAR RPC client for getting transaction metadata
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     verified: boolean;
     registrationInfo?: any;
     logs?: string[];
-    signedTransactionBorsh: number[];
-    preSignedDeleteTransaction: number[]
+    signedTransaction: SignedTransaction;
+    preSignedDeleteTransaction: SignedTransaction;
   }> {
     try {
       console.log('WebAuthnManager: Starting on-chain user registration with transaction');
@@ -448,7 +448,7 @@ export class SignerWorkerManager {
         nearRpcProvider.viewBlock({ finality: 'final' })
       ]);
 
-      const nonce = accessKeyInfo.nonce + BigInt(1);
+      const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
       const blockHashString = transactionBlockInfo.header.hash;
       // Convert base58 block hash to bytes for WASM
       const bs58 = (await import('bs58')).default;
@@ -484,7 +484,7 @@ export class SignerWorkerManager {
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
           logs: response.payload.logs,
-          signedTransactionBorsh: response.payload.signedTransactionBorsh,
+          signedTransaction: response.payload.signedTransaction,
           preSignedDeleteTransaction: response.payload.preSignedDeleteTransaction
         };
       } else {
@@ -516,7 +516,11 @@ export class SignerWorkerManager {
       credential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
-  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
+  ): Promise<{
+    signedTransaction: SignedTransaction;
+    nearAccountId: string;
+    logs?: string[]
+  }> {
     try {
       console.log('WebAuthnManager: Starting enhanced transaction signing with verification');
 
@@ -552,9 +556,9 @@ export class SignerWorkerManager {
       if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
         console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
         return {
-          signedTransactionBorsh: (response as any).payload.data.signedTransactionBorsh,
-          nearAccountId: payload.nearAccountId,
-          logs: (response as any).payload.data.verificationLogs
+          signedTransaction: response.payload.data.signed_transaction,
+          nearAccountId: response.payload.data.near_account_id,
+          logs: response.payload.data.verification_logs
         };
       } else {
         console.error('WebAuthnManager: Enhanced transaction signing failed:', response);
@@ -583,7 +587,11 @@ export class SignerWorkerManager {
       credential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
-  ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
+  ): Promise<{
+    signedTransaction: SignedTransaction;
+    nearAccountId: string;
+    logs?: string[]
+  }> {
     try {
       console.log('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
 
@@ -617,9 +625,9 @@ export class SignerWorkerManager {
       if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
         console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
         return {
-          signedTransactionBorsh: (response as any).payload.data.signedTransactionBorsh,
-          nearAccountId: payload.nearAccountId,
-          logs: (response as any).payload.data.verificationLogs
+          signedTransaction: (response as any).payload.data.signed_transaction,
+          nearAccountId: (response as any).payload.data.near_account_id,
+          logs: (response as any).payload.data.verification_logs
         };
       } else {
         console.error('WebAuthnManager: Enhanced transfer transaction signing failed:', response);

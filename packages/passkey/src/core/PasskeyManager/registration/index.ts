@@ -1,6 +1,7 @@
-import type { Provider } from '@near-js/providers';
 import type { AccessKeyView } from '@near-js/types';
-import { validateNearAccountId } from '../../utils/validation';
+import type { NearClient } from '../../NearClient';
+import { DefaultNearClient } from '../../NearClient';
+import { validateNearAccountId } from '../../../utils/validation';
 import type {
   RegistrationOptions,
   RegistrationResult,
@@ -235,6 +236,7 @@ export async function registerPasskey(
     const contractVerified = contractRegistrationResult.verified || false;
     const signedTransactionBorsh = contractRegistrationResult.signedTransactionBorsh;
     const preSignedDeleteTransaction = contractRegistrationResult.preSignedDeleteTransaction;
+    console.log('>>>>>>>contractRegistrationResult', contractRegistrationResult);
 
     // Store pre-signed delete transaction for rollback (always present when WASM worker succeeds)
     registrationState.preSignedDeleteTransaction = preSignedDeleteTransaction;
@@ -252,11 +254,9 @@ export async function registerPasskey(
         message: 'Broadcasting registration transaction...'
       });
 
-      const transactionResult = await broadcastSignedTransaction(
-        configs.nearRpcUrl,
-        signedTransactionBorsh!
-      );
-      registrationState.contractTransactionId = transactionResult.transactionId;
+      const transactionResult = await nearRpcProvider.sendTransaction(signedTransactionBorsh!);
+      const transactionId = transactionResult?.transaction_outcome?.id;
+      registrationState.contractTransactionId = transactionId;
       registrationState.contractRegistered = true;
 
       onEvent?.({
@@ -469,7 +469,7 @@ const validateRegistrationInputs = (
  * Account creation via faucet may have propagation delays
  */
 async function waitForAccessKey(
-  nearRpcProvider: Provider,
+  nearRpcProvider: NearClient,
   nearAccountId: string,
   nearPublicKey: string,
   maxRetries: number = 10,
@@ -502,46 +502,7 @@ async function waitForAccessKey(
   throw new Error('Unexpected error in waitForAccessKey');
 }
 
-/**
- * Broadcast signed transaction to NEAR network
- */
-async function broadcastSignedTransaction(
-  rpcNodeUrl: string,
-  signedTransactionBorsh: number[]
-): Promise<{ transactionId: string; result: any }> {
-  // Convert the signed transaction to base64
-  const signedTransactionBase64 = Buffer.from(signedTransactionBorsh).toString('base64');
 
-  // Broadcast using RPC
-  const response = await fetch(rpcNodeUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: crypto.randomUUID(),
-      method: 'send_tx',
-      params: {
-        signed_tx_base64: signedTransactionBase64,
-        wait_until: 'EXECUTED_OPTIMISTIC'
-      }
-    })
-  });
-
-  const result = await response.json();
-
-  if (result.error) {
-    const errorMessage = result.error.data?.message || result.error.message || 'Transaction broadcast failed';
-    throw new Error(`Transaction broadcast failed: ${errorMessage}`);
-  }
-
-  const transactionId = result.result?.transaction_outcome?.id;
-  console.log(`✅ Registration transaction broadcast successful: ${transactionId}`);
-
-  return {
-    transactionId,
-    result: result.result
-  };
-}
 
 /**
  * Rollback registration data in case of errors
@@ -594,12 +555,12 @@ async function performRegistrationRollback(
       if (registrationState.preSignedDeleteTransaction) {
         console.log('Broadcasting pre-signed delete transaction for account rollback...');
         try {
-          const deletionResult = await broadcastSignedTransaction(
-            rpcNodeUrl,
-            registrationState.preSignedDeleteTransaction
-          );
-          console.log(`✅ NEAR account ${nearAccountId} deleted successfully via pre-signed transaction`);
-          console.log(`   Delete transaction ID: ${deletionResult.transactionId}`);
+          // Note: We need to create a new NearClient here since we only have rpcNodeUrl
+          const tempNearClient = new DefaultNearClient(rpcNodeUrl);
+          const deletionResult = await tempNearClient.sendTransaction(registrationState.preSignedDeleteTransaction);
+          const deleteTransactionId = deletionResult?.transaction_outcome?.id;
+          console.log(`NEAR account ${nearAccountId} deleted successfully via pre-signed transaction`);
+          console.log(`   Delete transaction ID: ${deleteTransactionId}`);
 
           onEvent?.({
             step: 0,
@@ -633,7 +594,8 @@ async function performRegistrationRollback(
       }
     }
 
-    // 1. Contract rollback is not possible - contract state is immutable
+    // 1. Contract rollback on the Web3Authn contract is not possible at the moment. No authenticator deletion functions exposed yet.
+    // However if a user retries with the same accountID, they can overwrite the old authenticator entry linked to the accountID
     if (registrationState.contractRegistered) {
       console.log('Contract registration cannot be rolled back (immutable blockchain state)');
       onEvent?.({

@@ -38,6 +38,30 @@ use crate::http::{
     WebAuthnRegistrationCredential,
     WebAuthnRegistrationResponse,
 };
+use crate::types::{
+    JsonSerializable,
+    KeyGenerationResponse,
+    PrivateKeyDecryptionResponse,
+    CosePublicKeyResponse,
+    CoseValidationResponse,
+    TransactionSigningResponse,
+    RegistrationCheckResponse,
+    RegistrationResponse,
+    RegistrationInfo,
+    JsonSignedTransaction,
+    // Input request types
+    DeriveKeypairRequest,
+    DecryptPrivateKeyRequest,
+    ExtractCosePublicKeyRequest,
+    ValidateCoseKeyRequest,
+    VerifyAndSignTransactionRequest,
+    VerifyAndSignTransferRequest,
+    CheckCanRegisterUserRequest,
+    SignVerifyAndRegisterUserRequest,
+    RollbackFailedRegistrationRequest,
+    AddKeyWithPrfRequest,
+    DeleteKeyWithPrfRequest,
+};
 
 // === CONSOLE LOGGING ===
 
@@ -108,41 +132,42 @@ pub fn init_panic_hook() {
 
 #[wasm_bindgen]
 pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
-    attestation_object_b64u: &str,
-    prf_output_base64: &str,
+    request_json: &str,
 ) -> Result<String, JsValue> {
     console_log!("RUST: WASM binding - deriving deterministic NEAR keypair from COSE credential");
 
+    let request: DeriveKeypairRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     let (public_key, encrypted_result) = internal_derive_near_keypair_from_cose_and_encrypt_with_prf(
-        attestation_object_b64u,
-        prf_output_base64
+        &request.attestation_object_b64u,
+        &request.prf_output_base64
     ).map_err(|e| JsValue::from_str(&e))?;
 
-    let result = format!(
-        r#"{{"publicKey": "{}", "encryptedPrivateKey": {}}}"#,
+    let response = KeyGenerationResponse {
         public_key,
-        serde_json::to_string(&encrypted_result)
-            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))?
-    );
+        encrypted_private_key: encrypted_result,
+    };
 
     console_log!("RUST: WASM binding - deterministic keypair generation successful");
-    Ok(result)
+    Ok(response.to_json())
 }
 
 
 #[wasm_bindgen]
 pub fn decrypt_private_key_with_prf_as_string(
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
+    request_json: &str,
 ) -> Result<String, JsValue> {
     console_log!("RUST: Decrypting private key with PRF and returning as string");
 
+    let request: DecryptPrivateKeyRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     // Use the core function to decrypt and get SigningKey
     let signing_key = decrypt_private_key_with_prf_core(
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
+        &request.prf_output_base64,
+        &request.encrypted_private_key_data,
+        &request.encrypted_private_key_iv,
     ).map_err(|e| JsValue::from_str(&e))?;
 
     // Convert SigningKey back to NEAR string format
@@ -161,22 +186,45 @@ pub fn decrypt_private_key_with_prf_as_string(
     let private_key_b58 = bs58::encode(&full_private_key).into_string();
     let private_key_near_format = format!("ed25519:{}", private_key_b58);
 
+    let response = PrivateKeyDecryptionResponse {
+        private_key: private_key_near_format,
+    };
+
     console_log!("RUST: Successfully decrypted private key and formatted as string");
-    Ok(private_key_near_format)
+    Ok(response.to_json())
 }
 
 // === WASM BINDINGS FOR COSE OPERATIONS ===
 
 #[wasm_bindgen]
-pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -> Result<Vec<u8>, JsValue> {
-    extract_cose_public_key_from_attestation_core(attestation_object_b64u)
-        .map_err(|e| JsValue::from_str(&e))
+pub fn extract_cose_public_key_from_attestation(request_json: &str) -> Result<String, JsValue> {
+    let request: ExtractCosePublicKeyRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
+    let public_key_bytes = extract_cose_public_key_from_attestation_core(&request.attestation_object_b64u)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    let response = CosePublicKeyResponse {
+        public_key_bytes: base64::encode(&public_key_bytes),
+    };
+
+    Ok(response.to_json())
 }
 
 #[wasm_bindgen]
-pub fn validate_cose_key_format(cose_key_bytes: &[u8]) -> Result<String, JsValue> {
-    validate_cose_key_format_core(cose_key_bytes)
-        .map_err(|e| JsValue::from_str(&e))
+pub fn validate_cose_key_format(request_json: &str) -> Result<String, JsValue> {
+    let request: ValidateCoseKeyRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
+    let validation_message = validate_cose_key_format_core(&request.cose_key_bytes)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    let response = CoseValidationResponse {
+        valid: true, // If no error was thrown, validation passed
+        message: validation_message,
+    };
+
+    Ok(response.to_json())
 }
 
 // === WASM BINDINGS FOR TRANSACTION SIGNING ===
@@ -184,29 +232,16 @@ pub fn validate_cose_key_format(cose_key_bytes: &[u8]) -> Result<String, JsValue
 
 #[wasm_bindgen]
 pub async fn verify_and_sign_near_transaction_with_actions(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    receiver_account_id: &str,
-    nonce: u64,
-    block_hash_bytes: &[u8],
-    actions_json: &str,
-
-    // Verification parameters
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_credential_json: &str,
-    near_rpc_url: &str,
-) -> Result<Vec<u8>, JsValue> {
+    request_json: &str,
+) -> Result<String, JsValue> {
     console_log!("RUST: Starting combined verification + signing with progress");
+
+    let request: VerifyAndSignTransactionRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     // Step 1: Send verification progress with enhanced logging
     let verification_logs = vec![
-        format!("Starting contract verification for {}", contract_id),
+        format!("Starting contract verification for {}", request.contract_id),
         "Parsing VRF challenge data...".to_string(),
         "Preparing WebAuthn credential for verification...".to_string()
     ];
@@ -215,7 +250,7 @@ pub async fn verify_and_sign_near_transaction_with_actions(
         "VERIFICATION_PROGRESS",
         "contract_verification",
         "Verifying authentication with contract...",
-        &format!(r#"{{"contractId": "{}"}}"#, contract_id),
+        &format!(r#"{{"contractId": "{}"}}"#, request.contract_id),
         Some(&verification_logs)
     );
 
@@ -223,10 +258,10 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     let verification_result = {
 
         // Parse VRF challenge data
-        let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+        let vrf_data = parse_vrf_challenge(&request.vrf_challenge_data_json)?;
 
         // Parse WebAuthn credential
-        let webauthn_credential: serde_json::Value = serde_json::from_str(webauthn_credential_json)
+        let webauthn_credential: serde_json::Value = serde_json::from_str(&request.webauthn_credential_json)
             .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn credential: {}", e)))?;
 
         // Extract WebAuthn authentication fields
@@ -254,7 +289,7 @@ pub async fn verify_and_sign_near_transaction_with_actions(
         };
 
         // Perform verification using pure WASM HTTP
-        perform_contract_verification_wasm(contract_id, vrf_data, webauthn_auth, near_rpc_url)
+        perform_contract_verification_wasm(&request.contract_id, vrf_data, webauthn_auth, &request.near_rpc_url)
             .await
             .map_err(|e| JsValue::from_str(&format!("Contract verification failed: {}", e)))?
     };
@@ -280,14 +315,14 @@ pub async fn verify_and_sign_near_transaction_with_actions(
         "SIGNING_PROGRESS",
         "transaction_signing",
         "Signing transaction in secure WASM context...",
-        &format!(r#"{{"signerAccountId": "{}", "receiverId": "{}"}}"#, signer_account_id, receiver_account_id)
+        &format!(r#"{{"signerAccountId": "{}", "receiverId": "{}"}}"#, request.signer_account_id, request.receiver_account_id)
     );
 
     // Step 5: Perform transaction signing (existing logic)
     let private_key = match decrypt_private_key_with_prf_core(
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
+        &request.prf_output_base64,
+        &request.encrypted_private_key_data,
+        &request.encrypted_private_key_iv,
     ) {
         Ok(key) => key,
         Err(e) => {
@@ -303,7 +338,7 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     };
 
     // Parse and build actions
-    let action_params: Vec<ActionParams> = serde_json::from_str(actions_json)
+    let action_params: Vec<ActionParams> = serde_json::from_str(&request.actions_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse actions: {}", e)))?;
 
     let actions = build_actions_from_params(action_params)
@@ -311,10 +346,10 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 
     // Build and sign transaction
     let transaction = build_transaction_with_actions(
-        signer_account_id,
-        receiver_account_id,
-        nonce,
-        block_hash_bytes,
+        &request.signer_account_id,
+        &request.receiver_account_id,
+        request.nonce,
+        &request.block_hash_bytes,
         &private_key,
         actions,
     ).map_err(|e| JsValue::from_str(&e))?;
@@ -322,89 +357,91 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     let signed_tx_bytes = sign_transaction(transaction, &private_key)
         .map_err(|e| JsValue::from_str(&e))?;
 
-    // Step 6: Send signing complete with final result
+    // Step 6: Send signing complete with structured response
+    let json_signed_tx = match JsonSignedTransaction::from_borsh_bytes(&signed_tx_bytes) {
+        Ok(tx) => Some(tx),
+        Err(e) => {
+            console_log!("RUST: Warning - Failed to decode signed transaction for structured response: {}", e);
+            None
+        }
+    };
+
+    let response = TransactionSigningResponse {
+        success: true,
+        signed_transaction: json_signed_tx,
+        signed_transaction_borsh: signed_tx_bytes.clone(),
+        near_account_id: request.signer_account_id.clone(),
+        verification_logs: verification_result.logs,
+        error: None,
+    };
+
     send_progress_message(
         "SIGNING_COMPLETE",
         "signing_complete",
         "Transaction signed successfully",
-        &format!(r#"{{"signedTransactionBorsh": {:?}, "verificationLogs": {:?}}}"#,
-            signed_tx_bytes,
-            verification_result.logs
-        )
+        &response.to_json()
     );
 
     console_log!("RUST: Combined verification + signing completed successfully");
-    Ok(signed_tx_bytes)
+    Ok(response.to_json())
 }
 
 #[wasm_bindgen]
 pub async fn verify_and_sign_near_transfer_transaction(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    receiver_account_id: &str,
-    deposit_amount: &str,
-    nonce: u64,
-    block_hash_bytes: &[u8],
-
-    // Verification parameters
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_credential_json: &str,
-    near_rpc_url: &str,
-) -> Result<Vec<u8>, JsValue> {
+    request_json: &str,
+) -> Result<String, JsValue> {
     console_log!("RUST: Starting transfer transaction verification + signing with progress");
+
+    let request: VerifyAndSignTransferRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     // Convert transfer parameters to action-based format
     let transfer_actions = vec![ActionParams::Transfer {
-        deposit: deposit_amount.to_string(),
+        deposit: request.deposit_amount.clone(),
     }];
 
     let actions_json = serde_json::to_string(&transfer_actions)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize transfer action: {}", e)))?;
 
+    // Create request for the main verification + signing function
+    let main_request = VerifyAndSignTransactionRequest {
+        prf_output_base64: request.prf_output_base64,
+        encrypted_private_key_data: request.encrypted_private_key_data,
+        encrypted_private_key_iv: request.encrypted_private_key_iv,
+        signer_account_id: request.signer_account_id,
+        receiver_account_id: request.receiver_account_id,
+        nonce: request.nonce,
+        block_hash_bytes: request.block_hash_bytes,
+        actions_json,
+        contract_id: request.contract_id,
+        vrf_challenge_data_json: request.vrf_challenge_data_json,
+        webauthn_credential_json: request.webauthn_credential_json,
+        near_rpc_url: request.near_rpc_url,
+    };
+
+    let main_request_json = serde_json::to_string(&main_request)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize main request: {}", e)))?;
+
     // Delegate to the main verification + signing function
-    verify_and_sign_near_transaction_with_actions(
-        // Authentication
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
-
-        // Transaction details
-        signer_account_id,
-        receiver_account_id,
-        nonce,
-        block_hash_bytes,
-        &actions_json,
-
-        // Verification parameters
-        contract_id,
-        vrf_challenge_data_json,
-        webauthn_credential_json,
-        near_rpc_url,
-    ).await
+    verify_and_sign_near_transaction_with_actions(&main_request_json).await
 }
 
 
 /// Check if user can register (VIEW FUNCTION - uses query RPC)
 #[wasm_bindgen]
 pub async fn check_can_register_user(
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_registration_json: &str,
-    near_rpc_url: &str,
+    request_json: &str,
 ) -> Result<String, JsValue> {
     console_log!("RUST: Checking if user can register (view function)");
 
+    let request: CheckCanRegisterUserRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     // Parse VRF challenge data
-    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+    let vrf_data = parse_vrf_challenge(&request.vrf_challenge_data_json)?;
 
     // Parse WebAuthn registration credential
-    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
+    let webauthn_registration_data: serde_json::Value = serde_json::from_str(&request.webauthn_registration_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
 
     // Extract WebAuthn registration fields
@@ -431,41 +468,50 @@ pub async fn check_can_register_user(
     };
 
     // Call the http module function
-    let registration_result = crate::http::check_can_register_user_wasm(contract_id, vrf_data, webauthn_registration, near_rpc_url)
+    let registration_result = crate::http::check_can_register_user_wasm(&request.contract_id, vrf_data, webauthn_registration, &request.near_rpc_url)
             .await
     .map_err(|e| JsValue::from_str(&format!("Registration check failed: {}", e)))?;
 
-    // Return result as JSON
-    let result = serde_json::json!({
-        "verified": registration_result.verified,
-        "registration_info": registration_result.registration_info,
-        "logs": registration_result.logs,
-        "signed_transaction_borsh": registration_result.signed_transaction_borsh
+    // Create structured response
+    let signed_transaction = if let Some(ref signed_tx_bytes) = registration_result.signed_transaction_borsh {
+        JsonSignedTransaction::from_borsh_bytes(signed_tx_bytes).ok()
+    } else {
+        None
+    };
+
+    let registration_info = registration_result.registration_info.map(|info| RegistrationInfo {
+        credential_id: info.credential_id,
+        credential_public_key: info.credential_public_key,
+        user_id: "".to_string(), // Not available from contract response
+        vrf_public_key: None, // Not available from contract response
     });
 
-    Ok(result.to_string())
+    let response = RegistrationCheckResponse {
+        verified: registration_result.verified,
+        registration_info,
+        logs: registration_result.logs,
+        signed_transaction,
+        error: registration_result.error,
+    };
+
+    Ok(response.to_json())
 }
 
 /// Actually register user (STATE-CHANGING FUNCTION - uses send_tx RPC)
 #[wasm_bindgen]
 pub async fn sign_verify_and_register_user(
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_registration_json: &str,
-    signer_account_id: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-    prf_output_base64: &str,
-    nonce: u64,
-    block_hash_bytes: &[u8],
+    request_json: &str,
 ) -> Result<String, JsValue> {
     console_log!("RUST: Performing actual user registration (state-changing function)");
 
+    let request: SignVerifyAndRegisterUserRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     // Parse VRF challenge data
-    let vrf_data = parse_vrf_challenge(vrf_challenge_data_json)?;
+    let vrf_data = parse_vrf_challenge(&request.vrf_challenge_data_json)?;
 
     // Parse WebAuthn registration credential
-    let webauthn_registration_data: serde_json::Value = serde_json::from_str(webauthn_registration_json)
+    let webauthn_registration_data: serde_json::Value = serde_json::from_str(&request.webauthn_registration_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse WebAuthn registration: {}", e)))?;
 
     // Extract WebAuthn registration fields
@@ -493,28 +539,49 @@ pub async fn sign_verify_and_register_user(
 
     // Call the http module function with transaction metadata
     let registration_result = crate::http::sign_registration_tx_wasm(
-        contract_id,
+        &request.contract_id,
         vrf_data,
         webauthn_registration,
-        signer_account_id,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
-        prf_output_base64,
-        nonce,
-        block_hash_bytes,
+        &request.signer_account_id,
+        &request.encrypted_private_key_data,
+        &request.encrypted_private_key_iv,
+        &request.prf_output_base64,
+        request.nonce,
+        &request.block_hash_bytes,
     )
     .await
     .map_err(|e| JsValue::from_str(&format!("Actual registration failed: {}", e)))?;
 
-    // Return result as JSON
-    let result = serde_json::json!({
-        "verified": registration_result.verified,
-        "registration_info": registration_result.registration_info,
-        "logs": registration_result.logs,
-        "signed_transaction_borsh": registration_result.signed_transaction_borsh
+    // Create structured response with embedded borsh bytes
+    let signed_transaction = if let Some(ref signed_tx_bytes) = registration_result.signed_transaction_borsh {
+        JsonSignedTransaction::from_borsh_bytes(signed_tx_bytes).ok()
+    } else {
+        None
+    };
+
+    let pre_signed_delete_transaction = if let Some(ref delete_tx_bytes) = registration_result.pre_signed_delete_transaction {
+        JsonSignedTransaction::from_borsh_bytes(delete_tx_bytes).ok()
+    } else {
+        None
+    };
+
+    let registration_info = registration_result.registration_info.map(|info| RegistrationInfo {
+        credential_id: info.credential_id,
+        credential_public_key: info.credential_public_key,
+        user_id: "".to_string(), // Not available from contract response
+        vrf_public_key: None, // Not available from contract response
     });
 
-    Ok(result.to_string())
+    let response = RegistrationResponse {
+        verified: registration_result.verified,
+        registration_info,
+        logs: registration_result.logs,
+        signed_transaction,
+        pre_signed_delete_transaction,
+        error: registration_result.error,
+    };
+
+    Ok(response.to_json())
 }
 
 pub fn parse_vrf_challenge(vrf_challenge_data_json: &str) -> Result<VrfData, JsValue> {
@@ -551,167 +618,79 @@ pub fn parse_vrf_challenge(vrf_challenge_data_json: &str) -> Result<VrfData, JsV
     Ok(vrf_data)
 }
 
-/// Special function for rolling back failed registration by deleting the account
-/// This is the ONLY way to use DeleteAccount - it's context-restricted to registration rollback
-#[wasm_bindgen]
-pub async fn rollback_failed_registration_with_prf(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    beneficiary_account_id: &str, // Where any remaining balance goes
-    nonce: u64,
-    block_hash_bytes: &[u8],
-
-    // Verification parameters (to prove this is a legitimate rollback)
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_credential_json: &str,
-    near_rpc_url: &str,
-
-    // SECURITY: Actual calling function name for validation
-    caller_function: &str,
-) -> Result<Vec<u8>, JsValue> {
-    console_log!("RUST: Starting registration rollback with DeleteAccount (context-restricted)");
-
-    // Step 1: Validate context with ACTUAL caller function - this is the key security check
-    validate_delete_account_context("registration_rollback", caller_function)
-        .map_err(|e| JsValue::from_str(&e))?;
-
-    console_log!("RUST: Delete account context validation passed for caller '{}' - proceeding with rollback", caller_function);
-
-    // Step 2: Create DeleteAccount action
-    let delete_action = ActionParams::DeleteAccount {
-        beneficiary_id: beneficiary_account_id.to_string(),
-    };
-
-    let actions_json = serde_json::to_string(&vec![delete_action])
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize delete action: {}", e)))?;
-
-    // Step 3: Use the main verification + signing function
-    // This ensures the same security standards as other transactions
-    verify_and_sign_near_transaction_with_actions(
-        // Authentication
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
-
-        // Transaction details - delete the signer account
-        signer_account_id,
-        signer_account_id, // receiver_id is same as signer for delete account
-        nonce,
-        block_hash_bytes,
-        &actions_json,
-
-        // Verification parameters
-        contract_id,
-        vrf_challenge_data_json,
-        webauthn_credential_json,
-        near_rpc_url,
-    ).await
-}
-
 /// Convenience function for adding keys with PRF authentication
 #[wasm_bindgen]
 pub async fn add_key_with_prf(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    new_public_key: &str,  // The public key to add (in "ed25519:..." format)
-    access_key_json: &str, // JSON-serialized AccessKey
-    nonce: u64,
-    block_hash_bytes: &[u8],
-
-    // Verification parameters
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_credential_json: &str,
-    near_rpc_url: &str,
-) -> Result<Vec<u8>, JsValue> {
+    request_json: &str,
+) -> Result<String, JsValue> {
     console_log!("RUST: Starting AddKey transaction with PRF authentication");
 
+    let request: AddKeyWithPrfRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     let add_key_action = ActionParams::AddKey {
-        public_key: new_public_key.to_string(),
-        access_key: access_key_json.to_string(),
+        public_key: request.new_public_key.clone(),
+        access_key: request.access_key_json.clone(),
     };
 
     let actions_json = serde_json::to_string(&vec![add_key_action])
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize add key action: {}", e)))?;
 
-    verify_and_sign_near_transaction_with_actions(
-        // Authentication
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
+    let main_request = VerifyAndSignTransactionRequest {
+        prf_output_base64: request.prf_output_base64,
+        encrypted_private_key_data: request.encrypted_private_key_data,
+        encrypted_private_key_iv: request.encrypted_private_key_iv,
+        signer_account_id: request.signer_account_id.clone(),
+        receiver_account_id: request.signer_account_id.clone(), // receiver_id is same as signer for add key
+        nonce: request.nonce,
+        block_hash_bytes: request.block_hash_bytes,
+        actions_json,
+        contract_id: request.contract_id,
+        vrf_challenge_data_json: request.vrf_challenge_data_json,
+        webauthn_credential_json: request.webauthn_credential_json,
+        near_rpc_url: request.near_rpc_url,
+    };
 
-        // Transaction details
-        signer_account_id,
-        signer_account_id, // receiver_id is same as signer for add key
-        nonce,
-        block_hash_bytes,
-        &actions_json,
+    let main_request_json = serde_json::to_string(&main_request)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize main request: {}", e)))?;
 
-        // Verification parameters
-        contract_id,
-        vrf_challenge_data_json,
-        webauthn_credential_json,
-        near_rpc_url,
-    ).await
+    verify_and_sign_near_transaction_with_actions(&main_request_json).await
 }
 
 /// Convenience function for deleting keys with PRF authentication
 #[wasm_bindgen]
 pub async fn delete_key_with_prf(
-    // Authentication
-    prf_output_base64: &str,
-    encrypted_private_key_data: &str,
-    encrypted_private_key_iv: &str,
-
-    // Transaction details
-    signer_account_id: &str,
-    public_key_to_delete: &str, // The public key to delete (in "ed25519:..." format)
-    nonce: u64,
-    block_hash_bytes: &[u8],
-
-    // Verification parameters
-    contract_id: &str,
-    vrf_challenge_data_json: &str,
-    webauthn_credential_json: &str,
-    near_rpc_url: &str,
-) -> Result<Vec<u8>, JsValue> {
+    request_json: &str,
+) -> Result<String, JsValue> {
     console_log!("RUST: Starting DeleteKey transaction with PRF authentication");
 
+    let request: DeleteKeyWithPrfRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
     let delete_key_action = ActionParams::DeleteKey {
-        public_key: public_key_to_delete.to_string(),
+        public_key: request.public_key_to_delete.clone(),
     };
 
     let actions_json = serde_json::to_string(&vec![delete_key_action])
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize delete key action: {}", e)))?;
 
-    verify_and_sign_near_transaction_with_actions(
-        // Authentication
-        prf_output_base64,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
+    let main_request = VerifyAndSignTransactionRequest {
+        prf_output_base64: request.prf_output_base64,
+        encrypted_private_key_data: request.encrypted_private_key_data,
+        encrypted_private_key_iv: request.encrypted_private_key_iv,
+        signer_account_id: request.signer_account_id.clone(),
+        receiver_account_id: request.signer_account_id.clone(), // receiver_id is same as signer for delete key
+        nonce: request.nonce,
+        block_hash_bytes: request.block_hash_bytes,
+        actions_json,
+        contract_id: request.contract_id,
+        vrf_challenge_data_json: request.vrf_challenge_data_json,
+        webauthn_credential_json: request.webauthn_credential_json,
+        near_rpc_url: request.near_rpc_url,
+    };
 
-        // Transaction details
-        signer_account_id,
-        signer_account_id, // receiver_id is same as signer for delete key
-        nonce,
-        block_hash_bytes,
-        &actions_json,
+    let main_request_json = serde_json::to_string(&main_request)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize main request: {}", e)))?;
 
-        // Verification parameters
-        contract_id,
-        vrf_challenge_data_json,
-        webauthn_credential_json,
-        near_rpc_url,
-    ).await
+    verify_and_sign_near_transaction_with_actions(&main_request_json).await
 }

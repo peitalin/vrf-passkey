@@ -1,3 +1,4 @@
+import { SignedTransaction } from "../NearClient";
 import { base64UrlDecode } from "../../utils/encoders";
 import type { BaseSSEActionEvent } from './passkeyManager';
 
@@ -15,7 +16,7 @@ export interface onProgressEvents extends Omit<BaseSSEActionEvent, 'timestamp'> 
 }
 
 export interface VerifyAndSignTransactionResult {
-  signedTransactionBorsh: number[];
+  signedTransaction: SignedTransaction;
   nearAccountId: string;
   logs?: string[];
 }

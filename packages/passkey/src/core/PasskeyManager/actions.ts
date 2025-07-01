@@ -1,5 +1,6 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
+import { DefaultNearClient } from '../NearClient';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
 import { ActionParams } from '../types/signer-worker';
@@ -135,7 +136,7 @@ async function validateActionInputs(
       nearRpcProvider.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
       nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
     ]);
-    const nonce = accessKeyInfo.nonce + BigInt(1);
+    const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
     const blockHashString = transactionBlockInfo.header.hash;
     const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
 
@@ -297,36 +298,20 @@ async function broadcastTransaction(
       message: 'Broadcasting transaction...'
     });
 
-    // The signingResult contains Borsh-serialized SignedTransaction bytes
-    const signedTransactionBorsh = new Uint8Array(signingResult.signedTransactionBorsh);
+    // Create a NearClient for transaction broadcasting
+    // TODO: Could be optimized by passing nearRpcProvider through context
+    const nearClient = new DefaultNearClient(RPC_NODE_URL);
 
-    // Send the transaction using NEAR RPC
-    const rpcResponse = await fetch(RPC_NODE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'some_id',
-        method: 'send_tx',
-        params: {
-          signed_tx_base64: Buffer.from(signedTransactionBorsh).toString('base64'),
-          wait_until: DEFAULT_WAIT_STATUS.executeAction
-        }
-      } as NearRpcCallParams)
-    });
+    // The signingResult contains structured SignedTransaction with embedded raw bytes
+    const signedTransactionBorsh = new Uint8Array(signingResult.signedTransaction?.borsh_bytes || []);
 
-    const result: RpcResponse = await rpcResponse.json();
-    if (result.error) {
-      const errorMessage = result.error.data?.message ||
-                         result.error.message ||
-                         'RPC error';
-      throw new Error(errorMessage);
-    }
+    // Send the transaction using NearClient
+    const transactionResult = await nearClient.sendTransaction(signedTransactionBorsh);
 
     const actionResult: ActionResult = {
       success: true,
-      transactionId: result.result?.transaction_outcome?.id,
-      result: result.result
+      transactionId: transactionResult?.transaction_outcome?.id,
+      result: transactionResult
     };
 
     onEvent?.({

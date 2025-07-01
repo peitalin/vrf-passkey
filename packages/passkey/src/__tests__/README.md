@@ -14,33 +14,6 @@ This directory contains Playwright end-to-end tests for the passkey SDK. We use 
 - **Playwright**: E2E testing of browser APIs, workers, and integration flows
 - **Rollup**: Build system for production bundles
 
-## Current Tests
-
-### `wasm-workers.test.ts`
-
-Comprehensive testing of SDK functionality:
-
-1. **Basic SDK Loading**:
-   - PasskeyManager class instantiation
-   - Method existence verification (`registerPasskey`, `loginPasskey`, `getLoginState`)
-   - Configuration validation
-
-2. **RegisterPasskey Function Testing**:
-   - ✅ **Method Signature Validation**: Verifies `registerPasskey` accepts correct parameters
-   - ✅ **Event Flow Testing**: Validates complete registration event sequence:
-     - `webauthn-verification` (progress → success)
-     - `user-ready` (success with verification details)
-     - `access-key-addition` (progress → success)
-     - `database-storage` (success)
-     - `registration-complete` (success)
-   - ✅ **Error Handling**: Tests graceful error handling with proper event callbacks
-   - ✅ **Callback System**: Validates `onEvent` and `onError` callback mechanisms
-   - ✅ **Return Structure**: Verifies registration result contains expected fields
-
-3. **Future WASM Worker Tests** (planned):
-   - VRF Worker: keypair generation, challenge creation, cryptographic validation
-   - Signer Worker: COSE key extraction, NEAR keypair derivation, transaction signing
-   - Worker coordination and cross-worker data flow
 
 ### Testing Approach for RegisterPasskey
 
@@ -200,3 +173,287 @@ npx playwright test --grep "rollback scenarios"
      onEvent: (event) => console.log(event)
    });
    ```
+
+# PasskeyManager Testing Suite
+
+## Overview
+
+This testing suite provides comprehensive coverage for the PasskeyManager SDK, including success flows, failure scenarios, and rollback verification.
+
+## Test Structure
+
+### E2E Tests
+- `wasm-workers.test.ts` - Core functionality tests with real WASM workers
+- `registration-rollback.test.ts` - Comprehensive failure scenario testing
+- `example-template.test.ts` - Template for new test files
+
+### Test Utilities
+- `utils/setup.ts` - Reusable setup functions for PasskeyManager testing
+
+## Registration Failure Testing Strategy
+
+### Failure Categories
+
+The `registerPasskey` function has multiple failure points that require different rollback strategies:
+
+#### 1. **Early Failures (No Rollback Needed)**
+These failures occur before any persistent state is created:
+
+```typescript
+// Input validation failures
+- Invalid NEAR account ID format
+- Insecure context (non-HTTPS)
+
+// WebAuthn setup failures
+- VRF keypair generation failure
+- WebAuthn ceremony failure (user cancelled TouchID)
+- NEAR keypair derivation failure
+- Contract verification failure (checkCanRegisterUser)
+```
+
+**Testing Approach:**
+- Mock the specific component to throw errors
+- Verify failure occurs quickly without rollback events
+- No cleanup verification needed
+
+**Example:**
+```typescript
+test('should handle VRF generation failure', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { passkeyManager } = (window as any).testUtils;
+
+    // Mock VRF failure
+    passkeyManager.webAuthnManager.generateVrfKeypair = async () => {
+      throw new Error('VRF worker unavailable');
+    };
+
+    const events: any[] = [];
+    const result = await passkeyManager.registerPasskey(testAccountId, {
+      onEvent: (event: any) => events.push(event)
+    });
+
+    return {
+      success: result.success,
+      error: result.error,
+      rollbackEvents: events.filter(e => e.message?.includes('Rolling back'))
+    };
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.rollbackEvents.length).toBe(0); // No rollback needed
+});
+```
+
+#### 2. **Account Creation Failures (No Rollback Needed)**
+Account creation through faucet service fails before any persistent state:
+
+```typescript
+// Faucet service failures
+- Rate limiting (HTTP 429)
+- Service unavailable (HTTP 5xx)
+- Network timeouts
+```
+
+**Testing Approach:**
+- Mock `fetch` to simulate faucet failures
+- Verify no account was created (no rollback needed)
+
+**Example:**
+```typescript
+// Mock faucet service failure
+window.fetch = async (url: any, options: any) => {
+  if (url.includes('helper.testnet.near.org')) {
+    return new Response('Rate limit exceeded', { status: 429 });
+  }
+  return originalFetch(url, options);
+};
+```
+
+#### 3. **Account Rollback Failures**
+These occur after account creation but before database storage:
+
+```typescript
+// Post-account-creation failures
+- Contract registration failure (signVerifyAndRegisterUser)
+- Transaction broadcast failure
+- Access key propagation timeout
+```
+
+**Rollback Strategy:**
+- Account deletion using pre-signed `deleteAccount` transaction
+- Database cleanup not needed (nothing stored yet)
+
+**Testing Approach:**
+```typescript
+test('should handle contract registration failure with account rollback', async ({ page }) => {
+  // Mock contract registration failure
+  passkeyManager.webAuthnManager.signVerifyAndRegisterUser = async () => {
+    throw new Error('Contract registration failed');
+  };
+
+  // Verify account rollback occurs
+  expect(rollbackEvents.some(e => e.message?.includes('Rolling back NEAR account'))).toBe(true);
+});
+```
+
+#### 4. **Full Rollback Failures**
+These occur after both account creation and database storage:
+
+```typescript
+// Late-stage failures
+- VRF unlock failure (final step)
+- Post-storage validation failures
+```
+
+**Rollback Strategy:**
+- Database cleanup (`rollbackUserRegistration`)
+- Account deletion using pre-signed transaction
+- Contract state remains (immutable)
+
+**Testing Approach:**
+```typescript
+test('should handle VRF unlock failure with full rollback', async ({ page }) => {
+  // Mock VRF unlock failure after everything is complete
+  passkeyManager.webAuthnManager.unlockVRFKeypair = async () => {
+    throw new Error('VRF decryption failed');
+  };
+
+  // Verify both database and account rollback
+  expect(rollbackEvents.some(e => e.message?.includes('Rolling back database'))).toBe(true);
+  expect(rollbackEvents.some(e => e.message?.includes('Rolling back NEAR account'))).toBe(true);
+});
+```
+
+### Rollback Verification
+
+#### Database Rollback Verification
+```typescript
+async function verifyDatabaseClean(accountId: string) {
+  const hasUserData = await passkeyManager.webAuthnManager.indexdbCalls.hasUserData(accountId);
+  const hasKeyData = await passkeyManager.webAuthnManager.indexdbCalls.hasEncryptedKey(accountId);
+  return !hasUserData && !hasKeyData;
+}
+```
+
+#### Account Rollback Verification
+```typescript
+async function verifyAccountDeleted(accountId: string) {
+  try {
+    await nearRpcProvider.viewAccount(accountId);
+    return false; // Account still exists
+  } catch (error) {
+    return error.message.includes('does not exist'); // Account deleted
+  }
+}
+```
+
+#### Contract Rollback Verification
+```typescript
+// Note: Contract state is immutable on blockchain
+// Rollback is not possible for contract registrations
+// Users can re-register to overwrite existing entries
+```
+
+### Advanced Failure Scenarios
+
+#### 5. **Partial Rollback Failures**
+Test cases where rollback itself fails:
+
+```typescript
+test('should handle rollback failures gracefully', async ({ page }) => {
+  // Force registration failure
+  passkeyManager.webAuthnManager.unlockVRFKeypair = async () => {
+    throw new Error('Final step failure');
+  };
+
+  // Also mock rollback failure
+  passkeyManager.webAuthnManager.rollbackUserRegistration = async () => {
+    throw new Error('Database rollback failed');
+  };
+
+  // Should handle rollback failures gracefully
+  expect(rollbackErrorEvents.length).toBeGreaterThan(0);
+});
+```
+
+#### 6. **Concurrent Registration Failures**
+Test multiple registrations failing independently:
+
+```typescript
+test('should handle concurrent registration failures', async ({ page }) => {
+  const testAccounts = [account1, account2, account3];
+
+  // Make only first account fail
+  passkeyManager.webAuthnManager.signVerifyAndRegisterUser = async (options: any) => {
+    if (options.nearAccountId === testAccounts[0]) {
+      throw new Error('Concurrent test failure');
+    }
+    return originalFunction(options);
+  };
+
+  // Verify no cross-contamination between accounts
+  const results = await Promise.allSettled(registrationPromises);
+  expect(results[0].success).toBe(false); // First fails
+  // Others might succeed
+});
+```
+
+### Running Failure Tests
+
+```bash
+# Run all failure tests
+npx playwright test registration-failure-rollback.test.ts
+
+# Run specific failure category
+npx playwright test registration-failure-rollback.test.ts -g "Input validation"
+
+# Run with debug output
+npx playwright test registration-failure-rollback.test.ts --headed --debug
+```
+
+### Adding New Failure Tests
+
+1. **Identify the failure point** in the registration flow
+2. **Determine rollback requirements** (none, account, database, full)
+3. **Create targeted mock** for the specific failure
+4. **Verify failure behavior** and rollback completion
+5. **Add cleanup verification** as appropriate
+
+```typescript
+test('should handle [NEW_FAILURE_TYPE]', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { passkeyManager, generateTestAccountId } = (window as any).testUtils;
+    const testAccountId = generateTestAccountId();
+
+    // 1. Mock the specific failure
+    const original = passkeyManager.component.method;
+    passkeyManager.component.method = async () => {
+      throw new Error('Specific failure message');
+    };
+
+    const events: any[] = [];
+
+    try {
+      // 2. Execute registration
+      const result = await passkeyManager.registerPasskey(testAccountId, {
+        onEvent: (event: any) => events.push(event)
+      });
+
+      return { success: result.success, error: result.error, events };
+    } finally {
+      // 3. Restore original
+      passkeyManager.component.method = original;
+    }
+  });
+
+  // 4. Verify failure and rollback
+  expect(result.success).toBe(false);
+  expect(result.error).toContain('Specific failure message');
+
+  // 5. Verify appropriate rollback level
+  const rollbackEvents = result.events.filter(e => e.message?.includes('Rolling back'));
+  // Adjust expectation based on failure point
+});
+```
+
+This comprehensive testing strategy ensures that all failure scenarios are covered and rollback behavior is properly verified.

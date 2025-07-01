@@ -1,4 +1,4 @@
-import { RELAYER_ACCOUNT_ID } from '../../config';
+import { RELAYER_ACCOUNT_ID } from '../config';
 
 export interface ValidationResult {
   valid: boolean;
