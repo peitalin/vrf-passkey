@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { view } from '@near-js/client';
 import { WEBAUTHN_CONTRACT_ID } from '../config';
 import { useNearRpcProvider } from '@web3authn/passkey/react';
 
@@ -25,12 +24,12 @@ export const useSetGreeting = (): SetGreetingHook => {
   // Rate limiting
   const lastFetchTime = useRef<number>(0);
   const isCurrentlyFetching = useRef<boolean>(false);
-  const MIN_FETCH_INTERVAL = 500; // 0.5 second
+  const MIN_FETCH_INTERVAL = 200; // 0.2 second (allow more frequent updates)
 
   const fetchGreeting = useCallback(async (): Promise<GreetingResult> => {
     const now = Date.now();
 
-    // Rate limiting: prevent calls within 1 second of each other
+    // Rate limiting: prevent calls within the minimum interval
     if (now - lastFetchTime.current < MIN_FETCH_INTERVAL) {
       console.log('Greeting fetch rate limited');
       return { success: false, error: 'Rate limited' };
@@ -49,14 +48,14 @@ export const useSetGreeting = (): SetGreetingHook => {
 
     try {
       const provider = getNearRpcProvider();
-      const result = await view({
+      const result = await provider.view({
         account: WEBAUTHN_CONTRACT_ID,
         method: 'get_greeting',
-        args: {},
-        deps: { rpcProvider: provider as any }
+        args: {}
       });
 
       const greeting = result as string;
+      console.log('✅ Greeting fetched successfully:', greeting);
       setOnchainGreeting(greeting);
 
       return { success: true, greeting };
@@ -73,7 +72,12 @@ export const useSetGreeting = (): SetGreetingHook => {
       setIsLoading(false);
       isCurrentlyFetching.current = false;
     }
-  }, [onchainGreeting]);
+  }, [getNearRpcProvider]);
+
+  // Auto-fetch greeting on mount
+  useEffect(() => {
+    fetchGreeting();
+  }, [fetchGreeting]);
 
   return {
     onchainGreeting,

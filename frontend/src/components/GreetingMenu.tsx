@@ -36,13 +36,6 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     error
   } = useSetGreeting();
 
-  // Automatically fetch greeting when component mounts
-  useEffect(() => {
-    if (isLoggedIn && !isLoading) {
-      fetchGreeting();
-    }
-  }, []);
-
   const handleRefreshGreeting = useCallback(async () => {
     await fetchGreeting();
   }, [fetchGreeting]);
@@ -83,8 +76,6 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
             break;
           case 'action-complete':
             toast.success('Transaction completed successfully!', { id: 'action' });
-            // Refresh greeting after successful update
-            fetchGreeting();
             break;
           case 'action-error':
             toast.error(`Transaction failed: ${event.error}`, { id: 'action' });
@@ -95,7 +86,11 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
         afterCall: (success: boolean, result?: any) => {
           if (success) {
             // Reset greeting input on any successful transaction
+            console.log("Result: ", result);
             setGreetingInput("");
+            // Also refresh greeting after a short delay (backup to action-complete handler)
+            console.log('afterCall success - scheduling backup greeting refresh in 2s');
+            fetchGreeting();
           }
 
           if (success && result?.transactionId) {

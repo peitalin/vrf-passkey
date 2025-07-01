@@ -19,6 +19,7 @@ frontend/certs
 
 # Playwright report
 packages/passkey/playwright-report
+test-results
 
 # WASM worker outputs
 packages/passkey/dist
