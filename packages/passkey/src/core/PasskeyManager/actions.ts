@@ -1,15 +1,14 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
-import { DefaultNearClient } from '../NearClient';
+import { MinimalNearClient } from '../NearClient';
 
 import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
 import { ActionParams } from '../types/signer-worker';
 import { VerifyAndSignTransactionResult } from '../types/webauthn';
 import { ActionType } from '../types/actions';
-import { DEFAULT_WAIT_STATUS } from '../types/rpc';
 import type { ActionArgs } from '../types/actions';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
-import type { NearRpcCallParams, TransactionContext, BlockInfo, RpcResponse } from '../types/rpc';
+import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
 
 
@@ -96,74 +95,56 @@ async function validateActionInputs(
 
   const { onEvent, onError, hooks } = options || {};
   const { webAuthnManager, nearRpcProvider } = context;
-
-  try {
-    // Basic validation
-    if (!nearAccountId) {
-      throw new Error('User not logged in or NEAR account ID not set for direct action.');
-    }
-    if (!actionArgs.receiverId) {
-      throw new Error('Missing required parameter: receiverId');
-    }
-    if (actionArgs.type === ActionType.FunctionCall && (!actionArgs.methodName || actionArgs.args === undefined)) {
-      throw new Error('Missing required parameters for function call: methodName or args');
-    }
-    if (actionArgs.type === ActionType.Transfer && !actionArgs.amount) {
-      throw new Error('Missing required parameter for transfer: amount');
-    }
-
-    onEvent?.({
-      step: 1,
-      phase: 'preparation',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Validating inputs...'
-    });
-
-    // Check if user has PRF support
-    const userData = await webAuthnManager.getUser(nearAccountId);
-    const usesPrf = userData?.prfSupported === true;
-    const publicKeyStr = userData?.clientNearPublicKey;
-    if (!usesPrf) {
-      throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
-    }
-    if (!publicKeyStr) {
-      throw new Error('Client NEAR public key not found in user data');
-    }
-
-    // Get access key and transaction block info concurrently
-    const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-      nearRpcProvider.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
-      nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
-    ]);
-    const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
-    const blockHashString = transactionBlockInfo.header.hash;
-    const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
-
-    return {
-      userData,
-      publicKeyStr,
-      accessKeyInfo,
-      transactionBlockInfo,
-      nonce,
-      transactionBlockHashBytes
-    };
-
-  } catch (error: any) {
-    const errorMsg = error.message || 'Validation failed';
-    console.error('[Action Error]:', errorMsg, nearAccountId);
-    onError?.(error);
-    onEvent?.({
-      step: 0,
-      phase: 'action-error',
-      status: 'error',
-      timestamp: Date.now(),
-      message: errorMsg,
-      error: errorMsg
-    });
-    hooks?.afterCall?.(false, error);
-    throw error;
+  // Basic validation
+  if (!nearAccountId) {
+    throw new Error('User not logged in or NEAR account ID not set for direct action.');
   }
+  if (!actionArgs.receiverId) {
+    throw new Error('Missing required parameter: receiverId');
+  }
+  if (actionArgs.type === ActionType.FunctionCall && (!actionArgs.methodName || actionArgs.args === undefined)) {
+    throw new Error('Missing required parameters for function call: methodName or args');
+  }
+  if (actionArgs.type === ActionType.Transfer && !actionArgs.amount) {
+    throw new Error('Missing required parameter for transfer: amount');
+  }
+
+  onEvent?.({
+    step: 1,
+    phase: 'preparation',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Validating inputs...'
+  });
+
+  // Check if user has PRF support
+  const userData = await webAuthnManager.getUser(nearAccountId);
+  const usesPrf = userData?.prfSupported === true;
+  const publicKeyStr = userData?.clientNearPublicKey;
+  if (!usesPrf) {
+    throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
+  }
+  if (!publicKeyStr) {
+    throw new Error('Client NEAR public key not found in user data');
+  }
+
+  // Get access key and transaction block info concurrently
+  const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
+    nearRpcProvider.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
+    nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
+  ]);
+  const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
+  const blockHashString = transactionBlockInfo.header.hash;
+  const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
+
+  return {
+    userData,
+    publicKeyStr,
+    accessKeyInfo,
+    transactionBlockInfo,
+    nonce,
+    transactionBlockHashBytes
+  };
 }
 
 /**
@@ -181,102 +162,84 @@ async function verifyVrfAuthAndSignTransaction(
   const { onEvent, onError, hooks } = options || {};
   const { webAuthnManager, nearRpcProvider } = context;
 
-  try {
-    onEvent?.({
-      step: 2,
-      phase: 'authentication',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Generating VRF challenge...'
-    });
+  onEvent?.({
+    step: 2,
+    phase: 'authentication',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Generating VRF challenge...'
+  });
 
-    console.log('[Direct Action] Using VRF authentication flow with contract verification');
-    // Get managers and check if VRF session is active
-    const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
+  console.log('[Direct Action] Using VRF authentication flow with contract verification');
+  // Get managers and check if VRF session is active
+  const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
 
-    if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
-      throw new Error('VRF keypair not unlocked - please login to unlock VRF session');
-    }
-    console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
-
-    const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
-    // Generate VRF challenge
-    const vrfInputData = {
-      userId: nearAccountId,
-      rpId: window.location.hostname,
-      blockHeight: blockInfo.header.height,
-      blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
-      timestamp: Date.now()
-    };
-    // Use VRF output as WebAuthn challenge
-    const vrfChallenge = await webAuthnManager.generateVRFChallenge(vrfInputData);
-
-    onEvent?.({
-      step: 2,
-      phase: 'authentication',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Authenticating with VRF challenge...'
-    });
-
-    // Handle different action types
-    let signingResult: VerifyAndSignTransactionResult;
-
-    if (actionArgs.type === ActionType.Transfer) {
-      signingResult = await webAuthnManager.signTransferTransaction({
-        nearAccountId: nearAccountId,
-        receiverId: actionArgs.receiverId,
-        depositAmount: actionArgs.amount,
-        nonce: transactionContext.nonce.toString(),
-        blockHashBytes: transactionContext.transactionBlockHashBytes,
-        // Webauthn verification parameters
-        contractId: webAuthnManager.configs.contractId,
-        vrfChallenge: vrfChallenge,
-      });
-
-    } else if (actionArgs.type === ActionType.FunctionCall) {
-      // Use the modern action-based WASM worker transaction signing for function calls
-      signingResult = await webAuthnManager.signTransactionWithActions({
-        nearAccountId: nearAccountId,
-        receiverId: actionArgs.receiverId,
-        actions: [
-          {
-            actionType: ActionType.FunctionCall,
-            method_name: actionArgs.methodName,
-            args: JSON.stringify(actionArgs.args), // Convert object to JSON string for worker
-            gas: actionArgs.gas || DEFAULT_GAS_STRING,
-            deposit: actionArgs.deposit || "0"
-          }
-        ] as ActionParams[],
-        nonce: transactionContext.nonce.toString(),
-        blockHashBytes: transactionContext.transactionBlockHashBytes,
-        // Webauthn verification parameters
-        contractId: webAuthnManager.configs.contractId,
-        vrfChallenge: vrfChallenge,
-      });
-
-    } else {
-      throw new Error(`Action type ${actionArgs.type} is not yet supported`);
-    }
-
-    return signingResult;
-
-  } catch (error: any) {
-    const errorMsg = error.message || 'VRF authentication failed';
-
-    console.error('[Action Error]:', errorMsg, nearAccountId);
-    onError?.(error);
-    onEvent?.({
-      step: 0,
-      phase: 'action-error',
-      status: 'error',
-      timestamp: Date.now(),
-      message: errorMsg,
-      error: errorMsg
-    });
-    hooks?.afterCall?.(false, error);
-    throw error;
+  if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
+    throw new Error('VRF keypair not unlocked - please login to unlock VRF session');
   }
+  console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
+
+  const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
+  // Generate VRF challenge
+  const vrfInputData = {
+    userId: nearAccountId,
+    rpId: window.location.hostname,
+    blockHeight: blockInfo.header.height,
+    blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
+    timestamp: Date.now()
+  };
+  // Use VRF output as WebAuthn challenge
+  const vrfChallenge = await webAuthnManager.generateVRFChallenge(vrfInputData);
+
+  onEvent?.({
+    step: 2,
+    phase: 'authentication',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Authenticating with VRF challenge...'
+  });
+
+  // Handle different action types
+  let signingResult: VerifyAndSignTransactionResult;
+
+  if (actionArgs.type === ActionType.Transfer) {
+    signingResult = await webAuthnManager.signTransferTransaction({
+      nearAccountId: nearAccountId,
+      receiverId: actionArgs.receiverId,
+      depositAmount: actionArgs.amount,
+      nonce: transactionContext.nonce.toString(),
+      blockHashBytes: transactionContext.transactionBlockHashBytes,
+      // Webauthn verification parameters
+      contractId: webAuthnManager.configs.contractId,
+      vrfChallenge: vrfChallenge,
+    });
+
+  } else if (actionArgs.type === ActionType.FunctionCall) {
+    // Use the modern action-based WASM worker transaction signing for function calls
+    signingResult = await webAuthnManager.signTransactionWithActions({
+      nearAccountId: nearAccountId,
+      receiverId: actionArgs.receiverId,
+      actions: [
+        {
+          actionType: ActionType.FunctionCall,
+          method_name: actionArgs.methodName,
+          args: JSON.stringify(actionArgs.args), // Convert object to JSON string for worker
+          gas: actionArgs.gas || DEFAULT_GAS_STRING,
+          deposit: actionArgs.deposit || "0"
+        }
+      ] as ActionParams[],
+      nonce: transactionContext.nonce.toString(),
+      blockHashBytes: transactionContext.transactionBlockHashBytes,
+      // Webauthn verification parameters
+      contractId: webAuthnManager.configs.contractId,
+      vrfChallenge: vrfChallenge,
+    });
+
+  } else {
+    throw new Error(`Action type ${actionArgs.type} is not yet supported`);
+  }
+
+  return signingResult;
 }
 
 /**
@@ -289,60 +252,43 @@ async function broadcastTransaction(
 ): Promise<ActionResult> {
   const { onEvent, onError, hooks } = options || {};
 
-  try {
-    onEvent?.({
-      step: 5,
-      phase: 'broadcasting',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Broadcasting transaction...'
-    });
+  onEvent?.({
+    step: 5,
+    phase: 'broadcasting',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: 'Broadcasting transaction...'
+  });
 
-    // Create a NearClient for transaction broadcasting
-    // TODO: Could be optimized by passing nearRpcProvider through context
-    const nearClient = new DefaultNearClient(RPC_NODE_URL);
+  // Create a NearClient for transaction broadcasting
+  // TODO: Could be optimized by passing nearRpcProvider through context
+  const nearClient = new MinimalNearClient(RPC_NODE_URL);
 
-    // The signingResult contains structured SignedTransaction with embedded raw bytes
-    const signedTransactionBorsh = new Uint8Array(signingResult.signedTransaction?.borsh_bytes || []);
+  // The signingResult contains structured SignedTransaction with embedded raw bytes
+  const signedTransactionBorsh = new Uint8Array(signingResult.signedTransaction?.borsh_bytes || []);
 
-    // Send the transaction using NearClient
-    const transactionResult = await nearClient.sendTransaction(signedTransactionBorsh);
+  // Send the transaction using NearClient
+  const transactionResult = await nearClient.sendTransaction(signedTransactionBorsh);
 
-    const actionResult: ActionResult = {
-      success: true,
-      transactionId: transactionResult?.transaction_outcome?.id,
-      result: transactionResult
-    };
+  const actionResult: ActionResult = {
+    success: true,
+    transactionId: transactionResult?.transaction_outcome?.id,
+    result: transactionResult
+  };
 
-    onEvent?.({
-      step: 6,
-      phase: 'action-complete',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'Transaction completed successfully',
-      data: {
-        transactionId: actionResult.transactionId,
-        result: actionResult.result
-      }
-    });
+  onEvent?.({
+    step: 6,
+    phase: 'action-complete',
+    status: 'success',
+    timestamp: Date.now(),
+    message: 'Transaction completed successfully',
+    data: {
+      transactionId: actionResult.transactionId,
+      result: actionResult.result
+    }
+  });
 
-    return actionResult;
-
-  } catch (error: any) {
-    const errorMsg = error.message || 'Transaction broadcasting failed';
-    console.error('[Action Error]:', errorMsg);
-    onError?.(error);
-    onEvent?.({
-      step: 0,
-      phase: 'action-error',
-      status: 'error',
-      timestamp: Date.now(),
-      message: errorMsg,
-      error: errorMsg
-    });
-    hooks?.afterCall?.(false, error);
-    throw error;
-  }
+  return actionResult;
 }
 
 

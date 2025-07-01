@@ -1,6 +1,6 @@
 import type { AccessKeyView } from '@near-js/types';
 import type { NearClient } from '../../NearClient';
-import { DefaultNearClient } from '../../NearClient';
+import { MinimalNearClient } from '../../NearClient';
 import { validateNearAccountId } from '../../../utils/validation';
 import type {
   RegistrationOptions,
@@ -556,7 +556,7 @@ async function performRegistrationRollback(
         console.log('Broadcasting pre-signed delete transaction for account rollback...');
         try {
           // Note: We need to create a new NearClient here since we only have rpcNodeUrl
-          const tempNearClient = new DefaultNearClient(rpcNodeUrl);
+          const tempNearClient = new MinimalNearClient(rpcNodeUrl);
           const deletionResult = await tempNearClient.sendTransaction(registrationState.preSignedDeleteTransaction);
           const deleteTransactionId = deletionResult?.transaction_outcome?.id;
           console.log(`NEAR account ${nearAccountId} deleted successfully via pre-signed transaction`);

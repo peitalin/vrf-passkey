@@ -84,11 +84,6 @@ export interface ManagedToast {
   dismiss: (id: string) => void;
 }
 
-// === HOOK TYPES ===
-export interface NearRpcProviderHook {
-  getNearRpcProvider: () => NearClient;
-}
-
 // Account input hook types
 export interface UseAccountInputReturn extends AccountInputState {
   setInputUsername: (username: string) => void;

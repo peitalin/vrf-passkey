@@ -34,7 +34,7 @@ export interface NearClient {
   view(params: { account: string; method: string; args: any }): Promise<any>;
 }
 
-export class DefaultNearClient implements NearClient {
+export class MinimalNearClient implements NearClient {
   constructor(private rpcUrl: string) {}
 
   async query<T>(path: string, data: string): Promise<T> {
@@ -43,7 +43,7 @@ export class DefaultNearClient implements NearClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 'query',
+        id: crypto.randomUUID(),
         method: 'query',
         params: {
           request_type: path,
@@ -83,7 +83,7 @@ export class DefaultNearClient implements NearClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 'view-access-key',
+        id: crypto.randomUUID(),
         method: 'query',
         params: {
           request_type: 'view_access_key',
@@ -122,7 +122,7 @@ export class DefaultNearClient implements NearClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 'view-block',
+        id: crypto.randomUUID(),
         method: 'block',
         params
       })
@@ -196,45 +196,18 @@ export class DefaultNearClient implements NearClient {
   }
 
   async view(params: { account: string; method: string; args: any }): Promise<any> {
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'view-function',
-        method: 'query',
-        params: {
-          request_type: 'call_function',
-          finality: 'final',
-          account_id: params.account,
-          method_name: params.method,
-          args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
-        }
-      })
+    // Use the generic query function for the RPC call
+    const queryData = JSON.stringify({
+      finality: 'final',
+      account_id: params.account,
+      method_name: params.method,
+      args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
     });
 
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const responseText = await response.text();
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from RPC server');
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Invalid JSON response from RPC server: ${responseText.substring(0, 100)}...`);
-    }
-
-    if (result.error) {
-      throw new Error(`RPC Error: ${result.error.message}`);
-    }
+    const result = await this.query<{ result: number[] }>('call_function', queryData);
 
     // Parse the result bytes as a string (typical for view functions that return strings)
-    const resultBytes = result.result.result;
+    const resultBytes = result.result;
     if (Array.isArray(resultBytes)) {
       const resultString = String.fromCharCode(...resultBytes);
       try {
@@ -246,6 +219,6 @@ export class DefaultNearClient implements NearClient {
       }
     }
 
-    return result.result;
+    return result;
   }
 }

@@ -3,7 +3,7 @@ export { PasskeyProvider, usePasskeyContext } from './context/index';
 
 // === REACT HOOKS ===
 
-export { useNearRpcProvider } from './hooks/useNearRpcProvider';
+export { useNearClient } from './hooks/useNearClient';
 export { useAccountInput } from './hooks/useAccountInput';
 export { useRelayer } from './hooks/useRelayer';
 
@@ -22,7 +22,6 @@ export type {
   ToastOptions,
   ToastStyleOptions,
   ManagedToast,
-  NearRpcProviderHook,
 
   AccountInputState,
   UseAccountInputReturn,

@@ -2,7 +2,7 @@ import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
-import { DefaultNearClient, type NearClient } from '../NearClient';
+import { MinimalNearClient, type NearClient } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
   RegistrationOptions,
@@ -35,7 +35,7 @@ export class PasskeyManager {
   ) {
     this.configs = configs;
     // Use provided client or create default one
-    this.nearRpcProvider = nearRpcProvider || new DefaultNearClient(configs.nearRpcUrl);
+    this.nearRpcProvider = nearRpcProvider || new MinimalNearClient(configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(configs);
     // Initialize VRF Worker in the background
     this.initializeVrfWorkerManager();

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo, useRef } from 'react';
 import { PasskeyManager } from '../../core/PasskeyManager';
-import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
+import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';
 import type {
@@ -46,8 +46,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     indexDBAccounts: []
   });
 
-  // Get NEAR RPC provider
-  const { getNearRpcProvider } = useNearRpcProvider();
+  // Get the minimal NEAR RPC provider
+  const nearClient = useNearClient();
 
   // Initialize PasskeyManager with singleton pattern to prevent double initialization in StrictMode
   const passkeyManager = useMemo(() => {
@@ -65,14 +65,14 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
     if (!globalPasskeyManager || configChanged) {
       console.log('PasskeyProvider: Creating new PasskeyManager instance with config:', finalConfig);
-      globalPasskeyManager = new PasskeyManager(finalConfig, getNearRpcProvider());
+      globalPasskeyManager = new PasskeyManager(finalConfig, nearClient);
       globalConfig = finalConfig;
     } else {
       console.log('PasskeyProvider: Reusing existing PasskeyManager instance');
     }
 
     return globalPasskeyManager;
-  }, [userConfig, getNearRpcProvider]);
+  }, [userConfig, nearClient]);
 
   // Use relayer hook
   const relayerHook = useRelayer({
