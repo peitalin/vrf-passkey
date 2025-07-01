@@ -466,67 +466,6 @@ impl VRFKeyManager {
     }
 
     /// Enhanced VRF keypair generation with explicit control over memory storage and challenge generation
-    ///
-    /// @param prf_key - PRF output from WebAuthn ceremony for encryption
-    /// @param vrf_input_params - Optional parameters to generate VRF challenge/proof
-    /// @param save_in_memory - Whether to persist the generated VRF keypair in WASM worker memory
-    pub fn generate_and_encrypt_vrf_keypair(
-        &mut self,
-        prf_key: Vec<u8>,
-        vrf_input_params: Option<VRFInputData>,
-        save_in_memory: bool
-    ) -> Result<VrfKeypairWithChallengeResponse, String> {
-        console::log_1(&format!("VRF WASM Web Worker: Generating VRF keypair - saveInMemory: {}, withChallenge: {}",
-            save_in_memory, vrf_input_params.is_some()).into());
-
-        // Generate VRF keypair once
-        let vrf_keypair = self.generate_vrf_keypair()?;
-
-        // Encrypt the VRF keypair
-        let (vrf_public_key, encrypted_vrf_keypair) = self.encrypt_vrf_keypair_data(&vrf_keypair, &prf_key)?;
-
-        console::log_1(&"✅ VRF WASM Web Worker: VRF keypair generation and encryption completed".into());
-
-        let mut result = VrfKeypairWithChallengeResponse {
-            vrf_public_key,
-            encrypted_vrf_keypair,
-            vrf_challenge_data: None,
-        };
-
-        // Store VRF keypair in memory if explicitly requested
-        if save_in_memory {
-            // Serialize keypair for storage and recreation (since ECVRFKeyPair doesn't implement Clone)
-            let vrf_keypair_bytes = bincode::serialize(&vrf_keypair)
-                .map_err(|e| format!("Failed to serialize VRF keypair for storage: {:?}", e))?;
-
-            // Recreate keypair from serialized data for in-memory storage
-            let vrf_keypair_for_storage: ECVRFKeyPair = bincode::deserialize(&vrf_keypair_bytes)
-                .map_err(|e| format!("Failed to deserialize VRF keypair for storage: {:?}", e))?;
-
-            // Store the VRF keypair in memory
-            self.vrf_keypair = Some(SecureVRFKeyPair::new(vrf_keypair_for_storage));
-            self.session_active = true;
-            self.session_start_time = Date::now();
-
-            console::log_1(&"✅ VRF WASM Web Worker: VRF keypair stored in memory".into());
-        }
-
-        // Generate VRF challenge if input parameters provided (regardless of save_in_memory flag)
-        if let Some(vrf_input) = vrf_input_params {
-            console::log_1(&"VRF WASM Web Worker: Generating VRF challenge".into());
-
-            // Use the fresh keypair for challenge generation (consistent with the encrypted version)
-            let challenge_result = self.generate_vrf_challenge_with_keypair(&vrf_keypair, vrf_input)?;
-            result.vrf_challenge_data = Some(challenge_result);
-
-            console::log_1(&"✅ VRF WASM Web Worker: VRF challenge generated successfully".into());
-        }
-
-        console::log_1(&"✅ VRF WASM Web Worker: Enhanced VRF keypair generation completed".into());
-
-        Ok(result)
-    }
-
     fn encrypt_vrf_keypair(&self, data: &[u8], key: &[u8]) -> Result<serde_json::Value, String> {
         console::log_1(&"VRF WASM Web Worker: Deriving AES key using HKDF-SHA256 for encryption".into());
 
@@ -559,13 +498,6 @@ impl VRFKeyManager {
 pub struct VrfKeypairResponse {
     pub vrf_public_key: String,
     pub encrypted_vrf_keypair: serde_json::Value,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct VrfKeypairWithChallengeResponse {
-    pub vrf_public_key: String,
-    pub encrypted_vrf_keypair: serde_json::Value,
-    pub vrf_challenge_data: Option<VRFChallengeData>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -718,77 +650,6 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                         success: false,
                         data: None,
                         error: Some("Missing VRF input data".to_string()),
-                    }
-                }
-            })
-        }
-
-        "GENERATE_VRF_KEYPAIR" => {
-            VRF_MANAGER.with(|manager| {
-                match message.data {
-                    Some(data) => {
-                        let prf_key: Vec<u8> = data["prfKey"].as_array()
-                            .unwrap_or(&vec![])
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as u8))
-                            .collect();
-
-                        if prf_key.is_empty() {
-                            VRFWorkerResponse {
-                                id: message.id,
-                                success: false,
-                                data: None,
-                                error: Some("Missing or invalid PRF key".to_string()),
-                            }
-                        } else {
-                            // Get explicit saveInMemory flag
-                            let save_in_memory = data.get("saveInMemory")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-
-                            // Check if VRF input parameters are provided for challenge generation
-                            let vrf_input_params = data.get("vrfInputParams")
-                                .and_then(|params| serde_json::from_value::<VRFInputData>(params.clone()).ok());
-
-                            let mut manager = manager.borrow_mut();
-
-                            console::log_1(&format!("VRF WASM Web Worker: Generating VRF keypair - saveInMemory: {}, withChallenge: {}",
-                                save_in_memory, vrf_input_params.is_some()).into());
-
-                            match manager.generate_and_encrypt_vrf_keypair(
-                                prf_key,
-                                vrf_input_params,
-                                save_in_memory
-                            ) {
-                                Ok(keypair_data) => {
-                                    // Structure response to match expected format
-                                    let response_data = serde_json::json!({
-                                        "vrf_public_key": keypair_data.vrf_public_key,
-                                        "encrypted_vrf_keypair": keypair_data.encrypted_vrf_keypair,
-                                        "vrf_challenge_data": keypair_data.vrf_challenge_data
-                                    });
-
-                                    VRFWorkerResponse {
-                                        id: message.id,
-                                        success: true,
-                                        data: Some(response_data),
-                                        error: None,
-                                    }
-                                },
-                                Err(e) => VRFWorkerResponse {
-                                    id: message.id,
-                                    success: false,
-                                    data: None,
-                                    error: Some(e),
-                                }
-                            }
-                        }
-                    }
-                    None => VRFWorkerResponse {
-                        id: message.id,
-                        success: false,
-                        data: None,
-                        error: Some("Missing VRF keypair generation data".to_string()),
                     }
                 }
             })

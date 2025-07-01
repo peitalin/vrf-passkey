@@ -33,16 +33,46 @@ async function initializeWasmModule(): Promise<void> {
   });
 
   console.log('✅ [vrf-worker]: WASM module loaded and initialized successfully');
+
+  // Mark WASM as ready and process any queued messages
+  wasmReady = true;
+  processQueuedMessages();
 }
 
 // === MESSAGE HANDLING ===
 
+let wasmReady = false;
+let messageQueue: MessageEvent[] = [];
+
 self.onmessage = async (event: MessageEvent) => {
+  await handleMessage(event);
+};
+
+// Process queued messages once WASM is ready
+function processQueuedMessages(): void {
+  console.log(`[vrf-worker]: Processing ${messageQueue.length} queued messages`);
+  const queuedMessages = [...messageQueue];
+  messageQueue = [];
+
+  for (const event of queuedMessages) {
+    // Process each queued message by calling the handler directly
+    handleMessage(event);
+  }
+}
+
+// Message handler function that can be called directly
+async function handleMessage(event: MessageEvent): Promise<void> {
   const data: VRFWorkerMessage = event.data;
+  console.log('[vrf-worker]: Received message:', data.type);
+
+  // If WASM is not ready, queue the message
+  if (!wasmReady) {
+    console.log('[vrf-worker]: WASM not ready, queueing message:', data.type);
+    messageQueue.push(event);
+    return;
+  }
 
   try {
-    console.log('[vrf-worker]: Received message:', data.type);
-
     // Call WASM handle_message directly with error handling
     const response: VRFWorkerResponse = handle_message(data);
 
@@ -56,7 +86,7 @@ self.onmessage = async (event: MessageEvent) => {
     const errorResponse = createErrorResponse(data?.id, error);
     self.postMessage(errorResponse);
   }
-};
+}
 
 // === ERROR HANDLING ===
 
@@ -87,5 +117,13 @@ self.onunhandledrejection = (event) => {
 // Initialize WASM module at startup
 initializeWasmModule().catch(error => {
   console.error('[vrf-worker]: Startup initialization failed:', error);
-  // Worker will throw errors for all messages if WASM fails to initialize
+
+  // Send error responses to all queued messages
+  for (const event of messageQueue) {
+    const errorResponse = createErrorResponse(event.data?.id, error);
+    self.postMessage(errorResponse);
+  }
+  messageQueue = [];
+
+  // Worker will throw errors for all future messages if WASM fails to initialize
 });

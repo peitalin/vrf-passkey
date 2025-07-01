@@ -150,12 +150,15 @@ export class VrfWorkerManager {
 
     if (!prfOutput) {
       let challenge = crypto.getRandomValues(new Uint8Array(32));
-      let credentialsAndPrf = await touchIdPrompt.getCredentialsAndPrf({
+      let credential = await touchIdPrompt.getCredentials({
         nearAccountId,
         challenge,
         authenticators,
       });
-      prfOutput = credentialsAndPrf.prfOutput;
+      prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+      if (!prfOutput) {
+        throw new Error('PRF output not found in WebAuthn credentials');
+      }
 
       onEvent?.({
         type: 'loginProgress',
@@ -218,7 +221,7 @@ export class VrfWorkerManager {
       throw new Error(`VRF challenge generation failed: ${response.error}`);
     }
 
-    console.log('✅ VRF Manager: VRF challenge generated successfully');
+    console.log('VRF Manager: VRF challenge generated successfully');
     return new VRFChallenge(response.data as VRFChallengeData);
   }
 
@@ -259,7 +262,7 @@ export class VrfWorkerManager {
    * Logout and clear VRF session
    */
   async clearVrfSession(): Promise<void> {
-    console.log('🚪 VRF Manager: Logging out...');
+    console.log('VRF Manager: Logging out...');
 
     if (!this.vrfWorker) {
       return;
@@ -283,35 +286,6 @@ export class VrfWorkerManager {
       }
     } catch (error) {
       console.warn('VRF Manager: Logout error:', error);
-    }
-  }
-
-  /**
-   * Force cleanup of VRF Web Worker and sessions (for error recovery)
-   * calls clearVrfSession() and terminates the worker
-   */
-  async forceCleanupVrfManager(): Promise<void> {
-    console.log('VRF Manager: Force cleanup initiated...');
-
-    try {
-      // First try to logout gracefully
-      await this.clearVrfSession();
-
-      // Terminate the worker
-      if (this.vrfWorker) {
-        this.vrfWorker.terminate();
-        this.vrfWorker = null;
-      }
-
-      // Reset initialization state
-      this.initializationPromise = null;
-
-      // Clear the TypeScript-tracked account ID
-      this.currentVrfAccountId = null;
-
-      console.log('✅ VRF Manager: Force cleanup completed');
-    } catch (error) {
-      console.warn('VRF Manager: Force cleanup partial failure:', error);
     }
   }
 
@@ -448,10 +422,10 @@ export class VrfWorkerManager {
         encryptedVrfKeypair: response.data.encrypted_vrf_keypair
       };
 
-      console.log('✅ VRF Manager: VRF keypair encryption successful');
+      console.log('VRF Manager: VRF keypair encryption successful');
       return result;
     } catch (error: any) {
-      console.error('❌ VRF Manager: VRF keypair encryption failed:', error);
+      console.error('VRF Manager: VRF keypair encryption failed:', error);
       throw new Error(`Failed to encrypt VRF keypair: ${error.message}`);
     }
   }

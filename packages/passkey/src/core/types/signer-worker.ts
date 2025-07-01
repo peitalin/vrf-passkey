@@ -142,7 +142,7 @@ export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn registration credential */
-    webauthnCredential: SerializableWebAuthnRegistrationCredential;
+    credential: SerializableWebAuthnRegistrationCredential;
     /** Contract ID for verification */
     contractId: string;
     /** NEAR RPC provider URL for verification */
@@ -157,7 +157,7 @@ export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn registration credential */
-    webauthnCredential: SerializableWebAuthnRegistrationCredential;
+    credential: SerializableWebAuthnRegistrationCredential;
     /** Contract ID for verification */
     contractId: string;
     /** Signer account ID for the transaction */
@@ -405,7 +405,7 @@ export interface SignTransactionWithActionsRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential (PRF extracted in worker for security) */
-    webauthnCredential: SerializableWebAuthnCredential;
+    credential: SerializableWebAuthnCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -435,7 +435,7 @@ export interface SignTransferTransactionRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential (PRF extracted in worker for security) */
-    webauthnCredential: SerializableWebAuthnCredential;
+    credential: SerializableWebAuthnCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -523,7 +523,7 @@ export interface AddKeyWithPrfRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential */
-    webauthnCredential: SerializableWebAuthnCredential;
+    credential: SerializableWebAuthnCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -551,7 +551,7 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential */
-    webauthnCredential: SerializableWebAuthnCredential;
+    credential: SerializableWebAuthnCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -579,7 +579,7 @@ export interface RollbackFailedRegistrationWithPrfRequest extends BaseWorkerRequ
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential */
-    webauthnCredential: SerializableWebAuthnCredential;
+    credential: SerializableWebAuthnCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
     /** SECURITY: Name of the calling function for validation */
@@ -689,22 +689,44 @@ export interface EncryptionFailureResponse extends BaseWorkerResponse {
   };
 }
 
-export interface RegistrationSuccessResponse extends BaseWorkerResponse {
+export interface CheckRegistrationSuccessResponse extends BaseWorkerResponse {
   type: WorkerResponseType.REGISTRATION_SUCCESS;
   payload: {
-    /** Whether the registration was verified */
+    /// Whether the registration was verified
     verified: boolean;
-    /** Registration information from the contract */
+    /// Registration information from the contract
     registrationInfo?: {
       credential_id: number[];
       credential_public_key: number[];
       user_id: string;
       vrf_public_key?: number[];
     };
-    /** Contract logs from the registration verification */
+    /// Contract logs from the registration verification
     logs?: string[];
-    /** Signed transaction bytes for state-changing registrations */
-    signedTransactionBorsh?: number[];
+    /// Signed transaction bytes for view functions (usually null for view calls)
+    signedTransactionBorsh: number[];
+  };
+}
+
+export interface RegistrationSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.REGISTRATION_SUCCESS;
+  payload: {
+    /// Whether the registration was verified
+    verified: boolean;
+    /// Registration information from the contract
+    registrationInfo: {
+      credential_id: number[];
+      credential_public_key: number[];
+      user_id: string;
+      vrf_public_key?: number[];
+    };
+    /// Contract logs from the registration verification
+    logs: string[];
+    /// Signed transaction bytes for state-changing registrations
+    signedTransactionBorsh: number[];
+    /// Pre-signed delete transaction for rollback (same nonce as registration)
+    /// Using the same nonce makes it mutually exclusive with the registration transaction
+    preSignedDeleteTransaction: number[];
   };
 }
 
@@ -879,6 +901,7 @@ export interface ErrorResponse extends BaseWorkerResponse {
 export type WorkerResponse =
   | EncryptionSuccessResponse
   | EncryptionFailureResponse
+  | CheckRegistrationSuccessResponse
   | RegistrationSuccessResponse
   | RegistrationFailureResponse
   | SignatureSuccessResponse
@@ -901,6 +924,10 @@ export type WorkerResponse =
 
 export function isEncryptionSuccess(response: WorkerResponse): response is EncryptionSuccessResponse {
   return response.type === WorkerResponseType.ENCRYPTION_SUCCESS;
+}
+
+export function isCheckRegistrationSuccess(response: WorkerResponse): response is CheckRegistrationSuccessResponse {
+  return response.type === WorkerResponseType.REGISTRATION_SUCCESS;
 }
 
 export function isRegistrationSuccess(response: WorkerResponse): response is RegistrationSuccessResponse {

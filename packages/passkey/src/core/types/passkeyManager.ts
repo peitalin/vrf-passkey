@@ -42,7 +42,6 @@ export interface UserReadySSEEvent extends BaseSSERegistrationEvent {
   verified: boolean;
   nearAccountId: string;
   clientNearPublicKey: string | null | undefined;
-  mode: string;
 }
 
 export interface AccessKeyAdditionSSEEvent extends BaseSSERegistrationEvent {

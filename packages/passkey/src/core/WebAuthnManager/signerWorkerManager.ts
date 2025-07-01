@@ -12,6 +12,7 @@ import {
   isDecryptionSuccess,
   isCoseKeySuccess,
   isCoseValidationSuccess,
+  isCheckRegistrationSuccess,
   isRegistrationSuccess,
   validateActionParams,
   serializeCredentialAndCreatePRF,
@@ -165,10 +166,16 @@ export class SignerWorkerManager {
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
    */
   async deriveNearKeypairAndEncrypt(
-    prfOutput: ArrayBuffer,
+    credential: PublicKeyCredential,
     nearAccountId: string,
-    attestationObject: AuthenticatorAttestationResponse,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
+
+    const attestationObject = credential.response as AuthenticatorAttestationResponse
+    const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+    if (!prfOutput) {
+      throw new Error('PRF output not found in WebAuthn credentials');
+    }
+
     try {
       console.log('WebAuthnManager: Starting secure registration with PRF using deterministic derivation');
 
@@ -238,11 +245,15 @@ export class SignerWorkerManager {
       // Security comes from device possession + biometrics, not challenge validation
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       // TouchID prompt
-      const { prfOutput } = await touchIdPrompt.getCredentialsAndPrf({
+      const credential = await touchIdPrompt.getCredentials({
         nearAccountId,
         challenge,
         authenticators,
       });
+      const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+      if (!prfOutput) {
+        throw new Error('PRF output not found in WebAuthn credentials');
+      }
 
       const response = await this.executeWorkerOperation({
         message: {
@@ -325,12 +336,12 @@ export class SignerWorkerManager {
 
   async checkCanRegisterUser({
     vrfChallenge,
-    webauthnCredential,
+    credential,
     contractId,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
-    webauthnCredential: PublicKeyCredential,
+    credential: PublicKeyCredential,
     contractId: string;
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
@@ -349,7 +360,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.CHECK_CAN_REGISTER_USER,
           payload: {
             vrfChallenge,
-            webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
+            credential: serializeRegistrationCredentialAndCreatePRF(credential),
             contractId,
             nearRpcUrl: RPC_NODE_URL
           }
@@ -358,7 +369,7 @@ export class SignerWorkerManager {
         timeoutMs: 60000 // Longer timeout for contract verification
       });
 
-      if (isRegistrationSuccess(response)) {
+      if (isCheckRegistrationSuccess(response)) {
         console.log('WebAuthnManager: User can be registered on-chain');
         return {
           success: true,
@@ -393,7 +404,7 @@ export class SignerWorkerManager {
    */
   async signVerifyAndRegisterUser({
     vrfChallenge,
-    webauthnCredential,
+    credential,
     contractId,
     signerAccountId,
     nearAccountId,
@@ -402,14 +413,20 @@ export class SignerWorkerManager {
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
-    webauthnCredential: PublicKeyCredential,
+    credential: PublicKeyCredential,
     contractId: string;
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
     nearRpcProvider: Provider; // NEAR RPC provider for getting transaction metadata
     onEvent?: (update: onProgressEvents) => void
-  }): Promise<{ verified: boolean; registrationInfo?: any; logs?: string[]; signedTransactionBorsh?: number[] }> {
+  }): Promise<{
+    verified: boolean;
+    registrationInfo?: any;
+    logs?: string[];
+    signedTransactionBorsh: number[];
+    preSignedDeleteTransaction: number[]
+  }> {
     try {
       console.log('WebAuthnManager: Starting on-chain user registration with transaction');
 
@@ -449,7 +466,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER,
           payload: {
             vrfChallenge,
-            webauthnCredential: serializeRegistrationCredentialAndCreatePRF(webauthnCredential),
+            credential: serializeRegistrationCredentialAndCreatePRF(credential),
             contractId,
             signerAccountId,
             nearAccountId,
@@ -467,7 +484,8 @@ export class SignerWorkerManager {
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
           logs: response.payload.logs,
-          signedTransactionBorsh: response.payload.signedTransactionBorsh
+          signedTransactionBorsh: response.payload.signedTransactionBorsh,
+          preSignedDeleteTransaction: response.payload.preSignedDeleteTransaction
         };
       } else {
         console.error('WebAuthnManager: On-chain user registration transaction failed:', response);
@@ -495,7 +513,7 @@ export class SignerWorkerManager {
       // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
-      webauthnCredential: PublicKeyCredential;
+      credential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
@@ -523,7 +541,7 @@ export class SignerWorkerManager {
             contractId: payload.contractId,
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
-            webauthnCredential: serializeCredentialAndCreatePRF(payload.webauthnCredential),
+            credential: serializeCredentialAndCreatePRF(payload.credential),
             nearRpcUrl: RPC_NODE_URL
           }
         },
@@ -562,7 +580,7 @@ export class SignerWorkerManager {
       // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
-      webauthnCredential: PublicKeyCredential;
+      credential: PublicKeyCredential;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<{ signedTransactionBorsh: number[]; nearAccountId: string; logs?: string[] }> {
@@ -588,7 +606,7 @@ export class SignerWorkerManager {
             contractId: payload.contractId,
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
-            webauthnCredential: serializeCredentialAndCreatePRF(payload.webauthnCredential),
+            credential: serializeCredentialAndCreatePRF(payload.credential),
             nearRpcUrl: RPC_NODE_URL
           }
         },

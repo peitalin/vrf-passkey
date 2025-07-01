@@ -53,10 +53,10 @@ export default defineConfig({
     }
   ],
 
-  // webServer: {
-  //   command: 'npm run dev',
-  //   url: 'https://example.localhost',
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120 * 1000,
-  // },
+  webServer: {
+    command: 'cd ../../frontend && pnpm dev',
+    url: 'https://example.localhost',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+  },
 })

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useMemo, useRef } from 'react';
 import { PasskeyManager } from '../../core/PasskeyManager';
 import { useNearRpcProvider } from '../hooks/useNearRpcProvider';
 import { useAccountInput } from '../hooks/useAccountInput';
@@ -15,6 +15,10 @@ import type {
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
+
+// Global singleton to prevent multiple PasskeyManager instances in StrictMode
+let globalPasskeyManager: PasskeyManager | null = null;
+let globalConfig: any = null;
 
 export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   children,
@@ -45,8 +49,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Get NEAR RPC provider
   const { getNearRpcProvider } = useNearRpcProvider();
 
-  // Initialize PasskeyManager with configuration
-  const [passkeyManager] = useState(() => {
+  // Initialize PasskeyManager with singleton pattern to prevent double initialization in StrictMode
+  const passkeyManager = useMemo(() => {
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
       relayerAccount: 'web3-authn.testnet',
@@ -55,10 +59,20 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     };
 
     const finalConfig = { ...defaultConfig, ...userConfig };
-    console.log('PasskeyProvider config: ', finalConfig);
 
-    return new PasskeyManager(finalConfig, getNearRpcProvider());
-  });
+    // Check if we already have a global instance with the same config
+    const configChanged = JSON.stringify(globalConfig) !== JSON.stringify(finalConfig);
+
+    if (!globalPasskeyManager || configChanged) {
+      console.log('PasskeyProvider: Creating new PasskeyManager instance with config:', finalConfig);
+      globalPasskeyManager = new PasskeyManager(finalConfig, getNearRpcProvider());
+      globalConfig = finalConfig;
+    } else {
+      console.log('PasskeyProvider: Reusing existing PasskeyManager instance');
+    }
+
+    return globalPasskeyManager;
+  }, [userConfig, getNearRpcProvider]);
 
   // Use relayer hook
   const relayerHook = useRelayer({

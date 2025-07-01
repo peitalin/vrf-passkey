@@ -313,7 +313,7 @@ async function handleCheckCanRegisterUser(
   try {
     const {
       vrfChallenge,
-      webauthnCredential,
+      credential,
       contractId,
       nearRpcUrl
     } = payload;
@@ -321,11 +321,11 @@ async function handleCheckCanRegisterUser(
     console.log('[signer-worker]: Starting check if user can register (view function)');
 
     // Validate required parameters
-    if (!vrfChallenge || !webauthnCredential || !contractId || !nearRpcUrl) {
-      throw new Error('Missing required parameters for registration check: vrfChallenge, webauthnCredential, contractId, nearRpcUrl');
+    if (!vrfChallenge || !credential || !contractId || !nearRpcUrl) {
+      throw new Error('Missing required parameters for registration check: vrfChallenge, credential, contractId, nearRpcUrl');
     }
 
-    const { credentialWithoutPrf } = takePrfOutputFromCredential(webauthnCredential);
+    const { credentialWithoutPrf } = takePrfOutputFromCredential(credential);
     console.log('[signer-worker]: Calling check_can_register_user function');
 
     // Call the WASM function that handles registration eligibility check
@@ -373,7 +373,7 @@ async function handleSignVerifyAndRegisterUser(
   try {
     const {
       vrfChallenge,
-      webauthnCredential,
+      credential,
       contractId,
       signerAccountId,
       nearAccountId,
@@ -384,8 +384,8 @@ async function handleSignVerifyAndRegisterUser(
     console.log('[signer-worker]: Starting actual user registration (state-changing function)');
 
     // Validate required parameters
-    if (!vrfChallenge || !webauthnCredential || !contractId || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
-      throw new Error('Missing required parameters for actual registration: vrfChallenge, webauthnCredential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
+    if (!vrfChallenge || !credential || !contractId || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
+      throw new Error('Missing required parameters for actual registration: vrfChallenge, credential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
     }
 
     // Get encrypted key data for the account
@@ -395,14 +395,13 @@ async function handleSignVerifyAndRegisterUser(
     }
 
     // Extract PRF output from credential
-    const prfOutput = webauthnCredential.clientExtensionResults?.prf?.results?.first;
+    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
     if (!prfOutput) {
       throw new Error('PRF output missing from credential.extensionResults: required for secure registration');
     }
 
     console.log('[signer-worker]: Calling sign_verify_and_register_user function with transaction metadata');
-
-    const { credentialWithoutPrf } = takePrfOutputFromCredential(webauthnCredential);
+    const { credentialWithoutPrf } = takePrfOutputFromCredential(credential);
 
     // Call the WASM function that handles actual registration (send_tx)
     const registrationResultJson = await sign_verify_and_register_user(
@@ -435,7 +434,8 @@ async function handleSignVerifyAndRegisterUser(
         verified: registrationResult.verified,
         registrationInfo: registrationResult.registration_info,
         logs: registrationResult.logs,
-        signedTransactionBorsh: registrationResult.signed_transaction_borsh
+        signedTransactionBorsh: registrationResult.signed_transaction_borsh,
+        preSignedDeleteTransaction: registrationResult.pre_signed_delete_transaction
       }
     });
 
@@ -467,7 +467,7 @@ async function handleVerifyAndSignNearTransactionWithActions(
       blockHashBytes,
       contractId,
       vrfChallenge,
-      webauthnCredential,
+      credential,
       nearRpcUrl
     } = payload;
 
@@ -477,7 +477,7 @@ async function handleVerifyAndSignNearTransactionWithActions(
     if (!nearAccountId || !receiverId || !actions || !nonce || !blockHashBytes) {
       throw new Error('Missing required transaction parameters');
     }
-    if (!contractId || !vrfChallenge || !webauthnCredential || !nearRpcUrl) {
+    if (!contractId || !vrfChallenge || !credential || !nearRpcUrl) {
       throw new Error('Missing required verification parameters');
     }
 
@@ -488,12 +488,12 @@ async function handleVerifyAndSignNearTransactionWithActions(
     }
 
     // Extract PRF output using the method you wanted
-    if (!webauthnCredential.clientExtensionResults?.prf?.results?.first) {
+    if (!credential.clientExtensionResults?.prf?.results?.first) {
       throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
     }
     console.log('[signer-worker]: PRF output extracted via getClientExtensionResults()');
 
-    let { credentialWithoutPrf, prfOutput } = takePrfOutputFromCredential(webauthnCredential);
+    let { credentialWithoutPrf, prfOutput } = takePrfOutputFromCredential(credential);
 
     // Call the pure WASM function that handles verification + signing with progress messages
     const _signedTransactionBorsh = await verify_and_sign_near_transaction_with_actions(
@@ -551,7 +551,7 @@ async function handleSignTransferTransaction(
       // Verification parameters for enhanced mode (all required)
       contractId,
       vrfChallenge,
-      webauthnCredential,
+      credential,
       nearRpcUrl
     } = payload;
 
@@ -568,13 +568,13 @@ async function handleSignTransferTransaction(
       throw new Error('blockHashBytes is required and cannot be empty');
     }
     // All verification parameters are required
-    if (!contractId || !vrfChallenge || !webauthnCredential || !nearRpcUrl) {
-      throw new Error('All verification parameters are required: contractId, vrfChallenge, webauthnCredential, nearRpcUrl');
+    if (!contractId || !vrfChallenge || !credential || !nearRpcUrl) {
+      throw new Error('All verification parameters are required: contractId, vrfChallenge, credential, nearRpcUrl');
     }
 
     // Get PRF output from serialized credential (extracted in main thread with minimal exposure)
     console.log('[signer-worker]: Getting PRF output from serialized credential');
-    const prfOutput = webauthnCredential.clientExtensionResults?.prf?.results?.first;
+    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
     if (!prfOutput) {
       throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
     }
@@ -604,7 +604,7 @@ async function handleSignTransferTransaction(
         // Verification parameters
         contractId,
         JSON.stringify(vrfChallenge),
-        JSON.stringify(webauthnCredential),
+        JSON.stringify(credential),
         nearRpcUrl
       );
 
@@ -887,7 +887,7 @@ async function handleAddKeyWithPrf(
       new Uint8Array(payload.blockHashBytes),
       payload.contractId,
       JSON.stringify(payload.vrfChallenge),
-      JSON.stringify(payload.webauthnCredential),
+      JSON.stringify(payload.credential),
       payload.nearRpcUrl
     );
 
@@ -909,7 +909,7 @@ async function handleAddKeyWithPrf(
       actions,
       payload.contractId,
       JSON.stringify(payload.vrfChallenge),
-      JSON.stringify(payload.webauthnCredential),
+      JSON.stringify(payload.credential),
       payload.nearRpcUrl
     );
 
@@ -941,7 +941,7 @@ async function handleDeleteKeyWithPrf(
       new Uint8Array(payload.blockHashBytes),
       payload.contractId,
       JSON.stringify(payload.vrfChallenge),
-      JSON.stringify(payload.webauthnCredential),
+      JSON.stringify(payload.credential),
       payload.nearRpcUrl
     );
 
@@ -962,7 +962,7 @@ async function handleDeleteKeyWithPrf(
       actions,
       payload.contractId,
       JSON.stringify(payload.vrfChallenge),
-      JSON.stringify(payload.webauthnCredential),
+      JSON.stringify(payload.credential),
       payload.nearRpcUrl
     );
 
@@ -1004,7 +1004,7 @@ async function handleRollbackFailedRegistrationWithPrf(
       new Uint8Array(payload.blockHashBytes),
       payload.contractId,
       JSON.stringify(payload.vrfChallenge),
-      JSON.stringify(payload.webauthnCredential),
+      JSON.stringify(payload.credential),
       payload.nearRpcUrl,
       callerFunction // Pass actual caller function for security validation
     );

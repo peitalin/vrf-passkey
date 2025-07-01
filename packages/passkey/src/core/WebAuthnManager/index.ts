@@ -8,6 +8,7 @@ import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManage
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
+import { bufferEncode } from '../../utils/encoders';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -45,10 +46,6 @@ export class WebAuthnManager {
 
   async clearVrfSession(): Promise<void> {
     return this.vrfWorkerManager.clearVrfSession();
-  }
-
-  async forceCleanupVrfManager(): Promise<void> {
-    return this.vrfWorkerManager.forceCleanupVrfManager();
   }
 
   async generateVRFChallenge(vrfInputData: VRFInputData): Promise<VRFChallenge> {
@@ -104,24 +101,24 @@ export class WebAuthnManager {
   /**
    * Unlock VRF keypair in VRF Worker memory using PRF output from WebAuthn ceremony
    * This decrypts the stored VRF keypair and keeps it in memory for challenge generation
-   * requires touchId (conditional - only if webauthnCredential not provided)
+   * requires touchId (conditional - only if credential not provided)
    *
    * @param nearAccountId - NEAR account ID associated with the VRF keypair
    * @param encryptedVrfKeypair - Encrypted VRF keypair data from storage
-   * @param webauthnCredential - WebAuthn credential from TouchID prompt (optional)
+   * @param credential - WebAuthn credential from TouchID prompt (optional)
    * If not provided, will do a TouchID prompt (e.g. login flow)
    * @returns Success status and optional error message
    */
   async unlockVRFKeypair({
     nearAccountId,
     encryptedVrfKeypair,
-    webauthnCredential,
+    credential,
     authenticators,
     onEvent
   }: {
     nearAccountId: string,
     encryptedVrfKeypair: EncryptedVRFKeypair,
-    webauthnCredential?: PublicKeyCredential,
+    credential?: PublicKeyCredential,
     authenticators?: ClientAuthenticatorData[],
     onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
   }): Promise<{ success: boolean; error?: string }> {
@@ -133,17 +130,15 @@ export class WebAuthnManager {
       }
     }
 
-    if (!webauthnCredential) {
-      // login flow: unlock VRF generator with a normal TouchId prompt with JS RNG
-      const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+    if (!credential) {
+      credential = await this.touchIdPrompt.getCredentials({
         nearAccountId,
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         authenticators,
       });
-      webauthnCredential = credential
     }
 
-    const prfOutput = webauthnCredential?.getClientExtensionResults().prf?.results?.first as ArrayBuffer;
+    const prfOutput = credential.getClientExtensionResults().prf?.results?.first as ArrayBuffer;
     if (!prfOutput) {
       throw new Error('PRF output not found in WebAuthn credentials');
     }
@@ -249,17 +244,9 @@ export class WebAuthnManager {
     credential: PublicKeyCredential,
     nearAccountId: string,
   }): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
-
-    const attestationObject = credential.response as AuthenticatorAttestationResponse
-    const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
-    if (!prfOutput) {
-      throw new Error('PRF output not found in WebAuthn credentials');
-    }
-
     return await this.signerWorkerManager.deriveNearKeypairAndEncrypt(
-      prfOutput,
+      credential,
       nearAccountId,
-      attestationObject,
     );
   }
 
@@ -343,7 +330,7 @@ export class WebAuthnManager {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
 
-    const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+    const credential = await this.touchIdPrompt.getCredentials({
       nearAccountId,
       challenge: vrfChallenge.outputAs32Bytes(),
       authenticators,
@@ -367,7 +354,7 @@ export class WebAuthnManager {
     return await this.signerWorkerManager.signTransferTransaction(
       {
         ...payload,
-        webauthnCredential: credential,
+        credential: credential,
       },
       onEvent
     );
@@ -388,7 +375,7 @@ export class WebAuthnManager {
    *   - blockHashBytes: Recent block hash for transaction freshness
    *   - contractId: Web3Authn contract ID for verification
    *   - vrfChallenge: VRF challenge used in authentication
-   *   - webauthnCredential: WebAuthn credential from TouchID prompt
+   *   - credential: WebAuthn credential from TouchID prompt
    * @param onEvent - Optional callback for progress updates during signing
    */
   async signTransactionWithActions(
@@ -420,7 +407,7 @@ export class WebAuthnManager {
       throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
     }
 
-    const { credential } = await this.touchIdPrompt.getCredentialsAndPrf({
+    const credential = await this.touchIdPrompt.getCredentials({
       nearAccountId,
       challenge: vrfChallenge.outputAs32Bytes(),
       authenticators,
@@ -444,7 +431,7 @@ export class WebAuthnManager {
     return await this.signerWorkerManager.signTransactionWithActions(
       {
         ...payload,
-        webauthnCredential: credential,
+        credential: credential,
       },
       onEvent
     );
@@ -465,12 +452,12 @@ export class WebAuthnManager {
 
   async checkCanRegisterUser({
     contractId,
-    webauthnCredential,
+    credential,
     vrfChallenge,
     onEvent,
   }: {
     contractId: string,
-    webauthnCredential: PublicKeyCredential,
+    credential: PublicKeyCredential,
     vrfChallenge: VRFChallenge,
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
@@ -483,7 +470,7 @@ export class WebAuthnManager {
   }> {
     return await this.signerWorkerManager.checkCanRegisterUser({
       contractId,
-      webauthnCredential,
+      credential,
       vrfChallenge,
       onEvent,
     });
@@ -495,7 +482,7 @@ export class WebAuthnManager {
    */
   async signVerifyAndRegisterUser({
     contractId,
-    webauthnCredential,
+    credential,
     vrfChallenge,
     signerAccountId,
     nearAccountId,
@@ -504,7 +491,7 @@ export class WebAuthnManager {
     onEvent,
   }: {
     contractId: string,
-    webauthnCredential: PublicKeyCredential,
+    credential: PublicKeyCredential,
     vrfChallenge: VRFChallenge,
     signerAccountId: string;
     nearAccountId: string;
@@ -513,16 +500,17 @@ export class WebAuthnManager {
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
-    verified?: boolean;
+    verified: boolean;
     registrationInfo?: any;
     logs?: string[];
-    signedTransactionBorsh?: number[];
+    signedTransactionBorsh: number[];
+    preSignedDeleteTransaction: number[];
     error?: string;
   }> {
     try {
       const registrationResult = await this.signerWorkerManager.signVerifyAndRegisterUser({
         vrfChallenge,
-        webauthnCredential,
+        credential,
         contractId,
         signerAccountId,
         nearAccountId,
@@ -541,22 +529,84 @@ export class WebAuthnManager {
           registrationInfo: registrationResult.registrationInfo,
           logs: registrationResult.logs,
           signedTransactionBorsh: registrationResult.signedTransactionBorsh,
+          preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction,
         };
       } else {
-        console.warn('❌ On-chain user registration failed');
-        return {
-          success: false,
-          verified: false,
-          error: 'On-chain registration transaction failed',
-        };
+        console.warn('❌ On-chain user registration failed - WASM worker returned unverified result');
+        // Note: This should never happen since WASM worker throws on failure
+        // But if it does, we don't have access to preSignedDeleteTransaction
+        throw new Error('On-chain registration transaction failed');
       }
     } catch (error: any) {
       console.error('WebAuthnManager: On-chain registration error:', error);
-      return {
-        success: false,
-        verified: false,
-        error: error.message || 'On-chain registration failed',
-      };
+      throw error;
     }
+  }
+
+  /**
+   * Atomically store all registration data (user, authenticator, VRF credentials)
+   */
+  async atomicStoreRegistrationData({
+    nearAccountId,
+    credential,
+    publicKey,
+    encryptedVrfKeypair,
+    onEvent
+  }: {
+    nearAccountId: string;
+    credential: PublicKeyCredential;
+    publicKey: string;
+    encryptedVrfKeypair: any;
+    onEvent?: (event: any) => void;
+  }): Promise<void> {
+
+    await this.atomicOperation(async (db) => {
+      // Register user in IndexDB
+      await this.registerUser(nearAccountId);
+
+      // Store credential for authentication
+      const credentialId = bufferEncode(credential.rawId);
+      const response = credential.response as AuthenticatorAttestationResponse;
+
+      await this.storeAuthenticator({
+        nearAccountId,
+        credentialID: credentialId,
+        credentialPublicKey: await this.extractCosePublicKey(
+          bufferEncode(response.attestationObject)
+        ),
+        transports: response.getTransports?.() || [],
+        clientNearPublicKey: publicKey,
+        name: `VRF Passkey for ${this.extractUsername(nearAccountId)}`,
+        registered: new Date().toISOString(),
+        lastUsed: undefined,
+        backedUp: false,
+        syncedAt: new Date().toISOString(),
+      });
+
+      // Store WebAuthn user data with encrypted VRF credentials
+      await this.storeUserData({
+        nearAccountId,
+        clientNearPublicKey: publicKey,
+        lastUpdated: Date.now(),
+        prfSupported: true,
+        deterministicKey: true,
+        passkeyCredential: {
+          id: credential.id,
+          rawId: credentialId
+        },
+        encryptedVrfKeypair
+      });
+
+      console.log('✅ registration data stored atomically');
+      return true;
+    });
+
+    onEvent?.({
+      step: 5,
+      phase: 'database-storage',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'VRF registration data stored successfully'
+    });
   }
 }

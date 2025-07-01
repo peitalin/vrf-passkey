@@ -11,10 +11,6 @@ export interface AuthenticateCredentialsArgs {
   challenge: Uint8Array<ArrayBuffer>,
   authenticators: ClientAuthenticatorData[],
 }
-export interface TouchIdCredentialsResult {
-  credential: PublicKeyCredential,
-  prfOutput: ArrayBuffer
-}
 
 /**
  * TouchIdPrompt prompts for touchID,
@@ -44,11 +40,11 @@ export class TouchIdPrompt {
    * });
    * ```
    */
-  async getCredentialsAndPrf({
+  async getCredentials({
     nearAccountId,
     challenge,
     authenticators
-  }: AuthenticateCredentialsArgs): Promise<TouchIdCredentialsResult> {
+  }: AuthenticateCredentialsArgs): Promise<PublicKeyCredential> {
 
     const credential = await navigator.credentials.get({
       publicKey: {
@@ -74,17 +70,7 @@ export class TouchIdPrompt {
     if (!credential) {
       throw new Error('WebAuthn authentication failed or was cancelled');
     }
-    // Get PRF output for VRF decryption
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutput = extensionResults?.prf?.results?.first as ArrayBuffer;
-    if (!prfOutput) {
-      throw new Error('PRF output not available - required for VRF keypair decryption');
-    }
-    console.log('✅ WebAuthn authentication successful, PRF output obtained');
-    return {
-      credential,
-      prfOutput
-    }
+    return credential;
   }
 
   /**
@@ -93,10 +79,10 @@ export class TouchIdPrompt {
    * @param challenge - Random challenge bytes for the registration ceremony
    * @returns Credential and PRF output for VRF keypair generation
    */
-  async generateRegistrationCredentialsAndPrf({
+  async generateRegistrationCredentials({
     nearAccountId,
     challenge,
-  }: RegisterCredentialsArgs): Promise<TouchIdCredentialsResult> {
+  }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
     const credential = await navigator.credentials.create({
       publicKey: {
         challenge,
@@ -129,9 +115,6 @@ export class TouchIdPrompt {
       } as PublicKeyCredentialCreationOptions
     }) as PublicKeyCredential;
 
-    return {
-      credential,
-      prfOutput: credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer
-    }
+    return credential;
   }
 }

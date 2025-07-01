@@ -129,6 +129,7 @@ pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
     Ok(result)
 }
 
+
 #[wasm_bindgen]
 pub fn decrypt_private_key_with_prf_as_string(
     prf_output_base64: &str,

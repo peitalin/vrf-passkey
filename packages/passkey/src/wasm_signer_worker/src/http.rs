@@ -34,6 +34,7 @@ pub struct ContractRegistrationResult {
     pub logs: Vec<String>,
     pub registration_info: Option<RegistrationInfo>,
     pub signed_transaction_borsh: Option<Vec<u8>>,
+    pub pre_signed_delete_transaction: Option<Vec<u8>>,
 }
 
 /// Registration info returned from contract
@@ -309,14 +310,38 @@ pub async fn sign_registration_tx_wasm(
         actions,
     ).map_err(|e| format!("Failed to build transaction: {}", e))?;
 
-    // Step 6: Sign transaction using existing infrastructure
-    let signed_tx_bytes = crate::transaction::sign_transaction(transaction, &private_key)
-        .map_err(|e| format!("Failed to sign transaction: {}", e))?;
+    // Step 6: Sign registration transaction using existing infrastructure
+    let signed_registration_tx_bytes = crate::transaction::sign_transaction(transaction, &private_key)
+        .map_err(|e| format!("Failed to sign registration transaction: {}", e))?;
 
-    console_log!("RUST: Transaction signed successfully - returning signed transaction for main thread to broadcast");
+    console_log!("RUST: Registration transaction signed successfully");
 
-    // Return the signed transaction bytes for the main thread to broadcast
-    console_log!("RUST: Registration transaction prepared: {} bytes", signed_tx_bytes.len());
+    // Step 7: Generate pre-signed delete transaction for rollback with SAME nonce/block hash
+    console_log!("RUST: Generating pre-signed deleteAccount transaction for rollback");
+
+    let delete_action_params = vec![crate::actions::ActionParams::DeleteAccount {
+        beneficiary_id: "testnet".to_string(), // Default beneficiary for rollback
+    }];
+
+    let delete_actions = crate::transaction::build_actions_from_params(delete_action_params)
+        .map_err(|e| format!("Failed to build delete actions: {}", e))?;
+
+    // Use SAME nonce and block hash - makes transactions mutually exclusive
+    let delete_transaction = crate::transaction::build_transaction_with_actions(
+        signer_account_id,
+        signer_account_id, // receiver_id same as signer for delete account
+        nonce, // SAME nonce as registration
+        block_hash_bytes, // SAME block hash as registration
+        &private_key, // SAME private key as registration
+        delete_actions,
+    ).map_err(|e| format!("Failed to build delete transaction: {}", e))?;
+
+    let signed_delete_tx_bytes = crate::transaction::sign_transaction(delete_transaction, &private_key)
+        .map_err(|e| format!("Failed to sign delete transaction: {}", e))?;
+
+    console_log!("RUST: Pre-signed deleteAccount transaction created - same nonce ensures mutual exclusivity");
+    console_log!("RUST: Registration transaction: {} bytes, Delete transaction: {} bytes",
+                 signed_registration_tx_bytes.len(), signed_delete_tx_bytes.len());
 
     Ok(ContractRegistrationResult {
         success: true,
@@ -324,7 +349,8 @@ pub async fn sign_registration_tx_wasm(
         error: None,
         logs: vec![], // No logs yet since we haven't executed the transaction
         registration_info: None, // Will be available after broadcast in main thread
-        signed_transaction_borsh: Some(signed_tx_bytes),
+        signed_transaction_borsh: Some(signed_registration_tx_bytes),
+        pre_signed_delete_transaction: Some(signed_delete_tx_bytes), // NEW: Add delete transaction
     })
 }
 
@@ -436,6 +462,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
             logs: vec![],
             registration_info: None,
             signed_transaction_borsh: None,
+            pre_signed_delete_transaction: None,
         });
     }
 
@@ -508,6 +535,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
         logs,
         registration_info: None,
         signed_transaction_borsh: None, // View functions don't have transactions
+        pre_signed_delete_transaction: None, // View functions don't have transactions
     })
 }
 
@@ -743,6 +771,7 @@ mod tests {
                 credential_public_key: vec![0x04, 0x05, 0x06],
             }),
             signed_transaction_borsh: Some(vec![0x0a, 0x0b, 0x0c]),
+            pre_signed_delete_transaction: Some(vec![0x0d, 0x0e, 0x0f]),
         };
 
         assert_eq!(result.success, true);
