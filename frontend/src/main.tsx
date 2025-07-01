@@ -12,66 +12,68 @@ import '@web3authn/passkey/react/styles';
 // Simple App component to manage layout and potentially shared state later
 function App() {
   return (
-    <React.StrictMode>
-      <BrowserRouter>
-        <PasskeyProvider
-          config={{
-            nearNetwork: 'testnet',
-            relayerOptions: {
-              relayerAccount: 'web3-authn.testnet',
-              relayServerUrl: 'https://localhost:3000',
-              initialUseRelayer: false
+    <BrowserRouter>
+      <PasskeyProvider
+        config={{
+          nearNetwork: 'testnet',
+          relayerOptions: {
+            relayerAccount: 'web3-authn.testnet',
+            relayServerUrl: 'https://localhost:3000',
+            initialUseRelayer: false
+          },
+          debugMode: false
+        }}
+      >
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: '#222222',
+              color: '#ffffff', // Default white text
             },
-            debugMode: false
-          }}
-        >
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
+            success: {
               style: {
                 background: '#222222',
-                color: '#ffffff', // Default white text
+                color: '#eaeaea',
               },
-              success: {
-                style: {
-                  background: '#222222',
-                  color: '#eaeaea',
-                },
-                iconTheme: {
-                  primary: '#4ade80', // Bright green
-                  secondary: '#222222',
-                },
+              iconTheme: {
+                primary: '#4ade80', // Bright green
+                secondary: '#222222',
               },
-              error: {
-                style: {
-                  background: '#222222',
-                  color: '#eaeaea',
-                },
-                iconTheme: {
-                  primary: '#f87171', // Bright red
-                  secondary: '#222222',
-                },
+            },
+            error: {
+              style: {
+                background: '#222222',
+                color: '#eaeaea',
               },
-              loading: {
-                style: {
-                  background: '#222222',
-                  color: '#eaeaea',
-                },
-                iconTheme: {
-                  primary: '#60a5fa', // Bright blue
-                  secondary: '#222222',
-                },
+              iconTheme: {
+                primary: '#f87171', // Bright red
+                secondary: '#222222',
               },
-            }}
-          />
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-          </Routes>
-        </PasskeyProvider>
-      </BrowserRouter>
-    </React.StrictMode>
+            },
+            loading: {
+              style: {
+                background: '#222222',
+                color: '#eaeaea',
+              },
+              iconTheme: {
+                primary: '#60a5fa', // Bright blue
+                secondary: '#222222',
+              },
+            },
+          }}
+        />
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+        </Routes>
+      </PasskeyProvider>
+    </BrowserRouter>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

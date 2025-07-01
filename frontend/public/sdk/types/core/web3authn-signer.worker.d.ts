@@ -1,0 +1,3 @@
+import { type WorkerRequest, type WorkerResponse, type DeriveNearKeypairAndEncryptRequest, type DecryptPrivateKeyWithPrfRequest, type ExtractCosePublicKeyRequest, type ValidateCoseKeyRequest } from './types/signer-worker.js';
+export type { WorkerRequest, WorkerResponse, DeriveNearKeypairAndEncryptRequest, DecryptPrivateKeyWithPrfRequest, ExtractCosePublicKeyRequest, ValidateCoseKeyRequest };
+//# sourceMappingURL=web3authn-signer.worker.d.ts.map

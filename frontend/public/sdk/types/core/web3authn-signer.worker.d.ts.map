@@ -1,0 +1,1 @@
+{"version":3,"file":"web3authn-signer.worker.d.ts","sourceRoot":"","sources":["../../../src/core/web3authn-signer.worker.ts"],"names":[],"mappings":"AAKA,OAAO,EAGL,KAAK,aAAa,EAClB,KAAK,cAAc,EAGnB,KAAK,kCAAkC,EACvC,KAAK,+BAA+B,EACpC,KAAK,2BAA2B,EAChC,KAAK,sBAAsB,EAW5B,MAAM,0BAA0B,CAAC;AAk0BlC,YAAY,EACV,aAAa,EACb,cAAc,EACd,kCAAkC,EAClC,+BAA+B,EAC/B,2BAA2B,EAC3B,sBAAsB,EACvB,CAAC"}

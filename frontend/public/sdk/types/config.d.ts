@@ -1,0 +1,9 @@
+export declare const RPC_NODE_URL = "https://rpc.testnet.near.org";
+export declare const WEBAUTHN_CONTRACT_ID = "web3-authn.testnet";
+export declare const RELAYER_ACCOUNT_ID = "web3-authn.testnet";
+export declare const NEAR_EXPLORER_BASE_URL = "https://testnet.nearblocks.io";
+export declare const DEFAULT_GAS_STRING = "30000000000000";
+export declare const VIEW_GAS_STRING = "30000000000000";
+export declare const GENERATE_AUTHENTICATION_OPTIONS_GAS_STRING = "30000000000000";
+export declare const VERIFY_AUTHENTICATION_RESPONSE_GAS_STRING = "45000000000000";
+//# sourceMappingURL=config.d.ts.map
