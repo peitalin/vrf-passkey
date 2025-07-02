@@ -15,13 +15,12 @@ function App() {
     <BrowserRouter>
       <PasskeyProvider
         config={{
+          nearRpcUrl: 'https://rpc.testnet.near.org',
+          contractId: 'web3-authn.testnet',
           nearNetwork: 'testnet',
-          relayerOptions: {
-            relayerAccount: 'web3-authn.testnet',
-            relayServerUrl: 'https://localhost:3000',
-            initialUseRelayer: false
-          },
-          debugMode: false
+          relayerAccount: 'web3-authn.testnet',
+          relayServerUrl: 'https://localhost:3000',
+          initialUseRelayer: false
         }}
       >
         <Toaster

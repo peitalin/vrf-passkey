@@ -26,6 +26,8 @@ export function PasskeyLoginMenu() {
     },
     loginPasskey,
     registerPasskey,
+    recoverAccount,
+    // UI
     setInputUsername,
     passkeyManager,
     useRelayer,
@@ -93,6 +95,23 @@ export function PasskeyLoginMenu() {
     } catch (error: any) {
       console.error('Registration error:', error);
     }
+  };
+
+  const onRecover = async () => {
+    if (!targetAccountId) {
+      return;
+    }
+
+    console.log('Recovering account:', targetAccountId);
+    const result = await recoverAccount(targetAccountId, "accountId", {
+      onEvent: (event) => {
+        console.log('Recovery event:', event);
+      },
+      onError: (error) => {
+        console.error(error)
+      }
+    });
+    console.log("recover account result: ", result)
   };
 
   const onLogin = async () => {
@@ -193,6 +212,11 @@ export function PasskeyLoginMenu() {
                 className={`action-button ${!accountExists ? 'primary' : ''}`}
                 disabled={!inputUsername || !isSecureContext || accountExists}>
                 Register Passkey
+              </button>
+              <button onClick={onRecover}
+                className={`action-button ${!accountExists ? 'primary' : ''}`}
+                disabled={!inputUsername || !isSecureContext || accountExists}>
+                Recover Account
               </button>
               <button onClick={onLogin}
                 className={`action-button ${accountExists ? 'primary' : ''}`}

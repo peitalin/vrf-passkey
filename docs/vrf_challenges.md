@@ -191,17 +191,17 @@ packages/passkey/src/
 ├── core/
 │   ├── WebAuthnManager/
 │   │   └── vrf-manager.ts              # VRF Manager (client interface)
-│   ├── vrfService.worker.ts            # Service Worker wrapper (TypeScript)
+│   ├── web3authn-vrf.worker.ts         # WASM Worker wrapper (TypeScript)
 │   └── types/
-│       └── vrf.ts                      # VRF type definitions
-├── wasm-vrf-worker/
+│       └── vrf-worker.ts               # VRF type definitions
+├── wasm_vrf_worker/
 │   ├── src/
 │   │   └── lib.rs                      # WASM VRF implementation (Rust)
 │   └── Cargo.toml                      # Rust dependencies (vrf-wasm)
 ├── scripts/
 │   └── copy-wasm-assets.sh             # Copies WASM files to frontend
 └── dist/                               # Built artifacts
-    └── vrfService.worker.js            # Compiled Service Worker
+    └── web3authn-vrf.worker.js         # Compiled VRF Worker
 
 ```
 
@@ -213,9 +213,9 @@ The VRF implementation uses a multi-stage build process:
    ```javascript
    // VRF Service Worker build
    {
-     input: 'src/core/vrfService.worker.ts',
+     input: 'src/core/web3authn-vrf.worker.ts',
      output: {
-       file: 'dist/vrfService.worker.js',
+       file: 'dist/web3authn-vrf.worker.js',
        format: 'esm',
        sourcemap: true
      },
@@ -226,15 +226,15 @@ The VRF implementation uses a multi-stage build process:
 2. **Asset Copying** (`packages/passkey/scripts/copy-wasm-assets.sh`):
    ```bash
    # Copy VRF worker files
-   cp src/wasm-vrf-worker/vrf_service_worker.js "$FRONTEND_WORKERS_DIR/"
-   cp src/wasm-vrf-worker/vrf_service_worker_bg.wasm "$FRONTEND_WORKERS_DIR/"
-   cp dist/vrfService.worker.js "$FRONTEND_WORKERS_DIR/"
+   cp src/wasm_vrf_worker/wasm_vrf_worker.js "$FRONTEND_WORKERS_DIR/"
+   cp src/wasm_vrf_worker/wasm_vrf_worker_bg.wasm "$FRONTEND_WORKERS_DIR/"
+   cp dist/web3authn-vrf.worker.js "$FRONTEND_WORKERS_DIR/"
    ```
 
 3. **Development Workflow**:
    ```bash
    # Build VRF WASM module
-   cd packages/passkey/src/wasm-vrf-worker
+   cd packages/passkey/src/wasm_vrf_-_worker
    wasm-pack build --target web --out-dir .
 
    # Build TypeScript Service Worker
@@ -507,6 +507,8 @@ pub struct VRFAuthenticationData {
     pub vrf_proof: Vec<u8>,        // bincode serialized
     /// VRF public key used to verify the proof
     pub public_key: Vec<u8>,       // bincode serialized
+    /// User ID (accountID) used in VRF input construction
+    pub user_id: String,
     /// Relying Party ID used in VRF input construction
     pub rp_id: String,
     /// Block height for freshness validation

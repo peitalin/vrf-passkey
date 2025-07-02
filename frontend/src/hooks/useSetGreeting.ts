@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { WEBAUTHN_CONTRACT_ID } from '../config';
-import { useNearRpcProvider } from '@web3authn/passkey/react';
+import { useNearClient, type NearClient } from '@web3authn/passkey/react';
 
 export interface GreetingResult {
   success: boolean;
@@ -16,7 +16,7 @@ interface SetGreetingHook {
 }
 
 export const useSetGreeting = (): SetGreetingHook => {
-  const { getNearRpcProvider } = useNearRpcProvider();
+  const nearClient: NearClient = useNearClient();
   const [onchainGreeting, setOnchainGreeting] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,16 +24,9 @@ export const useSetGreeting = (): SetGreetingHook => {
   // Rate limiting
   const lastFetchTime = useRef<number>(0);
   const isCurrentlyFetching = useRef<boolean>(false);
-  const MIN_FETCH_INTERVAL = 200; // 0.2 second (allow more frequent updates)
 
-  const fetchGreeting = useCallback(async (): Promise<GreetingResult> => {
+  const fetchGreeting = async (): Promise<GreetingResult> => {
     const now = Date.now();
-
-    // Rate limiting: prevent calls within the minimum interval
-    if (now - lastFetchTime.current < MIN_FETCH_INTERVAL) {
-      console.log('Greeting fetch rate limited');
-      return { success: false, error: 'Rate limited' };
-    }
 
     // Prevent concurrent calls
     if (isCurrentlyFetching.current) {
@@ -47,8 +40,7 @@ export const useSetGreeting = (): SetGreetingHook => {
     setError(null);
 
     try {
-      const provider = getNearRpcProvider();
-      const result = await provider.view({
+      const result = await nearClient.view({
         account: WEBAUTHN_CONTRACT_ID,
         method: 'get_greeting',
         args: {}
@@ -72,12 +64,15 @@ export const useSetGreeting = (): SetGreetingHook => {
       setIsLoading(false);
       isCurrentlyFetching.current = false;
     }
-  }, [getNearRpcProvider]);
+  };
 
   // Auto-fetch greeting on mount
   useEffect(() => {
-    fetchGreeting();
-  }, [fetchGreeting]);
+    const loadInitialGreeting = async () => {
+      await fetchGreeting();
+    };
+    loadInitialGreeting();
+  }, []); // Empty dependency array - only run on mount
 
   return {
     onchainGreeting,

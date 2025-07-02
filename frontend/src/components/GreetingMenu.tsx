@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import toast from 'react-hot-toast';
+
 import { usePasskeyContext } from '@web3authn/passkey/react';
+import type { ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
+import { ActionType, TxExecutionStatus } from '@web3authn/passkey/react';
+
+import type { LastTxDetails } from '../types';
 import { RefreshIcon } from './icons/RefreshIcon';
 import { useSetGreeting } from '../hooks/useSetGreeting';
-import toast from 'react-hot-toast';
-import type { ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
-import { ActionType } from '@web3authn/passkey/react';
-import type { LastTxDetails } from '../types';
 import {
   WEBAUTHN_CONTRACT_ID,
   MUTED_GREEN,
@@ -36,9 +38,9 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     error
   } = useSetGreeting();
 
-  const handleRefreshGreeting = useCallback(async () => {
+  const handleRefreshGreeting = async () => {
     await fetchGreeting();
-  }, [fetchGreeting]);
+  };
 
   const handleSetGreeting = useCallback(async () => {
     if (!greetingInput.trim() || !isLoggedIn) {
@@ -82,20 +84,19 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
             break;
         }
       },
+      waitUntil: TxExecutionStatus.EXECUTED,
       hooks: {
         afterCall: (success: boolean, result?: any) => {
-          if (success) {
-            // Reset greeting input on any successful transaction
-            console.log("Result: ", result);
-            setGreetingInput("");
-            // Also refresh greeting after a short delay (backup to action-complete handler)
-            console.log('afterCall success - scheduling backup greeting refresh in 2s');
-            fetchGreeting();
-          }
-
           if (success && result?.transactionId) {
             const txId = result.transactionId;
             const txLink = `${NEAR_EXPLORER_BASE_URL}/transactions/${txId}`;
+
+            // Reset greeting input on any successful transaction
+            console.log("Result: ", result);
+            setGreetingInput("");
+            // Transaction executed successfully - fetch the updated greeting
+            console.log('afterCall success - fetching updated greeting');
+            fetchGreeting();
 
             onTransactionUpdate({
               id: txId,
