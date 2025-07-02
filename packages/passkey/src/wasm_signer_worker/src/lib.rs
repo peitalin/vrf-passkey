@@ -12,11 +12,13 @@ mod tests;
 use wasm_bindgen::prelude::*;
 use serde_json;
 use bs58;
+use base64::Engine;
 
 // Import from modules
 use crate::actions::ActionParams;
 use crate::crypto::{
     decrypt_private_key_with_prf_core,
+    internal_derive_near_keypair_from_cose_p256,
     internal_derive_near_keypair_from_cose_and_encrypt_with_prf,
 };
 use crate::transaction::{
@@ -26,6 +28,7 @@ use crate::transaction::{
 };
 use crate::cose::{
     extract_cose_public_key_from_attestation_core,
+    extract_p256_coordinates_from_cose,
     validate_cose_key_format_core,
 };
 use crate::http::{
@@ -60,6 +63,10 @@ use crate::types::{
     RollbackFailedRegistrationRequest,
     AddKeyWithPrfRequest,
     DeleteKeyWithPrfRequest,
+    // Recover keypair types
+    RecoverKeypairRequest,
+    RecoverKeypairResponse,
+    WebAuthnRegistrationCredentialData,
 };
 
 // === CONSOLE LOGGING ===
@@ -141,7 +148,7 @@ pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
     let (public_key, encrypted_result) = internal_derive_near_keypair_from_cose_and_encrypt_with_prf(
         &request.attestation_object_b64u,
         &request.prf_output_base64
-    ).map_err(|e| JsValue::from_str(&e))?;
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let response = KeyGenerationResponse {
         public_key,
@@ -149,6 +156,48 @@ pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
     };
 
     console_log!("RUST: WASM binding - deterministic keypair generation successful");
+    Ok(response.to_json())
+}
+
+#[wasm_bindgen]
+pub fn recover_keypair_from_passkey(
+    request_json: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: WASM binding - deriving deterministic keypair from passkey for recovery");
+
+    let request: RecoverKeypairRequest = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
+
+    console_log!("RUST: Parsed registration credential with ID: {}", request.credential.id);
+
+    // Extract attestation object from the registration response
+    let attestation_object_b64u = &request.credential.response.attestation_object;
+    console_log!("RUST: Extracting COSE public key from attestation object");
+
+    // Extract COSE public key from attestation object
+    let cose_public_key_bytes = extract_cose_public_key_from_attestation_core(attestation_object_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
+
+    console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
+
+    // Extract P-256 coordinates from COSE public key
+    let (x_coord, y_coord) = extract_p256_coordinates_from_cose(&cose_public_key_bytes)
+        .map_err(|e| JsValue::from_str(&format!("Failed to extract P-256 coordinates: {}", e)))?;
+
+    console_log!("RUST: Extracted P-256 coordinates: x={} bytes, y={} bytes", x_coord.len(), y_coord.len());
+
+    // Derive NEAR Ed25519 keypair from P-256 coordinates (deterministic)
+    let (near_private_key, near_public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord)
+        .map_err(|e| JsValue::from_str(&format!("Failed to derive NEAR keypair: {}", e)))?;
+
+    console_log!("RUST: Successfully derived NEAR keypair from COSE P-256 coordinates");
+
+    let response = RecoverKeypairResponse {
+        public_key: near_public_key,
+        account_id_hint: request.account_id_hint,
+    };
+
+    console_log!("RUST: WASM binding - deterministic keypair derivation from passkey successful");
     Ok(response.to_json())
 }
 
@@ -167,7 +216,7 @@ pub fn decrypt_private_key_with_prf_as_string(
         &request.prf_output_base64,
         &request.encrypted_private_key_data,
         &request.encrypted_private_key_iv,
-    ).map_err(|e| JsValue::from_str(&e))?;
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     // Convert SigningKey back to NEAR string format
     let verifying_key = signing_key.verifying_key();
@@ -201,10 +250,10 @@ pub fn extract_cose_public_key_from_attestation(request_json: &str) -> Result<St
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     let public_key_bytes = extract_cose_public_key_from_attestation_core(&request.attestation_object_b64u)
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let response = CosePublicKeyResponse {
-        public_key_bytes: base64::encode(&public_key_bytes),
+        public_key_bytes: base64::engine::general_purpose::STANDARD.encode(&public_key_bytes),
     };
 
     Ok(response.to_json())
@@ -216,7 +265,7 @@ pub fn validate_cose_key_format(request_json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     let validation_message = validate_cose_key_format_core(&request.cose_key_bytes)
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let response = CoseValidationResponse {
         valid: true, // If no error was thrown, validation passed
@@ -341,7 +390,7 @@ pub async fn verify_and_sign_near_transaction_with_actions(
         .map_err(|e| JsValue::from_str(&format!("Failed to parse actions: {}", e)))?;
 
     let actions = build_actions_from_params(action_params)
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     // Build and sign transaction
     let transaction = build_transaction_with_actions(
@@ -351,10 +400,10 @@ pub async fn verify_and_sign_near_transaction_with_actions(
         &request.block_hash_bytes,
         &private_key,
         actions,
-    ).map_err(|e| JsValue::from_str(&e))?;
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let signed_tx_bytes = sign_transaction(transaction, &private_key)
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     // Step 6: Send signing complete with structured response
     let json_signed_tx = match JsonSignedTransaction::from_borsh_bytes(&signed_tx_bytes) {

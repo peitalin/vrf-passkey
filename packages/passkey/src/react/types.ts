@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
-import type { LoginOptions, RegistrationOptions, PasskeyManager, PasskeyManagerConfigs} from '../core/PasskeyManager';
+import type {
+  LoginOptions,
+  RegistrationOptions,
+  ActionOptions,
+  PasskeyManager,
+  PasskeyManagerConfigs,
+  RecoveryResult
+} from '../core/PasskeyManager';
 import type { NearClient } from '../core/NearClient';
 
 // === CORE STATE TYPES ===
@@ -111,6 +118,11 @@ export interface PasskeyContextType {
   logout: () => void;
   loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
   registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
+  recoverAccount: (
+    nearAccountId: string,
+    method: 'accountId' | 'passkeySelection',
+    options: ActionOptions
+  ) => Promise<RecoveryResult>;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;

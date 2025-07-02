@@ -43,6 +43,7 @@ export interface UserData {
 
 export enum WorkerRequestType {
   DERIVE_NEAR_KEYPAIR_AND_ENCRYPT = 'DERIVE_NEAR_KEYPAIR_AND_ENCRYPT',
+  RECOVER_KEYPAIR_FROM_PASSKEY = 'RECOVER_KEYPAIR_FROM_PASSKEY',
   CHECK_CAN_REGISTER_USER = 'CHECK_CAN_REGISTER_USER',
   SIGN_VERIFY_AND_REGISTER_USER = 'SIGN_VERIFY_AND_REGISTER_USER',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
@@ -61,6 +62,8 @@ export enum WorkerRequestType {
 export enum WorkerResponseType {
   ENCRYPTION_SUCCESS = 'ENCRYPTION_SUCCESS',
   DERIVE_NEAR_KEY_FAILURE = 'DERIVE_NEAR_KEY_FAILURE',
+  RECOVER_KEYPAIR_SUCCESS = 'RECOVER_KEYPAIR_SUCCESS',
+  RECOVER_KEYPAIR_FAILURE = 'RECOVER_KEYPAIR_FAILURE',
   REGISTRATION_SUCCESS = 'REGISTRATION_SUCCESS',
   REGISTRATION_FAILURE = 'REGISTRATION_FAILURE',
   SIGNATURE_SUCCESS = 'SIGNATURE_SUCCESS',
@@ -134,6 +137,18 @@ export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
   };
 }
 
+export interface RecoverKeypairFromPasskeyRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY;
+  payload: {
+    /** Serialized WebAuthn registration credential with attestation object for COSE key extraction */
+    credential: WebAuthnRegistrationCredential;
+    /** Challenge that was used in the WebAuthn registration ceremony (base64url-encoded) */
+    challenge: string;
+    /** Optional account ID hint for validation */
+    accountIdHint?: string;
+  };
+}
+
 // === ACTION TYPES ===
 
 // ActionParams now matches the Rust enum structure exactly
@@ -160,7 +175,7 @@ export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn registration credential */
-    credential: SerializableWebAuthnRegistrationCredential;
+    credential: WebAuthnRegistrationCredential;
     /** Contract ID for verification */
     contractId: string;
     /** NEAR RPC provider URL for verification */
@@ -175,7 +190,7 @@ export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn registration credential */
-    credential: SerializableWebAuthnRegistrationCredential;
+    credential: WebAuthnRegistrationCredential;
     /** Contract ID for verification */
     contractId: string;
     /** Signer account ID for the transaction */
@@ -190,7 +205,7 @@ export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
 }
 
 // Serializable WebAuthn credential to send to the wasm worker
-export interface SerializableWebAuthnCredential {
+export interface WebAuthnAuthenticationCredential {
   id: string;
   rawId: string; // base64-encoded
   type: string;
@@ -211,7 +226,7 @@ export interface SerializableWebAuthnCredential {
   }
 }
 
-export interface SerializableWebAuthnRegistrationCredential {
+export interface WebAuthnRegistrationCredential {
   id: string;
   rawId: string; // base64-encoded
   type: string;
@@ -244,11 +259,11 @@ const PRF_OUTPUT_SYMBOL = Symbol('prfOutput');
  * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
  *
  * SECURITY FEATURES:
- * ✅ Just-in-time serialization - minimal exposure time
- * ✅ Consistent base64url encoding for proper WASM decoding
- * ✅ Secure against encoding/decoding failures
+ * - Just-in-time serialization - minimal exposure time
+ * - Consistent base64url encoding for proper WASM decoding
+ * - Secure against encoding/decoding failures
  */
-export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential): SerializableWebAuthnCredential {
+export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential): WebAuthnAuthenticationCredential {
   // Extract PRF output immediately for secure transfer to worker
   let prfOutput: string | undefined;
   try {
@@ -294,13 +309,13 @@ export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential)
  * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
  *
  * SECURITY FEATURES:
- * ✅ Just-in-time serialization - minimal exposure time
- * ✅ Consistent base64url encoding for proper WASM decoding
- * ✅ Secure against encoding/decoding failures
+ * - Just-in-time serialization - minimal exposure time
+ * - Consistent base64url encoding for proper WASM decoding
+ * - Secure against encoding/decoding failures
  */
 export function serializeRegistrationCredentialAndCreatePRF(
   credential: PublicKeyCredential
-): SerializableWebAuthnRegistrationCredential {
+): WebAuthnRegistrationCredential {
   // Extract PRF output immediately for secure transfer to worker
   let prfOutput: string | undefined;
   try {
@@ -339,7 +354,7 @@ export function serializeRegistrationCredentialAndCreatePRF(
 }
 
 
-type SerializableCredential = SerializableWebAuthnCredential | SerializableWebAuthnRegistrationCredential;
+type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
 
 // Removes the PRF output from the credential and returns the PRF output separately
 export function takePrfOutputFromCredential(credential: SerializableCredential): ({
@@ -371,8 +386,8 @@ export function takePrfOutputFromCredential(credential: SerializableCredential):
 }
 
 // Removes the PRF output from the registration credential and returns the PRF output separately
-export function takePrfOutputFromRegistrationCredential(credential: SerializableWebAuthnRegistrationCredential): ({
-  credentialWithoutPrf: SerializableWebAuthnRegistrationCredential,
+export function takePrfOutputFromRegistrationCredential(credential: WebAuthnRegistrationCredential): ({
+  credentialWithoutPrf: WebAuthnRegistrationCredential,
   prfOutput: string
 }) {
   // Access PRF through the extension results
@@ -423,7 +438,7 @@ export interface SignTransactionWithActionsRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential (PRF extracted in worker for security) */
-    credential: SerializableWebAuthnCredential;
+    credential: WebAuthnAuthenticationCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -453,7 +468,7 @@ export interface SignTransferTransactionRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential (PRF extracted in worker for security) */
-    credential: SerializableWebAuthnCredential;
+    credential: WebAuthnAuthenticationCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -541,7 +556,7 @@ export interface AddKeyWithPrfRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential */
-    credential: SerializableWebAuthnCredential;
+    credential: WebAuthnAuthenticationCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -569,7 +584,7 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
     /** VRF challenge data for verification */
     vrfChallenge: VRFChallenge;
     /** Serialized WebAuthn credential */
-    credential: SerializableWebAuthnCredential;
+    credential: WebAuthnAuthenticationCredential;
     /** NEAR RPC provider URL for verification */
     nearRpcUrl: string;
   };
@@ -577,6 +592,7 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
 
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
+  | RecoverKeypairFromPasskeyRequest
   | CheckCanRegisterUserRequest
   | SignVerifyAndRegisterUserRequest
   | DecryptPrivateKeyWithPrfRequest
@@ -666,6 +682,28 @@ export interface EncryptionSuccessResponse extends BaseWorkerResponse {
 
 export interface EncryptionFailureResponse extends BaseWorkerResponse {
   type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE;
+  payload: {
+    /** Error message describing the failure */
+    error: string;
+    /** Error code for programmatic handling */
+    errorCode?: WorkerErrorCode;
+    /** Additional error context */
+    context?: Record<string, any>;
+  };
+}
+
+export interface RecoverKeypairSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.RECOVER_KEYPAIR_SUCCESS;
+  payload: {
+    /** Derived public key in NEAR format (ed25519:...) */
+    publicKey: string;
+    /** Account ID hint if provided */
+    accountIdHint?: string;
+  };
+}
+
+export interface RecoverKeypairFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.RECOVER_KEYPAIR_FAILURE;
   payload: {
     /** Error message describing the failure */
     error: string;
@@ -885,6 +923,8 @@ export interface ErrorResponse extends BaseWorkerResponse {
 export type WorkerResponse =
   | EncryptionSuccessResponse
   | EncryptionFailureResponse
+  | RecoverKeypairSuccessResponse
+  | RecoverKeypairFailureResponse
   | CheckRegistrationSuccessResponse
   | RegistrationSuccessResponse
   | RegistrationFailureResponse
@@ -908,6 +948,10 @@ export type WorkerResponse =
 
 export function isEncryptionSuccess(response: WorkerResponse): response is EncryptionSuccessResponse {
   return response.type === WorkerResponseType.ENCRYPTION_SUCCESS;
+}
+
+export function isRecoverKeypairSuccess(response: WorkerResponse): response is RecoverKeypairSuccessResponse {
+  return response.type === WorkerResponseType.RECOVER_KEYPAIR_SUCCESS;
 }
 
 export function isCheckRegistrationSuccess(response: WorkerResponse): response is CheckRegistrationSuccessResponse {
@@ -934,10 +978,22 @@ export function isCoseValidationSuccess(response: WorkerResponse): response is C
   return response.type === WorkerResponseType.COSE_VALIDATION_SUCCESS;
 }
 
-export function isWorkerError(response: WorkerResponse): response is ErrorResponse | EncryptionFailureResponse | RegistrationFailureResponse | SignatureFailureResponse | DecryptionFailureResponse | CoseKeyFailureResponse | CoseValidationFailureResponse | VRFKeyPairFailureResponse | VRFChallengeFailureResponse {
+export function isWorkerError(response: WorkerResponse): response is
+  ErrorResponse |
+  EncryptionFailureResponse |
+  RecoverKeypairFailureResponse |
+  RegistrationFailureResponse |
+  SignatureFailureResponse |
+  DecryptionFailureResponse |
+  CoseKeyFailureResponse |
+  CoseValidationFailureResponse |
+  VRFKeyPairFailureResponse |
+  VRFChallengeFailureResponse
+{
   return [
     WorkerResponseType.ERROR,
     WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
+    WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
     WorkerResponseType.REGISTRATION_FAILURE,
     WorkerResponseType.SIGNATURE_FAILURE,
     WorkerResponseType.DECRYPTION_FAILURE,
@@ -948,9 +1004,20 @@ export function isWorkerError(response: WorkerResponse): response is ErrorRespon
   ].includes(response.type);
 }
 
-export function isWorkerSuccess(response: WorkerResponse): response is EncryptionSuccessResponse | RegistrationSuccessResponse | SignatureSuccessResponse | DecryptionSuccessResponse | CoseKeySuccessResponse | CoseValidationSuccessResponse | VRFKeyPairSuccessResponse | VRFChallengeSuccessResponse {
+export function isWorkerSuccess(response: WorkerResponse): response is
+  EncryptionSuccessResponse |
+  RecoverKeypairSuccessResponse |
+  RegistrationSuccessResponse |
+  SignatureSuccessResponse |
+  DecryptionSuccessResponse |
+  CoseKeySuccessResponse |
+  CoseValidationSuccessResponse |
+  VRFKeyPairSuccessResponse |
+  VRFChallengeSuccessResponse
+{
   return [
     WorkerResponseType.ENCRYPTION_SUCCESS,
+    WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
     WorkerResponseType.REGISTRATION_SUCCESS,
     WorkerResponseType.SIGNATURE_SUCCESS,
     WorkerResponseType.DECRYPTION_SUCCESS,

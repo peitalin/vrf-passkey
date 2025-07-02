@@ -62,7 +62,7 @@ export class TouchIdPrompt {
         challenge,
         rpId: window.location.hostname,
         allowCredentials: authenticators.map(auth => ({
-          id: new Uint8Array(Buffer.from(auth.credentialID, 'base64')),
+          id: new Uint8Array(Buffer.from(auth.credentialId, 'base64')),
           type: 'public-key' as const,
           transports: auth.transports as AuthenticatorTransport[]
         })),

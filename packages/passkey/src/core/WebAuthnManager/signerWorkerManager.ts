@@ -3,7 +3,8 @@ import { SignedTransaction } from "../NearClient";
 import { base64UrlEncode, base58Decode } from '../../utils/encoders';
 import type {
   WorkerResponse,
-  ActionParams
+  ActionParams,
+  WebAuthnRegistrationCredential
 } from '../types/signer-worker';
 import {
   WorkerRequestType,
@@ -666,6 +667,48 @@ export class SignerWorkerManager {
       }
     } catch (error: any) {
       console.error('WebAuthnManager: Enhanced transfer transaction signing error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recover keypair from registration credential for account recovery
+   * Uses COSE public key extraction and deterministic derivation
+   */
+  async recoverKeypairFromPasskey(
+    registrationCredential: WebAuthnRegistrationCredential,
+    challenge: string,
+    accountIdHint?: string
+  ): Promise<{
+    publicKey: string;
+    accountIdHint?: string;
+  }> {
+    try {
+      console.log('SignerWorkerManager: Starting keypair recovery from registration credential');
+
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY,
+          payload: {
+            credential: registrationCredential,
+            challenge,
+            accountIdHint
+          }
+        }
+      });
+
+      if (response.type === WorkerResponseType.RECOVER_KEYPAIR_SUCCESS) {
+        console.log('SignerWorkerManager: Recover keypair derivation successful');
+        return {
+          publicKey: (response as any).payload.publicKey,
+          accountIdHint: (response as any).payload.accountIdHint
+        };
+      } else {
+        console.error('SignerWorkerManager: Deterministic keypair derivation failed:', response);
+        throw new Error('Deterministic keypair derivation failed in WASM worker');
+      }
+    } catch (error: any) {
+      console.error('SignerWorkerManager: Deterministic keypair derivation error:', error);
       throw error;
     }
   }

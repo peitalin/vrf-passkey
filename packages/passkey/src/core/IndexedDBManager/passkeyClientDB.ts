@@ -38,14 +38,12 @@ export interface UserPreferences {
 // Authenticator cache
 export interface ClientAuthenticatorData {
   nearAccountId: string;
-  credentialID: string;
+  credentialId: string;
   credentialPublicKey: Uint8Array;
   transports?: string[]; // AuthenticatorTransport[]
   clientNearPublicKey?: string; // Renamed from clientManagedNearPublicKey
   name?: string;
   registered: string; // ISO date string
-  lastUsed?: string; // ISO date string
-  backedUp: boolean;
   syncedAt: string; // When this cache entry was last synced with contract
 }
 
@@ -95,7 +93,7 @@ export class PasskeyClientDBManager {
         }
         if (!db.objectStoreNames.contains(DB_CONFIG.authenticatorStore)) {
           // Use composite key for authenticators
-          const authStore = db.createObjectStore(DB_CONFIG.authenticatorStore, { keyPath: ['nearAccountId', 'credentialID'] });
+          const authStore = db.createObjectStore(DB_CONFIG.authenticatorStore, { keyPath: ['nearAccountId', 'credentialId'] });
           authStore.createIndex('nearAccountId', 'nearAccountId', { unique: false });
         }
       },
@@ -368,22 +366,6 @@ export class PasskeyClientDBManager {
   }
 
   /**
-   * Update authenticator last used timestamp
-   */
-  async updateAuthenticatorLastUsed(
-    nearAccountId: string,
-    credentialId: string,
-    lastUsed?: string
-  ): Promise<void> {
-    const authenticator = await this.getAuthenticatorByCredentialId(nearAccountId, credentialId);
-    if (authenticator) {
-      authenticator.lastUsed = lastUsed || new Date().toISOString();
-      authenticator.syncedAt = new Date().toISOString();
-      await this.storeAuthenticator(authenticator);
-    }
-  }
-
-  /**
    * Clear all authenticators for a user
    */
   async clearAuthenticatorsForUser(nearAccountId: string): Promise<void> {
@@ -393,7 +375,7 @@ export class PasskeyClientDBManager {
     const store = tx.objectStore(DB_CONFIG.authenticatorStore);
 
     for (const auth of authenticators) {
-      await store.delete([nearAccountId, auth.credentialID]);
+      await store.delete([nearAccountId, auth.credentialId]);
     }
   }
 
@@ -403,14 +385,12 @@ export class PasskeyClientDBManager {
   async syncAuthenticatorsFromContract(
     nearAccountId: string,
     contractAuthenticators: Array<{
-      credentialID: string;
+      credentialId: string;
       credentialPublicKey: Uint8Array;
       transports?: string[];
       clientNearPublicKey?: string;
       name?: string;
       registered: string;
-      lastUsed?: string;
-      backedUp: boolean;
     }>
   ): Promise<void> {
     // Clear existing cache for this user
@@ -421,14 +401,12 @@ export class PasskeyClientDBManager {
     for (const auth of contractAuthenticators) {
       const clientAuth: ClientAuthenticatorData = {
         nearAccountId,
-        credentialID: auth.credentialID,
+        credentialId: auth.credentialId,
         credentialPublicKey: auth.credentialPublicKey,
         transports: auth.transports,
         clientNearPublicKey: auth.clientNearPublicKey,
         name: auth.name,
         registered: auth.registered,
-        lastUsed: auth.lastUsed,
-        backedUp: auth.backedUp,
         syncedAt,
       };
       await this.storeAuthenticator(clientAuth);
@@ -453,7 +431,7 @@ export class PasskeyClientDBManager {
     const store = tx.objectStore(DB_CONFIG.authenticatorStore);
 
     for (const auth of authenticators) {
-      await store.delete([nearAccountId, auth.credentialID]);
+      await store.delete([nearAccountId, auth.credentialId]);
     }
 
     console.log(`Deleted ${authenticators.length} authenticators for user ${nearAccountId}`);

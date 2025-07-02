@@ -1,18 +1,18 @@
 import type { AccessKeyView } from '@near-js/types';
-import type { NearClient, SignedTransaction } from '../../NearClient';
-import { MinimalNearClient } from '../../NearClient';
-import { validateNearAccountId } from '../../../utils/validation';
+import type { NearClient, SignedTransaction } from '../NearClient';
+import { MinimalNearClient } from '../NearClient';
+import { validateNearAccountId } from '../../utils/validation';
 import type {
   RegistrationOptions,
   RegistrationResult,
   RegistrationSSEEvent,
   OperationHooks,
-} from '../../types/passkeyManager';
-import { createAccountRelayServer } from './createAccountRelayServer';
-import { createAccountTestnetFaucet } from './createAccountTestnetFaucet';
-import { WebAuthnManager } from '../../WebAuthnManager';
-import { VRFChallenge } from '../../types/webauthn';
-import type { PasskeyManagerContext } from '../index';
+} from '../types/passkeyManager';
+import { createAccountRelayServer } from './faucets/createAccountRelayServer';
+import { createAccountTestnetFaucet } from './faucets/createAccountTestnetFaucet';
+import { WebAuthnManager } from '../WebAuthnManager';
+import { VRFChallenge } from '../types/webauthn';
+import type { PasskeyManagerContext } from './index';
 
 /**
  * Core registration function that handles passkey registration
@@ -75,14 +75,18 @@ export async function registerPasskey(
 
     // Step 1: Get latest NEAR block for VRF input construction
     console.log('Registration Step 1: Get NEAR block data');
-
-    const blockInfo = await nearClient.viewBlock({ finality: 'final' });
-    const blockHeight = blockInfo.header.height;
-    const blockHashBytes = new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'));
+    const {
+      blockHeight,
+      blockHashBytes,
+    } = await nearClient.viewBlock({ finality: 'final' }).then(blockInfo => {
+      return {
+        blockHeight: blockInfo.header.height,
+        blockHashBytes: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'))
+      };
+    });
 
     // Step 2: Generate bootstrap VRF keypair + challenge for registration
     console.log('Registration Step 2: Generating VRF keypair + challenge for registration');
-
     const vrfChallenge = await generateBootstrapVrfChallenge(
       webAuthnManager,
       nearAccountId,
@@ -396,7 +400,7 @@ export async function registerPasskey(
  * @param blockHashBytes - Current NEAR block hash bytes for entropy
  * @returns VRF challenge data (VRF keypair persisted in worker memory)
  */
-async function generateBootstrapVrfChallenge(
+export async function generateBootstrapVrfChallenge(
   webAuthnManager: WebAuthnManager,
   nearAccountId: string,
   blockHeight: number,

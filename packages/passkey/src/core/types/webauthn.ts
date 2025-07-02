@@ -95,17 +95,14 @@ export interface PrfEvaluationResult {
 
 /** Stored authenticator information, normalized for client-side use */
 export interface StoredAuthenticator {
-  credentialID: string;
+  credentialId: string;
   credentialPublicKey: Uint8Array;
   transports?: AuthenticatorTransport[];
   userId: string;
   name?: string;
   registered: Date;
-  lastUsed?: Date;
-  backedUp: boolean;
   clientNearPublicKey?: string;
 }
-
 
 // =================================================================
 // 4. CONTRACT CALL TYPES

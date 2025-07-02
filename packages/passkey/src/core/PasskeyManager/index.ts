@@ -2,6 +2,8 @@ import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
+import { addKeysToAccount, getDeviceKeys, type AddKeysOptions, type AddKeysResult, type DeviceKeysView } from './addKey';
+import { recoverAccount, type RecoveryResult } from './recoverAccount';
 import { MinimalNearClient, type NearClient } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
@@ -13,6 +15,7 @@ import type {
   ActionResult
 } from '../types/passkeyManager';
 import type { ActionArgs } from '../types/actions';
+import { ActionType } from '../types/actions';
 
 export interface PasskeyManagerContext {
   webAuthnManager: WebAuthnManager;
@@ -190,6 +193,116 @@ export class PasskeyManager {
     return await this.webAuthnManager.exportNearKeypairWithTouchId(nearAccountId)
   }
 
+  // === KEY MANAGEMENT METHODS (Phase 2) ===
+
+  /**
+   * Add current device's DD-keypair to an existing NEAR account for multi-device access
+   *
+   * @example
+   * ```typescript
+   * const result = await passkeyManager.addKeysToAccount(
+   *   'ed25519:5K8...abc123', // private key from another device
+   *   {
+   *     onEvent: (event) => console.log('Progress:', event.message),
+   *     gas: '30000000000000'
+   *   }
+   * );
+   * ```
+   */
+  async addKeysToAccount(
+    privateKey: string,
+    options?: AddKeysOptions
+  ): Promise<AddKeysResult> {
+    return addKeysToAccount(this.getContext(), privateKey, options);
+  }
+
+  /**
+   * Get comprehensive device keys view for an account
+   * Shows all access keys with metadata about device types and management options
+   *
+   * @example
+   * ```typescript
+   * const keysView = await passkeyManager.getDeviceKeys('alice.near');
+   * console.log(`Account has ${keysView.keys.length} access keys`);
+   * keysView.keys.forEach(key => {
+   *   console.log(`${key.publicKey} - ${key.deviceType} - Current: ${key.isCurrentDevice}`);
+   * });
+   * ```
+   */
+  async getDeviceKeys(accountId: string): Promise<DeviceKeysView> {
+    return getDeviceKeys(this.getContext(), accountId);
+  }
+
+  /**
+   * Delete a device key from an account
+   *
+   * @example
+   * ```typescript
+   * const result = await passkeyManager.deleteDeviceKey(
+   *   'alice.near',
+   *   'ed25519:5K8...old-device-key',
+   *   {
+   *     onEvent: (event) => console.log('Progress:', event.message)
+   *   }
+   * );
+   * ```
+   */
+  async deleteDeviceKey(
+    accountId: string,
+    publicKeyToDelete: string,
+    options?: ActionOptions
+  ): Promise<ActionResult> {
+    // Validate that we're not deleting the last key
+    const keysView = await this.getDeviceKeys(accountId);
+    if (keysView.keys.length <= 1) {
+      throw new Error('Cannot delete the last access key from an account');
+    }
+
+    // Find the key to delete
+    const keyToDelete = keysView.keys.find(k => k.publicKey === publicKeyToDelete);
+    if (!keyToDelete) {
+      throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
+    }
+
+    if (!keyToDelete.canDelete) {
+      throw new Error(`Cannot delete this access key`);
+    }
+
+    // Use the executeAction method with DeleteKey action
+    return this.executeAction(accountId, {
+      type: ActionType.DeleteKey,
+      receiverId: accountId,
+      publicKey: publicKeyToDelete
+    }, options);
+  }
+
+  ///////////////////////////////////////
+  // ACCOUNT RECOVERY METHODS
+  ///////////////////////////////////////
+
+  /**
+   * Recover account by providing the NEAR account ID
+   * Derives DD-keypair from current passkey and verifies account ownership
+   *
+   * @example
+   * ```typescript
+   * const result = await passkeyManager.recoverByAccountId(
+   *   'alice.near',
+   *   {
+   *     onEvent: (event) => console.log('Recovery progress:', event.message),
+   *     onError: (error) => console.error('Recovery error:', error)
+   *   }
+   * );
+   * ```
+   */
+  async recoverAccount(
+    accountId: string,
+    method: 'accountId' | 'passkeySelection' = 'accountId',
+    options?: ActionOptions
+  ): Promise<RecoveryResult> {
+    return recoverAccount(this.getContext(), accountId, method, options);
+  }
+
   ///////////////////////////////////////
   // PRIVATE FUNCTIONS
   ///////////////////////////////////////
@@ -233,3 +346,16 @@ export type {
   EventCallback,
   OperationHooks
 } from '../types/passkeyManager';
+
+// Re-export key management types
+export type {
+  AddKeysOptions,
+  AddKeysResult,
+  DeviceKeysView
+} from './addKey';
+
+// Re-export account recovery types
+export type {
+  RecoveryResult,
+  AccountLookupResult
+} from './recoverAccount';

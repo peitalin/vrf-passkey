@@ -6,11 +6,19 @@
  * functionality and type definitions
  */
 
-import { FinalExecutionOutcome, QueryResponseKind, TxExecutionStatus } from "@near-js/types";
+import {
+  FinalExecutionOutcome,
+  QueryResponseKind,
+  TxExecutionStatus,
+  AccessKeyView,
+  BlockResult,
+  BlockReference,
+  RpcQueryRequest,
+} from "@near-js/types";
 import { Signature, Transaction } from "@near-js/transactions";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
-// import { Provider } from "@near-js/providers";
+import { Provider } from "@near-js/providers";
 
 export class SignedTransaction {
     transaction: any;
@@ -43,8 +51,8 @@ export class SignedTransaction {
 }
 
 export interface NearClient {
-  viewAccessKey(accountId: string, publicKey: string): Promise<any>;
-  viewBlock(params: { finality: string }): Promise<any>;
+  viewAccessKey(accountId: string, publicKey: string): Promise<AccessKeyView>;
+  viewBlock(params: BlockReference): Promise<BlockResult>;
   sendTransaction(
     signedTransaction: SignedTransaction,
     waitUntil?: TxExecutionStatus
@@ -56,7 +64,19 @@ export interface NearClient {
 export class MinimalNearClient implements NearClient {
   constructor(private rpcUrl: string) {}
 
-  async query<T>(path: string, data: string): Promise<T> {
+  async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
+  async query<T extends QueryResponseKind>(path: string, data: string): Promise<T>;
+  async query<T extends QueryResponseKind>(pathOrParams: string | RpcQueryRequest, data?: string): Promise<T> {
+    let params;
+    if (typeof pathOrParams === 'string') {
+      params = {
+        request_type: pathOrParams,
+        ...JSON.parse(data!)
+      };
+    } else {
+      params = pathOrParams;
+    }
+
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,19 +84,14 @@ export class MinimalNearClient implements NearClient {
         jsonrpc: '2.0',
         id: crypto.randomUUID(),
         method: 'query',
-        params: {
-          request_type: path,
-          ...JSON.parse(data)
-        }
+        params
       })
     });
 
-    // Check if response is ok (not rate limited, server error, etc.)
     if (!response.ok) {
       throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
     }
 
-    // Get response text first to handle non-JSON responses
     const responseText = await response.text();
     if (!responseText || responseText.trim() === '') {
       throw new Error('Empty response from RPC server');
@@ -94,7 +109,6 @@ export class MinimalNearClient implements NearClient {
     }
     return result.result;
   }
-
 
   async viewAccessKey(accountId: string, publicKey: string): Promise<any> {
     const response = await fetch(this.rpcUrl, {
@@ -135,7 +149,7 @@ export class MinimalNearClient implements NearClient {
     return result.result;
   }
 
-  async viewBlock(params: { finality: string }): Promise<any> {
+  async viewBlock(params: BlockReference): Promise<BlockResult> {
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -223,7 +237,10 @@ export class MinimalNearClient implements NearClient {
       args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
     });
 
-    const result = await this.query<{ result: number[] }>('call_function', queryData);
+    const result = await this.query<{ result: number[] } & QueryResponseKind>(
+      'call_function',
+      queryData
+    );
 
     // Parse the result bytes as a string (typical for view functions that return strings)
     const resultBytes = result.result;

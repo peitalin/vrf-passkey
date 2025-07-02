@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo, useRef } from 'react';
-import { PasskeyManager } from '../../core/PasskeyManager';
+import { PasskeyManager, RecoveryResult } from '../../core/PasskeyManager';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';
@@ -12,6 +12,7 @@ import type {
   LoginOptions,
   LoginResult,
   RegistrationOptions,
+  ActionOptions,
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
@@ -192,6 +193,14 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result;
   }
 
+  const recoverAccount = async (
+    nearAccountId: string,
+    method: 'accountId' | 'passkeySelection' = 'accountId',
+    options?: ActionOptions
+  ) => {
+    return passkeyManager.recoverAccount(nearAccountId, method, options);
+  }
+
   // Load user data on mount
   useEffect(() => {
     const loadUserData = async () => {
@@ -235,6 +244,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     logout,
     loginPasskey,
     registerPasskey,
+    recoverAccount,
     // Authentication state (actual state from contract/backend)
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
     loginState,

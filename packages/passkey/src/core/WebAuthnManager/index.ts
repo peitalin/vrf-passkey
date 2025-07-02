@@ -10,6 +10,7 @@ import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import { base64UrlEncode } from '../../utils/encoders';
 import { SignedTransaction } from "../NearClient";
+import { serializeRegistrationCredentialAndCreatePRF } from '../types/signer-worker';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -197,14 +198,12 @@ export class WebAuthnManager {
 
   async storeAuthenticator(authenticatorData: {
     nearAccountId: string;
-    credentialID: string;
+    credentialId: string;
     credentialPublicKey: Uint8Array;
     transports?: string[];
     clientNearPublicKey?: string;
     name?: string;
     registered: string;
-    lastUsed?: string;
-    backedUp: boolean;
     syncedAt: string;
   }): Promise<void> {
     return await IndexedDBManager.clientDB.storeAuthenticator(authenticatorData);
@@ -574,7 +573,7 @@ export class WebAuthnManager {
 
       await this.storeAuthenticator({
         nearAccountId,
-        credentialID: credentialId,
+        credentialId: credentialId,
         credentialPublicKey: await this.extractCosePublicKey(
           base64UrlEncode(response.attestationObject)
         ),
@@ -582,8 +581,6 @@ export class WebAuthnManager {
         clientNearPublicKey: publicKey,
         name: `VRF Passkey for ${this.extractUsername(nearAccountId)}`,
         registered: new Date().toISOString(),
-        lastUsed: undefined,
-        backedUp: false,
         syncedAt: new Date().toISOString(),
       });
 
@@ -613,4 +610,101 @@ export class WebAuthnManager {
       message: 'VRF registration data stored successfully'
     });
   }
+
+  ///////////////////////////////////////
+  // ACCOUNT RECOVERY
+  ///////////////////////////////////////
+
+  /**
+   * Recover keypair from registration credential for account recovery
+   * Uses the attestation object to extract COSE public key and deterministically generate the same NEAR keypair
+   * @param challenge - The VRF challenge used in the WebAuthn registration ceremony
+   * @param registrationCredential - The original registration credential with attestation object
+   * @returns Public key for account lookup during recovery
+   */
+  async recoverKeypairFromPasskey(
+    challenge: Uint8Array<ArrayBuffer>,
+    registrationCredential: PublicKeyCredential,
+    accountIdHint?: string,
+  ): Promise<{
+    publicKey: string;
+    accountIdHint?: string;
+  }> {
+    try {
+      console.log('WebAuthnManager: recovering keypair from registration credential');
+
+      // If no registration credential provided, we need to get the original registration data
+      // In a real implementation, this would be stored during initial registration
+      if (!registrationCredential) {
+        throw new Error(
+          'Registration credential required for deterministic keypair derivation. ' +
+          'The original registration credential (with attestation object) must be provided or stored during registration.'
+        );
+      }
+
+      // Serialize the registration credential for the worker
+      const serializedCredential = serializeRegistrationCredentialAndCreatePRF(registrationCredential);
+
+      // Call the WASM worker to derive the deterministic keypair
+      const result = await this.signerWorkerManager.recoverKeypairFromPasskey(
+        serializedCredential,
+        base64UrlEncode(challenge),
+        undefined
+      );
+
+       console.log('WebAuthnManager: Deterministic keypair derivation successful');
+       return result;
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: Deterministic keypair derivation error:', error);
+      throw new Error(`Deterministic keypair derivation failed: ${error.message}`);
+    }
+  }
+
+  ///////////////////////////////////////
+  // KEY MANAGEMENT METHODS (Phase 2)
+  ///////////////////////////////////////
+
+  /**
+   * Add a new device key to an existing account using the AddKey action
+   * This enables multi-device access by adding the current device as an additional access key
+   *
+   * @param params Configuration for adding device key
+   * @returns Transaction result with transaction ID
+   */
+  async addDeviceKey({
+    accountId,
+    existingPrivateKey,
+    newDevicePublicKey,
+    accessKeyPermission = 'FullAccess',
+    gas
+  }: {
+    accountId: string;
+    existingPrivateKey: string;
+    newDevicePublicKey: string;
+    accessKeyPermission?: 'FullAccess' | { receiver_id: string; method_names: string[]; allowance?: string };
+    gas?: string;
+  }): Promise<{ transactionId: string }> {
+    try {
+      console.log('WebAuthnManager: Starting add device key operation');
+
+      // TODO: This is a placeholder implementation
+      // The full implementation would:
+      // 1. Use the existing private key to derive the keypair
+      // 2. Create and sign an AddKey transaction
+      // 3. Broadcast the transaction to NEAR network
+      // 4. Return the transaction ID
+
+      // For now, return a placeholder transaction ID
+      console.log('WebAuthnManager: Add device key operation completed (placeholder)');
+      return {
+        transactionId: 'placeholder-add-key-tx-id'
+      };
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: Add device key error:', error);
+      throw new Error(`Add device key failed: ${error.message}`);
+    }
+  }
+
 }

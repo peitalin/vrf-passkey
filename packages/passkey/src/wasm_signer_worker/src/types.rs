@@ -1,6 +1,7 @@
 use borsh::{BorshSerialize, BorshDeserialize};
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
+use base64::Engine;
 
 // === NEAR TRANSACTION TYPES ===
 // WASM-compatible structs that mirror near-primitives
@@ -166,7 +167,7 @@ impl From<&PublicKey> for JsonPublicKey {
     fn from(pk: &PublicKey) -> Self {
         JsonPublicKey {
             key_type: pk.key_type,
-            key_data: base64::encode(&pk.key_data),
+            key_data: base64::engine::general_purpose::STANDARD.encode(&pk.key_data),
         }
     }
 }
@@ -181,7 +182,7 @@ impl From<&Signature> for JsonSignature {
     fn from(sig: &Signature) -> Self {
         JsonSignature {
             key_type: sig.key_type,
-            signature_data: base64::encode(&sig.signature_data),
+            signature_data: base64::engine::general_purpose::STANDARD.encode(&sig.signature_data),
         }
     }
 }
@@ -194,7 +195,7 @@ pub struct JsonCryptoHash {
 impl From<&CryptoHash> for JsonCryptoHash {
     fn from(hash: &CryptoHash) -> Self {
         JsonCryptoHash {
-            hash: base64::encode(&hash.0),
+            hash: base64::engine::general_purpose::STANDARD.encode(&hash.0),
         }
     }
 }
@@ -306,11 +307,11 @@ impl From<&Action> for JsonAction {
         match action {
             Action::CreateAccount => JsonAction::CreateAccount,
             Action::DeployContract { code } => JsonAction::DeployContract {
-                code: base64::encode(code),
+                code: base64::engine::general_purpose::STANDARD.encode(code),
             },
             Action::FunctionCall(fc) => JsonAction::FunctionCall(JsonFunctionCallAction {
                 method_name: fc.method_name.clone(),
-                args: base64::encode(&fc.args),
+                args: base64::engine::general_purpose::STANDARD.encode(&fc.args),
                 gas: fc.gas.to_string(),
                 deposit: fc.deposit.to_string(),
             }),
@@ -627,4 +628,86 @@ pub struct DeleteKeyWithPrfRequest {
     pub vrf_challenge_data_json: String,
     pub webauthn_credential_json: String,
     pub near_rpc_url: String,
+}
+
+// === DETERMINISTIC KEYPAIR DERIVATION TYPES ===
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebAuthnCredentialData {
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub r#type: String,
+    #[serde(rename = "authenticatorAttachment")]
+    pub authenticator_attachment: Option<String>,
+    pub response: WebAuthnCredentialResponse,
+    #[serde(rename = "clientExtensionResults")]
+    pub client_extension_results: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum WebAuthnCredentialResponse {
+    Attestation(WebAuthnAttestationResponse),
+    Assertion(WebAuthnAssertionResponse),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebAuthnAttestationResponse {
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String,
+    #[serde(rename = "attestationObject")]
+    pub attestation_object: String,
+    pub transports: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebAuthnAssertionResponse {
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String,
+    #[serde(rename = "authenticatorData")]
+    pub authenticator_data: String,
+    pub signature: String,
+    #[serde(rename = "userHandle")]
+    pub user_handle: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RecoverKeypairRequest {
+    /// WebAuthn registration credential with attestation object for COSE key extraction
+    pub credential: WebAuthnRegistrationCredentialData,
+    /// Challenge used in the WebAuthn registration ceremony (base64url-encoded)
+    pub challenge: String,
+    /// Optional account ID hint to help with account lookup
+    #[serde(rename = "accountIdHint")]
+    pub account_id_hint: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebAuthnRegistrationCredentialData {
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub r#type: String,
+    #[serde(rename = "authenticatorAttachment")]
+    pub authenticator_attachment: Option<String>,
+    pub response: WebAuthnAttestationResponse,
+    #[serde(rename = "clientExtensionResults")]
+    pub client_extension_results: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RecoverKeypairResponse {
+    /// Deterministically derived NEAR public key in ed25519:... format
+    #[serde(rename = "publicKey")]
+    pub public_key: String,
+    /// Optional account ID hint passed through from request
+    #[serde(rename = "accountIdHint")]
+    pub account_id_hint: Option<String>,
+}
+
+impl JsonSerializable for RecoverKeypairResponse {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
 }

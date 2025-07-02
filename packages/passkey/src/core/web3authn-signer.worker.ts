@@ -11,12 +11,13 @@ import {
   type SignTransactionWithActionsRequest,
   type SignTransferTransactionRequest,
   type DeriveNearKeypairAndEncryptRequest,
+  type RecoverKeypairFromPasskeyRequest,
   type DecryptPrivateKeyWithPrfRequest,
   type ExtractCosePublicKeyRequest,
   type ValidateCoseKeyRequest,
   type CheckCanRegisterUserRequest,
   type SignVerifyAndRegisterUserRequest,
-  SerializableWebAuthnCredential,
+  WebAuthnAuthenticationCredential,
   takePrfOutputFromCredential,
   ProgressMessageType,
   ProgressStep,
@@ -61,6 +62,8 @@ const {
   // COSE keys
   extract_cose_public_key_from_attestation,
   validate_cose_key_format,
+  // Recover keypair from passkey
+  recover_keypair_from_passkey,
 } = wasmModule;
 
 /**
@@ -138,6 +141,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
     switch (type) {
       case WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT:
         await handleDeriveNearKeypairAndEncrypt(payload);
+        break;
+
+      case WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY:
+        await handleRecoverKeypairFromPasskey(payload);
         break;
 
       case WorkerRequestType.CHECK_CAN_REGISTER_USER:
@@ -252,6 +259,48 @@ async function handleDeriveNearKeypairAndEncrypt(
     sendResponseAndTerminate({
       type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
       payload: { error: error.message || 'PRF encryption failed' }
+    });
+  }
+}
+
+/**
+ * Handle deterministic keypair derivation from passkey for account recovery
+ * @param payload - The request payload containing registration credential and optional account hint
+ */
+async function handleRecoverKeypairFromPasskey(
+  payload: RecoverKeypairFromPasskeyRequest['payload']
+): Promise<void> {
+  try {
+    const { credential, challenge, accountIdHint } = payload;
+    console.log('[signer-worker]: Deriving deterministic keypair from registration credential for recovery');
+
+    // Call the WASM function with registration credential
+    const request = {
+      credential,
+      challenge,
+      accountIdHint
+    };
+
+    console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with registration credential');
+    const resultJson = wasmModule.recover_keypair_from_passkey(JSON.stringify(request));
+
+    // Parse the result
+    const result = JSON.parse(resultJson);
+    const publicKey = result.publicKey;
+    console.log('[signer-worker]: Deterministic keypair derivation successful');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
+      payload: {
+        publicKey,
+        accountIdHint
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: Deterministic keypair derivation failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
+      payload: { error: error.message || 'Deterministic keypair derivation failed' }
     });
   }
 }
