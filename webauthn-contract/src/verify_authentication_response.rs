@@ -9,7 +9,7 @@ use crate::utils::{
 };
 use crate::types::{
     AuthenticatorDevice,
-    AuthenticationCredential
+    WebAuthnAuthenticationCredential
 };
 use crate::verify_registration_response::{
     ClientDataJSON,
@@ -58,7 +58,7 @@ impl WebAuthnContract {
     pub fn verify_authentication_response(
         &self,
         vrf_data: VRFVerificationData,
-        webauthn_authentication: AuthenticationCredential,
+        webauthn_authentication: WebAuthnAuthenticationCredential,
     ) -> VerifiedAuthenticationResponse {
 
         log!("VRF Authentication: Verifying VRF proof + WebAuthn authentication");
@@ -99,24 +99,15 @@ impl WebAuthnContract {
             }
         };
 
-        // 3. Verify that the stored VRF public key matches the provided one
-        if let Some(stored_vrf_key) = &stored_authenticator.vrf_public_key {
-            if *stored_vrf_key != vrf_data.public_key {
-                log!("VRF public key mismatch - authentication denied");
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        } else {
-            log!("No VRF public key stored for this authenticator - requires re-registration");
+        // 3. Verify that the provided VRF public key is in the stored VRF keys
+        if !stored_authenticator.vrf_public_keys.contains(&vrf_data.public_key) {
+            log!("VRF public key not found in stored keys - authentication denied");
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
             };
         }
-
-        log!("VRF public key matched stored credentials");
+        log!("VRF public key found in stored credentials");
 
         // 4. Create authenticator device for verification
         let authenticator_device = AuthenticatorDevice {
@@ -179,7 +170,7 @@ impl WebAuthnContract {
     #[private]
     pub fn internal_verify_authentication_response(
         &self,
-        response: AuthenticationCredential,
+        response: WebAuthnAuthenticationCredential,
         expected_challenge: String,
         expected_origin: String,
         expected_rp_id: String,
@@ -453,7 +444,7 @@ mod tests {
     }
 
     /// Create a mock WebAuthn authentication response using VRF challenge
-    fn create_mock_webauthn_authentication_with_vrf_challenge(vrf_output: &[u8]) -> AuthenticationCredential {
+    fn create_mock_webauthn_authentication_with_vrf_challenge(vrf_output: &[u8]) -> WebAuthnAuthenticationCredential {
         // Use first 32 bytes of VRF output as WebAuthn challenge
         let webauthn_challenge = &vrf_output[0..32];
         let challenge_b64 = TEST_BASE64_URL_ENGINE.encode(webauthn_challenge);
@@ -473,7 +464,7 @@ mod tests {
 
         let auth_data_b64 = TEST_BASE64_URL_ENGINE.encode(&auth_data);
 
-        AuthenticationCredential {
+        WebAuthnAuthenticationCredential {
             id: "test_vrf_credential_id_123".to_string(),
             raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_vrf_credential_id_123"),
             response: AuthenticatorAssertionResponse {
@@ -503,9 +494,7 @@ mod tests {
             credential_public_key,
             transports: Some(vec![crate::types::AuthenticatorTransport::Internal]),
             registered: "1234567890".to_string(),
-            last_used: Some("1234567890".to_string()),
-            backed_up: false,
-            vrf_public_key: Some(vrf_public_key), // Store VRF public key for stateless auth
+            vrf_public_keys: vec![vrf_public_key], // Store VRF public key for stateless auth
         }
     }
 
@@ -662,16 +651,16 @@ mod tests {
         let mock_vrf = MockVRFData::create_mock();
         let stored_auth = create_mock_stored_authenticator(mock_vrf.public_key.clone());
 
-        // Verify VRF public key is properly stored
-        assert!(stored_auth.vrf_public_key.is_some(), "VRF public key should be stored");
+        // Verify VRF public keys are properly stored
+        assert!(!stored_auth.vrf_public_keys.is_empty(), "VRF public keys should be stored");
+        assert_eq!(stored_auth.vrf_public_keys.len(), 1, "Should have exactly one VRF key initially");
         assert_eq!(
-            stored_auth.vrf_public_key.unwrap(),
+            stored_auth.vrf_public_keys[0],
             mock_vrf.public_key,
             "Stored VRF public key should match original"
         );
 
         // Verify other authenticator properties
-        assert!(!stored_auth.backed_up, "Should not be backed up by default");
         assert!(stored_auth.transports.is_some(), "Transports should be specified");
 
         println!("✅ Stored authenticator VRF public key storage test passed");

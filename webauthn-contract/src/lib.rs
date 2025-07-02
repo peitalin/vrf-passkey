@@ -12,8 +12,8 @@ mod verify_registration_response;
 use crate::utils::vrf_verifier;
 
 pub use types::{
-    RegistrationCredential,
-    AuthenticationCredential,
+    WebAuthnRegistrationCredential,
+    WebAuthnAuthenticationCredential,
     AuthenticatorAssertionResponse,
     AuthenticatorAttestationResponse,
 };
@@ -203,7 +203,7 @@ mod tests {
 
 
     /// Create a valid mock WebAuthn registration response
-    fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> RegistrationCredential {
+    fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> WebAuthnRegistrationCredential {
         let client_data = format!(
             r#"{{"type":"webauthn.create","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
             challenge_b64
@@ -254,7 +254,7 @@ mod tests {
         let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
         let attestation_object_b64 = BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-        RegistrationCredential {
+        WebAuthnRegistrationCredential {
             id: "test_vrf_credential".to_string(),
             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
             response: AuthenticatorAttestationResponse {
@@ -269,7 +269,7 @@ mod tests {
     }
 
     /// Create a valid mock WebAuthn authentication response
-    fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> AuthenticationCredential {
+    fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> WebAuthnAuthenticationCredential {
         let client_data = format!(
             r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
             challenge_b64
@@ -285,7 +285,7 @@ mod tests {
 
         let auth_data_b64 = BASE64_URL_ENGINE.encode(&auth_data);
 
-        AuthenticationCredential {
+        WebAuthnAuthenticationCredential {
             id: "test_vrf_credential".to_string(),
             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
             response: AuthenticatorAssertionResponse {

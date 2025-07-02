@@ -7,7 +7,7 @@ use super::{WebAuthnContract, WebAuthnContractExt};
 use crate::types::{
     AuthenticatorTransport,
     AuthenticatorAttestationResponse,
-    RegistrationCredential
+    WebAuthnRegistrationCredential
 };
 use crate::utils::parsers::{
     parse_attestation_object,
@@ -97,7 +97,7 @@ impl WebAuthnContract {
     pub fn verify_and_register_user(
         &mut self,
         vrf_data: VRFVerificationData,
-        webauthn_registration: RegistrationCredential,
+        webauthn_registration: WebAuthnRegistrationCredential,
     ) -> VerifyRegistrationResponse {
 
         log!("Verifying VRF proof and WebAuthn registration");
@@ -162,7 +162,7 @@ impl WebAuthnContract {
     pub fn check_can_register_user(
         &self,
         vrf_data: VRFVerificationData,
-        webauthn_registration: RegistrationCredential,
+        webauthn_registration: WebAuthnRegistrationCredential,
     ) -> VerifyCanRegisterResponse {
 
         // 1. Check if user exists
@@ -291,7 +291,7 @@ impl WebAuthnContract {
     /// This is a private view function that does not modify contract state
     fn verify_webauthn_credential(
         &self,
-        credential: RegistrationCredential,
+        credential: WebAuthnRegistrationCredential,
         expected_challenge: String,
         expected_rp_id: String,
         require_user_verification: bool,
@@ -528,7 +528,7 @@ impl WebAuthnContract {
     fn store_authenticator_and_user(
         &mut self,
         registration_info: RegistrationInfo,
-        credential: RegistrationCredential,
+        credential: WebAuthnRegistrationCredential,
         vrf_public_key: Vec<u8>,
     ) -> VerifyRegistrationResponse {
         log!("Registration verification successful. Storing new authenticator.");
@@ -554,44 +554,18 @@ impl WebAuthnContract {
         // Get current timestamp as ISO string
         let current_timestamp = env::block_timestamp_ms().to_string();
 
-        // Extract authenticator flags from attestation object for backup flag determination
-        let authenticator_flags = if let Ok(attestation_object_bytes) = BASE64_URL_ENGINE.decode(&credential.response.attestation_object) {
-            if let Ok(attestation_object) = serde_cbor::from_slice::<serde_cbor::Value>(&attestation_object_bytes) {
-                if let Ok((auth_data_bytes, _, _)) = parse_attestation_object(&attestation_object) {
-                    if let Ok(auth_data) = parse_authenticator_data(&auth_data_bytes) {
-                        auth_data.flags
-                    } else {
-                        log!("Failed to parse authenticator data for flags, using default");
-                        0u8
-                    }
-                } else {
-                    log!("Failed to parse attestation object for flags, using default");
-                    0u8
-                }
-            } else {
-                log!("Failed to decode attestation object CBOR for flags, using default");
-                0u8
-            }
-        } else {
-            log!("Failed to decode attestation object base64url for flags, using default");
-            0u8
-        };
-
-        // Determine if backed up based on authenticator flags (BS flag = bit 4)
-        let backed_up = (authenticator_flags & 0x10) != 0;
+        // Note: Previously extracted authenticator flags for backed_up determination but no longer stored
 
         // use msg.sender as user account id
         let user_account_id = env::predecessor_account_id();
 
         // Store the authenticator with the VRF public key
         self.store_authenticator(
-            user_account_id.clone(),
             credential_id_b64url.clone(),
             registration_info.credential_public_key.clone(),
             transports,
             current_timestamp,
-            backed_up,
-            Some(vrf_public_key.clone()),
+            vrf_public_key.clone(),
         );
 
         // 2. Register user in user registry if not already registered
@@ -605,8 +579,7 @@ impl WebAuthnContract {
         }
 
         // 3. Update user profile with VRF public key
-        if let Some(mut profile) = self.get_user_profile(user_account_id.clone()) {
-            profile.primary_vrf_public_key = Some(vrf_public_key.clone());
+        if let Some(profile) = self.get_user_profile(user_account_id.clone()) {
             self.user_profiles.insert(user_account_id.clone(), profile);
         }
         log!(
@@ -699,7 +672,7 @@ mod tests {
     }
 
     /// Create a mock WebAuthn registration response using VRF challenge
-    fn create_mock_webauthn_registration_with_vrf_challenge(vrf_output: &[u8]) -> RegistrationCredential {
+    fn create_mock_webauthn_registration_with_vrf_challenge(vrf_output: &[u8]) -> WebAuthnRegistrationCredential {
         // Use first 32 bytes of VRF output as WebAuthn challenge
         let webauthn_challenge = &vrf_output[0..32];
         let challenge_b64 = TEST_BASE64_URL_ENGINE.encode(webauthn_challenge);
@@ -754,7 +727,7 @@ mod tests {
         let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
         let attestation_object_b64 = TEST_BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-        RegistrationCredential {
+        WebAuthnRegistrationCredential {
             id: "test_vrf_credential_id_123".to_string(),
             raw_id: TEST_BASE64_URL_ENGINE.encode(b"test_vrf_credential_id_123"),
             response: AuthenticatorAttestationResponse {
@@ -854,7 +827,7 @@ mod tests {
         let webauthn_registration = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
 
         let json_str = serde_json::to_string(&webauthn_registration).expect("Should serialize to JSON");
-        let deserialized: RegistrationCredential = serde_json::from_str(&json_str).expect("Should deserialize from JSON");
+        let deserialized: WebAuthnRegistrationCredential = serde_json::from_str(&json_str).expect("Should deserialize from JSON");
 
         assert_eq!(webauthn_registration.id, deserialized.id);
         assert_eq!(webauthn_registration.type_, deserialized.type_);

@@ -1,8 +1,8 @@
-// WebAuthn Authentication verification type (equivalent to @simplewebauthn/server types)
-// Differs from RegistrationCredential in the "response" field
+// WebAuthn Authentication credential (equivalent to @simplewebauthn/server types)
+// Differs from WebAuthnRegistrationCredential in the "response" field
 #[near_sdk::near(serializers = [json, borsh])]
 #[derive(Debug, Clone)]
-pub struct AuthenticationCredential {
+pub struct WebAuthnAuthenticationCredential {
     pub id: String, // Base64URL credential ID
     #[serde(rename = "rawId")]
     pub raw_id: String, // Base64URL credential ID
@@ -20,10 +20,10 @@ pub struct AuthenticationCredential {
 }
 
 // WebAuthn Registration credential (equivalent to @simplewebauthn/server types)
-// Differs from AuthenticationCredential in the "response" field
+// Differs from WebAuthnAuthenticationCredential in the "response" field
 #[near_sdk::near(serializers = [json, borsh])]
 #[derive(Debug, Clone)]
-pub struct RegistrationCredential {
+pub struct WebAuthnRegistrationCredential {
     pub id: String, // Base64URL credential ID
     #[serde(rename = "rawId")]
     pub raw_id: String, // Base64URL credential ID

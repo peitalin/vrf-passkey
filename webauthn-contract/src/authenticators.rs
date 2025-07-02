@@ -4,6 +4,9 @@ use std::str::FromStr;
 
 use crate::types::AuthenticatorTransport;
 
+// Maximum number of VRF public keys per authenticator (FIFO queue)
+pub const MAX_VRF_KEYS_PER_AUTHENTICATOR: usize = 5;
+
 
 #[near_sdk::near(serializers=[borsh, json])]
 #[derive(Debug, Clone)]
@@ -11,9 +14,7 @@ pub struct StoredAuthenticator {
     pub credential_public_key: Vec<u8>,
     pub transports: Option<Vec<AuthenticatorTransport>>,
     pub registered: String, // ISO timestamp of registration
-    pub last_used: Option<String>, // ISO timestamp of last authentication
-    pub backed_up: bool, // Based on authenticator backup state (BE flag)
-    pub vrf_public_key: Option<Vec<u8>>, // VRF public key for stateless authentication
+    pub vrf_public_keys: Vec<Vec<u8>>, // VRF public keys for stateless authentication (max 5, FIFO)
 }
 
 #[near_sdk::near(serializers=[borsh, json])]
@@ -23,8 +24,6 @@ pub struct UserProfile {
     pub registered_at: u64, // Block timestamp
     pub last_activity: u64, // Block timestamp
     pub authenticator_count: u32,
-    // VRF support
-    pub primary_vrf_public_key: Option<Vec<u8>>, // Primary VRF key for this user
 }
 
 /////////////////////////////////////
@@ -71,7 +70,6 @@ impl WebAuthnContract {
             registered_at: current_timestamp,
             last_activity: current_timestamp,
             authenticator_count: 0,
-            primary_vrf_public_key: None,
         };
 
         self.user_profiles.insert(user_id.clone(), profile);
@@ -140,25 +138,23 @@ impl WebAuthnContract {
         self.authenticators.get(&(user_id, credential_id)).cloned()
     }
 
-    /// Store a new authenticator with optional VRF public key (for VRF registration)
+    /// Store a new authenticator with VRF public key
     pub fn store_authenticator(
         &mut self,
-        user_id: AccountId,
         credential_id: String,
         credential_public_key: Vec<u8>,
         transports: Option<Vec<AuthenticatorTransport>>,
         registered: String,
-        backed_up: bool,
-        vrf_public_key: Option<Vec<u8>>,
+        vrf_public_key: Vec<u8>,
     ) -> bool {
+
+        let user_id = env::predecessor_account_id();
 
         let authenticator = StoredAuthenticator {
             credential_public_key,
             transports,
             registered,
-            last_used: None,
-            backed_up,
-            vrf_public_key,
+            vrf_public_keys: vec![vrf_public_key], // Initialize with first VRF key
         };
 
         self.authenticators.insert((user_id.clone(), credential_id), authenticator);
@@ -172,46 +168,38 @@ impl WebAuthnContract {
         true
     }
 
-    /// Update authenticator last used timestamp
-    pub fn update_authenticator_usage(
+    /// Add a new VRF public key to an existing authenticator (FIFO queue with max 5 keys)
+    pub fn add_vrf_key_to_authenticator(
         &mut self,
-        user_id: AccountId,
         credential_id: String,
-        last_used: String,
+        new_vrf_key: Vec<u8>,
     ) -> bool {
+        let user_id = env::predecessor_account_id();
         let key = (user_id.clone(), credential_id.clone());
         if let Some(mut authenticator) = self.authenticators.get(&key).cloned() {
-            authenticator.last_used = Some(last_used);
-            self.authenticators.insert(key, authenticator);
+            // Check if key already exists to avoid duplicates
+            if !authenticator.vrf_public_keys.contains(&new_vrf_key) {
+                // Add new key
+                authenticator.vrf_public_keys.push(new_vrf_key);
 
-            // Update user activity
-            self.update_user_activity(user_id);
-            true
+                // If exceeds max size, remove oldest (FIFO)
+                if authenticator.vrf_public_keys.len() > MAX_VRF_KEYS_PER_AUTHENTICATOR {
+                    authenticator.vrf_public_keys.remove(0); // Remove first (oldest)
+                }
+
+                // Store updated authenticator
+                self.authenticators.insert(key, authenticator);
+                let n_keys = self.authenticators.get(&(user_id.clone(), credential_id)).unwrap().vrf_public_keys.len();
+                log!("Added VRF key to authenticator for user {} (total keys: {})", user_id, n_keys);
+                true
+            } else {
+                log!("VRF key already exists for user {}, credential {}", user_id, credential_id);
+                false
+            }
         } else {
+            log!("No authenticator found for user {}, credential {}", user_id, credential_id);
             false
         }
-    }
-
-    /// Get the latest (first registered) authenticator for a user
-    pub fn get_latest_authenticator_by_user(&self, user_id: AccountId) -> Option<String> {
-        let mut earliest_date: Option<String> = None;
-        let mut earliest_credential_id: Option<String> = None;
-
-        for ((account_id, credential_id), authenticator) in self.authenticators.iter() {
-            if *account_id == user_id {
-                if let Some(ref current_earliest) = earliest_date {
-                    if authenticator.registered < *current_earliest {
-                        earliest_date = Some(authenticator.registered.clone());
-                        earliest_credential_id = Some(credential_id.clone());
-                    }
-                } else {
-                    earliest_date = Some(authenticator.registered.clone());
-                    earliest_credential_id = Some(credential_id.clone());
-                }
-            }
-        }
-
-        earliest_credential_id
     }
 
     /// Create a user account as a subaccount of this contract
