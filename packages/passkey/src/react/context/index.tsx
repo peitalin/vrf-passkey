@@ -76,7 +76,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   // Use relayer hook
   const relayerHook = useRelayer({
-    initialValue: userConfig?.relayerOptions?.initialUseRelayer ?? false
+    initialValue: userConfig?.initialUseRelayer ?? false
   });
 
   // Use account input hook

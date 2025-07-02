@@ -14,6 +14,7 @@ import type {
 } from '../types/vrf-worker';
 import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
+import { base64UrlDecode, toWasmByteArray } from '../../utils';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;
@@ -175,7 +176,7 @@ export class VrfWorkerManager {
       data: {
         nearAccountId,
         encryptedVrfKeypair,
-        prfKey: Array.from(new Uint8Array(prfOutput))
+        prfKey: toWasmByteArray(prfOutput)
       }
     };
 
@@ -209,7 +210,7 @@ export class VrfWorkerManager {
         user_id: inputData.userId,
         rp_id: inputData.rpId,
         block_height: inputData.blockHeight,
-        block_hash: Array.from(inputData.blockHash),
+        block_hash: toWasmByteArray(base64UrlDecode(inputData.blockHash)),
         timestamp: inputData.timestamp
       }
     };
@@ -407,7 +408,7 @@ export class VrfWorkerManager {
         id: this.generateMessageId(),
         data: {
           expectedPublicKey: expectedPublicKey,
-          prfKey: Array.from(new Uint8Array(prfOutput))
+          prfKey: toWasmByteArray(prfOutput)
         }
       };
 

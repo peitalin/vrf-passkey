@@ -13,6 +13,15 @@ export enum ActionType {
   DeleteAccount = "DeleteAccount",
 }
 
+export enum TxExecutionStatus {
+  NONE = 'NONE',
+  INCLUDED = 'INCLUDED',
+  INCLUDED_FINAL = 'INCLUDED_FINAL',
+  EXECUTED = 'EXECUTED',
+  FINAL = 'FINAL',
+  EXECUTED_OPTIMISTIC = 'EXECUTED_OPTIMISTIC'
+}
+
 // === ACTION INTERFACES (NEAR-JS STYLE) ===
 
 /**

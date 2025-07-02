@@ -4,8 +4,10 @@ export { PasskeyProvider, usePasskeyContext } from './context/index';
 // === REACT HOOKS ===
 
 export { useNearClient } from './hooks/useNearClient';
+export type { NearClient } from '../core/NearClient';
 export { useAccountInput } from './hooks/useAccountInput';
 export { useRelayer } from './hooks/useRelayer';
+export { TxExecutionStatus } from '../core/types/actions';
 
 // === REACT COMPONENTS ===
 export { ProfileButton } from './components/ProfileSettingsButton';

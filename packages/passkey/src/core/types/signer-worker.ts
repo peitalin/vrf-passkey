@@ -1,7 +1,8 @@
-import { bufferEncode } from "../../utils/encoders";
+import { base64UrlEncode } from "../../utils/encoders";
 import type { VRFChallenge } from "./webauthn";
 import { ActionType } from "./actions";
-import type { SignedTransaction, Transaction, Signature } from '@near-js/transactions';
+import type { Transaction, Signature } from '@near-js/transactions';
+import type { SignedTransaction } from '../NearClient';
 
 // === TRANSACTION TYPES ===
 
@@ -204,7 +205,7 @@ export interface SerializableWebAuthnCredential {
   clientExtensionResults: {
     prf: {
       results: {
-        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.bufferEncode)
+        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.base64UrlEncode)
       }
     }
   }
@@ -224,7 +225,7 @@ export interface SerializableWebAuthnRegistrationCredential {
   clientExtensionResults: {
     prf: {
       results: {
-        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.bufferEncode)
+        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.base64UrlEncode)
       }
     }
   }
@@ -240,7 +241,7 @@ const PRF_OUTPUT_SYMBOL = Symbol('prfOutput');
  * Serialize PublicKeyCredential for worker communication with PRF handling
  *
  * ENCODING STRATEGY:
- * - All fields (including PRF output) → base64url (via utils/encoders.bufferEncode) for WASM compatibility
+ * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
  *
  * SECURITY FEATURES:
  * ✅ Just-in-time serialization - minimal exposure time
@@ -255,7 +256,7 @@ export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential)
     const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
     if (prfOutputBuffer) {
       // PRF output should use base64url encoding for consistency with WASM expectations
-      prfOutput = bufferEncode(prfOutputBuffer);
+      prfOutput = base64UrlEncode(prfOutputBuffer);
     }
   } catch (error) {
     console.warn('[serialize]: PRF extraction failed:', error);
@@ -264,15 +265,15 @@ export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential)
 
   return {
     id: credential.id,
-    rawId: bufferEncode(credential.rawId),
+    rawId: base64UrlEncode(credential.rawId),
     type: credential.type,
     authenticatorAttachment: credential.authenticatorAttachment,
     response: {
-      clientDataJSON: bufferEncode(credential.response.clientDataJSON),
-      authenticatorData: bufferEncode((credential.response as any).authenticatorData),
-      signature: bufferEncode((credential.response as any).signature),
+      clientDataJSON: base64UrlEncode(credential.response.clientDataJSON),
+      authenticatorData: base64UrlEncode((credential.response as any).authenticatorData),
+      signature: base64UrlEncode((credential.response as any).signature),
       userHandle: (credential.response as any).userHandle ?
-        bufferEncode((credential.response as any).userHandle) : null,
+        base64UrlEncode((credential.response as any).userHandle) : null,
     },
     clientExtensionResults: {
       prf: {
@@ -290,7 +291,7 @@ export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential)
  * FOR REGISTRATION CREDENTIALS ONLY - uses AuthenticatorAttestationResponse fields
  *
  * ENCODING STRATEGY:
- * - All fields (including PRF output) → base64url (via utils/encoders.bufferEncode) for WASM compatibility
+ * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
  *
  * SECURITY FEATURES:
  * ✅ Just-in-time serialization - minimal exposure time
@@ -307,7 +308,7 @@ export function serializeRegistrationCredentialAndCreatePRF(
     const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
     if (prfOutputBuffer) {
       // PRF output should use base64url encoding for consistency with WASM expectations
-      prfOutput = bufferEncode(prfOutputBuffer);
+      prfOutput = base64UrlEncode(prfOutputBuffer);
     }
   } catch (error) {
     console.warn('[serialize]: Registration PRF extraction failed:', error);
@@ -319,12 +320,12 @@ export function serializeRegistrationCredentialAndCreatePRF(
 
   return {
     id: credential.id,
-    rawId: bufferEncode(credential.rawId),
+    rawId: base64UrlEncode(credential.rawId),
     type: credential.type,
     authenticatorAttachment: credential.authenticatorAttachment,
     response: {
-      clientDataJSON: bufferEncode(attestationResponse.clientDataJSON),
-      attestationObject: bufferEncode(attestationResponse.attestationObject),
+      clientDataJSON: base64UrlEncode(attestationResponse.clientDataJSON),
+      attestationObject: base64UrlEncode(attestationResponse.attestationObject),
       transports: attestationResponse.getTransports() || [],
     },
     clientExtensionResults: {

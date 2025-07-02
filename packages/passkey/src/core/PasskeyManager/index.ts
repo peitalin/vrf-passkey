@@ -16,7 +16,7 @@ import type { ActionArgs } from '../types/actions';
 
 export interface PasskeyManagerContext {
   webAuthnManager: WebAuthnManager;
-  nearRpcProvider: NearClient;
+  nearClient: NearClient;
   configs: PasskeyManagerConfigs;
 }
 
@@ -26,16 +26,16 @@ export interface PasskeyManagerContext {
  */
 export class PasskeyManager {
   private readonly webAuthnManager: WebAuthnManager;
-  private readonly nearRpcProvider: NearClient;
+  private readonly nearClient: NearClient;
   readonly configs: PasskeyManagerConfigs;
 
   constructor(
     configs: PasskeyManagerConfigs,
-    nearRpcProvider?: NearClient
+    nearClient?: NearClient
   ) {
     this.configs = configs;
     // Use provided client or create default one
-    this.nearRpcProvider = nearRpcProvider || new MinimalNearClient(configs.nearRpcUrl);
+    this.nearClient = nearClient || new MinimalNearClient(configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(configs);
     // Initialize VRF Worker in the background
     this.initializeVrfWorkerManager();
@@ -210,7 +210,7 @@ export class PasskeyManager {
   private getContext(): PasskeyManagerContext {
     return {
       webAuthnManager: this.webAuthnManager,
-      nearRpcProvider: this.nearRpcProvider,
+      nearClient: this.nearClient,
       configs: this.configs
     }
   }

@@ -1,3 +1,5 @@
+import { TxExecutionStatus } from "@near-js/types";
+
 // Base event callback type
 export type EventCallback<T> = (event: T) => void;
 
@@ -230,6 +232,7 @@ export interface ActionOptions {
   onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
+  waitUntil?: TxExecutionStatus;
 }
 
 // Result Types
@@ -265,11 +268,15 @@ export interface ActionResult {
 
 // PasskeyManager Configuration
 export interface PasskeyManagerConfigs {
-  relayServerUrl?: string; // Relay Server for creating new NEAR accounts
-  nearNetwork: 'testnet' | 'mainnet';
-  relayerAccount: string;
-  contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
   nearRpcUrl: string;
+  nearNetwork: 'testnet' | 'mainnet';
+  contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
+  relayerAccount: string;
+  // Relay Server is used to create new NEAR accounts
+  // Optional: defaults to testnet faucet
+  relayServerUrl?: string;
+  // Whether to use the relayer by default on initial load
+  initialUseRelayer?: boolean;
 }
 
 // === TRANSACTION TYPES ===

@@ -8,7 +8,7 @@ import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManage
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
-import { bufferEncode } from '../../utils/encoders';
+import { base64UrlEncode } from '../../utils/encoders';
 import { SignedTransaction } from "../NearClient";
 
 /**
@@ -356,6 +356,7 @@ export class WebAuthnManager {
       {
         ...payload,
         credential: credential,
+        nearRpcUrl: this.configs.nearRpcUrl,
       },
       onEvent
     );
@@ -433,6 +434,7 @@ export class WebAuthnManager {
       {
         ...payload,
         credential: credential,
+        nearRpcUrl: this.configs.nearRpcUrl,
       },
       onEvent
     );
@@ -474,6 +476,7 @@ export class WebAuthnManager {
       credential,
       vrfChallenge,
       onEvent,
+      nearRpcUrl: this.configs.nearRpcUrl,
     });
   }
 
@@ -488,7 +491,7 @@ export class WebAuthnManager {
     signerAccountId,
     nearAccountId,
     publicKeyStr,
-    nearRpcProvider,
+    nearClient,
     onEvent,
   }: {
     contractId: string,
@@ -497,15 +500,15 @@ export class WebAuthnManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string;
-    nearRpcProvider: NearClient;
+    nearClient: NearClient;
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
     verified: boolean;
     registrationInfo?: any;
     logs?: string[];
-    signedTransactionBorsh: number[];
-    preSignedDeleteTransaction: number[];
+    signedTransaction: SignedTransaction;
+    preSignedDeleteTransaction: SignedTransaction;
     error?: string;
   }> {
     try {
@@ -516,7 +519,7 @@ export class WebAuthnManager {
         signerAccountId,
         nearAccountId,
         publicKeyStr,
-        nearRpcProvider,
+        nearClient,
         onEvent,
       });
 
@@ -526,11 +529,11 @@ export class WebAuthnManager {
         console.debug('✅ On-chain user registration successful');
         return {
           success: true,
-          verified: true,
+          verified: registrationResult.verified,
           registrationInfo: registrationResult.registrationInfo,
           logs: registrationResult.logs,
-          signedTransactionBorsh: registrationResult.signedTransaction?.borsh_bytes || [],
-          preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction?.borsh_bytes || [],
+          signedTransaction: registrationResult.signedTransaction,
+          preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction,
         };
       } else {
         console.warn('❌ On-chain user registration failed - WASM worker returned unverified result');
@@ -566,14 +569,14 @@ export class WebAuthnManager {
       await this.registerUser(nearAccountId);
 
       // Store credential for authentication
-      const credentialId = bufferEncode(credential.rawId);
+      const credentialId = base64UrlEncode(credential.rawId);
       const response = credential.response as AuthenticatorAttestationResponse;
 
       await this.storeAuthenticator({
         nearAccountId,
         credentialID: credentialId,
         credentialPublicKey: await this.extractCosePublicKey(
-          bufferEncode(response.attestationObject)
+          base64UrlEncode(response.attestationObject)
         ),
         transports: response.getTransports?.() || [],
         clientNearPublicKey: publicKey,

@@ -18,7 +18,7 @@ export interface VRFInputData {
   userId: string;
   rpId: string;
   blockHeight: number;
-  blockHash: Uint8Array;
+  blockHash: string;
   timestamp: number;
 }
 

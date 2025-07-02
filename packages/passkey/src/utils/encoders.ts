@@ -1,17 +1,44 @@
+import bs58 from 'bs58';
+
 /**
- * Utility method for base64url encoding
+ * Encodes an ArrayBuffer to standard base64 format for NEAR RPC compatibility.
+ * Uses standard base64 characters (+, /, =) rather than base64url encoding.
+ * Converts binary data to base64 string using browser's btoa() function.
+ *
+ * @param value - ArrayBuffer containing the binary data to encode
+ * @returns Standard base64-encoded string with padding
  */
-export function base64UrlEncode(bytes: Uint8Array): string {
-  let binaryString = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binaryString += String.fromCharCode(bytes[i]);
-  }
-  const base64 = btoa(binaryString);
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+export const base64Encode = (value: ArrayBuffer): string => {
+  return btoa(String.fromCharCode(...new Uint8Array(value)));
 }
 
 /**
- * Utility function for base64url decoding
+ * Encodes an ArrayBuffer into a base64url string.
+ * Converts binary data to base64 then replaces standard base64 characters with URL-safe ones:
+ * + -> -
+ * / -> _
+ * Removes padding = characters
+ *
+ * Used for WebAuthn API compatibility in browser environments.
+ * Equivalent to Buffer.from(value).toString('base64url') in Node.js.
+ *
+ * @param value - The ArrayBuffer to encode
+ * @returns A base64url-encoded string without padding
+ */
+export const base64UrlEncode = (value: ArrayBuffer): string => {
+  return base64Encode(value)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+/**
+ * Decodes a base64url-encoded string into a Uint8Array.
+ * Handles base64url format by replacing URL-safe characters and adding padding.
+ *
+ * @param base64Url - The base64url-encoded string to decode
+ * @returns Uint8Array containing the decoded bytes
+ * @throws Error if decoding fails due to invalid base64url input
  */
 export function base64UrlDecode(base64Url: string): Uint8Array {
   const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
@@ -24,48 +51,43 @@ export function base64UrlDecode(base64Url: string): Uint8Array {
   return bytes;
 }
 
-export const bufferEncode = (value: ArrayBuffer): string => {
-  return btoa(String.fromCharCode(...new Uint8Array(value)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-}
-
-// The bufferDecode utility function is specifically designed to handle base64url decoding in browser environments
-// It returns an ArrayBuffer which we convert to Uint8Array for WebAuthn API compatibility
-// This is equivalent to Buffer.from(..., 'base64url') in Node.js
-export const bufferDecode = (value: string): ArrayBuffer => {
-  // 1. Sanitize the input string to remove any characters not part of Base64URL alphabet
-  // This will keep A-Z, a-z, 0-9, -, _ and discard anything else.
-  const sanitizedValue = value.replace(/[^A-Za-z0-9\-_]/g, '');
-
-  // 2. Convert Base64URL to Base64
-  let base64 = sanitizedValue.replace(/-/g, "+").replace(/_/g, "/");
-
-  // 3. Add padding
-  while (base64.length % 4) {
-    base64 += "=";
+/**
+ * Encodes binary data to base58 string using Bitcoin's base58 alphabet.
+ * Used extensively in NEAR for account IDs, public keys, hashes, and signatures.
+ *
+ * @param data - Binary data to encode (Uint8Array, ArrayBuffer, or number[])
+ * @returns Base58-encoded string
+ */
+export const base58Encode = (data: Uint8Array | ArrayBuffer | number[]): string => {
+  if (data instanceof ArrayBuffer) {
+    return bs58.encode(new Uint8Array(data));
   }
+  if (Array.isArray(data)) {
+    return bs58.encode(new Uint8Array(data));
+  }
+  return bs58.encode(data);
+};
 
-  // 4. Decode
-  try {
-    const decodedString = atob(base64);
-    const buffer = new Uint8Array(decodedString.length);
-    for (let i = 0; i < decodedString.length; i++) {
-      buffer[i] = decodedString.charCodeAt(i);
-  }
-  return buffer.buffer;
-  } catch (e) {
-    // Enhanced logging
-    console.error(
-      "bufferDecode: atob decoding failed.",
-      {
-        originalValue: value,
-        sanitizedValue: sanitizedValue,
-        stringPassedToAtob: base64,
-        error: e
-      }
-    );
-    throw e; // Re-throw the error after logging
-  }
+/**
+ * Decodes a base58 string to binary data using Bitcoin's base58 alphabet.
+ * Returns a Uint8Array containing the decoded bytes.
+ *
+ * @param base58String - Base58-encoded string to decode
+ * @returns Uint8Array containing the decoded bytes
+ * @throws Error if input contains invalid base58 characters
+ */
+export const base58Decode = (base58String: string): Uint8Array => {
+  return bs58.decode(base58String);
+};
+
+/**
+ * Converts an ArrayBuffer or ArrayBufferLike object to a plain number array for WASM compatibility.
+ * WASM bindings require plain number arrays rather than TypedArrays for memory safety and direct access.
+ * The resulting array contains values from 0-255 representing raw bytes.
+ *
+ * @param buffer - The source buffer to convert, either ArrayBuffer or ArrayBufferLike
+ * @returns A plain number[] array containing the buffer's bytes
+ */
+export const toWasmByteArray = (buffer: ArrayBuffer | ArrayBufferLike): number[] => {
+  return Array.from(new Uint8Array(buffer));
 }

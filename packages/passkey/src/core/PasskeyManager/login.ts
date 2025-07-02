@@ -101,7 +101,7 @@ async function handleLoginUnlockVRF(
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
 ): Promise<LoginResult> {
 
-  const { webAuthnManager, nearRpcProvider, configs } = context;
+  const { webAuthnManager, nearClient, configs } = context;
 
   try {
 

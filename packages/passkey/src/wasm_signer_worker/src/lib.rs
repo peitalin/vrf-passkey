@@ -15,7 +15,6 @@ use bs58;
 
 // Import from modules
 use crate::actions::ActionParams;
-use crate::actions::validate_delete_account_context;
 use crate::crypto::{
     decrypt_private_key_with_prf_core,
     internal_derive_near_keypair_from_cose_and_encrypt_with_prf,

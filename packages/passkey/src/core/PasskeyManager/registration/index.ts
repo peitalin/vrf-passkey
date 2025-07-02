@@ -1,5 +1,5 @@
 import type { AccessKeyView } from '@near-js/types';
-import type { NearClient } from '../../NearClient';
+import type { NearClient, SignedTransaction } from '../../NearClient';
 import { MinimalNearClient } from '../../NearClient';
 import { validateNearAccountId } from '../../../utils/validation';
 import type {
@@ -36,7 +36,7 @@ export async function registerPasskey(
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, hooks } = options;
-  const { webAuthnManager, nearRpcProvider, configs } = context;
+  const { webAuthnManager, nearClient, configs } = context;
 
   // Track registration progress for rollback
   const registrationState = {
@@ -44,7 +44,7 @@ export async function registerPasskey(
     contractRegistered: false,
     databaseStored: false,
     contractTransactionId: null as string | null,
-    preSignedDeleteTransaction: null as number[] | null,
+    preSignedDeleteTransaction: null as SignedTransaction | null,
   };
 
   // Emit started event
@@ -76,7 +76,7 @@ export async function registerPasskey(
     // Step 1: Get latest NEAR block for VRF input construction
     console.log('Registration Step 1: Get NEAR block data');
 
-    const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
+    const blockInfo = await nearClient.viewBlock({ finality: 'final' });
     const blockHeight = blockInfo.header.height;
     const blockHashBytes = new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'));
 
@@ -200,7 +200,7 @@ export async function registerPasskey(
     });
 
     // Check for access key to be available
-    await waitForAccessKey(nearRpcProvider, nearAccountId, keyGenResult.publicKey);
+    await waitForAccessKey(nearClient, nearAccountId, keyGenResult.publicKey);
 
     onEvent?.({
       step: 4,
@@ -220,7 +220,7 @@ export async function registerPasskey(
       signerAccountId: nearAccountId,
       nearAccountId: nearAccountId,
       publicKeyStr: keyGenResult.publicKey,
-      nearRpcProvider: nearRpcProvider,
+      nearClient: nearClient,
       onEvent: (progress) => {
         console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
         onEvent?.({
@@ -233,8 +233,8 @@ export async function registerPasskey(
       },
     });
 
-    const contractVerified = contractRegistrationResult.verified || false;
-    const signedTransactionBorsh = contractRegistrationResult.signedTransactionBorsh;
+    const contractVerified = contractRegistrationResult.verified;
+    const signedTransaction = contractRegistrationResult.signedTransaction;
     const preSignedDeleteTransaction = contractRegistrationResult.preSignedDeleteTransaction;
     console.log('>>>>>>>contractRegistrationResult', contractRegistrationResult);
 
@@ -242,7 +242,7 @@ export async function registerPasskey(
     registrationState.preSignedDeleteTransaction = preSignedDeleteTransaction;
     console.log('✅ Pre-signed delete transaction captured for rollback');
 
-    if (contractVerified && signedTransactionBorsh) {
+    if (contractVerified && signedTransaction) {
       // Broadcast the signed transaction
       console.log('Broadcasting registration transaction...');
 
@@ -254,7 +254,7 @@ export async function registerPasskey(
         message: 'Broadcasting registration transaction...'
       });
 
-      const transactionResult = await nearRpcProvider.sendTransaction(signedTransactionBorsh!);
+      const transactionResult = await nearClient.sendTransaction(signedTransaction!);
       const transactionId = transactionResult?.transaction_outcome?.id;
       registrationState.contractTransactionId = transactionId;
       registrationState.contractRegistered = true;
@@ -469,7 +469,7 @@ const validateRegistrationInputs = (
  * Account creation via faucet may have propagation delays
  */
 async function waitForAccessKey(
-  nearRpcProvider: NearClient,
+  nearClient: NearClient,
   nearAccountId: string,
   nearPublicKey: string,
   maxRetries: number = 10,
@@ -478,7 +478,7 @@ async function waitForAccessKey(
   console.log(`Waiting for access key to be available for ${nearAccountId}...`);
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const accessKeyInfo = await nearRpcProvider.viewAccessKey(
+      const accessKeyInfo = await nearClient.viewAccessKey(
         nearAccountId,
         nearPublicKey,
       ) as AccessKeyView;
@@ -513,7 +513,7 @@ async function performRegistrationRollback(
     contractRegistered: boolean;
     databaseStored: boolean;
     contractTransactionId: string | null;
-    preSignedDeleteTransaction: number[] | null;
+    preSignedDeleteTransaction: SignedTransaction | null;
   },
   nearAccountId: string,
   webAuthnManager: WebAuthnManager,

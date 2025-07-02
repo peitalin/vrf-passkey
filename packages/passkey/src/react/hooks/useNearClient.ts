@@ -1,5 +1,5 @@
-import { MinimalNearClient, type NearClient } from '../../core/NearClient';
 import { useMemo } from 'react';
+import { MinimalNearClient, type NearClient } from '../../core/NearClient';
 
 export const useNearClient = (): NearClient => {
   const nearClient = useMemo(() => {

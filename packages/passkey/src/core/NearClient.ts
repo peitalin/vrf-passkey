@@ -6,30 +6,49 @@
  * functionality and type definitions
  */
 
-import { FinalExecutionOutcome, QueryResponseKind } from "@near-js/types";
+import { FinalExecutionOutcome, QueryResponseKind, TxExecutionStatus } from "@near-js/types";
 import { Signature, Transaction } from "@near-js/transactions";
+import { base64Encode } from "../utils";
+import { DEFAULT_WAIT_STATUS } from "./types/rpc";
 // import { Provider } from "@near-js/providers";
 
-export declare class SignedTransaction {
+export class SignedTransaction {
     transaction: any;
     signature: any;
-    borsh_bytes?: number[] | undefined;
+    borsh_bytes: number[];
 
-    constructor({ transaction, signature }: {
-        transaction: Transaction;
-        signature: Signature;
-    });
+    constructor({ transaction, signature, borsh_bytes }: {
+      transaction: Transaction;
+      signature: Signature;
+      borsh_bytes: number[];
+    }) {
+      this.transaction = transaction;
+      this.signature = signature;
+      this.borsh_bytes = borsh_bytes;
+    }
 
-    encode(): Uint8Array;
+    encode(): Uint8Array {
+        // If borsh_bytes are already available, use them
+        return new Uint8Array(this.borsh_bytes);
+    }
 
-    static decode(bytes: Uint8Array): SignedTransaction;
+    base64Encode(): string {
+        return base64Encode(this.encode());
+    }
+
+    static decode(bytes: Uint8Array): SignedTransaction {
+        // This would need borsh deserialization
+        throw new Error('SignedTransaction.decode(): borsh deserialization not implemented');
+    }
 }
 
 export interface NearClient {
   viewAccessKey(accountId: string, publicKey: string): Promise<any>;
   viewBlock(params: { finality: string }): Promise<any>;
-  // sendTransaction(signedTransaction: SignedTransaction): Promise<FinalExecutionOutcome>;
-  sendTransaction(signedTransaction: Uint8Array | number[]): Promise<FinalExecutionOutcome>;
+  sendTransaction(
+    signedTransaction: SignedTransaction,
+    waitUntil?: TxExecutionStatus
+  ): Promise<FinalExecutionOutcome>;
   query<T extends QueryResponseKind>(path: string, data: string): Promise<T>;
   view(params: { account: string; method: string; args: any }): Promise<any>;
 }
@@ -150,12 +169,12 @@ export class MinimalNearClient implements NearClient {
     return result.result;
   }
 
-  async sendTransaction(signedTransaction: Uint8Array | number[]): Promise<FinalExecutionOutcome> {
-    // Convert to base64 - handle both Uint8Array and number[]
-    const txBytes = signedTransaction instanceof Uint8Array
-      ? signedTransaction
-      : new Uint8Array(signedTransaction);
-    const signedTransactionBase64 = Buffer.from(txBytes).toString('base64');
+  async sendTransaction(
+    signedTransaction: SignedTransaction,
+    waitUntil: TxExecutionStatus = DEFAULT_WAIT_STATUS.executeAction
+  ): Promise<FinalExecutionOutcome> {
+    // Convert signed transaction to base64 using the encode method
+    const signedTransactionBase64 = signedTransaction.base64Encode();
 
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
@@ -166,7 +185,7 @@ export class MinimalNearClient implements NearClient {
         method: 'send_tx',
         params: {
           signed_tx_base64: signedTransactionBase64,
-          wait_until: 'EXECUTED_OPTIMISTIC'
+          wait_until: waitUntil
         }
       })
     });

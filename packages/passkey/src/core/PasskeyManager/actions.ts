@@ -1,8 +1,7 @@
 import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
-import { MinimalNearClient } from '../NearClient';
 
-import { RPC_NODE_URL, DEFAULT_GAS_STRING } from '../../config';
+import { DEFAULT_GAS_STRING } from '../../config';
 import { ActionParams } from '../types/signer-worker';
 import { VerifyAndSignTransactionResult } from '../types/webauthn';
 import { ActionType } from '../types/actions';
@@ -10,6 +9,7 @@ import type { ActionArgs } from '../types/actions';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
+import { DEFAULT_WAIT_STATUS } from '../types/rpc';
 
 
 /**
@@ -23,7 +23,10 @@ export async function executeAction(
   options?: ActionOptions,
 ): Promise<ActionResult> {
 
-  const { onEvent, onError, hooks } = options || {};
+  const { onEvent, onError, hooks, waitUntil } = options || {};
+
+  // Run beforeCall hook
+  await hooks?.beforeCall?.();
 
   // Emit started event
   onEvent?.({
@@ -34,16 +37,13 @@ export async function executeAction(
     message: `Starting ${actionArgs.type} action to ${actionArgs.receiverId}`
   });
 
-  // Run beforeCall hook
-  await hooks?.beforeCall?.();
-
   try {
     // 1. Validation
     const transactionContext = await validateActionInputs(
       context,
       nearAccountId,
       actionArgs,
-      { onEvent, onError, hooks }
+      { onEvent, onError, hooks, waitUntil }
     );
 
     // 2. VRF Authentication + Transaction Signing
@@ -52,14 +52,14 @@ export async function executeAction(
       nearAccountId,
       transactionContext,
       actionArgs,
-      { onEvent, onError, hooks }
+      { onEvent, onError, hooks, waitUntil }
     );
 
     // 3. Transaction Broadcasting
     const actionResult = await broadcastTransaction(
+      context,
       signingResult,
-      actionArgs,
-      { onEvent, onError, hooks }
+      { onEvent, onError, hooks, waitUntil }
     );
 
     hooks?.afterCall?.(true, actionResult);
@@ -94,7 +94,7 @@ async function validateActionInputs(
 ): Promise<TransactionContext> {
 
   const { onEvent, onError, hooks } = options || {};
-  const { webAuthnManager, nearRpcProvider } = context;
+  const { webAuthnManager, nearClient } = context;
   // Basic validation
   if (!nearAccountId) {
     throw new Error('User not logged in or NEAR account ID not set for direct action.');
@@ -130,8 +130,8 @@ async function validateActionInputs(
 
   // Get access key and transaction block info concurrently
   const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-    nearRpcProvider.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
-    nearRpcProvider.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
+    nearClient.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
+    nearClient.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
   ]);
   const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
   const blockHashString = transactionBlockInfo.header.hash;
@@ -160,7 +160,7 @@ async function verifyVrfAuthAndSignTransaction(
 ): Promise<VerifyAndSignTransactionResult> {
 
   const { onEvent, onError, hooks } = options || {};
-  const { webAuthnManager, nearRpcProvider } = context;
+  const { webAuthnManager, nearClient } = context;
 
   onEvent?.({
     step: 2,
@@ -179,13 +179,15 @@ async function verifyVrfAuthAndSignTransaction(
   }
   console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
 
-  const blockInfo = await nearRpcProvider.viewBlock({ finality: 'final' });
+  // const blockInfo = await nearClient.viewBlock({ finality: 'final' });
+
   // Generate VRF challenge
   const vrfInputData = {
     userId: nearAccountId,
     rpId: window.location.hostname,
-    blockHeight: blockInfo.header.height,
-    blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
+    blockHeight: transactionContext.transactionBlockInfo.header.height,
+    // blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
+    blockHash: transactionContext.transactionBlockInfo.header.hash,
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
@@ -246,11 +248,13 @@ async function verifyVrfAuthAndSignTransaction(
  * 3. Transaction Broadcasting - Broadcasts the signed transaction to NEAR network
  */
 async function broadcastTransaction(
+  context: PasskeyManagerContext,
   signingResult: VerifyAndSignTransactionResult,
-  actionArgs: ActionArgs,
   options?: ActionOptions,
 ): Promise<ActionResult> {
+
   const { onEvent, onError, hooks } = options || {};
+  const { nearClient } = context;
 
   onEvent?.({
     step: 5,
@@ -260,15 +264,15 @@ async function broadcastTransaction(
     message: 'Broadcasting transaction...'
   });
 
-  // Create a NearClient for transaction broadcasting
-  // TODO: Could be optimized by passing nearRpcProvider through context
-  const nearClient = new MinimalNearClient(RPC_NODE_URL);
-
   // The signingResult contains structured SignedTransaction with embedded raw bytes
-  const signedTransactionBorsh = new Uint8Array(signingResult.signedTransaction?.borsh_bytes || []);
+  const signedTransaction = signingResult.signedTransaction;
 
+  console.log('Broadcasting transaction with waitUntil:', options?.waitUntil);
   // Send the transaction using NearClient
-  const transactionResult = await nearClient.sendTransaction(signedTransactionBorsh);
+  const transactionResult = await nearClient.sendTransaction(
+    signedTransaction,
+    options?.waitUntil
+  );
 
   const actionResult: ActionResult = {
     success: true,

@@ -377,49 +377,6 @@ pub fn get_action_handler(params: &ActionParams) -> Result<Box<dyn ActionHandler
     }
 }
 
-/// Special context-restricted function for DeleteAccount during registration rollback
-/// This provides an additional safety layer beyond the action handler
-pub fn validate_delete_account_context(
-    context: &str,
-    caller_function: &str,
-) -> Result<(), String> {
-    // Only allow DeleteAccount in specific contexts
-    match context {
-        "registration_rollback" => {
-            // SECURITY: Only allow from specific legitimate registration functions
-            // These are the ONLY functions that should be able to delete accounts
-            let allowed_callers = [
-                "handleRegistration",           // Main registration function
-                "registerUser",                 // Alternative registration function name
-                "signVerifyAndRegisterUser",    // WebAuthn registration function
-                "performRegistrationRollback",  // Explicit rollback function
-                "registration_cleanup",         // Registration cleanup function
-            ];
-
-            if allowed_callers.contains(&caller_function) {
-                console_log!("RUST: DeleteAccount authorized for legitimate caller: {}", caller_function);
-                Ok(())
-            } else {
-                let error_msg = format!(
-                    "SECURITY VIOLATION: DeleteAccount not allowed from caller '{}'. Allowed callers: {:?}",
-                    caller_function,
-                    allowed_callers
-                );
-                console_log!("RUST: {}", error_msg);
-                Err(error_msg)
-            }
-        }
-        _ => {
-            let error_msg = format!(
-                "SECURITY VIOLATION: DeleteAccount only allowed in 'registration_rollback' context, got '{}'",
-                context
-            );
-            console_log!("RUST: {}", error_msg);
-            Err(error_msg)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -598,44 +555,6 @@ mod tests {
 
         // Test invalid account ID format would fail in real usage
         // (our simple AccountId parser is quite permissive)
-    }
-
-    #[test]
-    fn test_validate_delete_account_context_security() {
-        // Test authorized callers
-        let authorized_callers = [
-            "handleRegistration",
-            "registerUser",
-            "signVerifyAndRegisterUser",
-            "performRegistrationRollback",
-            "registration_cleanup",
-        ];
-
-        for caller in &authorized_callers {
-            let result = validate_delete_account_context("registration_rollback", caller);
-            assert!(result.is_ok(), "Caller '{}' should be authorized", caller);
-        }
-
-        // Test unauthorized callers
-        let unauthorized_callers = [
-            "maliciousFunction",
-            "deleteAccounts",
-            "hackAccount",
-            "transferFunds",
-            "unknown",
-        ];
-
-        for caller in &unauthorized_callers {
-            let result = validate_delete_account_context("registration_rollback", caller);
-            assert!(result.is_err(), "Caller '{}' should be unauthorized", caller);
-            assert!(result.unwrap_err().contains("SECURITY VIOLATION"));
-        }
-
-        // Test invalid context
-        let result = validate_delete_account_context("invalid_context", "handleRegistration");
-        assert!(result.is_err());
-        assert!(result.as_ref().unwrap_err().contains("SECURITY VIOLATION"));
-        assert!(result.as_ref().unwrap_err().contains("only allowed in 'registration_rollback' context"));
     }
 
     #[test]

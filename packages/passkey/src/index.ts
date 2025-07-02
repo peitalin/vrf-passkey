@@ -63,7 +63,7 @@ export {
 } from './core/types/signer-worker';
 
 // === UTILITIES ===
-export { bufferEncode, bufferDecode } from './utils/encoders';
+export { base64UrlEncode, base64UrlDecode } from './utils/encoders';
 export * from './config';
 
 // === MAIN PASSKEY SDK EXPORTS ===

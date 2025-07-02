@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { LoginOptions, RegistrationOptions, PasskeyManager} from '../core/PasskeyManager';
+import type { LoginOptions, RegistrationOptions, PasskeyManager, PasskeyManagerConfigs} from '../core/PasskeyManager';
 import type { NearClient } from '../core/NearClient';
 
 // === CORE STATE TYPES ===
@@ -131,22 +131,22 @@ export interface PasskeyContextType {
   passkeyManager: PasskeyManager;
 }
 
+/** Config options for PasskeyContextProvider
+ * @param children - ReactNode to render inside the provider
+ * @param config - PasskeyManagerConfigs
+ * @example
+ * config: {
+ *   nearRpcUrl: 'https://rpc.testnet.near.org',
+ *   nearNetwork: 'testnet',
+ *   contractId: 'web3-authn.testnet',
+ *   relayerAccount: 'web3-authn.testnet',
+ *   relayServerUrl: 'https://faucet.testnet.near.org',
+ *   initialUseRelayer: true
+ * }
+ */
 export interface PasskeyContextProviderProps {
   children: ReactNode;
-
-  // Optional configuration
-  config?: {
-    nearNetwork?: 'testnet' | 'mainnet';
-    relayerOptions?: {
-      // The account ID of the relayer
-      relayerAccount?: string;
-      // The URL of the relay server
-      relayServerUrl?: string;
-      // Whether to use the relayer by default on intial load
-      initialUseRelayer?: boolean;
-    }
-    debugMode?: boolean;
-  };
+  config?: PasskeyManagerConfigs;
 }
 
 // === CONVENIENCE RE-EXPORTS ===

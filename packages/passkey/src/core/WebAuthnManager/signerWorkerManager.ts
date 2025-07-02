@@ -1,6 +1,6 @@
 import type { NearClient } from '../NearClient';
 import { SignedTransaction } from "../NearClient";
-import { bufferEncode } from '../../utils/encoders';
+import { base64UrlEncode, base58Decode } from '../../utils/encoders';
 import type {
   WorkerResponse,
   ActionParams
@@ -23,7 +23,6 @@ import { ActionType } from '../types/actions';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
-import { RPC_NODE_URL } from "../../config";
 import type { onProgressEvents } from '../types/webauthn';
 
 /**
@@ -60,14 +59,14 @@ export class SignerWorkerManager {
   }
 
   /**
-   * === UNIFIED WORKER OPERATION METHOD ===
+   * === EXECUTE WORKER OPERATION METHOD ===
    * Execute worker operation with optional progress updates (handles both single and multiple response patterns)
    *
    * FEATURES:
-   * ✅ Single-response operations (traditional request-response)
-   * ✅ Multi-response operations with progress updates (streaming SSE-like pattern)
-   * ✅ Consistent error handling and timeouts
-   * ✅ Fallback behavior for backward compatibility
+   * - Single-response operations (traditional request-response)
+   * - Multi-response operations with progress updates (streaming SSE-like pattern)
+   * - Consistent error handling and timeouts
+   * - Fallback behavior for backward compatibility
    */
   private async executeWorkerOperation({
     message,
@@ -184,9 +183,9 @@ export class SignerWorkerManager {
         message: {
           type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
           payload: {
-            prfOutput: bufferEncode(prfOutput),
+            prfOutput: base64UrlEncode(prfOutput),
             nearAccountId: nearAccountId,
-            attestationObjectBase64url: bufferEncode(attestationObject.attestationObject)
+            attestationObjectBase64url: base64UrlEncode(attestationObject.attestationObject)
           }
         }
       });
@@ -261,7 +260,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           payload: {
             nearAccountId: nearAccountId,
-            prfOutput: bufferEncode(prfOutput)
+            prfOutput: base64UrlEncode(prfOutput)
           }
         }
       });
@@ -339,12 +338,14 @@ export class SignerWorkerManager {
     vrfChallenge,
     credential,
     contractId,
+    nearRpcUrl,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
     credential: PublicKeyCredential,
     contractId: string;
-    onEvent?: (update: onProgressEvents) => void
+    nearRpcUrl: string;
+    onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     success: boolean;
     verified?: boolean;
@@ -363,7 +364,7 @@ export class SignerWorkerManager {
             vrfChallenge,
             credential: serializeRegistrationCredentialAndCreatePRF(credential),
             contractId,
-            nearRpcUrl: RPC_NODE_URL
+            nearRpcUrl
           }
         },
         onEvent,
@@ -409,7 +410,7 @@ export class SignerWorkerManager {
     signerAccountId,
     nearAccountId,
     publicKeyStr,
-    nearRpcProvider,
+    nearClient,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
@@ -418,7 +419,7 @@ export class SignerWorkerManager {
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
-    nearRpcProvider: NearClient; // NEAR RPC client for getting transaction metadata
+    nearClient: NearClient; // NEAR RPC client for getting transaction metadata
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     verified: boolean;
@@ -444,15 +445,27 @@ export class SignerWorkerManager {
 
       // Get access key and transaction block info concurrently
       const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-        nearRpcProvider.viewAccessKey(signerAccountId, publicKeyStr),
-        nearRpcProvider.viewBlock({ finality: 'final' })
+        nearClient.viewAccessKey(signerAccountId, publicKeyStr),
+        nearClient.viewBlock({ finality: 'final' })
       ]);
+
+      console.log('WebAuthnManager: Access key info received:', {
+        signerAccountId,
+        publicKeyStr,
+        accessKeyInfo,
+        hasNonce: accessKeyInfo?.nonce !== undefined,
+        nonceValue: accessKeyInfo?.nonce,
+        nonceType: typeof accessKeyInfo?.nonce
+      });
+
+      if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
+        throw new Error(`Access key not found or invalid for account ${signerAccountId} with public key ${publicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`);
+      }
 
       const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
       const blockHashString = transactionBlockInfo.header.hash;
       // Convert base58 block hash to bytes for WASM
-      const bs58 = (await import('bs58')).default;
-      const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
+      const transactionBlockHashBytes = Array.from(base58Decode(blockHashString));
 
       console.log('WebAuthnManager: Transaction metadata prepared', {
         nonce: nonce.toString(),
@@ -484,8 +497,16 @@ export class SignerWorkerManager {
           verified: response.payload.verified,
           registrationInfo: response.payload.registrationInfo,
           logs: response.payload.logs,
-          signedTransaction: response.payload.signedTransaction,
-          preSignedDeleteTransaction: response.payload.preSignedDeleteTransaction
+          signedTransaction: new SignedTransaction({
+            transaction: response.payload.signedTransaction.transaction,
+            signature: response.payload.signedTransaction.signature,
+            borsh_bytes: response.payload.signedTransaction.borsh_bytes
+          }),
+          preSignedDeleteTransaction: new SignedTransaction({
+            transaction: response.payload.preSignedDeleteTransaction.transaction,
+            signature: response.payload.preSignedDeleteTransaction.signature,
+            borsh_bytes: response.payload.preSignedDeleteTransaction.borsh_bytes
+          })
         };
       } else {
         console.error('WebAuthnManager: On-chain user registration transaction failed:', response);
@@ -514,6 +535,7 @@ export class SignerWorkerManager {
       contractId: string;
       vrfChallenge: VRFChallenge;
       credential: PublicKeyCredential;
+      nearRpcUrl: string;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<{
@@ -546,7 +568,7 @@ export class SignerWorkerManager {
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
             credential: serializeCredentialAndCreatePRF(payload.credential),
-            nearRpcUrl: RPC_NODE_URL
+            nearRpcUrl: payload.nearRpcUrl
           }
         },
         onEvent, // onEvent callback for wasm-worker events
@@ -556,7 +578,11 @@ export class SignerWorkerManager {
       if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
         console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
         return {
-          signedTransaction: response.payload.data.signed_transaction,
+          signedTransaction: new SignedTransaction({
+            transaction: response.payload.data.signed_transaction.transaction,
+            signature: response.payload.data.signed_transaction.signature,
+            borsh_bytes: response.payload.data.signed_transaction.borsh_bytes
+          }),
           nearAccountId: response.payload.data.near_account_id,
           logs: response.payload.data.verification_logs
         };
@@ -585,6 +611,7 @@ export class SignerWorkerManager {
       contractId: string;
       vrfChallenge: VRFChallenge;
       credential: PublicKeyCredential;
+      nearRpcUrl: string;
     },
     onEvent?: (update: onProgressEvents) => void
   ): Promise<{
@@ -615,7 +642,7 @@ export class SignerWorkerManager {
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
             credential: serializeCredentialAndCreatePRF(payload.credential),
-            nearRpcUrl: RPC_NODE_URL
+            nearRpcUrl: payload.nearRpcUrl
           }
         },
         onEvent, // onEvent callback for wasm-worker events
@@ -625,7 +652,11 @@ export class SignerWorkerManager {
       if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
         console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
         return {
-          signedTransaction: (response as any).payload.data.signed_transaction,
+          signedTransaction: new SignedTransaction({
+            transaction: response.payload.data.signed_transaction.transaction,
+            signature: response.payload.data.signed_transaction.signature,
+            borsh_bytes: response.payload.data.signed_transaction.borsh_bytes
+          }),
           nearAccountId: (response as any).payload.data.near_account_id,
           logs: (response as any).payload.data.verification_logs
         };

@@ -26,7 +26,7 @@ import {
 } from './types/signer-worker.js';
 import type { onProgressEvents } from './types/webauthn.js';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
-import { bufferEncode } from '../utils/encoders.js';
+import { base64UrlEncode } from '../utils/encoders.js';
 
 // Buffer polyfill for Web Workers
 // Workers don't inherit main thread polyfills, they run in an isolated environment
