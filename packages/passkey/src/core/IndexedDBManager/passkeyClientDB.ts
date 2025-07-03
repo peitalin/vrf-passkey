@@ -37,14 +37,14 @@ export interface UserPreferences {
 
 // Authenticator cache
 export interface ClientAuthenticatorData {
-  nearAccountId: string;
   credentialId: string;
   credentialPublicKey: Uint8Array;
   transports?: string[]; // AuthenticatorTransport[]
-  clientNearPublicKey?: string; // Renamed from clientManagedNearPublicKey
   name?: string;
+  nearAccountId: string; // FK reference for queries
   registered: string; // ISO date string
   syncedAt: string; // When this cache entry was last synced with contract
+  vrfPublicKey: string; // Base64-encoded VRF public key (1:1 relationship on client)
 }
 
 interface AppStateEntry<T = any> {
@@ -63,7 +63,7 @@ interface PasskeyClientDBConfig {
 // === CONSTANTS ===
 const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 4, // Increment version for schema changes
+  dbVersion: 5, // Increment version for schema changes
   userStore: 'users',
   appStateStore: 'appState',
   authenticatorStore: 'authenticators'
@@ -388,9 +388,9 @@ export class PasskeyClientDBManager {
       credentialId: string;
       credentialPublicKey: Uint8Array;
       transports?: string[];
-      clientNearPublicKey?: string;
       name?: string;
       registered: string;
+      vrfPublicKey: string;
     }>
   ): Promise<void> {
     // Clear existing cache for this user
@@ -400,14 +400,14 @@ export class PasskeyClientDBManager {
     const syncedAt = new Date().toISOString();
     for (const auth of contractAuthenticators) {
       const clientAuth: ClientAuthenticatorData = {
-        nearAccountId,
         credentialId: auth.credentialId,
         credentialPublicKey: auth.credentialPublicKey,
         transports: auth.transports,
-        clientNearPublicKey: auth.clientNearPublicKey,
         name: auth.name,
+        nearAccountId: nearAccountId,
         registered: auth.registered,
-        syncedAt,
+        syncedAt: syncedAt,
+        vrfPublicKey: auth.vrfPublicKey,
       };
       await this.storeAuthenticator(clientAuth);
     }

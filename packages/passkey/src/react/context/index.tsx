@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo, useRef } from 'react';
-import { PasskeyManager, RecoveryResult } from '../../core/PasskeyManager';
+import { PasskeyManager, PasskeyOption, PasskeyOptionWithoutCredential, PasskeySelection, RecoveryResult, AccountRecoveryFlow } from '../../core/PasskeyManager';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';
@@ -193,12 +193,26 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result;
   }
 
-  const recoverAccount = async (
-    nearAccountId: string,
-    method: 'accountId' | 'passkeySelection' = 'accountId',
-    options?: ActionOptions
+  const createPasskeySelection = (option: PasskeyOptionWithoutCredential): PasskeySelection => {
+    if (!option.accountId) {
+      throw new Error('Cannot create selection - missing account ID');
+    }
+    return {
+      credentialId: option.credentialId,
+      accountId: option.accountId
+    };
+  }
+
+  const recoverAccountWithAccountId = async (
+    accountId: string,
+    options?: ActionOptions,
+    reuseCredential?: PublicKeyCredential
   ) => {
-    return passkeyManager.recoverAccount(nearAccountId, method, options);
+    return passkeyManager.recoverAccountWithAccountId(accountId, options, reuseCredential);
+  }
+
+  const startAccountRecoveryFlow = (options?: ActionOptions): AccountRecoveryFlow => {
+    return passkeyManager.startAccountRecoveryFlow(options);
   }
 
   // Load user data on mount
@@ -241,10 +255,12 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     // UI acccount name input state (form/input tracking)
     accountInputState,
     // Simple login/register functions
-    logout,
+    logout,                      // Clears VRF session (logs out)
     loginPasskey,
     registerPasskey,
-    recoverAccount,
+    // Account recovery functions
+    recoverAccountWithAccountId, // Recover account with accountID and TouchId
+    startAccountRecoveryFlow,    // Discover accounts onchain, recover account with TouchId
     // Authentication state (actual state from contract/backend)
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
     loginState,

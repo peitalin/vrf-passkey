@@ -2,8 +2,8 @@ import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
 import { loginPasskey } from './login';
 import { executeAction } from './actions';
-import { addKeysToAccount, getDeviceKeys, type AddKeysOptions, type AddKeysResult, type DeviceKeysView } from './addKey';
-import { recoverAccount, type RecoveryResult } from './recoverAccount';
+import { addDeviceToAccount, getDeviceKeys, type AddKeysOptions, type AddKeysResult, type DeviceKeysView } from './addDevice';
+import { recoverAccount, AccountRecoveryFlow, type RecoveryResult } from './recoverAccount';
 import { MinimalNearClient, type NearClient } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
@@ -196,12 +196,21 @@ export class PasskeyManager {
   // === KEY MANAGEMENT METHODS (Phase 2) ===
 
   /**
-   * Add current device's DD-keypair to an existing NEAR account for multi-device access
+   * Add current device's passkey-derived keypair to an existing NEAR account for multi-device access
+   *
+   * @param accountId - Account ID to add the device to
+   * @param privateKey - Private key from the existing account (for signing AddKey transaction)
+   * @param options - Optional configuration for the operation
    *
    * @example
    * ```typescript
-   * const result = await passkeyManager.addKeysToAccount(
-   *   'ed25519:5K8...abc123', // private key from another device
+   * // First export the keypair from another device
+   * const { accountId, privateKey } = await passkeyManager.exportNearKeypairWithTouchId('alice.near');
+   *
+   * // Then on the new device, add it as an additional access key
+   * const result = await passkeyManager.addDeviceToAccount(
+   *   privateKey,
+   *   accountId,
    *   {
    *     onEvent: (event) => console.log('Progress:', event.message),
    *     gas: '30000000000000'
@@ -209,11 +218,17 @@ export class PasskeyManager {
    * );
    * ```
    */
-  async addKeysToAccount(
+  async addDeviceToAccount({ accountId, privateKey, options }: {
+    accountId: string,
     privateKey: string,
     options?: AddKeysOptions
-  ): Promise<AddKeysResult> {
-    return addKeysToAccount(this.getContext(), privateKey, options);
+  }): Promise<AddKeysResult> {
+    return addDeviceToAccount({
+      context: this.getContext(),
+      accountId,
+      privateKey,
+      options
+    });
   }
 
   /**
@@ -281,12 +296,15 @@ export class PasskeyManager {
   ///////////////////////////////////////
 
   /**
-   * Recover account by providing the NEAR account ID
-   * Derives DD-keypair from current passkey and verifies account ownership
+   * Recover account access using a passkey on this device
+   * @param accountId The NEAR account ID to recover. Must be an account derived from a passkey you own on this device
+   * @param options Optional action configuration and event handlers
+   * @param reuseCredential Optional WebAuthn credential to reuse from discovery phase
+   * @returns Recovery result with account details
    *
    * @example
    * ```typescript
-   * const result = await passkeyManager.recoverByAccountId(
+   * const result = await passkeyManager.recoverAccountWithAccountId(
    *   'alice.near',
    *   {
    *     onEvent: (event) => console.log('Recovery progress:', event.message),
@@ -295,12 +313,37 @@ export class PasskeyManager {
    * );
    * ```
    */
-  async recoverAccount(
+  async recoverAccountWithAccountId(
     accountId: string,
-    method: 'accountId' | 'passkeySelection' = 'accountId',
-    options?: ActionOptions
+    options?: ActionOptions,
+    reuseCredential?: PublicKeyCredential
   ): Promise<RecoveryResult> {
-    return recoverAccount(this.getContext(), accountId, method, options);
+    return recoverAccount(this.getContext(), accountId, options, reuseCredential);
+  }
+
+  /**
+   * Creates an AccountRecoveryFlow instance, for step-by-step account recovery UX
+   *
+   * @example
+   * ```typescript
+   * const flow = passkeyManager.startAccountRecoveryFlow();
+   *
+   * // Phase 1: Discover available accounts
+   * const options = await flow.discover(); // Returns PasskeyOptionWithoutCredential[]
+   *
+   * // Phase 2: User selects account in UI
+   * const selectedOption = await waitForUserSelection(options);
+   *
+   * // Phase 3: Execute recovery with secure credential lookup
+   * const result = await flow.recover({
+   *   credentialId: selectedOption.credentialId,
+   *   accountId: selectedOption.accountId
+   * });
+   * console.log('Recovery state:', flow.getState());
+   * ```
+   */
+  startAccountRecoveryFlow(options?: ActionOptions): AccountRecoveryFlow {
+    return new AccountRecoveryFlow(this.getContext(), options);
   }
 
   ///////////////////////////////////////
@@ -330,7 +373,6 @@ export class PasskeyManager {
 
 }
 
-
 // Re-export types for convenience
 export type {
   PasskeyManagerConfigs,
@@ -352,10 +394,17 @@ export type {
   AddKeysOptions,
   AddKeysResult,
   DeviceKeysView
-} from './addKey';
+} from './addDevice';
 
-// Re-export account recovery types
+// Re-export account recovery types and classes
 export type {
   RecoveryResult,
-  AccountLookupResult
+  AccountLookupResult,
+  PasskeyOption,
+  PasskeyOptionWithoutCredential,
+  PasskeySelection
+} from './recoverAccount';
+
+export {
+  AccountRecoveryFlow
 } from './recoverAccount';

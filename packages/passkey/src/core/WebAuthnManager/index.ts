@@ -1,16 +1,35 @@
-import type { NearClient } from '../NearClient';
-import { SignerWorkerManager } from './signerWorkerManager';
-import { IndexedDBManager } from '../IndexedDBManager';
-import { VrfWorkerManager, VRFWorkerStatus } from './vrfWorkerManager';
-import { TouchIdPrompt } from './touchIdPrompt';
-import type { UserData, ActionParams } from '../types/signer-worker';
-import type { ClientUserData, ClientAuthenticatorData } from '../IndexedDBManager';
-import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
-import type { EncryptedVRFKeypair, VRFInputData } from './vrfWorkerManager';
+// Core dependencies
+import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
+import { actionCreators, Transaction, createTransaction, Signature } from '@near-js/transactions';
+
+// Internal types
+import type { PasskeyManagerContext } from '../PasskeyManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
-import { base64UrlEncode } from '../../utils/encoders';
-import { SignedTransaction } from "../NearClient";
-import { serializeRegistrationCredentialAndCreatePRF } from '../types/signer-worker';
+import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
+import { ActionType } from '../types/actions';
+import {
+  IndexedDBManager,
+  type ClientUserData,
+  type ClientAuthenticatorData,
+} from '../IndexedDBManager';
+import {
+  type NearClient,
+  SignedTransaction
+} from '../NearClient';
+import { SignerWorkerManager } from './signerWorkerManager';
+import {
+  type EncryptedVRFKeypair,
+  type VRFInputData,
+  type VRFWorkerStatus,
+  VrfWorkerManager
+} from './vrfWorkerManager';
+import { TouchIdPrompt } from './touchIdPrompt';
+import { base64UrlEncode, base58Decode } from '../../utils/encoders';
+import {
+  serializeRegistrationCredentialAndCreatePRF,
+  type UserData,
+  type ActionParams,
+} from '../types/signer-worker';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -197,14 +216,14 @@ export class WebAuthnManager {
   }
 
   async storeAuthenticator(authenticatorData: {
-    nearAccountId: string;
     credentialId: string;
     credentialPublicKey: Uint8Array;
     transports?: string[];
-    clientNearPublicKey?: string;
     name?: string;
+    nearAccountId: string;
     registered: string;
     syncedAt: string;
+    vrfPublicKey: string;
   }): Promise<void> {
     return await IndexedDBManager.clientDB.storeAuthenticator(authenticatorData);
   }
@@ -572,16 +591,16 @@ export class WebAuthnManager {
       const response = credential.response as AuthenticatorAttestationResponse;
 
       await this.storeAuthenticator({
-        nearAccountId,
         credentialId: credentialId,
         credentialPublicKey: await this.extractCosePublicKey(
           base64UrlEncode(response.attestationObject)
         ),
         transports: response.getTransports?.() || [],
-        clientNearPublicKey: publicKey,
         name: `VRF Passkey for ${this.extractUsername(nearAccountId)}`,
+        nearAccountId,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
+        vrfPublicKey: encryptedVrfKeypair.vrfPublicKey,
       });
 
       // Store WebAuthn user data with encrypted VRF credentials
@@ -662,7 +681,7 @@ export class WebAuthnManager {
   }
 
   ///////////////////////////////////////
-  // KEY MANAGEMENT METHODS (Phase 2)
+  // KEY MANAGEMENT METHODS (Add New Devices to Accounts)
   ///////////////////////////////////////
 
   /**
@@ -672,38 +691,168 @@ export class WebAuthnManager {
    * @param params Configuration for adding device key
    * @returns Transaction result with transaction ID
    */
-  async addDeviceKey({
+  async signAddKeyToDevice({
+    context,
     accountId,
-    existingPrivateKey,
     newDevicePublicKey,
+    importedPrivateKey,
     accessKeyPermission = 'FullAccess',
-    gas
   }: {
-    accountId: string;
-    existingPrivateKey: string;
-    newDevicePublicKey: string;
-    accessKeyPermission?: 'FullAccess' | { receiver_id: string; method_names: string[]; allowance?: string };
-    gas?: string;
-  }): Promise<{ transactionId: string }> {
+    context: PasskeyManagerContext,
+    accountId: string,
+    newDevicePublicKey: string,
+    importedPrivateKey: string,
+    accessKeyPermission?: 'FullAccess' | { receiver_id: string; method_names: string[]; allowance?: string },
+  }): Promise<VerifyAndSignTransactionResult> {
+    const { nearClient } = context;
     try {
       console.log('WebAuthnManager: Starting add device key operation');
 
-      // TODO: This is a placeholder implementation
-      // The full implementation would:
-      // 1. Use the existing private key to derive the keypair
-      // 2. Create and sign an AddKey transaction
-      // 3. Broadcast the transaction to NEAR network
-      // 4. Return the transaction ID
+      // Step 1: Create KeyPair from imported private key
+      const keyPair = new KeyPairEd25519(importedPrivateKey);
+      const publicKeyStr = keyPair.getPublicKey().toString();
 
-      // For now, return a placeholder transaction ID
-      console.log('WebAuthnManager: Add device key operation completed (placeholder)');
+      // Step 2: Fetch nonce and block hash for the account
+      const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
+        nearClient.viewAccessKey(accountId, publicKeyStr),
+        nearClient.viewBlock({ finality: 'final' })
+      ]);
+
+      const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
+      const blockHashString = transactionBlockInfo.header.hash;
+
+      // Step 3: Create AddKey action
+      const addKeyAction = actionCreators.addKey(
+        PublicKey.fromString(newDevicePublicKey),
+        accessKeyPermission === 'FullAccess'
+          ? actionCreators.fullAccessKey()
+          : actionCreators.functionCallAccessKey(
+              accessKeyPermission.receiver_id,
+              accessKeyPermission.method_names,
+              accessKeyPermission.allowance ? BigInt(accessKeyPermission.allowance) : undefined
+            )
+      );
+
+      // Step 4: Create and sign transaction
+      const transaction = createTransaction(
+        accountId,           // signerId
+        keyPair.getPublicKey(), // signer public key
+        accountId,           // receiverId
+        nonce,               // nonce
+        [addKeyAction],      // actions
+        base58Decode(blockHashString) // blockHash
+      );
+
+      // Sign the transaction manually using the keyPair
+      const serializedTx = transaction.encode();
+      const signature: Signature = keyPair.sign(serializedTx) as any;
+
+      console.log('WebAuthnManager: Add device key operation completed successfully');
+
       return {
-        transactionId: 'placeholder-add-key-tx-id'
+        signedTransaction: new SignedTransaction({
+          transaction: transaction,
+          signature: signature,
+          borsh_bytes: Array.from(serializedTx)
+        }),
+        nearAccountId: accountId,
+        logs: ['Transaction signed with imported private key']
       };
 
     } catch (error: any) {
       console.error('WebAuthnManager: Add device key error:', error);
       throw new Error(`Add device key failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Add VRF public key to authenticator (for recovery scenarios)
+   * This enables adding new VRF keys to the FIFO queue on the contract
+   */
+  async addVrfKeyToAuthenticator({
+    nearAccountId,
+    contractId,
+    credentialId,
+    vrfPublicKey,
+    nonce,
+    blockHashBytes,
+    vrfChallenge,
+    credential,
+    nearRpcUrl,
+    onEvent
+  }: {
+    nearAccountId: string;
+    contractId: string;
+    credentialId: string;
+    vrfPublicKey: Uint8Array | number[];
+    nonce: string;
+    blockHashBytes: number[];
+    vrfChallenge: VRFChallenge;
+    credential: PublicKeyCredential;
+    nearRpcUrl: string;
+    onEvent?: (update: onProgressEvents) => void;
+  }): Promise<{
+    signedTransaction: SignedTransaction;
+    nearAccountId: string;
+    logs?: string[]
+  }> {
+    console.log('WebAuthnManager: Starting VRF key addition to authenticator');
+
+    onEvent?.({
+      step: 1,
+      phase: 'preparation',
+      status: 'progress',
+      message: 'Adding VRF public key to authenticator...'
+    });
+
+    try {
+
+      const functionCallAction: ActionParams = {
+        actionType: ActionType.FunctionCall,
+        method_name: 'add_vrf_key_to_authenticator',
+        args: JSON.stringify({
+          user_id: nearAccountId,
+          credential_id: credentialId,
+          new_vrf_key: Array.from(vrfPublicKey)
+        }),
+        gas: '30000000000000', // 30 TGas
+        deposit: '0'
+      };
+
+      const result = await this.signerWorkerManager.signTransactionWithActions({
+        nearAccountId: nearAccountId,
+        receiverId: contractId,
+        actions: [functionCallAction],
+        nonce: nonce,
+        blockHashBytes: blockHashBytes,
+        contractId: contractId,
+        vrfChallenge: vrfChallenge,
+        credential: credential,
+        nearRpcUrl: nearRpcUrl
+      }, onEvent);
+
+      console.log('WebAuthnManager: VRF key addition completed successfully');
+
+      onEvent?.({
+        step: 2,
+        phase: 'transaction-signing',
+        status: 'success',
+        message: 'VRF public key added to authenticator successfully'
+      });
+
+      return result;
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: VRF key addition error:', error);
+
+      onEvent?.({
+        step: 0,
+        phase: 'action-error',
+        status: 'error',
+        message: `VRF key addition failed: ${error.message}`
+      });
+
+      throw new Error(`VRF key addition failed: ${error.message}`);
     }
   }
 

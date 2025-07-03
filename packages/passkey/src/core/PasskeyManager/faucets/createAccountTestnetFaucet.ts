@@ -40,6 +40,9 @@ export async function createAccountTestnetFaucet(
 
     const faucetResult = await faucetResponse.json();
     console.log('Faucet service response:', faucetResult);
+    console.log('DEBUG: Faucet response status:', faucetResult.status);
+    console.log('DEBUG: Faucet final_execution_status:', faucetResult.final_execution_status);
+    console.log('DEBUG: Faucet transaction_outcome:', faucetResult.transaction_outcome);
 
     // Check if the transaction actually succeeded on-chain
     if (faucetResult.status?.Failure) {

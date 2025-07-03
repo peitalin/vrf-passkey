@@ -247,7 +247,7 @@ async function verifyVrfAuthAndSignTransaction(
 /**
  * 3. Transaction Broadcasting - Broadcasts the signed transaction to NEAR network
  */
-async function broadcastTransaction(
+export async function broadcastTransaction(
   context: PasskeyManagerContext,
   signingResult: VerifyAndSignTransactionResult,
   options?: ActionOptions,

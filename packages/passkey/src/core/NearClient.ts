@@ -11,18 +11,21 @@ import {
   QueryResponseKind,
   TxExecutionStatus,
   AccessKeyView,
+  AccessKeyList,
   BlockResult,
   BlockReference,
   RpcQueryRequest,
+  FinalityReference,
 } from "@near-js/types";
 import { Signature, Transaction } from "@near-js/transactions";
+import { PublicKey } from "@near-js/crypto";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
-import { Provider } from "@near-js/providers";
+// import { Provider } from "@near-js/providers";
 
 export class SignedTransaction {
-    transaction: any;
-    signature: any;
+    transaction: Transaction;
+    signature: Signature;
     borsh_bytes: number[];
 
     constructor({ transaction, signature, borsh_bytes }: {
@@ -50,8 +53,14 @@ export class SignedTransaction {
     }
 }
 
+/**
+ * A minimal NEAR RPC client that only includes the methods actually used by PasskeyManager
+ * If needed, we can just wrap @near-js if we require more complex functionality and type definitions
+ */
 export interface NearClient {
-  viewAccessKey(accountId: string, publicKey: string): Promise<AccessKeyView>;
+  viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView>;
+  viewAccessKeyList(accountId: string, finalityQuery?: FinalityReference): Promise<AccessKeyList>;
+  viewAccount(accountId: string): Promise<any>;
   viewBlock(params: BlockReference): Promise<BlockResult>;
   sendTransaction(
     signedTransaction: SignedTransaction,
@@ -62,199 +71,236 @@ export interface NearClient {
 }
 
 export class MinimalNearClient implements NearClient {
-  constructor(private rpcUrl: string) {}
+  private readonly rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  // ===========================
+  // PRIVATE HELPER FUNCTIONS
+  // ===========================
+
+  /**
+   * Execute single RPC call to specific endpoint
+   */
+  private async makeRpcCall(url: string, requestBody: object): Promise<any> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const responseText = await response.text();
+    if (!responseText?.trim()) {
+      throw new Error('Empty response from RPC server');
+    }
+
+    const result = JSON.parse(responseText);
+    if (result.error) {
+      throw new Error(`RPC Error: ${result.error.message}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Retry with exponential backoff
+   */
+  private async retryWithBackoff<T>(
+    attempts: Array<() => Promise<T>>,
+    operationName: string,
+    baseDelay: number = 2000
+  ): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        console.log(`DEBUG: ${operationName} - Attempt ${i + 1}/${attempts.length}`);
+        const result = await attempts[i]();
+        console.log(`DEBUG: ${operationName} - Attempt ${i + 1} success!`);
+        return result;
+      } catch (error: any) {
+        console.log(`DEBUG: ${operationName} - Attempt ${i + 1} failed: ${error.message}`);
+        lastError = error;
+
+        if (i < attempts.length - 1) {
+          const delay = baseDelay;
+          console.log(`DEBUG: Waiting ${delay}ms before next attempt...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError || new Error(`All attempts failed for ${operationName}`);
+  }
+
+  /**
+   * Generic RPC retry with multiple endpoints and finality options
+   */
+  private async retryRpcCall<T>(
+    method: string,
+    getParams: (finality: string) => any,
+    operationName: string
+  ): Promise<T> {
+    const rpcConfigs = [
+      { url: this.rpcUrl, finality: 'final' },
+      { url: this.rpcUrl, finality: 'optimistic' },
+      { url: 'https://near-testnet.api.pagoda.co/rpc/v1/', finality: 'final' },
+      { url: 'https://near-testnet.api.pagoda.co/rpc/v1/', finality: 'optimistic' },
+    ];
+
+    const attempts = rpcConfigs.map(({ url, finality }) => async () => {
+      const params = getParams(finality);
+      const request = {
+        jsonrpc: '2.0',
+        id: crypto.randomUUID(),
+        method,
+        params
+      };
+      const result = await this.makeRpcCall(url, request);
+
+      // Check for query-specific errors in result.result
+      if (result.result?.error) {
+        throw new Error(`${operationName} Error: ${result.result.error}`);
+      }
+
+      return result.result;
+    });
+
+    return this.retryWithBackoff(attempts, operationName);
+  }
+
+  /**
+   * Transaction retry (different endpoints only, no finality variations)
+   */
+  private async retrySendTransaction(
+    signedTxBase64: string,
+    waitUntil: TxExecutionStatus,
+    operationName: string
+  ): Promise<FinalExecutionOutcome> {
+    const endpoints = [
+      this.rpcUrl,
+      'https://near-testnet.api.pagoda.co/rpc/v1/',
+    ];
+
+    const attempts = endpoints.map(url => async () => {
+      const params = { signed_tx_base64: signedTxBase64, wait_until: waitUntil };
+      const request = {
+        jsonrpc: '2.0',
+        id: crypto.randomUUID(),
+        method: 'send_tx',
+        params
+      };
+      const result = await this.makeRpcCall(url, request);
+
+      if (result.error) {
+        const errorMessage = result.error.data?.message || result.error.message || 'Transaction failed';
+        throw new Error(`Transaction Error: ${errorMessage}`);
+      }
+
+      return result.result;
+    });
+
+    return this.retryWithBackoff(attempts, operationName, 1000);
+  }
+
+  // ===========================
+  // PUBLIC API METHODS
+  // ===========================
 
   async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
   async query<T extends QueryResponseKind>(path: string, data: string): Promise<T>;
   async query<T extends QueryResponseKind>(pathOrParams: string | RpcQueryRequest, data?: string): Promise<T> {
-    let params;
-    if (typeof pathOrParams === 'string') {
-      params = {
-        request_type: pathOrParams,
-        ...JSON.parse(data!)
-      };
-    } else {
-      params = pathOrParams;
-    }
+    const params = typeof pathOrParams === 'string'
+      ? { request_type: pathOrParams, ...JSON.parse(data!) }
+      : pathOrParams;
 
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'query',
-        params
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const responseText = await response.text();
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from RPC server');
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Invalid JSON response from RPC server: ${responseText.substring(0, 100)}...`);
-    }
-
-    if (result.error) {
-      throw new Error(`RPC Error: ${result.error.message}`);
-    }
-    return result.result;
+    return this.retryRpcCall<T>('query',
+      (finality) => ({ ...params, finality: params.finality || finality }),
+      'Query'
+    );
   }
 
-  async viewAccessKey(accountId: string, publicKey: string): Promise<any> {
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'query',
-        params: {
-          request_type: 'view_access_key',
-          finality: 'final',
-          account_id: accountId,
-          public_key: publicKey
-        }
-      })
-    });
+  async viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView> {
+    const publicKeyStr = typeof publicKey === 'string' ? publicKey : publicKey.toString();
+    const finality = finalityQuery?.finality || 'final';
 
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
-    }
+    return this.retryRpcCall<AccessKeyView>('query',
+      (defaultFinality) => ({
+        request_type: 'view_access_key',
+        finality: finality,
+        account_id: accountId,
+        public_key: publicKeyStr
+      }),
+      'View Access Key'
+    );
+  }
 
-    const responseText = await response.text();
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from RPC server');
-    }
+  async viewAccessKeyList(accountId: string, finalityQuery?: FinalityReference): Promise<AccessKeyList> {
+    const finality = finalityQuery?.finality || 'final';
 
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Invalid JSON response from RPC server: ${responseText.substring(0, 100)}...`);
-    }
+    return this.retryRpcCall<AccessKeyList>('query',
+      (defaultFinality) => ({
+        request_type: 'view_access_key_list',
+        finality: finality,
+        account_id: accountId
+      }),
+      'View Access Key List'
+    );
+  }
 
-    if (result.error) {
-      throw new Error(`RPC Error: ${result.error.message}`);
-    }
-    return result.result;
+  async viewAccount(accountId: string): Promise<any> {
+    return this.retryRpcCall('query',
+      (finality) => ({
+        request_type: 'view_account',
+        finality,
+        account_id: accountId
+      }),
+      'View Account'
+    );
   }
 
   async viewBlock(params: BlockReference): Promise<BlockResult> {
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'block',
-        params
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const responseText = await response.text();
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from RPC server');
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Invalid JSON response from RPC server: ${responseText.substring(0, 100)}...`);
-    }
-
-    if (result.error) {
-      throw new Error(`RPC Error: ${result.error.message}`);
-    }
-    return result.result;
+    return this.retryRpcCall<BlockResult>('block',
+      () => params,
+      'View Block'
+    );
   }
 
   async sendTransaction(
     signedTransaction: SignedTransaction,
     waitUntil: TxExecutionStatus = DEFAULT_WAIT_STATUS.executeAction
   ): Promise<FinalExecutionOutcome> {
-    // Convert signed transaction to base64 using the encode method
-    const signedTransactionBase64 = signedTransaction.base64Encode();
-
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'send_tx',
-        params: {
-          signed_tx_base64: signedTransactionBase64,
-          wait_until: waitUntil
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Transaction broadcast failed: ${response.status} ${response.statusText}`);
-    }
-
-    const responseText = await response.text();
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from RPC server');
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error(`Invalid JSON response from RPC server: ${responseText.substring(0, 100)}...`);
-    }
-
-    if (result.error) {
-      const errorMessage = result.error.data?.message || result.error.message || 'Transaction broadcast failed';
-      throw new Error(`Transaction broadcast failed: ${errorMessage}`);
-    }
-
-    return result.result;
+    const signedTxBase64 = signedTransaction.base64Encode();
+    return this.retrySendTransaction(signedTxBase64, waitUntil, 'Send Transaction');
   }
 
   async view(params: { account: string; method: string; args: any }): Promise<any> {
-    // Use the generic query function for the RPC call
-    const queryData = JSON.stringify({
-      finality: 'final',
-      account_id: params.account,
-      method_name: params.method,
-      args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
-    });
-
-    const result = await this.query<{ result: number[] } & QueryResponseKind>(
-      'call_function',
-      queryData
+    const result = await this.retryRpcCall<{ result: number[] }>('query',
+      (finality) => ({
+        request_type: 'call_function',
+        finality,
+        account_id: params.account,
+        method_name: params.method,
+        args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
+      }),
+      'View Function'
     );
 
-    // Parse the result bytes as a string (typical for view functions that return strings)
+    // Parse result bytes to string/JSON
     const resultBytes = result.result;
-    if (Array.isArray(resultBytes)) {
-      const resultString = String.fromCharCode(...resultBytes);
-      try {
-        // Try to parse as JSON first (for complex return types)
-        return JSON.parse(resultString);
-      } catch {
-        // If not JSON, return as string (for simple string returns)
-        return resultString.replace(/^"|"$/g, ''); // Remove surrounding quotes if present
-      }
-    }
+    if (!Array.isArray(resultBytes)) return result;
 
-    return result;
+    const resultString = String.fromCharCode(...resultBytes);
+    try {
+      return JSON.parse(resultString);
+    } catch {
+      return resultString.replace(/^"|"$/g, ''); // Remove quotes
+    }
   }
 }

@@ -140,7 +140,7 @@ pub fn init_panic_hook() {
 pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
     request_json: &str,
 ) -> Result<String, JsValue> {
-    console_log!("RUST: WASM binding - deriving deterministic NEAR keypair from COSE credential");
+    console_log!("RUST: deriving deterministic NEAR keypair from COSE credential");
 
     let request: DeriveKeypairRequest = serde_json::from_str(request_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
@@ -197,7 +197,7 @@ pub fn recover_keypair_from_passkey(
         account_id_hint: request.account_id_hint,
     };
 
-    console_log!("RUST: WASM binding - deterministic keypair derivation from passkey successful");
+    console_log!("RUST: deterministic keypair derivation from passkey successful");
     Ok(response.to_json())
 }
 

@@ -56,7 +56,6 @@ pub fn build_transaction_with_actions(
 pub fn build_actions_from_params(action_params: Vec<ActionParams>) -> Result<Vec<Action>, String> {
     let mut actions = Vec::new();
     for (i, params) in action_params.iter().enumerate() {
-        console_log!("RUST: Processing action {}: {:?}", i, params.clone());
 
         let handler = get_action_handler(params)
             .map_err(|e| format!("Action {} handler error: {}", i, e))?;

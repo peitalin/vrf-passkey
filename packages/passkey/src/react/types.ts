@@ -5,39 +5,39 @@ import type {
   ActionOptions,
   PasskeyManager,
   PasskeyManagerConfigs,
-  RecoveryResult
+  RecoveryResult,
+  AccountRecoveryFlow
 } from '../core/PasskeyManager';
-import type { NearClient } from '../core/NearClient';
 
 // === CORE STATE TYPES ===
 
-/** Actual authentication state - represents what's currently authenticated/registered */
+// Actual authentication state - represents what's currently authenticated/registered
 export interface LoginState {
-  /** Whether a user is currently authenticated */
+  // Whether a user is currently authenticated
   isLoggedIn: boolean;
-  /** The public key of the currently authenticated user (if available) */
+  // The public key of the currently authenticated user (if available)
   nearPublicKey: string | null;
-  /** The NEAR account ID of the currently authenticated user (e.g., "alice.testnet") */
+  // The NEAR account ID of the currently authenticated user (e.g., "alice.testnet")
   nearAccountId: string | null;
 }
 
-/** UI input state - tracks user input and form state */
+// UI input state - tracks user input and form state
 export interface AccountInputState {
-  /** The username portion being typed by the user (e.g., "alice") */
+  // The username portion being typed by the user (e.g., "alice")
   inputUsername: string;
-  /** The username from the last logged-in account */
+  // The username from the last logged-in account
   lastLoggedInUsername: string;
-  /** The domain from the last logged-in account (e.g., ".testnet") */
+  // The domain from the last logged-in account (e.g., ".testnet")
   lastLoggedInDomain: string;
-  /** The complete account ID for input operations (e.g., "alice.testnet") */
+  // The complete account ID for input operations (e.g., "alice.testnet")
   targetAccountId: string;
-  /** The domain postfix to display in the UI (e.g., ".testnet") */
+  // The domain postfix to display in the UI (e.g., ".testnet")
   displayPostfix: string;
-  /** Whether the current input matches an existing account in IndexDB */
+  // Whether the current input matches an existing account in IndexDB
   isUsingExistingAccount: boolean;
-  /** Whether the target account has passkey credentials */
+  // Whether the target account has passkey credentials
   accountExists: boolean;
-  /** All account IDs stored in IndexDB */
+  // All account IDs stored in IndexDB
   indexDBAccounts: string[];
 }
 
@@ -108,7 +108,7 @@ export interface UseRelayerReturn {
   toggleRelayer: () => void;
 }
 
-// === SIMPLIFIED CONTEXT TYPES ===
+// === CONTEXT TYPES ===
 export interface PasskeyContextType {
   // Authentication state (actual state from contract/backend)
   loginState: LoginState;
@@ -118,11 +118,12 @@ export interface PasskeyContextType {
   logout: () => void;
   loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
   registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
-  recoverAccount: (
+  recoverAccountWithAccountId: (
     nearAccountId: string,
-    method: 'accountId' | 'passkeySelection',
-    options: ActionOptions
+    options?: ActionOptions,
+    reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
+  startAccountRecoveryFlow: (options?: ActionOptions) => AccountRecoveryFlow;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;
