@@ -26,7 +26,8 @@ export function PasskeyLoginMenu() {
     },
     loginPasskey,
     registerPasskey,
-    recoverAccount,
+    recoverAccountWithAccountId,
+    startAccountRecoveryFlow,
     // UI
     setInputUsername,
     passkeyManager,
@@ -103,7 +104,7 @@ export function PasskeyLoginMenu() {
     }
 
     console.log('Recovering account:', targetAccountId);
-    const result = await recoverAccount(targetAccountId, "accountId", {
+    const result = await startAccountRecoveryFlow({
       onEvent: (event) => {
         console.log('Recovery event:', event);
       },
