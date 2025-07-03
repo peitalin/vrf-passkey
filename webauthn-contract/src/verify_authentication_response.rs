@@ -1,5 +1,6 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{env, log, near};
+use near_sdk::store::IterableMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 
@@ -514,10 +515,14 @@ mod tests {
         let credential_id_b64url = "test_vrf_credential_id_123".to_string();
 
         // Store the authenticator first (simulating prior registration)
-        contract.authenticators.insert(
-            (user_account_id.clone(), credential_id_b64url.clone()),
-            stored_authenticator
-        );
+        if !contract.authenticators.contains_key(&user_account_id) {
+            let storage_key_bytes = format!("auth_{}", user_account_id).into_bytes();
+            let new_map = IterableMap::new(storage_key_bytes);
+            contract.authenticators.insert(user_account_id.clone(), new_map);
+        }
+        if let Some(user_authenticators) = contract.authenticators.get_mut(&user_account_id) {
+            user_authenticators.insert(credential_id_b64url.clone(), stored_authenticator);
+        }
 
         // Create VRF authentication data
         let vrf_data = VRFVerificationData {

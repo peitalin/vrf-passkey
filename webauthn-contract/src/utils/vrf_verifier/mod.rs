@@ -21,17 +21,15 @@ mod vrf_wasm_verifier_wrapper;
 
 pub use vrf_contract_verifier_wrapper::verify_vrf_1;
 // pub use vrf_wasm_verifier_wrapper::verify_vrf_2;
-
 use vrf_contract_verifier::VerificationError;
-use near_sdk::{env, log};
 
 /// VRF input components for NEAR-based challenges
 #[derive(Debug, Clone)]
 #[near_sdk::near(serializers = [borsh, json])]
 pub struct VRFInputComponents {
-    pub account_id: String,           // User account for binding
-    pub block_height: u64,           // NEAR block height for freshness
-    pub challenge_data: Vec<u8>,     // Additional challenge data
+    pub account_id: String,            // User account for binding
+    pub block_height: u64,             // NEAR block height for freshness
+    pub challenge_data: Vec<u8>,       // Additional challenge data
     pub expiration_block: Option<u64>, // Optional expiration
 }
 

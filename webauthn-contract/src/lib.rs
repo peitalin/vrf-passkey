@@ -2,7 +2,6 @@ pub mod utils;
 
 mod authenticators;
 mod admin;
-mod contract_helpers;
 mod types;
 
 mod verify_authentication_response;
@@ -19,7 +18,6 @@ pub use types::{
 };
 pub use authenticators::{
     StoredAuthenticator,
-    UserProfile,
 };
 pub use verify_registration_response::{
     VerifyRegistrationResponse,
@@ -49,9 +47,10 @@ pub struct VerifiedVRFAuthenticationResponse {
 #[near_sdk::near(serializers=[borsh, json])]
 #[derive(Debug, Clone)]
 pub struct VRFSettings {
-    pub max_input_age_ms: u64,      // Maximum age for VRF input components (default: 5 minutes)
-    pub max_block_age: u64,         // Maximum block age for block hash validation
-    pub enabled: bool,              // Feature flag for VRF functionality
+    pub max_input_age_ms: u64, // Maximum age for VRF input components (default: 5 minutes)
+    pub max_block_age: u64,    // Maximum block age for block hash validation
+    pub enabled: bool,         // Feature flag for VRF functionality
+    pub max_authenticators_per_account: usize, // Maximum number of authenticators per account
 }
 
 impl Default for VRFSettings {
@@ -60,21 +59,29 @@ impl Default for VRFSettings {
             max_input_age_ms: 300_000, // 5 minutes
             max_block_age: 100,        // 100 blocks (~60 seconds, accommodates TouchID delays)
             enabled: true,
+            max_authenticators_per_account: 5,
         }
     }
 }
+
+//////////////////////
+/// Contract State
+//////////////////////
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct WebAuthnContract {
     greeting: String,
     pub contract_name: String,
-    pub authenticators: IterableMap<(AccountId, String), StoredAuthenticator>,
-    pub registered_users: IterableSet<AccountId>,
-    pub user_profiles: LookupMap<AccountId, UserProfile>,
     pub admins: IterableSet<AccountId>,
-    // VRF-specific storage
-    pub vrf_settings: VRFSettings, // Global VRF configuration
+    // Global VRF configuration
+    pub vrf_settings: VRFSettings,
+    // 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
+    pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
+    // Registered users
+    pub registered_users: IterableSet<AccountId>,
+    // Lookup accounts associated with a WebAuthn (TouchId) credential_id
+    pub credential_to_users: LookupMap<String, Vec<AccountId>>,
 }
 
 #[derive(BorshSerialize, BorshStorageKey)]
@@ -82,8 +89,8 @@ pub struct WebAuthnContract {
 pub enum StorageKey {
     Authenticators,
     RegisteredUsers,
-    UserProfiles,
     Admins,
+    CredentialToUsers,
 }
 
 #[near]
@@ -94,11 +101,11 @@ impl WebAuthnContract {
         Self {
             contract_name,
             greeting: "Hello".to_string(),
-            authenticators: IterableMap::new(StorageKey::Authenticators),
-            registered_users: IterableSet::new(StorageKey::RegisteredUsers),
-            user_profiles: LookupMap::new(StorageKey::UserProfiles),
-            admins: IterableSet::new(StorageKey::Admins),
             vrf_settings: VRFSettings::default(),
+            admins: IterableSet::new(StorageKey::Admins),
+            authenticators: LookupMap::new(StorageKey::Authenticators),
+            registered_users: IterableSet::new(StorageKey::RegisteredUsers),
+            credential_to_users: LookupMap::new(StorageKey::CredentialToUsers),
         }
     }
 
@@ -153,9 +160,6 @@ impl WebAuthnContract {
     //         }
     //     }
     // }
-
-
-    // === VRF SETTINGS MANAGEMENT ===
 
     /// Update VRF settings (only contract owner can call this)
     pub fn update_vrf_settings(&mut self, settings: VRFSettings) {

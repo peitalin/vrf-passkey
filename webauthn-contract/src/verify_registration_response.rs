@@ -554,13 +554,12 @@ impl WebAuthnContract {
         // Get current timestamp as ISO string
         let current_timestamp = env::block_timestamp_ms().to_string();
 
-        // Note: Previously extracted authenticator flags for backed_up determination but no longer stored
-
         // use msg.sender as user account id
         let user_account_id = env::predecessor_account_id();
 
         // Store the authenticator with the VRF public key
         self.store_authenticator(
+            user_account_id.clone(),
             credential_id_b64url.clone(),
             registration_info.credential_public_key.clone(),
             transports,
@@ -574,14 +573,8 @@ impl WebAuthnContract {
             self.register_user(user_account_id.clone());
         } else {
             log!("User already registered in user registry: {}", user_account_id);
-            // Update user activity
-            self.update_user_activity(user_account_id.clone());
         }
 
-        // 3. Update user profile with VRF public key
-        if let Some(profile) = self.get_user_profile(user_account_id.clone()) {
-            self.user_profiles.insert(user_account_id.clone(), profile);
-        }
         log!(
             "Stored authenticator for user '{}' with credential ID '{}'",
             user_account_id,
