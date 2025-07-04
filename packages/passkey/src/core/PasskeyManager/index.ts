@@ -1,6 +1,6 @@
 import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
-import { loginPasskey } from './login';
+import { loginPasskey, getLoginState, getRecentLogins, logoutAndClearVrfSession } from './login';
 import { executeAction } from './actions';
 import { addDeviceToAccount, getDeviceKeys, type AddKeysOptions, type AddKeysResult, type DeviceKeysView } from './addDevice';
 import { recoverAccount, AccountRecoveryFlow, type RecoveryResult } from './recoverAccount';
@@ -12,7 +12,8 @@ import type {
   LoginOptions,
   LoginResult,
   ActionOptions,
-  ActionResult
+  ActionResult,
+  LoginState
 } from '../types/passkeyManager';
 import type { ActionArgs } from '../types/actions';
 import { ActionType } from '../types/actions';
@@ -68,7 +69,18 @@ export class PasskeyManager {
    * Logout: Clear VRF session (clear VRF keypair in worker)
    */
   async logoutAndClearVrfSession(): Promise<void> {
-    return this.webAuthnManager.clearVrfSession();
+    return logoutAndClearVrfSession(this.getContext());
+  }
+
+  /**
+   * Get comprehensive login state information
+   */
+  async getLoginState(nearAccountId?: string): Promise<LoginState> {
+    return getLoginState(this.getContext(), nearAccountId);
+  }
+
+  async getRecentLogins(): Promise<{ accountIds: string[], lastUsedAccountId: string|null }> {
+    return getRecentLogins(this.getContext());
   }
 
   /**
@@ -102,81 +114,6 @@ export class PasskeyManager {
     return executeAction(this.getContext(), nearAccountId, actionArgs, options);
   }
 
-  /**
-   * Get comprehensive login state information
-   * This is the preferred method for frontend components to check login status
-   */
-  async getLoginState(nearAccountId?: string): Promise<{
-    isLoggedIn: boolean;
-    nearAccountId: string | null;
-    publicKey: string | null;
-    vrfActive: boolean;
-    userData: any | null;
-    vrfSessionDuration?: number;
-  }> {
-    try {
-      // Determine target account ID
-      let targetAccountId = nearAccountId;
-
-      if (!targetAccountId) {
-        // Try to get the last used account
-        targetAccountId = await this.webAuthnManager.getLastUsedNearAccountId() || undefined;
-      }
-
-      if (!targetAccountId) {
-        return {
-          isLoggedIn: false,
-          nearAccountId: null,
-          publicKey: null,
-          vrfActive: false,
-          userData: null
-        };
-      }
-
-      // Get comprehensive user data from IndexedDB (single call instead of two)
-      const userData = await this.webAuthnManager.getUser(targetAccountId);
-      const publicKey = userData?.clientNearPublicKey || null;
-      // Check VRF Web Worker status
-      const vrfStatus = await this.webAuthnManager.getVrfWorkerStatus();
-      const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
-      // Determine if user is considered "logged in"
-      // User is logged in if they have user data and either VRF is active OR they have valid credentials
-      const isLoggedIn = !!(userData && (vrfActive || userData.clientNearPublicKey));
-
-      return {
-        isLoggedIn,
-        nearAccountId: targetAccountId,
-        publicKey,
-        vrfActive,
-        userData,
-        vrfSessionDuration: vrfStatus.sessionDuration
-      };
-
-    } catch (error: any) {
-      console.warn('Error getting login state:', error);
-      return {
-        isLoggedIn: false,
-        nearAccountId: nearAccountId || null,
-        publicKey: null,
-        vrfActive: false,
-        userData: null
-      };
-    }
-  }
-
-  async getRecentLogins(): Promise<{ accountIds: string[], lastUsedAccountId: string | null }> {
-      // Get all user accounts from IndexDB
-      const allUsersData = await this.webAuthnManager.getAllUserData();
-      const accountIds = allUsersData.map(user => user.nearAccountId);
-      // Get last used account for initial state
-      const lastUsedAccountId = await this.webAuthnManager.getLastUsedNearAccountId();
-
-      return {
-        accountIds,
-        lastUsedAccountId,
-      }
-  }
-
   async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
     return await this.webAuthnManager.hasPasskeyCredential(nearAccountId);
   }
@@ -193,7 +130,7 @@ export class PasskeyManager {
     return await this.webAuthnManager.exportNearKeypairWithTouchId(nearAccountId)
   }
 
-  // === KEY MANAGEMENT METHODS (Phase 2) ===
+  // === KEY MANAGEMENT (Add Device) ===
 
   /**
    * Add current device's passkey-derived keypair to an existing NEAR account for multi-device access
@@ -232,23 +169,6 @@ export class PasskeyManager {
   }
 
   /**
-   * Get comprehensive device keys view for an account
-   * Shows all access keys with metadata about device types and management options
-   *
-   * @example
-   * ```typescript
-   * const keysView = await passkeyManager.getDeviceKeys('alice.near');
-   * console.log(`Account has ${keysView.keys.length} access keys`);
-   * keysView.keys.forEach(key => {
-   *   console.log(`${key.publicKey} - ${key.deviceType} - Current: ${key.isCurrentDevice}`);
-   * });
-   * ```
-   */
-  async getDeviceKeys(accountId: string): Promise<DeviceKeysView> {
-    return getDeviceKeys(this.getContext(), accountId);
-  }
-
-  /**
    * Delete a device key from an account
    *
    * @example
@@ -268,7 +188,7 @@ export class PasskeyManager {
     options?: ActionOptions
   ): Promise<ActionResult> {
     // Validate that we're not deleting the last key
-    const keysView = await this.getDeviceKeys(accountId);
+    const keysView = await getDeviceKeys(this.getContext(), accountId);
     if (keysView.keys.length <= 1) {
       throw new Error('Cannot delete the last access key from an account');
     }

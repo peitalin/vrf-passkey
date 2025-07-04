@@ -1,6 +1,7 @@
 import type {
   LoginOptions,
   LoginResult,
+  LoginState,
   LoginEvent,
 } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
@@ -199,4 +200,77 @@ async function handleLoginUnlockVRF(
     hooks?.afterCall?.(false, error);
     return { success: false, error: error.message };
   }
+}
+
+export async function getLoginState(
+  context: PasskeyManagerContext,
+  nearAccountId?: string
+): Promise<LoginState> {
+  const { webAuthnManager } = context;
+  try {
+    // Determine target account ID
+    let targetAccountId = nearAccountId;
+    if (!targetAccountId) {
+      targetAccountId = await webAuthnManager.getLastUsedNearAccountId() || undefined;
+    }
+    if (!targetAccountId) {
+      return {
+        isLoggedIn: false,
+        nearAccountId: null,
+        publicKey: null,
+        vrfActive: false,
+        userData: null
+      };
+    }
+
+    // Get comprehensive user data from IndexedDB (single call instead of two)
+    const userData = await webAuthnManager.getUser(targetAccountId);
+    const publicKey = userData?.clientNearPublicKey || null;
+    // Check VRF Web Worker status
+    const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
+    const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
+    // Determine if user is considered "logged in"
+    // User is logged in if they have user data and either VRF is active OR they have valid credentials
+    const isLoggedIn = !!(userData && (vrfActive || userData.clientNearPublicKey));
+
+    return {
+      isLoggedIn,
+      nearAccountId: targetAccountId,
+      publicKey,
+      vrfActive,
+      userData,
+      vrfSessionDuration: vrfStatus.sessionDuration
+    };
+
+  } catch (error: any) {
+    console.warn('Error getting login state:', error);
+    return {
+      isLoggedIn: false,
+      nearAccountId: nearAccountId || null,
+      publicKey: null,
+      vrfActive: false,
+      userData: null
+    };
+  }
+}
+
+export async function getRecentLogins(
+  context: PasskeyManagerContext
+): Promise<{ accountIds: string[], lastUsedAccountId: string | null }> {
+  const { webAuthnManager } = context;
+  // Get all user accounts from IndexDB
+  const allUsersData = await webAuthnManager.getAllUserData();
+  const accountIds = allUsersData.map(user => user.nearAccountId);
+  // Get last used account for initial state
+  const lastUsedAccountId = await webAuthnManager.getLastUsedNearAccountId();
+
+  return {
+    accountIds,
+    lastUsedAccountId,
+  }
+}
+
+export async function logoutAndClearVrfSession(context: PasskeyManagerContext): Promise<void> {
+  const { webAuthnManager } = context;
+  return webAuthnManager.clearVrfSession();
 }

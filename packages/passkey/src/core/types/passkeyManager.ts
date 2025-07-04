@@ -228,6 +228,15 @@ export interface LoginOptions {
   hooks?: OperationHooks;
 }
 
+export interface LoginState {
+  isLoggedIn: boolean;
+  nearAccountId: string | null;
+  publicKey: string | null;
+  userData: any | null;
+  vrfActive: boolean;
+  vrfSessionDuration?: number;
+}
+
 export interface ActionOptions {
   onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;

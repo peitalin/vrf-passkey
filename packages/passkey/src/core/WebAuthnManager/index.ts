@@ -328,6 +328,7 @@ export class WebAuthnManager {
       depositAmount: string;
       nonce: string;
       blockHashBytes: number[];
+      // Additional parameters for contract verification
       contractId: string;
       vrfChallenge: VRFChallenge;
     },
@@ -433,7 +434,7 @@ export class WebAuthnManager {
       authenticators,
     });
 
-    console.log('✅ VRF WebAuthn authentication completed');
+    console.log('VRF WebAuthn authentication completed');
     onEvent?.({
       step: 3,
       phase: 'contract-verification',

@@ -313,7 +313,6 @@ export class SignerWorkerManager {
    */
   async validateCoseKey(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
     console.log('WebAuthnManager: Validating COSE key format');
-
     const response = await this.executeWorkerOperation({
       message: {
         type: WorkerRequestType.VALIDATE_COSE_KEY,
@@ -712,6 +711,5 @@ export class SignerWorkerManager {
       throw error;
     }
   }
-
 
 }

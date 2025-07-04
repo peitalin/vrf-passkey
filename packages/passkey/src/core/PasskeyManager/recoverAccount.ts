@@ -197,9 +197,7 @@ export class AccountRecoveryFlow {
 async function getRecoverableAccounts(
   context: PasskeyManagerContext
 ): Promise<PasskeyOption[]> {
-  const { webAuthnManager, nearClient, configs } = context;
   try {
-
     const vrfChallenge = await generateBootstrapVrfChallenge(context, 'placeholder.testnet');
 
     const availablePasskeys = await getAvailablePasskeysForDomain(context, vrfChallenge);

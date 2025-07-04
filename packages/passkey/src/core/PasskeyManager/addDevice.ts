@@ -249,7 +249,17 @@ async function validateAddDeviceInputs({
 }
 
 /**
- * Get comprehensive device keys view for an account
+ * Get device keys for an account
+ * Shows all access keys with metadata about device types and management options
+ *
+ * @example
+ * ```typescript
+ * const keysView = await passkeyManager.getDeviceKeys('alice.near');
+ * console.log(`Account has ${keysView.keys.length} access keys`);
+ * keysView.keys.forEach(key => {
+ *   console.log(`${key.publicKey} - ${key.deviceType} - Current: ${key.isCurrentDevice}`);
+ * });
+ * ```
  */
 export async function getDeviceKeys(
   context: PasskeyManagerContext,
@@ -257,7 +267,6 @@ export async function getDeviceKeys(
 ): Promise<DeviceKeysView> {
 
   const { webAuthnManager, nearClient } = context;
-
   // Validate account ID
   const validation = validateNearAccountId(accountId);
   if (!validation.valid) {
