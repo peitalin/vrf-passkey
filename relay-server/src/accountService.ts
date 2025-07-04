@@ -52,7 +52,7 @@ class AccountService {
     }
     // Initialize rpcProvider with JsonRpcProvider and a specific URL
     this.rpcProvider = new JsonRpcProvider({ url: config.nearRpcUrl });
-    console.log(`NearClient initialized with RPC URL: ${config.nearRpcUrl}`);
+    console.log(`AccountService initialized with RPC URL: ${config.nearRpcUrl}`);
   }
 
   async getRelayerAccount(): Promise<Account> {
@@ -71,7 +71,7 @@ class AccountService {
     this.signer = await getSignerFromKeystore(this.config.relayerAccountId, this.config.networkId, this.keyStore);
     this.relayerAccount = new Account(this.config.relayerAccountId, this.rpcProvider, this.signer);
     this.isInitialized = true;
-    console.log(`NearClient signer and relayer account initialized for network: ${this.config.networkId}, relayer: ${this.config.relayerAccountId}`);
+    console.log(`AccountService signer and relayer account initialized for network: ${this.config.networkId}, relayer: ${this.config.relayerAccountId}`);
   }
 
   /**
@@ -240,22 +240,22 @@ class AccountService {
    */
   private async queueTransaction<T>(operation: () => Promise<T>, description: string): Promise<T> {
     this.queueStats.pending++;
-    console.log(`[NearClient] Queueing transaction: ${description} (pending: ${this.queueStats.pending})`);
+    console.log(`[AccountService] Queueing transaction: ${description} (pending: ${this.queueStats.pending})`);
 
     // Chain this operation to the existing queue
     this.transactionQueue = this.transactionQueue
       .then(async () => {
         try {
-          console.log(`️ [NearClient] Executing transaction: ${description}`);
+          console.log(`️[AccountService] Executing transaction: ${description}`);
           const result = await operation();
           this.queueStats.completed++;
           this.queueStats.pending--;
-          console.log(`[NearClient] Completed transaction: ${description} (pending: ${this.queueStats.pending}, completed: ${this.queueStats.completed})`);
+          console.log(`[AccountService] Completed transaction: ${description} (pending: ${this.queueStats.pending}, completed: ${this.queueStats.completed})`);
           return result;
         } catch (error: any) {
           this.queueStats.failed++;
           this.queueStats.pending--;
-          console.error(`[NearClient] Failed transaction: ${description} (pending: ${this.queueStats.pending}, failed: ${this.queueStats.failed}):`, error?.message || error);
+          console.error(`[AccountService] Failed transaction: ${description} (pending: ${this.queueStats.pending}, failed: ${this.queueStats.failed}):`, error?.message || error);
           throw error;
         }
       })

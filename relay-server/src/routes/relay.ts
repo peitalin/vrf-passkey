@@ -20,34 +20,13 @@ const router = Router();
  */
 router.post('/relay/create-account', async (req: Request, res: Response) => {
   try {
-    console.log('POST /relay/create-account');
-    console.log('Request body:', req.body);
-
+    console.log('POST /relay/create-account', req.body);
     const { accountId, publicKey, initialBalance } = req.body;
 
-    if (!accountId || typeof accountId !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing or invalid accountId',
-        message: 'accountId is required in request body'
-      });
-    }
-
-    if (!publicKey || typeof publicKey !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing or invalid publicKey',
-        message: 'publicKey is required in request body'
-      });
-    }
-
-    // Optional validation for initialBalance
+    if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
+    if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
     if (initialBalance !== undefined && typeof initialBalance !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid initialBalance',
-        message: 'initialBalance must be a string (in yoctoNEAR) if provided'
-      });
+      throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
     }
 
     const result = await nearAccountService.createAccount({
@@ -56,19 +35,15 @@ router.post('/relay/create-account', async (req: Request, res: Response) => {
       initialBalance
     });
 
-    if (result.success) {
-      res.status(200).json(result);
-    } else {
-      console.log(`Account creation failed: ${result.error}`);
-      res.status(500).json(result);
-    }
+    if (!result.success) throw new Error(result.error || 'Account creation failed');
+
+    res.status(200).json(result);
 
   } catch (error: any) {
-    console.error('Account creation endpoint error:', error);
+    console.error('Account creation failed:', error.message);
     res.status(500).json({
       success: false,
-      error: error.message || 'Unknown server error',
-      message: 'Failed to create account'
+      error: error.message || 'Unknown server error'
     });
   }
 });
@@ -82,35 +57,14 @@ router.post('/relay/create-account', async (req: Request, res: Response) => {
  */
 router.post('/relay/create-account-sse', async (req: Request, res: Response) => {
   try {
-    console.log('POST /relay/create-account-sse');
-    console.log('Request body:', req.body);
+    console.log('POST /relay/create-account-sse', req.body);
 
     const { accountId, publicKey, initialBalance } = req.body;
 
-    // Validate request parameters
-    if (!accountId || typeof accountId !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing or invalid accountId',
-        message: 'accountId is required in request body'
-      });
-    }
-
-    if (!publicKey || typeof publicKey !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing or invalid publicKey',
-        message: 'publicKey is required in request body'
-      });
-    }
-
-    if (initialBalance !== undefined && typeof initialBalance !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid initialBalance',
-        message: 'initialBalance must be a string (in yoctoNEAR) if provided'
-      });
-    }
+    // Validate inputs
+    if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
+    if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
+    if (initialBalance !== undefined && typeof initialBalance !== 'string') throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
 
     // Set up SSE headers
     res.writeHead(200, {
@@ -121,90 +75,51 @@ router.post('/relay/create-account-sse', async (req: Request, res: Response) => 
       'Access-Control-Allow-Headers': 'Content-Type',
     });
 
-    // Generate session ID for this request
     const sessionId = `sse_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-
-    // SSE event emitter function
     const emitSSEEvent = (event: RegistrationSSEEvent) => {
-      const eventData = JSON.stringify(event);
-      res.write(`data: ${eventData}\n\n`);
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
     // Send initial connection event
     emitSSEEvent({
       step: 1,
-      sessionId: sessionId,
+      sessionId,
       phase: 'webauthn-verification',
       status: 'progress',
       timestamp: Date.now(),
       message: 'SSE connection established, starting account creation...'
     });
 
-    try {
-      // Create account with SSE event emission
-      const result = await nearAccountService.createAccount(
-        { accountId, publicKey, initialBalance },
-        emitSSEEvent,
-        sessionId
-      );
+    // Create account with SSE event emission
+    const result = await nearAccountService.createAccount(
+      { accountId, publicKey, initialBalance },
+      emitSSEEvent,
+      sessionId
+    );
 
-      // Send final result
-      if (result.success) {
-        res.write(`data: ${JSON.stringify({
-          type: 'final-result',
-          success: true,
-          transactionHash: result.transactionHash,
-          accountId: result.accountId,
-          message: result.message
-        })}\n\n`);
-      } else {
-        res.write(`data: ${JSON.stringify({
-          type: 'final-result',
-          success: false,
-          error: result.error,
-          message: result.message
-        })}\n\n`);
-      }
+    // Send final result
+    res.write(`data: ${JSON.stringify({
+      type: 'final-result',
+      success: result.success,
+      ...(result.success
+        ? { transactionHash: result.transactionHash, accountId: result.accountId }
+        : { error: result.error }
+      ),
+      message: result.message
+    })}\n\n`);
 
-    } catch (createError: any) {
-      console.error('Account creation error during SSE:', createError);
-
-      // Send error event
-      emitSSEEvent({
-        step: 0,
-        sessionId: sessionId,
-        phase: 'registration-error',
-        status: 'error',
-        timestamp: Date.now(),
-        message: `Account creation failed: ${createError.message}`,
-        error: createError.message || 'Unknown account creation error'
-      });
-
-      // Send final error result
-      res.write(`data: ${JSON.stringify({
-        type: 'final-result',
-        success: false,
-        error: createError.message || 'Unknown server error',
-        message: 'Failed to create account'
-      })}\n\n`);
-    }
-
-    // Close the SSE connection
     res.write('data: [DONE]\n\n');
     res.end();
 
   } catch (error: any) {
-    console.error('SSE endpoint error:', error);
+    console.error('SSE endpoint error:', error.message);
 
-    // If headers haven't been sent yet, send JSON error response
     if (!res.headersSent) {
       res.status(500).json({
         success: false,
-        error: error.message || 'Unknown server error',
-        message: 'Failed to create account'
+        error: error.message || 'Unknown server error'
       });
     } else {
-      // If in SSE mode, send error and close
       res.write(`data: ${JSON.stringify({
         type: 'error',
         error: error.message || 'Unknown server error'
