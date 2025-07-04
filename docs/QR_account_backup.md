@@ -125,11 +125,11 @@ Device2: Scan QR → Store authenticator data → Done
 ✅ Integration with existing WebAuthn/TouchID infrastructure
 
 ### Remaining Work
-🔲 QR code generation UI (Device1)
-🔲 QR code scanning UI (Device2)
-🔲 Error handling and user feedback
-🔲 Transaction broadcasting integration
-🔲 Success/failure state management
+- [ ] QR code generation UI (Device1)
+- [ ] QR code scanning UI (Device2)
+- [ ] Error handling and user feedback
+- [ ] Transaction broadcasting integration
+- [ ] Success/failure state management
 
 ## Design Principles
 
