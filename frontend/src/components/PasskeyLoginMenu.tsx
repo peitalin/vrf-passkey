@@ -104,7 +104,7 @@ export function PasskeyLoginMenu() {
     }
 
     console.log('Recovering account:', targetAccountId);
-    const result = await startAccountRecoveryFlow({
+    const flow = await startAccountRecoveryFlow({
       onEvent: (event) => {
         console.log('Recovery event:', event);
       },
@@ -112,6 +112,10 @@ export function PasskeyLoginMenu() {
         console.error(error)
       }
     });
+    console.log("recover account flow: ", flow)
+    const options = await flow.discover();
+    console.log("recover account options: ", options)
+    const result = await flow.recover(options[0]);
     console.log("recover account result: ", result)
   };
 

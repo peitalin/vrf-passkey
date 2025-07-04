@@ -120,9 +120,7 @@ export class MinimalNearClient implements NearClient {
 
     for (let i = 0; i < attempts.length; i++) {
       try {
-        console.log(`DEBUG: ${operationName} - Attempt ${i + 1}/${attempts.length}`);
         const result = await attempts[i]();
-        console.log(`DEBUG: ${operationName} - Attempt ${i + 1} success!`);
         return result;
       } catch (error: any) {
         console.log(`DEBUG: ${operationName} - Attempt ${i + 1} failed: ${error.message}`);

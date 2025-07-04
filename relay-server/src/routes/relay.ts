@@ -4,6 +4,12 @@ import type { RegistrationSSEEvent } from '../types';
 
 const router = Router();
 
+interface RequestParams {
+  accountId: string;
+  publicKey: string;
+  initialBalance: string;
+}
+
 /**
  * POST /relay/create-account
  * Create a new account directly using relay server authority (simple JSON response)
@@ -18,16 +24,10 @@ const router = Router();
  * Returns: JSON response with success/error status
  * For real-time progress updates, use /relay/create-account-sse instead
  */
-router.post('/relay/create-account', async (req: Request, res: Response) => {
+router.post('/relay/create-account', async (req: Request<any, any, RequestParams>, res: Response) => {
   try {
     console.log('POST /relay/create-account', req.body);
-    const { accountId, publicKey, initialBalance } = req.body;
-
-    if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
-    if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
-    if (initialBalance !== undefined && typeof initialBalance !== 'string') {
-      throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
-    }
+    const { accountId, publicKey, initialBalance } = validateCreateAccountParams(req.body);
 
     const result = await nearAccountService.createAccount({
       accountId,
@@ -48,6 +48,16 @@ router.post('/relay/create-account', async (req: Request, res: Response) => {
   }
 });
 
+const validateCreateAccountParams = (body: RequestParams) => {
+  const { accountId, publicKey, initialBalance } = body;
+  if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
+  if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
+  if (initialBalance !== undefined && typeof initialBalance !== 'string') {
+    throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
+  }
+  return { accountId, publicKey, initialBalance };
+}
+
 /**
  * POST /relay/create-account-sse
  * Create a new account with Server-Sent Events for real-time progress updates
@@ -55,16 +65,11 @@ router.post('/relay/create-account', async (req: Request, res: Response) => {
  * Body: JSON with accountId, publicKey, and optional initialBalance
  * Response: Server-Sent Events stream with progress updates
  */
-router.post('/relay/create-account-sse', async (req: Request, res: Response) => {
+router.post('/relay/create-account-sse', async (req: Request<any, any, RequestParams>, res: Response) => {
   try {
     console.log('POST /relay/create-account-sse', req.body);
 
-    const { accountId, publicKey, initialBalance } = req.body;
-
-    // Validate inputs
-    if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
-    if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
-    if (initialBalance !== undefined && typeof initialBalance !== 'string') throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
+    const { accountId, publicKey, initialBalance } = validateCreateAccountParams(req.body);
 
     // Set up SSE headers
     res.writeHead(200, {
