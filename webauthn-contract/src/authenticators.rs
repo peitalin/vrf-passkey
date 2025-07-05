@@ -26,34 +26,11 @@ impl WebAuthnContract {
     /// USER REGISTRATION
     /////////////////////////////////////
 
-    /// Checks if the predecessor account has permission to register a new user
-    /// Returns true if predecessor is the user themselves, contract owner, or an admin
-    /// @view - This is a view function that does not modify state
-    #[private]
-    pub fn can_register_user(&self, user_id: &AccountId) -> bool {
-        // Allow the user themselves, contract owner, or admins to register new users
-        let predecessor = env::predecessor_account_id();
-        let contract_account = env::current_account_id();
-        let is_admin = self.admins.contains(&predecessor);
-
-        if predecessor != *user_id && predecessor != contract_account && !is_admin {
-            false
-        } else {
-            true
-        }
-    }
-
-    #[private]
-    pub fn admin_only(&self) {
-        require!(self.admins.contains(&env::predecessor_account_id()),
-            "Only admins can call this function");
-    }
-
     /// Register a new user in the contract
     /// @payable - This function can be called with attached NEAR tokens
     pub fn register_user(&mut self, user_id: AccountId) -> bool {
 
-        require!(self.can_register_user(&user_id),
+        require!(self.only_sender_or_admin(&user_id),
             "Must be called by the user, owner, or admins");
 
         if self.registered_users.contains(&user_id) {
@@ -234,6 +211,16 @@ impl WebAuthnContract {
     /// This enables efficient account discovery during recovery
     pub fn get_accounts_by_credential_id(&self, credential_id: String) -> Vec<AccountId> {
         self.credential_to_users.get(&credential_id).cloned().unwrap_or_default()
+    }
+
+    /// Get all credential IDs associated with an account ID
+    /// This enables reverse lookup for account recovery (account -> credential IDs)
+    pub fn get_credential_ids_by_account(&self, account_id: AccountId) -> Vec<String> {
+        if let Some(user_authenticators) = self.authenticators.get(&account_id) {
+            user_authenticators.keys().cloned().collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Helper method to add a credential->user mapping (used during registration)

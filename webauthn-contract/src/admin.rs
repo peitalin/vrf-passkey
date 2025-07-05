@@ -1,5 +1,5 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
-use near_sdk::{log, near, AccountId, env};
+use near_sdk::{log, near,  env, require, AccountId};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -16,6 +16,28 @@ impl WebAuthnContract {
         log!("Saving contract name: {}", contract_name);
         self.contract_name = contract_name;
     }
+
+    /// Checks if msg.sender (env::predecessor_account_id()) has permission to register a new user
+    /// Returns true if predecessor is the user themselves, contract owner, or an admin
+    /// @non-view - uses env::predecessor_account_id()
+    pub(crate) fn only_sender_or_admin(&self, user_id: &AccountId) -> bool {
+        // Allow the user themselves, contract owner, or admins to register new users
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+        let is_admin = self.admins.contains(&predecessor);
+
+        if predecessor != *user_id && predecessor != contract_account && !is_admin {
+            false
+        } else {
+            true
+        }
+    }
+
+    pub(crate) fn only_admin(&self) {
+        require!(self.admins.contains(&env::predecessor_account_id()),
+            "Only admins can call this function");
+    }
+
 
     /// Add a new admin (only contract owner can call this)
     pub fn add_admin(&mut self, admin_id: AccountId) -> bool {
