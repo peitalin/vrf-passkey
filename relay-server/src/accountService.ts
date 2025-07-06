@@ -9,10 +9,8 @@ import { FinalExecutionOutcome } from '@near-js/types';
 
 import * as dotenv from 'dotenv';
 dotenv.config();
-import type { RegistrationSSEEvent, SSEEventEmitter } from './types';
+import type { SSEEventEmitter } from './types';
 import config, { type AppConfig } from './config';
-
-const DEFAULT_INITIAL_BALANCE = BigInt('20000000000000000000000'); // 0.02 NEAR
 
 // Interfaces for relay server API
 export interface AccountCreationResult {
@@ -26,7 +24,6 @@ export interface AccountCreationResult {
 export interface AccountCreationRequest {
   accountId: string;
   publicKey: string;
-  initialBalance?: string; // Optional, will default to DEFAULT_INITIAL_BALANCE if not provided
 }
 
 class AccountService {
@@ -80,7 +77,6 @@ class AccountService {
    * @param request - Account creation parameters
    * @param request.accountId - The desired NEAR account ID
    * @param request.publicKey - The public key to associate with the account (ed25519:...)
-   * @param request.initialBalance - Optional initial balance in yoctoNEAR (defaults to INITIAL_BALANCE)
    * @param onEvent - Optional SSE event emitter callback for progress updates
    * @param sessionId - Optional session ID for SSE tracking
    * @returns Promise resolving to account creation result with success status and transaction details
@@ -125,7 +121,8 @@ class AccountService {
         });
 
         // Parse initial balance or use default
-        const initialBalance = request.initialBalance ? BigInt(request.initialBalance) : DEFAULT_INITIAL_BALANCE;
+        const initialBalance = this.config.defaultInitialBalance;
+
         // Parse the public key
         const publicKey = PublicKey.fromString(request.publicKey);
         console.log(`Creating account: ${request.accountId}`);

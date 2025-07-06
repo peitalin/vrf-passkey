@@ -8,6 +8,7 @@ export interface AppConfig {
   relayerPrivateKey: string;
   nearRpcUrl: string;
   networkId: string;
+  defaultInitialBalance: bigint;
 }
 
 const config: AppConfig = {
@@ -17,6 +18,7 @@ const config: AppConfig = {
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NEAR_NETWORK_ID || 'testnet',
+  defaultInitialBalance: BigInt('50000000000000000000000'), // 0.05 NEAR
 };
 
 export default config;

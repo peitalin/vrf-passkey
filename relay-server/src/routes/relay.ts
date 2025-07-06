@@ -27,12 +27,11 @@ interface RequestParams {
 router.post('/relay/create-account', async (req: Request<any, any, RequestParams>, res: Response) => {
   try {
     console.log('POST /relay/create-account', req.body);
-    const { accountId, publicKey, initialBalance } = validateCreateAccountParams(req.body);
+    const { accountId, publicKey } = validateCreateAccountParams(req.body);
 
     const result = await nearAccountService.createAccount({
       accountId,
       publicKey,
-      initialBalance
     });
 
     if (!result.success) throw new Error(result.error || 'Account creation failed');
@@ -49,13 +48,10 @@ router.post('/relay/create-account', async (req: Request<any, any, RequestParams
 });
 
 const validateCreateAccountParams = (body: RequestParams) => {
-  const { accountId, publicKey, initialBalance } = body;
+  const { accountId, publicKey } = body;
   if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
   if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
-  if (initialBalance !== undefined && typeof initialBalance !== 'string') {
-    throw new Error('Invalid initialBalance - must be a string in yoctoNEAR');
-  }
-  return { accountId, publicKey, initialBalance };
+  return { accountId, publicKey };
 }
 
 /**
@@ -69,7 +65,7 @@ router.post('/relay/create-account-sse', async (req: Request<any, any, RequestPa
   try {
     console.log('POST /relay/create-account-sse', req.body);
 
-    const { accountId, publicKey, initialBalance } = validateCreateAccountParams(req.body);
+    const { accountId, publicKey } = validateCreateAccountParams(req.body);
 
     // Set up SSE headers
     res.writeHead(200, {
@@ -97,7 +93,7 @@ router.post('/relay/create-account-sse', async (req: Request<any, any, RequestPa
 
     // Create account with SSE event emission
     const result = await nearAccountService.createAccount(
-      { accountId, publicKey, initialBalance },
+      { accountId, publicKey },
       emitSSEEvent,
       sessionId
     );
