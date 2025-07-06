@@ -131,6 +131,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
+      ...options,
       onEvent: async (event) => {
         if (event.phase === 'login-complete' && event.status === 'success') {
           // Check VRF status to determine if user is truly logged in
@@ -162,6 +163,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const registerPasskey = async (nearAccountId: string, options: RegistrationOptions) => {
     const result: RegistrationResult = await passkeyManager.registerPasskey(nearAccountId, {
+      ...options,
       onEvent: async (event) => {
         if (event.phase === 'registration-complete' && event.status === 'success') {
           // Check VRF status to determine if user is truly logged in after registration
@@ -191,16 +193,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     });
 
     return result;
-  }
-
-  const createPasskeySelection = (option: PasskeyOptionWithoutCredential): PasskeySelection => {
-    if (!option.accountId) {
-      throw new Error('Cannot create selection - missing account ID');
-    }
-    return {
-      credentialId: option.credentialId,
-      accountId: option.accountId
-    };
   }
 
   const recoverAccountWithAccountId = async (

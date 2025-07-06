@@ -220,6 +220,7 @@ export type ActionEvent =
 export interface RegistrationOptions {
   onEvent?: EventCallback<RegistrationSSEEvent>;
   onError?: (error: Error) => void;
+  useRelayer?: boolean;
   hooks?: OperationHooks;
 }
 

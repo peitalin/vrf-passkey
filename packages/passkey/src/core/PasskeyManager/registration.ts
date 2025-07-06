@@ -35,7 +35,7 @@ export async function registerPasskey(
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
 
-  const { onEvent, onError, hooks } = options;
+  const { onEvent, onError, hooks, useRelayer } = options;
   const { webAuthnManager, nearClient, configs } = context;
 
   // Track registration progress for rollback
@@ -179,19 +179,42 @@ export async function registerPasskey(
       message: 'Creating NEAR account...'
     });
 
-    // Create account using faucet service
-    await createAccountTestnetFaucet(
-      nearAccountId,
-      keyGenResult.publicKey,
-      onEvent
-    ).then((accountCreationResult) => {
-      console.log(`DEBUG: Faucet used public key: ${keyGenResult.publicKey}`);
-      if (!accountCreationResult.success) {
-        throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
+    console.log('>>>>>>>DEBUG: useRelayer', useRelayer);
+    console.log('>>>>>>>DEBUG: configs.relayServerUrl', configs.relayServerUrl);
+
+    if (useRelayer) {
+      if (!configs.relayServerUrl) {
+        throw new Error('Relay server URL is required when useRelayer is true');
       }
-      // Mark account as created for rollback tracking
-      registrationState.accountCreated = true;
-    });
+      // Create account using relay server
+      await createAccountRelayServer(
+        nearAccountId,
+        keyGenResult.publicKey,
+        configs.relayServerUrl,
+        onEvent
+      ).then((accountCreationResult) => {
+        console.log(`DEBUG: Relay server used public key: ${keyGenResult.publicKey}`);
+        if (!accountCreationResult.success) {
+          throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
+        }
+        // Mark account as created for rollback tracking
+        registrationState.accountCreated = true;
+      });
+    } else {
+      // Create account using faucet service
+      await createAccountTestnetFaucet(
+        nearAccountId,
+        keyGenResult.publicKey,
+        onEvent
+      ).then((accountCreationResult) => {
+        console.log(`DEBUG: Testnet Faucet used public key: ${keyGenResult.publicKey}`);
+        if (!accountCreationResult.success) {
+          throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
+        }
+        // Mark account as created for rollback tracking
+        registrationState.accountCreated = true;
+      });
+    }
 
     console.log('DEBUG: Faucet public key:', keyGenResult.publicKey);
     console.log('DEBUG: About to check access key for:', nearAccountId);

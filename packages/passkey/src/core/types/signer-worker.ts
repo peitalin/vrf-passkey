@@ -141,8 +141,6 @@ export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
     dualPrfOutputs: DualPrfOutputs;
     /** NEAR account ID to associate with the encrypted key */
     nearAccountId: string;
-    /** @deprecated Base64url-encoded WebAuthn attestation object - no longer used for key derivation */
-    attestationObjectBase64url: string;
   };
 }
 

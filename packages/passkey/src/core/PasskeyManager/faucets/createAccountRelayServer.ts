@@ -13,7 +13,7 @@ export async function createAccountRelayServer(
   nearAccountId: string,
   publicKey: string,
   serverUrl: string,
-  onEvent?: (event: RegistrationSSEEvent) => void
+  onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; transactionId?: string; error?: string }> {
   try {
     console.log('Creating NEAR account via relay server SSE');

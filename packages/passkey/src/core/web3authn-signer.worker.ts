@@ -210,7 +210,7 @@ async function handleDeriveNearKeypairAndEncrypt(
   payload: DeriveNearKeypairAndEncryptRequest['payload']
 ): Promise<void> {
   try {
-    const { dualPrfOutputs, nearAccountId, attestationObjectBase64url } = payload;
+    const { dualPrfOutputs, nearAccountId } = payload;
     console.log('[signer-worker]: Using dual PRF key derivation with accountId context');
 
     const request = {
@@ -218,8 +218,7 @@ async function handleDeriveNearKeypairAndEncrypt(
         aes_prf_output_base64: dualPrfOutputs.aesPrfOutput,
         ed25519_prf_output_base64: dualPrfOutputs.ed25519PrfOutput
       },
-      near_account_id: nearAccountId,
-      attestation_object_b64u: attestationObjectBase64url // For verification only
+      account_id: nearAccountId,
     };
 
     console.log('[signer-worker]: Calling dual PRF WASM function');
@@ -271,30 +270,37 @@ async function handleDeriveNearKeypairAndEncrypt(
 }
 
 /**
- * Handle deterministic keypair derivation from passkey for account recovery
- * @param payload - The request payload containing registration credential and optional account hint
+ * Handle deterministic keypair derivation from passkey for account recovery using PRF
+ * @param payload - The request payload containing registration credential with PRF outputs and optional account hint
  */
 async function handleRecoverKeypairFromPasskey(
   payload: RecoverKeypairFromPasskeyRequest['payload']
 ): Promise<void> {
   try {
     const { credential, challenge, accountIdHint } = payload;
-    console.log('[signer-worker]: Deriving deterministic keypair from registration credential for recovery');
+    console.log('[signer-worker]: Deriving deterministic keypair from passkey using PRF outputs for recovery');
 
-    // Call the WASM function with registration credential
+    // Verify that PRF outputs are available in the credential
+    if (!credential.clientExtensionResults?.prf?.results?.second) {
+      throw new Error('Ed25519 PRF output (second) missing from credential - required for PRF-based key derivation');
+    }
+
+    console.log('[signer-worker]: PRF outputs confirmed in credential, proceeding with recovery');
+
+    // Call the WASM function with registration credential containing PRF outputs
     const request = {
       credential,
       challenge,
       accountIdHint
     };
 
-    console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with registration credential');
+    console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with PRF-enabled credential');
     const resultJson = await recover_keypair_from_passkey(JSON.stringify(request));
 
     // Parse the result
     const result = JSON.parse(resultJson);
     const publicKey = result.publicKey;
-    console.log('[signer-worker]: Deterministic keypair derivation successful');
+    console.log('[signer-worker]: PRF-based keypair derivation successful');
 
     sendResponseAndTerminate({
       type: WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
@@ -304,10 +310,10 @@ async function handleRecoverKeypairFromPasskey(
       }
     });
   } catch (error: any) {
-    console.error('[signer-worker]: Deterministic keypair derivation failed:', error.message);
+    console.error('[signer-worker]: PRF-based keypair derivation failed:', error.message);
     sendResponseAndTerminate({
       type: WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
-      payload: { error: error.message || 'Deterministic keypair derivation failed' }
+      payload: { error: error.message || 'PRF-based keypair derivation failed' }
     });
   }
 }
@@ -469,7 +475,6 @@ async function handleSignVerifyAndRegisterUser(
       vrf_challenge_data_json: JSON.stringify(vrfChallenge),
       webauthn_registration_json: JSON.stringify(credentialWithoutPrf),
       signer_account_id: signerAccountId,
-      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       prf_output_base64: prfOutput,
@@ -560,7 +565,6 @@ async function handleVerifyAndSignNearTransactionWithActions(
     // Call the pure WASM function that handles verification + signing with progress messages
     const request = {
       prf_output_base64: aesPrfOutput,
-      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       signer_account_id: nearAccountId,
@@ -642,7 +646,6 @@ async function handleSignTransferTransaction(
     // Use the transfer-specific verify+sign WASM function
     const request = {
       prf_output_base64: prfOutput,
-      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       signer_account_id: nearAccountId,
@@ -891,7 +894,6 @@ async function handleAddKeyWithPrf(
 
     const fallbackRequest = {
       prf_output_base64: payload.prfOutput,
-      near_account_id: payload.signerAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: payload.encryptedPrivateKeyData,
       encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
       signer_account_id: payload.signerAccountId,

@@ -349,7 +349,7 @@ export async function recoverAccount(
     }
 
     // Note: Any registration credential from the same passkey will work
-    // The deterministic derivation extracts the same COSE P-256 coordinates regardless of challenge
+    // The PRF-based derivation produces the same Ed25519 keypair from the same PRF outputs
     const ddKeypair = await webAuthnManager.recoverKeypairFromPasskey(
       vrfChallengeBytes,
       credential

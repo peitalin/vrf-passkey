@@ -119,16 +119,13 @@ pub fn extract_cose_public_key_from_attestation(
     Ok(cose_public_key_bytes)
 }
 
-// === NEW DUAL PRF WASM BINDINGS ===
-// Based on docs/dual_prf_key_derivation.md Phase 2.3
-
 /// Dual PRF key derivation for WASM
 #[wasm_bindgen]
 pub fn derive_and_encrypt_keypair_from_dual_prf_wasm(request_json: &str) -> Result<String, JsValue> {
     console_log!("RUST: WASM binding - starting dual PRF keypair derivation");
 
     // Parse the request
-    let request: crate::types::DualPrfDeriveKeypairRequest = serde_json::from_str(request_json)
+    let request: DualPrfDeriveKeypairRequest = serde_json::from_str(request_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     // Call the dual PRF derivation function
@@ -188,40 +185,43 @@ pub fn derive_ed25519_key_from_dual_prf(
 pub fn recover_keypair_from_passkey(
     request_json: &str,
 ) -> Result<String, JsValue> {
-    console_log!("RUST: WASM binding - deriving deterministic keypair from passkey for recovery");
+    console_log!("RUST: WASM binding - deriving deterministic keypair from passkey using PRF");
 
     let request: RecoverKeypairRequest = serde_json::from_str(request_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
     console_log!("RUST: Parsed registration credential with ID: {}", request.credential.id);
 
-    // Extract attestation object from the registration response
-    let _attestation_object_b64u = &request.credential.response.attestation_object;
+    // Extract Ed25519 PRF output from credential extension results
+    let ed25519_prf_output = request.credential.client_extension_results
+        .as_ref()
+        .and_then(|ext| ext["prf"].as_object())
+        .and_then(|prf| prf["results"].as_object())
+        .and_then(|results| results["second"].as_str())
+        .ok_or_else(|| JsValue::from_str("Ed25519 PRF output (second) missing from credential extension results"))?;
 
-    // // Extract COSE public key from attestation object
-    // let cose_public_key_bytes = extract_cose_public_key_from_attestation(attestation_object_b64u)
-    //     .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
+    console_log!("RUST: Extracted Ed25519 PRF output for key derivation");
 
-    // console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
+    // Use account hint if provided, otherwise generate placeholder
+    let account_id = request.account_id_hint
+        .as_deref()
+        .unwrap_or("recovery-account.testnet");
 
-    // // Extract P-256 coordinates from COSE public key
-    // let (x_coord, y_coord) = extract_p256_coordinates_from_cose(&cose_public_key_bytes)
-    //     .map_err(|e| JsValue::from_str(&format!("Failed to extract P-256 coordinates: {}", e)))?;
+    // Derive Ed25519 keypair from PRF output using account-specific HKDF
+    let (_private_key, public_key) = derive_ed25519_key_from_prf_output(ed25519_prf_output, account_id)
+        .map_err(|e| JsValue::from_str(&format!("Failed to derive Ed25519 key from PRF: {}", e)))?;
 
-    // console_log!("RUST: Extracted P-256 coordinates: x={} bytes, y={} bytes", x_coord.len(), y_coord.len());
+    // Format as NEAR public key (public_key is already in the correct format)
+    let near_public_key = format!("ed25519:{}", public_key);
 
-    // // Derive NEAR Ed25519 keypair from P-256 coordinates (deterministic)
-    // let (near_private_key, near_public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord)
-    //     .map_err(|e| JsValue::from_str(&format!("Failed to derive NEAR keypair: {}", e)))?;
-
-    console_log!("RUST: Successfully derived NEAR keypair from COSE P-256 coordinates");
+    console_log!("RUST: Successfully derived NEAR keypair from Ed25519 PRF output");
 
     let response = RecoverKeypairResponse {
-        public_key: "tbd".to_string(),
+        public_key: near_public_key,
         account_id_hint: request.account_id_hint.clone(),
     };
 
-    console_log!("RUST: deterministic keypair derivation from passkey successful");
+    console_log!("RUST: PRF-based keypair derivation from passkey successful");
     Ok(response.to_json())
 }
 
@@ -476,7 +476,7 @@ pub async fn verify_and_sign_near_transfer_transaction(
 }
 
 
-/// Check if user can register (VIEW FUNCTION - uses query RPC)
+/// Check if user can register (view function)
 #[wasm_bindgen]
 pub async fn check_can_register_user(
     request_json: &str,

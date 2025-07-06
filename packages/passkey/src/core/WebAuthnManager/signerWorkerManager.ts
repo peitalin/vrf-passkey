@@ -185,7 +185,6 @@ export class SignerWorkerManager {
           payload: {
             dualPrfOutputs,
             nearAccountId: nearAccountId,
-            attestationObjectBase64url: base64UrlEncode(attestationObject.attestationObject)
           }
         }
       });
@@ -619,7 +618,7 @@ export class SignerWorkerManager {
 
   /**
    * Recover keypair from registration credential for account recovery
-   * Uses COSE public key extraction and deterministic derivation
+   * Uses PRF-based Ed25519 key derivation with account-specific HKDF
    */
   async recoverKeypairFromPasskey(
     registrationCredential: PublicKeyCredential,
@@ -630,9 +629,9 @@ export class SignerWorkerManager {
     accountIdHint?: string;
   }> {
     try {
-      console.log('SignerWorkerManager: Starting keypair recovery from registration credential');
+      console.log('SignerWorkerManager: Starting PRF-based keypair recovery from registration credential');
 
-      // Serialize the registration credential for the worker
+      // Serialize the registration credential for the worker (includes PRF outputs)
       const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(
         registrationCredential
       );
@@ -649,14 +648,14 @@ export class SignerWorkerManager {
       });
 
       if (response.type === WorkerResponseType.RECOVER_KEYPAIR_SUCCESS) {
-        console.log('SignerWorkerManager: Recover keypair derivation successful');
+        console.log('SignerWorkerManager: keypair recovery successful');
         return {
           publicKey: (response as any).payload.publicKey,
           accountIdHint: (response as any).payload.accountIdHint
         };
       } else {
-        console.error('SignerWorkerManager: Deterministic keypair derivation failed:', response);
-        throw new Error('Deterministic keypair derivation failed in WASM worker');
+        console.error('SignerWorkerManager: PRF-based keypair derivation failed:', response);
+        throw new Error('keypair derivation failed in WASM worker');
       }
     } catch (error: any) {
       console.error('SignerWorkerManager: Deterministic keypair derivation error:', error);

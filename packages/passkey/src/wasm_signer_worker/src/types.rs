@@ -170,8 +170,6 @@ pub struct DualPrfOutputs {
 /// Replaces single PRF approach with separate encryption/signing key derivation
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DualPrfDeriveKeypairRequest {
-    /// @deprecated Base64url-encoded WebAuthn attestation object (for verification only, NOT key derivation)
-    pub attestation_object_b64u: String,
     /// Dual PRF outputs for separate AES and Ed25519 key derivation
     pub dual_prf_outputs: DualPrfOutputs,
     /// NEAR account ID for HKDF context and keypair association
@@ -493,16 +491,6 @@ impl JsonSerializable for RegistrationResponse {
 }
 
 // === WASM FUNCTION INPUT REQUEST TYPES ===
-
-// /// Input request for key generation functions
-// /// **DEPRECATED**: Use DualPrfDeriveKeypairRequest for new dual PRF workflow
-// #[derive(Serialize, Deserialize, Clone, Debug)]
-// pub struct DeriveKeypairRequest {
-//     pub attestation_object_b64u: String,
-//     /// **DEPRECATED**: Single PRF output - use dual_prf_outputs instead
-//     pub prf_output_base64: String,
-//     pub account_id: String,
-// }
 
 /// Request for private key decryption with dual PRF support
 #[derive(Serialize, Deserialize, Clone, Debug)]
