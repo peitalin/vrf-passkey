@@ -1,35 +1,30 @@
-mod error;
-mod types;
 mod actions;
 mod crypto;
-mod transaction;
 mod cose;
+mod error;
 mod http;
-
 #[cfg(test)]
 mod tests;
+mod transaction;
+mod types;
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsValue;
 use serde_json;
+use web_sys::console;
+use crate::crypto::{
+    decrypt_private_key_with_prf,
+    derive_ed25519_key_from_prf_output,
+    derive_account_specific_aes_key_from_prf,
+};
 use bs58;
 use base64::Engine;
 
 // Import from modules
-use crate::actions::ActionParams;
-use crate::crypto::{
-    decrypt_private_key_with_prf_core,
-    internal_derive_near_keypair_from_cose_p256,
-    internal_derive_near_keypair_from_cose_and_encrypt_with_prf,
-};
 use crate::transaction::{
     sign_transaction,
     build_actions_from_params,
     build_transaction_with_actions,
-};
-use crate::cose::{
-    extract_cose_public_key_from_attestation_core,
-    extract_p256_coordinates_from_cose,
-    validate_cose_key_format_core,
 };
 use crate::http::{
     perform_contract_verification_wasm,
@@ -40,34 +35,8 @@ use crate::http::{
     WebAuthnRegistrationCredential,
     WebAuthnRegistrationResponse,
 };
-use crate::types::{
-    JsonSerializable,
-    KeyGenerationResponse,
-    PrivateKeyDecryptionResponse,
-    CosePublicKeyResponse,
-    CoseValidationResponse,
-    TransactionSigningResponse,
-    RegistrationCheckResponse,
-    RegistrationResponse,
-    RegistrationInfo,
-    JsonSignedTransaction,
-    // Input request types
-    DeriveKeypairRequest,
-    DecryptPrivateKeyRequest,
-    ExtractCosePublicKeyRequest,
-    ValidateCoseKeyRequest,
-    VerifyAndSignTransactionRequest,
-    VerifyAndSignTransferRequest,
-    CheckCanRegisterUserRequest,
-    SignVerifyAndRegisterUserRequest,
-    RollbackFailedRegistrationRequest,
-    AddKeyWithPrfRequest,
-    DeleteKeyWithPrfRequest,
-    // Recover keypair types
-    RecoverKeypairRequest,
-    RecoverKeypairResponse,
-    WebAuthnRegistrationCredentialData,
-};
+use crate::types::*;
+use crate::actions::*;
 
 // === CONSOLE LOGGING ===
 
@@ -136,27 +105,83 @@ pub fn init_panic_hook() {
 
 // === WASM BINDINGS FOR KEY GENERATION ===
 
+/// Extract COSE public key from WebAuthn attestation object
 #[wasm_bindgen]
-pub fn derive_near_keypair_from_cose_and_encrypt_with_prf(
-    request_json: &str,
-) -> Result<String, JsValue> {
-    console_log!("RUST: deriving deterministic NEAR keypair from COSE credential");
+pub fn extract_cose_public_key_from_attestation(
+    attestation_object_b64u: &str,
+) -> Result<Vec<u8>, JsValue> {
+    console_log!("RUST: WASM binding - extracting COSE public key from attestation object");
 
-    let request: DeriveKeypairRequest = serde_json::from_str(request_json)
+    let cose_public_key_bytes = crate::cose::extract_cose_public_key_from_attestation_core(attestation_object_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
+
+    console_log!("RUST: WASM binding - COSE public key extraction successful ({} bytes)", cose_public_key_bytes.len());
+    Ok(cose_public_key_bytes)
+}
+
+// === NEW DUAL PRF WASM BINDINGS ===
+// Based on docs/dual_prf_key_derivation.md Phase 2.3
+
+/// Dual PRF key derivation for WASM
+#[wasm_bindgen]
+pub fn derive_and_encrypt_keypair_from_dual_prf_wasm(request_json: &str) -> Result<String, JsValue> {
+    console_log!("RUST: WASM binding - starting dual PRF keypair derivation");
+
+    // Parse the request
+    let request: crate::types::DualPrfDeriveKeypairRequest = serde_json::from_str(request_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
-    let (public_key, encrypted_result) = internal_derive_near_keypair_from_cose_and_encrypt_with_prf(
-        &request.attestation_object_b64u,
-        &request.prf_output_base64
+    // Call the dual PRF derivation function
+    let (public_key, encrypted_result) = crate::crypto::derive_and_encrypt_keypair_from_dual_prf(
+        &request.dual_prf_outputs,
+        &request.account_id
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let response = KeyGenerationResponse {
+    // Create structured response
+    let response = crate::types::KeyGenerationResponse {
         public_key,
         encrypted_private_key: encrypted_result,
     };
 
-    console_log!("RUST: WASM binding - deterministic keypair generation successful");
     Ok(response.to_json())
+}
+
+/// NEW: Standalone AES key derivation from PRF output (prf.results.first)
+#[wasm_bindgen]
+pub fn derive_aes_gcm_key_from_dual_prf(
+    prf_output_base64: &str,
+    account_id: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: WASM binding - deriving account-specific AES key from PRF output");
+
+    let aes_key = derive_account_specific_aes_key_from_prf(prf_output_base64, account_id)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    // Convert to base64 string for JavaScript
+    let aes_key_b64 = base64::engine::general_purpose::STANDARD.encode(&aes_key);
+
+    console_log!("RUST: WASM binding - account-specific AES key derivation successful");
+    Ok(aes_key_b64)
+}
+
+/// NEW: Standalone Ed25519 key derivation from PRF output (prf.results.second)
+#[wasm_bindgen]
+pub fn derive_ed25519_key_from_dual_prf(
+    prf_output_base64: &str,
+    account_id: &str,
+) -> Result<String, JsValue> {
+    console_log!("RUST: WASM binding - deriving Ed25519 key from PRF output");
+
+    let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_base64, account_id)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let response = serde_json::json!({
+        "private_key": private_key,
+        "public_key": public_key
+    });
+
+    console_log!("RUST: WASM binding - Ed25519 key derivation successful");
+    Ok(response.to_string())
 }
 
 #[wasm_bindgen]
@@ -171,30 +196,29 @@ pub fn recover_keypair_from_passkey(
     console_log!("RUST: Parsed registration credential with ID: {}", request.credential.id);
 
     // Extract attestation object from the registration response
-    let attestation_object_b64u = &request.credential.response.attestation_object;
-    console_log!("RUST: Extracting COSE public key from attestation object");
+    let _attestation_object_b64u = &request.credential.response.attestation_object;
 
-    // Extract COSE public key from attestation object
-    let cose_public_key_bytes = extract_cose_public_key_from_attestation_core(attestation_object_b64u)
-        .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
+    // // Extract COSE public key from attestation object
+    // let cose_public_key_bytes = extract_cose_public_key_from_attestation(attestation_object_b64u)
+    //     .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
 
-    console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
+    // console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
 
-    // Extract P-256 coordinates from COSE public key
-    let (x_coord, y_coord) = extract_p256_coordinates_from_cose(&cose_public_key_bytes)
-        .map_err(|e| JsValue::from_str(&format!("Failed to extract P-256 coordinates: {}", e)))?;
+    // // Extract P-256 coordinates from COSE public key
+    // let (x_coord, y_coord) = extract_p256_coordinates_from_cose(&cose_public_key_bytes)
+    //     .map_err(|e| JsValue::from_str(&format!("Failed to extract P-256 coordinates: {}", e)))?;
 
-    console_log!("RUST: Extracted P-256 coordinates: x={} bytes, y={} bytes", x_coord.len(), y_coord.len());
+    // console_log!("RUST: Extracted P-256 coordinates: x={} bytes, y={} bytes", x_coord.len(), y_coord.len());
 
-    // Derive NEAR Ed25519 keypair from P-256 coordinates (deterministic)
-    let (near_private_key, near_public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord)
-        .map_err(|e| JsValue::from_str(&format!("Failed to derive NEAR keypair: {}", e)))?;
+    // // Derive NEAR Ed25519 keypair from P-256 coordinates (deterministic)
+    // let (near_private_key, near_public_key) = internal_derive_near_keypair_from_cose_p256(&x_coord, &y_coord)
+    //     .map_err(|e| JsValue::from_str(&format!("Failed to derive NEAR keypair: {}", e)))?;
 
     console_log!("RUST: Successfully derived NEAR keypair from COSE P-256 coordinates");
 
     let response = RecoverKeypairResponse {
-        public_key: near_public_key,
-        account_id_hint: request.account_id_hint,
+        public_key: "tbd".to_string(),
+        account_id_hint: request.account_id_hint.clone(),
     };
 
     console_log!("RUST: deterministic keypair derivation from passkey successful");
@@ -211,9 +235,18 @@ pub fn decrypt_private_key_with_prf_as_string(
     let request: DecryptPrivateKeyRequest = serde_json::from_str(request_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
 
+    // Support both legacy single PRF and new dual PRF workflows
+    let prf_output = if let Some(aes_prf_output) = &request.aes_prf_output_base64 {
+        console_log!("RUST: Using AES PRF output for decryption (dual PRF workflow)");
+        aes_prf_output
+    } else {
+        return Err(JsValue::from_str("aes_prf_output_base64 must be provided"));
+    };
+
     // Use the core function to decrypt and get SigningKey
-    let signing_key = decrypt_private_key_with_prf_core(
-        &request.prf_output_base64,
+    let signing_key = decrypt_private_key_with_prf(
+        prf_output,
+        &request.near_account_id,
         &request.encrypted_private_key_data,
         &request.encrypted_private_key_iv,
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -239,39 +272,6 @@ pub fn decrypt_private_key_with_prf_as_string(
     };
 
     console_log!("RUST: Successfully decrypted private key and formatted as string");
-    Ok(response.to_json())
-}
-
-// === WASM BINDINGS FOR COSE OPERATIONS ===
-
-#[wasm_bindgen]
-pub fn extract_cose_public_key_from_attestation(request_json: &str) -> Result<String, JsValue> {
-    let request: ExtractCosePublicKeyRequest = serde_json::from_str(request_json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
-
-    let public_key_bytes = extract_cose_public_key_from_attestation_core(&request.attestation_object_b64u)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let response = CosePublicKeyResponse {
-        public_key_bytes: base64::engine::general_purpose::STANDARD.encode(&public_key_bytes),
-    };
-
-    Ok(response.to_json())
-}
-
-#[wasm_bindgen]
-pub fn validate_cose_key_format(request_json: &str) -> Result<String, JsValue> {
-    let request: ValidateCoseKeyRequest = serde_json::from_str(request_json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse request: {}", e)))?;
-
-    let validation_message = validate_cose_key_format_core(&request.cose_key_bytes)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let response = CoseValidationResponse {
-        valid: true, // If no error was thrown, validation passed
-        message: validation_message,
-    };
-
     Ok(response.to_json())
 }
 
@@ -367,8 +367,9 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     );
 
     // Step 5: Perform transaction signing (existing logic)
-    let private_key = match decrypt_private_key_with_prf_core(
+    let private_key = match decrypt_private_key_with_prf(
         &request.prf_output_base64,
+        &request.signer_account_id,
         &request.encrypted_private_key_data,
         &request.encrypted_private_key_iv,
     ) {

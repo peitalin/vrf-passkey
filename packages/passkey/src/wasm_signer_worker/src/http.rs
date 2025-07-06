@@ -273,9 +273,10 @@ pub async fn sign_registration_tx_wasm(
 ) -> Result<ContractRegistrationResult, String> {
     console_log!("RUST: Performing actual user registration (state-changing function)");
 
-    // Step 1: Decrypt the private key using PRF
-    let private_key = crate::crypto::decrypt_private_key_with_prf_core(
+    // Step 1: Decrypt the private key using PRF with account-specific HKDF
+    let private_key = crate::crypto::decrypt_private_key_with_prf(
         prf_output_base64,
+        signer_account_id,
         encrypted_private_key_data,
         encrypted_private_key_iv,
     ).map_err(|e| format!("Failed to decrypt private key: {:?}", e))?;

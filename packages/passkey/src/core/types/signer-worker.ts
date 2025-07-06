@@ -4,6 +4,18 @@ import { ActionType } from "./actions";
 import type { Transaction, Signature } from '@near-js/transactions';
 import type { SignedTransaction } from '../NearClient';
 
+// === DUAL PRF TYPES ===
+
+/**
+ * Dual PRF outputs for separate encryption and signing key derivation
+ */
+export interface DualPrfOutputs {
+  /** Base64-encoded PRF output from prf.results.first for AES-GCM encryption */
+  aesPrfOutput: string;
+  /** Base64-encoded PRF output from prf.results.second for Ed25519 signing */
+  ed25519PrfOutput: string;
+}
+
 // === TRANSACTION TYPES ===
 
 /**
@@ -47,9 +59,6 @@ export enum WorkerRequestType {
   CHECK_CAN_REGISTER_USER = 'CHECK_CAN_REGISTER_USER',
   SIGN_VERIFY_AND_REGISTER_USER = 'SIGN_VERIFY_AND_REGISTER_USER',
   DECRYPT_PRIVATE_KEY_WITH_PRF = 'DECRYPT_PRIVATE_KEY_WITH_PRF',
-  // COSE operations
-  EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
-  VALIDATE_COSE_KEY = 'VALIDATE_COSE_KEY',
   GENERATE_VRF_KEYPAIR_WITH_PRF = 'GENERATE_VRF_KEYPAIR_WITH_PRF',
   GENERATE_VRF_CHALLENGE_WITH_PRF = 'GENERATE_VRF_CHALLENGE_WITH_PRF',
   SIGN_TRANSACTION_WITH_ACTIONS = 'SIGN_TRANSACTION_WITH_ACTIONS',
@@ -57,6 +66,8 @@ export enum WorkerRequestType {
   // New action-specific functions
   ADD_KEY_WITH_PRF = 'ADD_KEY_WITH_PRF',
   DELETE_KEY_WITH_PRF = 'DELETE_KEY_WITH_PRF',
+  // COSE operations
+  EXTRACT_COSE_PUBLIC_KEY = 'EXTRACT_COSE_PUBLIC_KEY',
 }
 
 export enum WorkerResponseType {
@@ -70,14 +81,13 @@ export enum WorkerResponseType {
   SIGNATURE_FAILURE = 'SIGNATURE_FAILURE',
   DECRYPTION_SUCCESS = 'DECRYPTION_SUCCESS',
   DECRYPTION_FAILURE = 'DECRYPTION_FAILURE',
-  COSE_KEY_SUCCESS = 'COSE_KEY_SUCCESS',
-  COSE_KEY_FAILURE = 'COSE_KEY_FAILURE',
-  COSE_VALIDATION_SUCCESS = 'COSE_VALIDATION_SUCCESS',
-  COSE_VALIDATION_FAILURE = 'COSE_VALIDATION_FAILURE',
   VRF_KEYPAIR_SUCCESS = 'VRF_KEYPAIR_SUCCESS',
   VRF_KEYPAIR_FAILURE = 'VRF_KEYPAIR_FAILURE',
   VRF_CHALLENGE_SUCCESS = 'VRF_CHALLENGE_SUCCESS',
   VRF_CHALLENGE_FAILURE = 'VRF_CHALLENGE_FAILURE',
+  // COSE operations
+  COSE_EXTRACTION_SUCCESS = 'COSE_EXTRACTION_SUCCESS',
+  COSE_EXTRACTION_FAILURE = 'COSE_EXTRACTION_FAILURE',
   ERROR = 'ERROR',
   VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
   VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
@@ -108,7 +118,6 @@ export enum WorkerErrorCode {
   ENCRYPTION_FAILED = 'ENCRYPTION_FAILED',
   DECRYPTION_FAILED = 'DECRYPTION_FAILED',
   SIGNING_FAILED = 'SIGNING_FAILED',
-  COSE_EXTRACTION_FAILED = 'COSE_EXTRACTION_FAILED',
   STORAGE_FAILED = 'STORAGE_FAILED',
   VRF_KEYPAIR_GENERATION_FAILED = 'VRF_KEYPAIR_GENERATION_FAILED',
   VRF_CHALLENGE_GENERATION_FAILED = 'VRF_CHALLENGE_GENERATION_FAILED',
@@ -128,11 +137,11 @@ export interface BaseWorkerRequest {
 export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
   type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT;
   payload: {
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
+    /** Dual PRF outputs for separate AES and Ed25519 key derivation */
+    dualPrfOutputs: DualPrfOutputs;
     /** NEAR account ID to associate with the encrypted key */
     nearAccountId: string;
-    /** Base64url-encoded WebAuthn attestation object for deterministic key derivation */
+    /** @deprecated Base64url-encoded WebAuthn attestation object - no longer used for key derivation */
     attestationObjectBase64url: string;
   };
 }
@@ -216,11 +225,14 @@ export interface WebAuthnAuthenticationCredential {
     signature: string; // base64url-encoded
     userHandle: string | null; // base64url-encoded or null
   };
-  // PRF output extracted in main thread just before transferring to worker
+  // Dual PRF outputs extracted in main thread just before transferring to worker
   clientExtensionResults: {
     prf: {
       results: {
-        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.base64UrlEncode)
+        // base64url-encoded PRF output for AES-GCM (via utils/encoders.base64UrlEncode)
+        first: string | undefined;
+        // base64url-encoded PRF output for Ed25519 (via utils/encoders.base64UrlEncode)
+        second: string | undefined;
       }
     }
   }
@@ -236,182 +248,166 @@ export interface WebAuthnRegistrationCredential {
     attestationObject: string,
     transports: string[],
   };
-  // PRF output extracted in main thread just before transferring to worker
+  // Dual PRF outputs extracted in main thread just before transferring to worker
   clientExtensionResults: {
     prf: {
       results: {
-        first: string | undefined; // base64url-encoded PRF output (via utils/encoders.base64UrlEncode)
+        // base64url-encoded PRF output for AES-GCM (via utils/encoders.base64UrlEncode)
+        first: string | undefined;
+        // base64url-encoded PRF output for Ed25519 (via utils/encoders.base64UrlEncode)
+        second: string | undefined;
       }
     }
   }
 }
 
 /**
- * Symbol for storing PRF output - completely hidden from console.log and object inspection
- * This ensures PRF data doesn't accidentally leak in logs while still being accessible programmatically
+ * Extract dual PRF outputs from WebAuthn credential
+ * Based on docs/dual_prf_key_derivation.md implementation plan
+ *
+ * @param credential - WebAuthn credential with dual PRF extension results
+ * @returns DualPrfOutputs with both AES and Ed25519 PRF outputs
+ * @throws Error if dual PRF outputs are not available
  */
-const PRF_OUTPUT_SYMBOL = Symbol('prfOutput');
+export function extractDualPrfOutputs(credential: PublicKeyCredential): DualPrfOutputs {
+  const extensions = credential.getClientExtensionResults();
+  const prfResults = extensions.prf?.results;
 
-/**
- * Serialize PublicKeyCredential for worker communication with PRF handling
- *
- * ENCODING STRATEGY:
- * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
- *
- * SECURITY FEATURES:
- * - Just-in-time serialization - minimal exposure time
- * - Consistent base64url encoding for proper WASM decoding
- * - Secure against encoding/decoding failures
- */
-export function serializeCredentialAndCreatePRF(credential: PublicKeyCredential): WebAuthnAuthenticationCredential {
-  // Extract PRF output immediately for secure transfer to worker
-  let prfOutput: string | undefined;
-  try {
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
-    if (prfOutputBuffer) {
-      // PRF output should use base64url encoding for consistency with WASM expectations
-      prfOutput = base64UrlEncode(prfOutputBuffer);
-    }
-  } catch (error) {
-    console.warn('[serialize]: PRF extraction failed:', error);
-    throw new Error('[serialize]: PRF extraction failed. Please try again.');
+  if (!prfResults?.first || !prfResults?.second) {
+    throw new Error('Dual PRF outputs required but not available - ensure both first and second PRF outputs are present');
   }
+
+  // Convert BufferSource to ArrayBuffer if needed
+  const firstArrayBuffer = prfResults.first instanceof ArrayBuffer
+    ? prfResults.first
+    : prfResults.first.buffer.slice(prfResults.first.byteOffset, prfResults.first.byteOffset + prfResults.first.byteLength);
+
+  const secondArrayBuffer = prfResults.second instanceof ArrayBuffer
+    ? prfResults.second
+    : prfResults.second.buffer.slice(prfResults.second.byteOffset, prfResults.second.byteOffset + prfResults.second.byteLength);
 
   return {
-    id: credential.id,
-    rawId: base64UrlEncode(credential.rawId),
-    type: credential.type,
-    authenticatorAttachment: credential.authenticatorAttachment,
-    response: {
-      clientDataJSON: base64UrlEncode(credential.response.clientDataJSON),
-      authenticatorData: base64UrlEncode((credential.response as any).authenticatorData),
-      signature: base64UrlEncode((credential.response as any).signature),
-      userHandle: (credential.response as any).userHandle ?
-        base64UrlEncode((credential.response as any).userHandle) : null,
-    },
-    clientExtensionResults: {
-      prf: {
-        results: {
-          first: prfOutput
-        }
-      }
-    }
+    aesPrfOutput: base64UrlEncode(firstArrayBuffer),
+    ed25519PrfOutput: base64UrlEncode(secondArrayBuffer)
+  };
+}
+
+/**
+ * Extract dual PRF outputs from WebAuthn credential extension results
+ *
+ * SECURITY: Immediate extraction minimizes exposure time of PRF outputs
+ * ENCODING: Uses base64url for WASM compatibility
+ */
+function extractDualPrfFromCredential(credential: PublicKeyCredential): {
+  first?: string;
+  second?: string;
+} {
+  try {
+    const extensionResults = credential.getClientExtensionResults();
+    const prfResults = extensionResults?.prf?.results;
+
+    return {
+      first: prfResults?.first ? base64UrlEncode(prfResults.first as ArrayBuffer) : undefined,
+      second: prfResults?.second ? base64UrlEncode(prfResults.second as ArrayBuffer) : undefined
+    };
+  } catch (error) {
+    console.warn('[serialize]: Dual PRF extraction failed:', error);
+    throw new Error('[serialize]: Dual PRF extraction failed. Please try again.');
   }
 }
 
 /**
- * Serialize PublicKeyCredential for registration with PRF handling
+ * Serialize PublicKeyCredential with PRF handling for both authentication and registration
  *
- * FOR REGISTRATION CREDENTIALS ONLY - uses AuthenticatorAttestationResponse fields
- *
- * ENCODING STRATEGY:
- * - All fields (including PRF output) → base64url (via utils/encoders.base64UrlEncode) for WASM compatibility
+ * UNIFIED APPROACH:
+ * - Automatically detects credential type (registration vs authentication)
+ * - Handles dual PRF extraction consistently
+ * - Uses base64url encoding for WASM compatibility
  *
  * SECURITY FEATURES:
  * - Just-in-time serialization - minimal exposure time
  * - Consistent base64url encoding for proper WASM decoding
  * - Secure against encoding/decoding failures
  */
-export function serializeRegistrationCredentialAndCreatePRF(
+export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential>(
   credential: PublicKeyCredential
-): WebAuthnRegistrationCredential {
-  // Extract PRF output immediately for secure transfer to worker
-  let prfOutput: string | undefined;
-  try {
-    const extensionResults = credential.getClientExtensionResults();
-    const prfOutputBuffer = extensionResults?.prf?.results?.first as ArrayBuffer;
-    if (prfOutputBuffer) {
-      // PRF output should use base64url encoding for consistency with WASM expectations
-      prfOutput = base64UrlEncode(prfOutputBuffer);
-    }
-  } catch (error) {
-    console.warn('[serialize]: Registration PRF extraction failed:', error);
-    throw new Error('[serialize]: Registration PRF extraction failed. Please try again.');
-  }
+): C {
+  // Extract dual PRF outputs immediately for secure transfer to worker
+  const prfOutputs = extractDualPrfFromCredential(credential);
 
-  // Cast to AuthenticatorAttestationResponse to access registration-specific fields
-  const attestationResponse = credential.response as AuthenticatorAttestationResponse;
+  // Check if this is a registration credential by looking for attestationObject
+  const response = credential.response;
+  const isRegistration = 'attestationObject' in response;
 
-  return {
+  const credentialBase = {
     id: credential.id,
     rawId: base64UrlEncode(credential.rawId),
     type: credential.type,
     authenticatorAttachment: credential.authenticatorAttachment,
-    response: {
-      clientDataJSON: base64UrlEncode(attestationResponse.clientDataJSON),
-      attestationObject: base64UrlEncode(attestationResponse.attestationObject),
-      transports: attestationResponse.getTransports() || [],
-    },
+    response: {},
     clientExtensionResults: {
       prf: {
-        results: {
-          first: prfOutput
-        }
+        results: prfOutputs
       }
     }
   }
-}
 
+  if (isRegistration) {
+    const attestationResponse = response as AuthenticatorAttestationResponse;
+    return {
+      ...credentialBase,
+      response: {
+        clientDataJSON: base64UrlEncode(attestationResponse.clientDataJSON),
+        attestationObject: base64UrlEncode(attestationResponse.attestationObject),
+        transports: attestationResponse.getTransports() || [],
+      },
+    } as C;
+  } else {
+    const assertionResponse = response as AuthenticatorAssertionResponse;
+    return {
+      ...credentialBase,
+      response: {
+        clientDataJSON: base64UrlEncode(assertionResponse.clientDataJSON),
+        authenticatorData: base64UrlEncode(assertionResponse.authenticatorData),
+        signature: base64UrlEncode(assertionResponse.signature),
+        userHandle: assertionResponse.userHandle ? base64UrlEncode(assertionResponse.userHandle as ArrayBuffer) : null,
+      },
+    } as C;
+  }
+}
 
 type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
 
-// Removes the PRF output from the credential and returns the PRF output separately
-export function takePrfOutputFromCredential(credential: SerializableCredential): ({
+/**
+ * Removes PRF outputs from the credential and returns the credential without PRF along with just the AES PRF output
+ * @param credential - The WebAuthn credential containing PRF outputs
+ * @returns Object containing credential with PRF removed and the extracted AES PRF output
+ * Does not return the second PRF output (Ed25519 PRF)
+ */
+export function takeAesPrfOutput(credential: SerializableCredential): ({
   credentialWithoutPrf: SerializableCredential,
-  prfOutput: string
+  aesPrfOutput: string
 }) {
-  // Access PRF through the getter (which reads from Symbol property)
-  const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
-  if (!prfOutput) {
+  const aesPrfOutput = credential.clientExtensionResults?.prf?.results?.first;
+  if (!aesPrfOutput) {
     throw new Error('PRF output missing from credential.clientExtensionResults: required for secure key decryption');
   }
 
-  // Create credential without PRF by removing the Symbol property
-  const credentialWithoutPrf = {
+  const credentialWithoutPrf: SerializableCredential = {
     ...credential,
     clientExtensionResults: {
       ...credential.clientExtensionResults,
       prf: {
         ...credential.clientExtensionResults?.prf,
         results: {
-          // Return undefined for first since Symbol is removed
-          first: undefined
+          first: undefined, // AES PRF output
+          second: undefined // Ed25519 PRF output
         }
       }
     }
   };
 
-  return { credentialWithoutPrf, prfOutput };
-}
-
-// Removes the PRF output from the registration credential and returns the PRF output separately
-export function takePrfOutputFromRegistrationCredential(credential: WebAuthnRegistrationCredential): ({
-  credentialWithoutPrf: WebAuthnRegistrationCredential,
-  prfOutput: string
-}) {
-  // Access PRF through the extension results
-  const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
-  if (!prfOutput) {
-    throw new Error('PRF output missing from registration credential.clientExtensionResults: required for secure key operations');
-  }
-
-  // Create credential without PRF by removing the PRF output
-  const credentialWithoutPrf = {
-    ...credential,
-    clientExtensionResults: {
-      ...credential.clientExtensionResults,
-      prf: {
-        ...credential.clientExtensionResults?.prf,
-        results: {
-          // Return undefined for first since we're removing it
-          first: undefined
-        }
-      }
-    }
-  };
-
-  return { credentialWithoutPrf, prfOutput };
+  return { credentialWithoutPrf, aesPrfOutput };
 }
 
 // Multi-action request with WebAuthn verification (PRF extracted in worker for security)
@@ -481,22 +477,6 @@ export interface DecryptPrivateKeyWithPrfRequest extends BaseWorkerRequest {
     nearAccountId: string;
     /** Base64-encoded PRF output from WebAuthn */
     prfOutput: string;
-  };
-}
-
-export interface ExtractCosePublicKeyRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY;
-  payload: {
-    /** Base64url-encoded WebAuthn attestation object */
-    attestationObjectBase64url: string;
-  };
-}
-
-export interface ValidateCoseKeyRequest extends BaseWorkerRequest {
-  type: WorkerRequestType.VALIDATE_COSE_KEY;
-  payload: {
-    /** COSE key bytes to validate */
-    coseKeyBytes: number[];
   };
 }
 
@@ -590,20 +570,27 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
+export interface ExtractCosePublicKeyRequest extends BaseWorkerRequest {
+  type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY;
+  payload: {
+    /** Base64url-encoded WebAuthn attestation object */
+    attestationObjectBase64url: string;
+  };
+}
+
 export type WorkerRequest =
   | DeriveNearKeypairAndEncryptRequest
   | RecoverKeypairFromPasskeyRequest
   | CheckCanRegisterUserRequest
   | SignVerifyAndRegisterUserRequest
   | DecryptPrivateKeyWithPrfRequest
-  | ExtractCosePublicKeyRequest
-  | ValidateCoseKeyRequest
   | GenerateVrfKeypairWithPrfRequest
   | GenerateVrfChallengeWithPrfRequest
   | SignTransactionWithActionsRequest
   | SignTransferTransactionRequest
   | AddKeyWithPrfRequest
-  | DeleteKeyWithPrfRequest;
+  | DeleteKeyWithPrfRequest
+  | ExtractCosePublicKeyRequest;
 
 // === PROGRESS MESSAGE TYPES ===
 
@@ -808,52 +795,6 @@ export interface DecryptionFailureResponse extends BaseWorkerResponse {
   };
 }
 
-export interface CoseKeySuccessResponse extends BaseWorkerResponse {
-  type: WorkerResponseType.COSE_KEY_SUCCESS;
-  payload: {
-    /** Extracted COSE public key bytes */
-    cosePublicKeyBytes: number[];
-  };
-}
-
-export interface CoseKeyFailureResponse extends BaseWorkerResponse {
-  type: WorkerResponseType.COSE_KEY_FAILURE;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export interface CoseValidationSuccessResponse extends BaseWorkerResponse {
-  type: WorkerResponseType.COSE_VALIDATION_SUCCESS;
-  payload: {
-    /** Whether the COSE key is valid */
-    valid: boolean;
-    /** Additional validation information */
-    info: {
-      keyType?: string;
-      algorithm?: number;
-      curve?: string;
-      [key: string]: any;
-    };
-  };
-}
-
-export interface CoseValidationFailureResponse extends BaseWorkerResponse {
-  type: WorkerResponseType.COSE_VALIDATION_FAILURE;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
 
 export interface VRFKeyPairSuccessResponse extends BaseWorkerResponse {
   type: WorkerResponseType.VRF_KEYPAIR_SUCCESS;
@@ -920,6 +861,26 @@ export interface ErrorResponse extends BaseWorkerResponse {
   };
 }
 
+export interface CoseExtractionSuccessResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_EXTRACTION_SUCCESS;
+  payload: {
+    /** Extracted COSE public key bytes */
+    cosePublicKeyBytes: Uint8Array;
+  };
+}
+
+export interface CoseExtractionFailureResponse extends BaseWorkerResponse {
+  type: WorkerResponseType.COSE_EXTRACTION_FAILURE;
+  payload: {
+    /** Error message describing the failure */
+    error: string;
+    /** Error code for programmatic handling */
+    errorCode?: WorkerErrorCode;
+    /** Additional error context */
+    context?: Record<string, any>;
+  };
+}
+
 export type WorkerResponse =
   | EncryptionSuccessResponse
   | EncryptionFailureResponse
@@ -932,17 +893,15 @@ export type WorkerResponse =
   | SignatureFailureResponse
   | DecryptionSuccessResponse
   | DecryptionFailureResponse
-  | CoseKeySuccessResponse
-  | CoseKeyFailureResponse
-  | CoseValidationSuccessResponse
-  | CoseValidationFailureResponse
   | VRFKeyPairSuccessResponse
   | VRFKeyPairFailureResponse
   | VRFChallengeSuccessResponse
   | VRFChallengeFailureResponse
   | ProgressResponse
   | CompletionResponse
-  | ErrorResponse;
+  | ErrorResponse
+  | CoseExtractionSuccessResponse
+  | CoseExtractionFailureResponse;
 
 // === TYPE GUARDS ===
 
@@ -970,12 +929,8 @@ export function isDecryptionSuccess(response: WorkerResponse): response is Decry
   return response.type === WorkerResponseType.DECRYPTION_SUCCESS;
 }
 
-export function isCoseKeySuccess(response: WorkerResponse): response is CoseKeySuccessResponse {
-  return response.type === WorkerResponseType.COSE_KEY_SUCCESS;
-}
-
-export function isCoseValidationSuccess(response: WorkerResponse): response is CoseValidationSuccessResponse {
-  return response.type === WorkerResponseType.COSE_VALIDATION_SUCCESS;
+export function isCoseExtractionSuccess(response: WorkerResponse): response is CoseExtractionSuccessResponse {
+  return response.type === WorkerResponseType.COSE_EXTRACTION_SUCCESS;
 }
 
 export function isWorkerError(response: WorkerResponse): response is
@@ -985,23 +940,21 @@ export function isWorkerError(response: WorkerResponse): response is
   RegistrationFailureResponse |
   SignatureFailureResponse |
   DecryptionFailureResponse |
-  CoseKeyFailureResponse |
-  CoseValidationFailureResponse |
   VRFKeyPairFailureResponse |
-  VRFChallengeFailureResponse
+  VRFChallengeFailureResponse |
+  CoseExtractionFailureResponse
 {
-  return [
-    WorkerResponseType.ERROR,
-    WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
-    WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
-    WorkerResponseType.REGISTRATION_FAILURE,
-    WorkerResponseType.SIGNATURE_FAILURE,
-    WorkerResponseType.DECRYPTION_FAILURE,
-    WorkerResponseType.COSE_KEY_FAILURE,
-    WorkerResponseType.COSE_VALIDATION_FAILURE,
-    WorkerResponseType.VRF_KEYPAIR_FAILURE,
-    WorkerResponseType.VRF_CHALLENGE_FAILURE
-  ].includes(response.type);
+  return (
+    response.type === WorkerResponseType.ERROR ||
+    response.type === WorkerResponseType.DERIVE_NEAR_KEY_FAILURE ||
+    response.type === WorkerResponseType.RECOVER_KEYPAIR_FAILURE ||
+    response.type === WorkerResponseType.REGISTRATION_FAILURE ||
+    response.type === WorkerResponseType.SIGNATURE_FAILURE ||
+    response.type === WorkerResponseType.DECRYPTION_FAILURE ||
+    response.type === WorkerResponseType.VRF_KEYPAIR_FAILURE ||
+    response.type === WorkerResponseType.VRF_CHALLENGE_FAILURE ||
+    response.type === WorkerResponseType.COSE_EXTRACTION_FAILURE
+  );
 }
 
 export function isWorkerSuccess(response: WorkerResponse): response is
@@ -1010,22 +963,20 @@ export function isWorkerSuccess(response: WorkerResponse): response is
   RegistrationSuccessResponse |
   SignatureSuccessResponse |
   DecryptionSuccessResponse |
-  CoseKeySuccessResponse |
-  CoseValidationSuccessResponse |
   VRFKeyPairSuccessResponse |
-  VRFChallengeSuccessResponse
+  VRFChallengeSuccessResponse |
+  CoseExtractionSuccessResponse
 {
-  return [
-    WorkerResponseType.ENCRYPTION_SUCCESS,
-    WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
-    WorkerResponseType.REGISTRATION_SUCCESS,
-    WorkerResponseType.SIGNATURE_SUCCESS,
-    WorkerResponseType.DECRYPTION_SUCCESS,
-    WorkerResponseType.COSE_KEY_SUCCESS,
-    WorkerResponseType.COSE_VALIDATION_SUCCESS,
-    WorkerResponseType.VRF_KEYPAIR_SUCCESS,
-    WorkerResponseType.VRF_CHALLENGE_SUCCESS
-  ].includes(response.type);
+  return (
+    response.type === WorkerResponseType.ENCRYPTION_SUCCESS ||
+    response.type === WorkerResponseType.RECOVER_KEYPAIR_SUCCESS ||
+    response.type === WorkerResponseType.REGISTRATION_SUCCESS ||
+    response.type === WorkerResponseType.SIGNATURE_SUCCESS ||
+    response.type === WorkerResponseType.DECRYPTION_SUCCESS ||
+    response.type === WorkerResponseType.VRF_KEYPAIR_SUCCESS ||
+    response.type === WorkerResponseType.VRF_CHALLENGE_SUCCESS ||
+    response.type === WorkerResponseType.COSE_EXTRACTION_SUCCESS
+  );
 }
 
 // === ACTION TYPE VALIDATION ===

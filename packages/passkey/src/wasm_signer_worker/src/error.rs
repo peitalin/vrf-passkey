@@ -10,6 +10,8 @@ pub enum KdfError {
     MissingField(&'static str),
     HkdfError,
     InvalidOperationContext,
+    InvalidInput(String),
+    EncryptionError(String),
 }
 
 impl fmt::Display for KdfError {
@@ -21,6 +23,8 @@ impl fmt::Display for KdfError {
             KdfError::MissingField(field) => write!(f, "Missing field: {}", field),
             KdfError::HkdfError => write!(f, "HKDF operation failed"),
             KdfError::InvalidOperationContext => write!(f, "Invalid operation context"),
+            KdfError::InvalidInput(e) => write!(f, "Invalid input: {}", e),
+            KdfError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
         }
     }
 }

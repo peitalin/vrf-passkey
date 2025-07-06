@@ -661,7 +661,18 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                     Some(data) => {
                         // Check if VRF input parameters are provided for challenge generation
                         let vrf_input_params = data.get("vrfInputParams")
-                            .and_then(|params| serde_json::from_value::<VRFInputData>(params.clone()).ok());
+                            .and_then(|params| {
+                                match serde_json::from_value::<VRFInputData>(params.clone()) {
+                                    Ok(parsed) => {
+                                        console::log_1(&"VRF WASM: Successfully parsed VRFInputData".into());
+                                        Some(parsed)
+                                    },
+                                    Err(e) => {
+                                        console::log_1(&format!("VRF WASM: Failed to parse VRFInputData: {}", e).into());
+                                        None
+                                    }
+                                }
+                            });
 
                         let mut manager = manager.borrow_mut();
 

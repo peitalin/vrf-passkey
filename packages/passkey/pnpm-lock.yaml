@@ -8,12 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@near-js/client':
-        specifier: ^2.0.1
-        version: 2.0.3(palkeogdjxslas5rix5aq2wvcm)
-      '@near-js/crypto':
-        specifier: ^2.0.1
-        version: 2.0.3(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3))
       '@near-js/transactions':
         specifier: ^2.0.1
         version: 2.0.3(@near-js/crypto@2.0.3(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3)))(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3))
@@ -30,6 +24,12 @@ importers:
       '@babel/preset-env':
         specifier: ^7.27.2
         version: 7.27.2(@babel/core@7.27.7)
+      '@near-js/client':
+        specifier: ^2.0.1
+        version: 2.0.3(palkeogdjxslas5rix5aq2wvcm)
+      '@near-js/crypto':
+        specifier: ^2.0.1
+        version: 2.0.3(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3))
       '@near-js/providers':
         specifier: ^2.0.1
         version: 2.0.3(@near-js/crypto@2.0.3(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3)))(@near-js/transactions@2.0.3(@near-js/crypto@2.0.3(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3)))(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3)))(@near-js/types@2.0.3)(@near-js/utils@2.0.3(@near-js/types@2.0.3))

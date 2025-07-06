@@ -155,6 +155,29 @@ pub struct EncryptedDataAesGcmResponse {
     pub aes_gcm_nonce_b64u: String,
 }
 
+// === DUAL PRF KEY DERIVATION TYPES ===
+
+/// Dual PRF outputs for separate encryption and signing key derivation
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DualPrfOutputs {
+    /// Base64-encoded PRF output from prf.results.first for AES-GCM encryption
+    pub aes_prf_output_base64: String,
+    /// Base64-encoded PRF output from prf.results.second for Ed25519 signing
+    pub ed25519_prf_output_base64: String,
+}
+
+/// Updated derivation request supporting dual PRF workflow
+/// Replaces single PRF approach with separate encryption/signing key derivation
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DualPrfDeriveKeypairRequest {
+    /// @deprecated Base64url-encoded WebAuthn attestation object (for verification only, NOT key derivation)
+    pub attestation_object_b64u: String,
+    /// Dual PRF outputs for separate AES and Ed25519 key derivation
+    pub dual_prf_outputs: DualPrfOutputs,
+    /// NEAR account ID for HKDF context and keypair association
+    pub account_id: String,
+}
+
 // === JSON-SERIALIZABLE TRANSACTION TYPES FOR WORKER RESPONSES ===
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -471,16 +494,26 @@ impl JsonSerializable for RegistrationResponse {
 
 // === WASM FUNCTION INPUT REQUEST TYPES ===
 
-/// Input request for key generation functions
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DeriveKeypairRequest {
-    pub attestation_object_b64u: String,
-    pub prf_output_base64: String,
-}
+// /// Input request for key generation functions
+// /// **DEPRECATED**: Use DualPrfDeriveKeypairRequest for new dual PRF workflow
+// #[derive(Serialize, Deserialize, Clone, Debug)]
+// pub struct DeriveKeypairRequest {
+//     pub attestation_object_b64u: String,
+//     /// **DEPRECATED**: Single PRF output - use dual_prf_outputs instead
+//     pub prf_output_base64: String,
+//     pub account_id: String,
+// }
 
+/// Request for private key decryption with dual PRF support
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DecryptPrivateKeyRequest {
-    pub prf_output_base64: String,
+    /// **DEPRECATED**: Single PRF output - use aes_prf_output_base64 for dual PRF
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prf_output_base64: Option<String>,
+    /// AES PRF output (prf.results.first) for decryption - dual PRF workflow
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aes_prf_output_base64: Option<String>,
+    pub near_account_id: String, // Added for HKDF context
     pub encrypted_private_key_data: String,
     pub encrypted_private_key_iv: String,
 }

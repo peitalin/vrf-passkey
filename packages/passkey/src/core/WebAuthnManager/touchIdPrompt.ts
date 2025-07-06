@@ -1,5 +1,4 @@
 import { ClientAuthenticatorData } from '../IndexedDBManager';
-import { sha256 } from 'js-sha256';
 
 export interface RegisterCredentialsArgs {
   nearAccountId: string,
@@ -13,14 +12,47 @@ export interface AuthenticateCredentialsArgs {
 }
 
 /**
- * Generate user-scoped PRF salt to prevent collision risks
- * @param accountId - NEAR account ID to scope the salt to
- * @returns 32-byte Uint8Array salt unique to the user
+ * Generate AES-GCM salt using account-specific HKDF for encryption key derivation
+ * @param nearAccountId - NEAR account ID to scope the salt to
+ * @returns 32-byte Uint8Array salt for AES-GCM key derivation
  */
-export function generateUserScopedPrfSalt(accountId: string): Uint8Array {
-  const saltInput = `prf-salt:${accountId}`;
-  const hashArray = sha256.array(saltInput);
-  return new Uint8Array(hashArray);
+export function generateAesGcmSalt(nearAccountId: string): Uint8Array {
+  const saltString = `aes-gcm-salt:${nearAccountId}`;
+  const salt = new Uint8Array(32);
+  const saltBytes = new TextEncoder().encode(saltString);
+  salt.set(saltBytes.slice(0, 32));
+  return salt;
+}
+
+/**
+ * Generate Ed25519 salt using account-specific HKDF for signing key derivation
+ * @param nearAccountId - NEAR account ID to scope the salt to
+ * @returns 32-byte Uint8Array salt for Ed25519 key derivation
+ */
+export function generateEd25519Salt(nearAccountId: string): Uint8Array {
+  const saltString = `ed25519-salt:${nearAccountId}`;
+  const salt = new Uint8Array(32);
+  const saltBytes = new TextEncoder().encode(saltString);
+  salt.set(saltBytes.slice(0, 32));
+  return salt;
+}
+
+/**
+ * Generate account-specific PRF salt for WebAuthn (legacy single PRF)
+ * @deprecated Use generateAesGcmSalt and generateEd25519Salt for dual PRF
+ * @param nearAccountId - NEAR account ID to include in the salt
+ * @returns 32-byte Uint8Array account-specific salt
+ */
+export function generateAccountSpecificPrfSalt(nearAccountId: string): Uint8Array {
+  // Create account-specific salt for WebAuthn PRF
+  // WASM worker will do additional HKDF domain separation for AES vs. Ed25519
+  const saltString = `webauthn-prf-salt-v1:${nearAccountId}`;
+  const salt = new Uint8Array(32);
+  const saltBytes = new TextEncoder().encode(saltString);
+
+  // Copy up to 32 bytes, padding with zeros if needed
+  salt.set(saltBytes.slice(0, 32));
+  return salt;
 }
 
 /**
@@ -38,13 +70,9 @@ export class TouchIdPrompt {
    * @param nearAccountId - NEAR account ID to authenticate
    * @param challenge - VRF challenge bytes to use for WebAuthn authentication
    * @param authenticators - List of stored authenticator data for the user
-   * @returns Object with WebAuthn credential and PRF output for VRF keypair decryption:
+   * @returns WebAuthn credential with PRF output (HKDF derivation done in WASM worker)
    * ```ts
-   * { credential: PublicKeyCredential, prfOutput: ArrayBuffer }
-   * ```
-   * @example
-   * ```ts
-   * const { credential, prfOutput } = await touchIdPrompt.getCredentialsAndPrf({
+   * const credential = await touchIdPrompt.getCredentials({
    *   nearAccountId,
    *   challenge,
    *   authenticators,
@@ -71,7 +99,8 @@ export class TouchIdPrompt {
         extensions: {
           prf: {
             eval: {
-              first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
+              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }
         }
@@ -85,10 +114,57 @@ export class TouchIdPrompt {
   }
 
   /**
-   * Generate WebAuthn registration credentials and PRF output for a new passkey
-   * @param nearAccountId - NEAR account ID to register the passkey for
+   * Simplified authentication for account recovery
+   * Uses credential IDs from contract without needing full authenticator data
+   * @param nearAccountId - NEAR account ID to authenticate
+   * @param challenge - VRF challenge bytes
+   * @param credentialIds - Array of credential IDs from contract lookup
+   * @returns WebAuthn credential with PRF output
+   */
+  async getCredentialsForRecovery({
+    nearAccountId,
+    challenge,
+    credentialIds
+  }: {
+    nearAccountId: string,
+    challenge: Uint8Array<ArrayBuffer>,
+    credentialIds: string[]
+  }): Promise<PublicKeyCredential> {
+
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: window.location.hostname,
+        allowCredentials: credentialIds.map(credentialId => ({
+          id: new Uint8Array(Buffer.from(credentialId, 'base64')),
+          type: 'public-key' as const,
+          transports: ['internal', 'hybrid', 'usb', 'ble'] as AuthenticatorTransport[]
+          // Include all common transports
+        })),
+        userVerification: 'preferred' as UserVerificationRequirement,
+        timeout: 60000,
+        extensions: {
+          prf: {
+            eval: {
+              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
+            }
+          }
+        }
+      } as PublicKeyCredentialRequestOptions
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('WebAuthn authentication failed or was cancelled');
+    }
+    return credential;
+  }
+
+  /**
+   * Generate WebAuthn registration credentials with PRF output for a new passkey
+   * @param nearAccountId - NEAR account ID to register
    * @param challenge - Random challenge bytes for the registration ceremony
-   * @returns Credential and PRF output for VRF keypair generation
+   * @returns Credential with PRF output
    */
   async generateRegistrationCredentials({
     nearAccountId,
@@ -119,7 +195,8 @@ export class TouchIdPrompt {
         extensions: {
           prf: {
             eval: {
-              first: generateUserScopedPrfSalt(nearAccountId) // User-scoped PRF salt
+              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }
         }

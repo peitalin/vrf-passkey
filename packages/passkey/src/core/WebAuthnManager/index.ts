@@ -26,7 +26,6 @@ import {
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode, base58Decode } from '../../utils/encoders';
 import {
-  serializeRegistrationCredentialAndCreatePRF,
   type UserData,
   type ActionParams,
 } from '../types/signer-worker';
@@ -114,7 +113,7 @@ export class WebAuthnManager {
     vrfPublicKey: string,
   }): Promise<{
     vrfPublicKey: string;
-    encryptedVrfKeypair: any;
+    encryptedVrfKeypair: EncryptedVRFKeypair;
   }> {
     return await this.vrfWorkerManager.encryptVrfKeypairWithCredentials(vrfPublicKey, credential);
   }
@@ -574,12 +573,14 @@ export class WebAuthnManager {
     credential,
     publicKey,
     encryptedVrfKeypair,
+    vrfPublicKey,
     onEvent
   }: {
     nearAccountId: string;
     credential: PublicKeyCredential;
     publicKey: string;
-    encryptedVrfKeypair: any;
+    encryptedVrfKeypair: EncryptedVRFKeypair;
+    vrfPublicKey: string;
     onEvent?: (event: any) => void;
   }): Promise<void> {
 
@@ -601,7 +602,7 @@ export class WebAuthnManager {
         nearAccountId,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
-        vrfPublicKey: encryptedVrfKeypair.vrfPublicKey,
+        vrfPublicKey: vrfPublicKey,
       });
 
       // Store WebAuthn user data with encrypted VRF credentials
@@ -662,12 +663,9 @@ export class WebAuthnManager {
         );
       }
 
-      // Serialize the registration credential for the worker
-      const serializedCredential = serializeRegistrationCredentialAndCreatePRF(registrationCredential);
-
       // Call the WASM worker to derive the deterministic keypair
       const result = await this.signerWorkerManager.recoverKeypairFromPasskey(
-        serializedCredential,
+        registrationCredential,
         base64UrlEncode(challenge),
         undefined
       );

@@ -113,7 +113,7 @@ export function PasskeyLoginMenu() {
       }
     });
     console.log("recover account flow: ", flow)
-    const options = await flow.discover();
+    const options = await flow.discover(targetAccountId);
     console.log("recover account options: ", options)
     const result = await flow.recover(options[0]);
     console.log("recover account result: ", result)

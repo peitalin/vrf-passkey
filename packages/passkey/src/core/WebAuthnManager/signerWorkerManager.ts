@@ -12,13 +12,12 @@ import {
   isEncryptionSuccess,
   isSignatureSuccess,
   isDecryptionSuccess,
-  isCoseKeySuccess,
-  isCoseValidationSuccess,
   isCheckRegistrationSuccess,
   isRegistrationSuccess,
   validateActionParams,
-  serializeCredentialAndCreatePRF,
-  serializeRegistrationCredentialAndCreatePRF,
+  serializeCredentialWithPRF,
+  extractDualPrfOutputs,
+  isCoseExtractionSuccess,
 } from '../types/signer-worker';
 import { ActionType } from '../types/actions';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
@@ -164,7 +163,7 @@ export class SignerWorkerManager {
   // === PRF OPERATIONS ===
 
   /**
-   * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
+   * Secure registration flow with dual PRF: WebAuthn + WASM worker encryption using dual PRF
    */
   async deriveNearKeypairAndEncrypt(
     credential: PublicKeyCredential,
@@ -172,19 +171,19 @@ export class SignerWorkerManager {
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
 
     const attestationObject = credential.response as AuthenticatorAttestationResponse
-    const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
-    if (!prfOutput) {
-      throw new Error('PRF output not found in WebAuthn credentials');
-    }
 
     try {
-      console.log('WebAuthnManager: Starting secure registration with PRF using deterministic derivation');
+      console.log('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
+
+      // Extract dual PRF outputs from the credential
+      const dualPrfOutputs = extractDualPrfOutputs(credential);
+      console.log('WebAuthnManager: Extracted dual PRF outputs for AES and Ed25519 key derivation');
 
       const response = await this.executeWorkerOperation({
         message: {
           type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
           payload: {
-            prfOutput: base64UrlEncode(prfOutput),
+            dualPrfOutputs,
             nearAccountId: nearAccountId,
             attestationObjectBase64url: base64UrlEncode(attestationObject.attestationObject)
           }
@@ -192,14 +191,14 @@ export class SignerWorkerManager {
       });
 
       if (isEncryptionSuccess(response)) {
-        console.log('WebAuthnManager: PRF registration successful with deterministic derivation');
+        console.log('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
         return {
           success: true,
           nearAccountId: nearAccountId,
           publicKey: response.payload.publicKey
         };
       } else {
-        console.error('WebAuthnManager: PRF registration failed:', response);
+        console.error('WebAuthnManager: Dual PRF registration failed:', response);
         return {
           success: false,
           nearAccountId: nearAccountId,
@@ -207,7 +206,7 @@ export class SignerWorkerManager {
         };
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: PRF registration error:', error);
+      console.error('WebAuthnManager: Dual PRF registration error:', error);
       return {
         success: false,
         nearAccountId: nearAccountId,
@@ -217,7 +216,7 @@ export class SignerWorkerManager {
   }
 
   /**
-   * Secure private key decryption with PRF
+   * Secure private key decryption with dual PRF
    *
    * For local private key export, we're just decrypting locally stored encrypted private keys
    *    - No network communication with servers
@@ -226,10 +225,10 @@ export class SignerWorkerManager {
    *    - Security comes from device possession + biometrics
    *    - This is equivalent to: "If you can unlock your phone, you can access your local keychain"
    *
-   * PRF DETERMINISTIC KEY DERIVATION: WebAuthn PRF provides cryptographic guarantees
+   * DUAL PRF DETERMINISTIC KEY DERIVATION: WebAuthn dual PRF provides cryptographic guarantees
    *    - Same SALT + same authenticator = same PRF output (deterministic)
    *    - Different SALT + same authenticator = different PRF output
-   *    - Use a fixed user-scoped salt (sha256(`prf-salt:${accountId}`)) for deterministic PRF output
+   *    - Use account-specific salts for both AES and Ed25519 PRF derivation
    *    - Impossible to derive PRF output without the physical authenticator
    */
   async decryptPrivateKeyWithPrf(
@@ -238,8 +237,8 @@ export class SignerWorkerManager {
     authenticators: ClientAuthenticatorData[],
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting private key decryption with PRF (local operation)');
-      console.log('WebAuthnManager: Security enforced by device possession + biometrics + PRF cryptography');
+      console.log('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
+      console.log('WebAuthnManager: Security enforced by device possession + biometrics + dual PRF cryptography');
 
       // For private key export, no VRF challenge is needed.
       // we can use local random challenge for WebAuthn authentication.
@@ -251,86 +250,34 @@ export class SignerWorkerManager {
         challenge,
         authenticators,
       });
-      const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
-      if (!prfOutput) {
-        throw new Error('PRF output not found in WebAuthn credentials');
-      }
+
+      // Extract dual PRF outputs and use the AES one for decryption
+      const dualPrfOutputs = extractDualPrfOutputs(credential);
+      console.log('WebAuthnManager: Extracted dual PRF outputs, using AES PRF for decryption');
 
       const response = await this.executeWorkerOperation({
         message: {
           type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           payload: {
             nearAccountId: nearAccountId,
-            prfOutput: base64UrlEncode(prfOutput)
+            prfOutput: dualPrfOutputs.aesPrfOutput // Use AES PRF output for decryption
           }
         }
       });
 
       if (isDecryptionSuccess(response)) {
-        console.log('WebAuthnManager: PRF private key decryption successful');
+        console.log('WebAuthnManager: Dual PRF private key decryption successful');
         return {
           decryptedPrivateKey: response.payload.decryptedPrivateKey,
           nearAccountId: nearAccountId
         };
       } else {
-        console.error('WebAuthnManager: PRF private key decryption failed:', response);
+        console.error('WebAuthnManager: Dual PRF private key decryption failed:', response);
         throw new Error('Private key decryption failed');
       }
     } catch (error: any) {
-      console.error('WebAuthnManager: PRF private key decryption error:', error);
+      console.error('WebAuthnManager: Dual PRF private key decryption error:', error);
       throw error;
-    }
-  }
-
-  // === COSE OPERATIONS ===
-
-  /**
-   * Extract COSE public key from WebAuthn attestation object using WASM worker
-   */
-  async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    console.log('WebAuthnManager: Extracting COSE public key from attestation object');
-
-    const response = await this.executeWorkerOperation({
-      message: {
-        type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
-        payload: {
-          attestationObjectBase64url
-        }
-      }
-    });
-
-    if (isCoseKeySuccess(response)) {
-      console.log('WebAuthnManager: COSE public key extraction successful');
-      return new Uint8Array(response.payload.cosePublicKeyBytes);
-    } else {
-      console.error('WebAuthnManager: COSE public key extraction failed:', response);
-      throw new Error('Failed to extract COSE public key from attestation object');
-    }
-  }
-
-  /**
-   * Validate COSE key format using WASM worker
-   */
-  async validateCoseKey(coseKeyBytes: Uint8Array): Promise<{ valid: boolean; info: any }> {
-    console.log('WebAuthnManager: Validating COSE key format');
-    const response = await this.executeWorkerOperation({
-      message: {
-        type: WorkerRequestType.VALIDATE_COSE_KEY,
-        payload: {
-          coseKeyBytes: Array.from(coseKeyBytes)
-        }
-      }
-    });
-
-    if (isCoseValidationSuccess(response)) {
-      console.log('WebAuthnManager: COSE key validation successful');
-      return {
-        valid: response.payload.valid,
-        info: response.payload.info
-      };
-    } else {
-      console.error('WebAuthnManager: COSE key validation failed:', response);
-      throw new Error('Failed to validate COSE key format');
     }
   }
 
@@ -362,7 +309,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.CHECK_CAN_REGISTER_USER,
           payload: {
             vrfChallenge,
-            credential: serializeRegistrationCredentialAndCreatePRF(credential),
+            credential: serializeCredentialWithPRF(credential),
             contractId,
             nearRpcUrl
           }
@@ -479,7 +426,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER,
           payload: {
             vrfChallenge,
-            credential: serializeRegistrationCredentialAndCreatePRF(credential),
+            credential: serializeCredentialWithPRF(credential),
             contractId,
             signerAccountId,
             nearAccountId,
@@ -567,7 +514,7 @@ export class SignerWorkerManager {
             contractId: payload.contractId,
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
-            credential: serializeCredentialAndCreatePRF(payload.credential),
+            credential: serializeCredentialWithPRF(payload.credential),
             nearRpcUrl: payload.nearRpcUrl
           }
         },
@@ -641,7 +588,7 @@ export class SignerWorkerManager {
             contractId: payload.contractId,
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
-            credential: serializeCredentialAndCreatePRF(payload.credential),
+            credential: serializeCredentialWithPRF(payload.credential),
             nearRpcUrl: payload.nearRpcUrl
           }
         },
@@ -675,7 +622,7 @@ export class SignerWorkerManager {
    * Uses COSE public key extraction and deterministic derivation
    */
   async recoverKeypairFromPasskey(
-    registrationCredential: WebAuthnRegistrationCredential,
+    registrationCredential: PublicKeyCredential,
     challenge: string,
     accountIdHint?: string
   ): Promise<{
@@ -685,11 +632,16 @@ export class SignerWorkerManager {
     try {
       console.log('SignerWorkerManager: Starting keypair recovery from registration credential');
 
+      // Serialize the registration credential for the worker
+      const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(
+        registrationCredential
+      );
+
       const response = await this.executeWorkerOperation({
         message: {
           type: WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY,
           payload: {
-            credential: registrationCredential,
+            credential: serializedCredential,
             challenge,
             accountIdHint
           }
@@ -708,6 +660,36 @@ export class SignerWorkerManager {
       }
     } catch (error: any) {
       console.error('SignerWorkerManager: Deterministic keypair derivation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract COSE public key from WebAuthn attestation object
+   * Simple operation that doesn't require TouchID or progress updates
+   */
+  async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
+    try {
+      console.log('SignerWorkerManager: Starting COSE public key extraction');
+
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
+          payload: {
+            attestationObjectBase64url
+          }
+        }
+      });
+
+      if (isCoseExtractionSuccess(response)) {
+        console.log('SignerWorkerManager: COSE public key extraction successful');
+        return response.payload.cosePublicKeyBytes;
+      } else {
+        console.error('SignerWorkerManager: COSE public key extraction failed:', response);
+        throw new Error('COSE public key extraction failed in WASM worker');
+      }
+    } catch (error: any) {
+      console.error('SignerWorkerManager: COSE public key extraction error:', error);
       throw error;
     }
   }

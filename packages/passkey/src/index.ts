@@ -56,10 +56,6 @@ export {
   isSignatureSuccess,
   isDecryptionSuccess,
   isWorkerError,
-  serializeCredentialAndCreatePRF,
-  serializeRegistrationCredentialAndCreatePRF,
-  takePrfOutputFromCredential,
-  takePrfOutputFromRegistrationCredential,
 } from './core/types/signer-worker';
 
 // === UTILITIES ===

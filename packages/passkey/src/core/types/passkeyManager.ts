@@ -1,4 +1,5 @@
 import { TxExecutionStatus } from "@near-js/types";
+import type { EncryptedVRFKeypair } from './vrf-worker';
 
 // Base event callback type
 export type EventCallback<T> = (event: T) => void;
@@ -254,7 +255,7 @@ export interface RegistrationResult {
   vrfRegistration?: {
     success: boolean;
     vrfPublicKey?: string;
-    encryptedVrfKeypair?: any;
+    encryptedVrfKeypair?: EncryptedVRFKeypair;
     contractVerified?: boolean;
     error?: string;
   };

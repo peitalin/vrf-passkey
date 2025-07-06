@@ -13,17 +13,15 @@ import {
   type DeriveNearKeypairAndEncryptRequest,
   type RecoverKeypairFromPasskeyRequest,
   type DecryptPrivateKeyWithPrfRequest,
-  type ExtractCosePublicKeyRequest,
-  type ValidateCoseKeyRequest,
   type CheckCanRegisterUserRequest,
   type SignVerifyAndRegisterUserRequest,
-  WebAuthnAuthenticationCredential,
-  takePrfOutputFromCredential,
-  ProgressMessageType,
-  ProgressStep,
+  type ExtractCosePublicKeyRequest,
   type ProgressMessageParams,
   type WorkerProgressMessage,
+  ProgressMessageType,
+  ProgressStep,
   DeleteKeyWithPrfRequest,
+  takeAesPrfOutput,
 } from './types/signer-worker.js';
 import type { onProgressEvents } from './types/webauthn.js';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './IndexedDBManager/passkeyNearKeysDB.js';
@@ -47,8 +45,11 @@ const nearKeysDB = new PasskeyNearKeysDBManager();
 /////////////////////////////////////
 
 const {
+  // Dual PRF functions (now available)
+  derive_and_encrypt_keypair_from_dual_prf_wasm,
+  derive_aes_gcm_key_from_dual_prf,
+  derive_ed25519_key_from_dual_prf,
   // Registration
-  derive_near_keypair_from_cose_and_encrypt_with_prf,
   check_can_register_user,
   sign_verify_and_register_user,
   // Key exports/decryption
@@ -56,14 +57,13 @@ const {
   // Transaction signing: combined verification + signing
   verify_and_sign_near_transaction_with_actions,
   verify_and_sign_near_transfer_transaction,
-  // New action-specific functions (will be available after WASM rebuild)
+  // New action-specific functions
   add_key_with_prf,
   delete_key_with_prf,
-  // COSE keys
-  extract_cose_public_key_from_attestation,
-  validate_cose_key_format,
   // Recover keypair from passkey
   recover_keypair_from_passkey,
+  // COSE keys
+  extract_cose_public_key_from_attestation,
 } = wasmModule;
 
 /**
@@ -167,20 +167,16 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
         await handleSignTransferTransaction(payload);
         break;
 
-      case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
-        await handleExtractCosePublicKey(payload);
-        break;
-
-      case WorkerRequestType.VALIDATE_COSE_KEY:
-        await handleValidateCoseKey(payload);
-        break;
-
       case WorkerRequestType.ADD_KEY_WITH_PRF:
         await handleAddKeyWithPrf(payload);
         break;
 
       case WorkerRequestType.DELETE_KEY_WITH_PRF:
         await handleDeleteKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
+        await handleExtractCosePublicKey(payload);
         break;
 
       default:
@@ -201,33 +197,39 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 // === NEAR KEY DERIVATION AND ENCRYPTION HANDLER ===
 
 /**
- * Derives NEAR ed25519 keypairs from the WebAuthn P-256 COSE keys,
- * then derives an AES-256-GCM symmetric key from the WebAuthn PRF output,
+ * Derives an AES-256-GCM symmetric key from the first PRF output,
+ * Then derives NEAR ed25519 keypairs using HKDF from the second PRF output,
  * then encrypts the NEAR private key with the AES-256-GCM symmetric key.
  *
  * @param payload - The request payload containing:
  *   @param {string} payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
- *   @param {string} payload.nearAccountId - NEAR account ID to associate with the keypair
- *   @param {string} payload.attestationObjectBase64url - Base64URL-encoded WebAuthn attestation object (includes COSE P-256 keys)
+ *   @param {string} payload.nearAccountId - NEAR account ID for HKDF context and keypair association
+ *   @param {string} payload.attestationObjectBase64url - Base64URL-encoded WebAuthn attestation object (used for verification only)
  */
 async function handleDeriveNearKeypairAndEncrypt(
   payload: DeriveNearKeypairAndEncryptRequest['payload']
 ): Promise<void> {
   try {
-    const { prfOutput, nearAccountId, attestationObjectBase64url } = payload;
-    console.log('[signer-worker]: Using deterministic key derivation from COSE P-256 credential');
+    const { dualPrfOutputs, nearAccountId, attestationObjectBase64url } = payload;
+    console.log('[signer-worker]: Using dual PRF key derivation with accountId context');
 
     const request = {
-      attestation_object_b64u: attestationObjectBase64url,
-      prf_output_base64: prfOutput
+      dual_prf_outputs: {
+        aes_prf_output_base64: dualPrfOutputs.aesPrfOutput,
+        ed25519_prf_output_base64: dualPrfOutputs.ed25519PrfOutput
+      },
+      near_account_id: nearAccountId,
+      attestation_object_b64u: attestationObjectBase64url // For verification only
     };
-    const resultJson = derive_near_keypair_from_cose_and_encrypt_with_prf(JSON.stringify(request));
+
+    console.log('[signer-worker]: Calling dual PRF WASM function');
+    const resultJson = derive_and_encrypt_keypair_from_dual_prf_wasm(JSON.stringify(request));
 
     // Parse the structured response from WASM
     const result = JSON.parse(resultJson);
     const publicKey = result.public_key;
     const encryptedPrivateKey = result.encrypted_private_key;
-    console.log('[signer-worker]: Deterministic parseWasmResult output:');
+    console.log('[signer-worker]: Dual PRF key derivation successful');
     console.log('  - publicKey value:', publicKey);
     console.log('  - encryptedPrivateKey type:', typeof encryptedPrivateKey);
 
@@ -238,7 +240,7 @@ async function handleDeriveNearKeypairAndEncrypt(
       timestamp: Date.now()
     };
 
-    console.log('[signer-worker]: Deterministic key derivation successful - NEAR keypair bound to WebAuthn credential');
+    console.log('[signer-worker]: Dual PRF key derivation successful - NEAR keypair bound to WebAuthn credential');
     await nearKeysDB.storeEncryptedKey(keyData);
 
     const verified = await nearKeysDB.verifyKeyStorage(nearAccountId);
@@ -255,10 +257,15 @@ async function handleDeriveNearKeypairAndEncrypt(
       }
     });
   } catch (error: any) {
-    console.error('[signer-worker]: Encryption failed:', error.message);
+    console.error('[signer-worker]: Dual PRF key derivation failed:', error);
     sendResponseAndTerminate({
       type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
-      payload: { error: error.message || 'PRF encryption failed' }
+      payload: {
+        error: `Dual PRF key derivation failed: ${error.message}`,
+        context: {
+          nearAccountId: payload.nearAccountId
+        }
+      }
     });
   }
 }
@@ -282,7 +289,7 @@ async function handleRecoverKeypairFromPasskey(
     };
 
     console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with registration credential');
-    const resultJson = wasmModule.recover_keypair_from_passkey(JSON.stringify(request));
+    const resultJson = await recover_keypair_from_passkey(JSON.stringify(request));
 
     // Parse the result
     const result = JSON.parse(resultJson);
@@ -327,13 +334,14 @@ async function handleDecryptPrivateKeyWithPrf(
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
 
-    // WASM function now returns structured JSON
+    // WASM function returns structured JSON and does HKDF internally
     const request = {
       prf_output_base64: prfOutput,
+      near_account_id: nearAccountId,
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv
     };
-    const resultJson = decrypt_private_key_with_prf_as_string(JSON.stringify(request));
+    const resultJson = await decrypt_private_key_with_prf_as_string(JSON.stringify(request));
 
     // Parse the structured response
     const result = JSON.parse(resultJson);
@@ -377,7 +385,7 @@ async function handleCheckCanRegisterUser(
       throw new Error('Missing required parameters for registration check: vrfChallenge, credential, contractId, nearRpcUrl');
     }
 
-    const { credentialWithoutPrf } = takePrfOutputFromCredential(credential);
+    const { credentialWithoutPrf } = takeAesPrfOutput(credential);
     console.log('[signer-worker]: Calling check_can_register_user function');
 
     // Call the WASM function that handles registration eligibility check
@@ -453,7 +461,7 @@ async function handleSignVerifyAndRegisterUser(
     }
 
     console.log('[signer-worker]: Calling sign_verify_and_register_user function with transaction metadata');
-    const { credentialWithoutPrf } = takePrfOutputFromCredential(credential);
+    const { credentialWithoutPrf } = takeAesPrfOutput(credential);
 
     // Call the WASM function that handles actual registration (send_tx)
     const request = {
@@ -461,6 +469,7 @@ async function handleSignVerifyAndRegisterUser(
       vrf_challenge_data_json: JSON.stringify(vrfChallenge),
       webauthn_registration_json: JSON.stringify(credentialWithoutPrf),
       signer_account_id: signerAccountId,
+      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       prf_output_base64: prfOutput,
@@ -546,11 +555,12 @@ async function handleVerifyAndSignNearTransactionWithActions(
     }
     console.log('[signer-worker]: PRF output extracted via getClientExtensionResults()');
 
-    let { credentialWithoutPrf, prfOutput } = takePrfOutputFromCredential(credential);
+    let { credentialWithoutPrf, aesPrfOutput } = takeAesPrfOutput(credential);
 
     // Call the pure WASM function that handles verification + signing with progress messages
     const request = {
-      prf_output_base64: prfOutput,
+      prf_output_base64: aesPrfOutput,
+      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       signer_account_id: nearAccountId,
@@ -632,6 +642,7 @@ async function handleSignTransferTransaction(
     // Use the transfer-specific verify+sign WASM function
     const request = {
       prf_output_base64: prfOutput,
+      near_account_id: nearAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: encryptedKeyData.encryptedData,
       encrypted_private_key_iv: encryptedKeyData.iv,
       signer_account_id: nearAccountId,
@@ -655,84 +666,6 @@ async function handleSignTransferTransaction(
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_FAILURE,
       payload: { error: error.message || 'Transfer transaction signing failed' }
-    });
-  }
-}
-
-// === COSE KEY EXTRACTION WORKFLOW ===
-
-/**
- * Handle COSE public key extraction from attestation object
- * @param payload - The request payload
- * @param payload.attestationObjectBase64url - Base64URL-encoded WebAuthn attestation object containing the COSE key
- */
-async function handleExtractCosePublicKey(
-  payload: ExtractCosePublicKeyRequest['payload']
-): Promise<void> {
-  try {
-    const { attestationObjectBase64url } = payload;
-    console.log('[signer-worker]: Extracting COSE public key from attestation object');
-
-    // WASM function now uses JSON input and returns structured JSON
-    const request = {
-      attestation_object_b64u: attestationObjectBase64url
-    };
-    const resultJson = extract_cose_public_key_from_attestation(JSON.stringify(request));
-
-    // Parse the structured response
-    const result = JSON.parse(resultJson);
-    const cosePublicKeyBytes = new Uint8Array(
-      atob(result.public_key_bytes)
-        .split('')
-        .map(c => c.charCodeAt(0))
-    );
-    console.log('[signer-worker]: Successfully extracted COSE public key:', cosePublicKeyBytes.length, 'bytes');
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.COSE_KEY_SUCCESS,
-      payload: {
-        cosePublicKeyBytes: Array.from(cosePublicKeyBytes)
-      }
-    });
-  } catch (error: any) {
-    console.error('[signer-worker]: COSE key extraction failed:', error.message);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.COSE_KEY_FAILURE,
-      payload: { error: error.message || 'COSE key extraction failed' }
-    });
-  }
-}
-
-/**
- * Handle COSE key format validation
- * @param payload - The validation request payload
- * @param payload.coseKeyBytes - Array of bytes containing the COSE key to validate
- */
-async function handleValidateCoseKey(
-  payload: ValidateCoseKeyRequest['payload']
-): Promise<void> {
-  try {
-    const { coseKeyBytes } = payload;
-    // WASM function now returns structured JSON
-    const request = {
-      cose_key_bytes: coseKeyBytes
-    };
-    const validationResultJson = validate_cose_key_format(JSON.stringify(request));
-    const validationInfo = JSON.parse(validationResultJson);
-    console.log('[signer-worker]: COSE key validation result:', validationInfo);
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.COSE_VALIDATION_SUCCESS,
-      payload: {
-        valid: validationInfo.valid,
-        info: validationInfo
-      }
-    });
-  } catch (error: any) {
-    console.error('[signer-worker]: COSE key validation failed:', error.message);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.COSE_VALIDATION_FAILURE,
-      payload: { error: error.message || 'COSE key validation failed' }
     });
   }
 }
@@ -921,9 +854,7 @@ export type {
   WorkerRequest,
   WorkerResponse,
   DeriveNearKeypairAndEncryptRequest,
-  DecryptPrivateKeyWithPrfRequest,
-  ExtractCosePublicKeyRequest,
-  ValidateCoseKeyRequest
+  DecryptPrivateKeyWithPrfRequest
 };
 
 /**
@@ -960,6 +891,7 @@ async function handleAddKeyWithPrf(
 
     const fallbackRequest = {
       prf_output_base64: payload.prfOutput,
+      near_account_id: payload.signerAccountId, // Pass accountId for HKDF derivation
       encrypted_private_key_data: payload.encryptedPrivateKeyData,
       encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
       signer_account_id: payload.signerAccountId,
@@ -1034,6 +966,35 @@ async function handleDeleteKeyWithPrf(
     sendResponseAndTerminate({
       type: WorkerResponseType.SIGNATURE_FAILURE,
       payload: { error: error.message || 'DeleteKey transaction failed' }
+    });
+  }
+}
+
+/**
+ * Handle ExtractCosePublicKey operation - extracts COSE public key from attestation object
+ */
+async function handleExtractCosePublicKey(
+  payload: ExtractCosePublicKeyRequest['payload']
+): Promise<void> {
+  try {
+    console.log('[signer-worker]: Starting COSE public key extraction from attestation object');
+
+    // Call the WASM function to extract COSE public key
+    const cosePublicKeyBytes = extract_cose_public_key_from_attestation(payload.attestationObjectBase64url);
+
+    console.log('[signer-worker]: COSE public key extraction successful, bytes length:', cosePublicKeyBytes.length);
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_EXTRACTION_SUCCESS,
+      payload: {
+        cosePublicKeyBytes
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: COSE public key extraction failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.COSE_EXTRACTION_FAILURE,
+      payload: { error: error.message || 'COSE public key extraction failed' }
     });
   }
 }

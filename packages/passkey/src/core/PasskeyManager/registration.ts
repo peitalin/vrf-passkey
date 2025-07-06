@@ -94,6 +94,18 @@ export async function registerPasskey(
       message: 'Performing WebAuthn registration with VRF challenge...'
     });
 
+    // TODO: Alternatively, if we want deterministically derived VRF keypairs (for easier account recovery)
+    // we can do the following:
+    // 1. bootstrap VRF_keypair_bootstrap + VRFChallenge_bootstrap
+    // 2. generate credentials from VRFChallenge_bootstrap
+    // 3. derive VRF_keypair_derived from credentials deterministically
+    //    -> use VRFChallenge_bootstrap for Registration TX
+    //    -> but save VRF_keypair_derived onchain in the Authenticator for future authentications
+    //
+    // However the VRF_keypair_derived saved onchain will not be cryptographically bound by the WebAuthn ceremony,
+    // and any random public key can be saved...so it's less secure, but this is possibly fine if we assume that
+    // the registration ceremony is done once, and not tampered with.
+
     const credential = await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
       nearAccountId,
       challenge: vrfChallengeBytes,
@@ -285,6 +297,7 @@ export async function registerPasskey(
       credential,
       publicKey: keyGenResult.publicKey,
       encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+      vrfPublicKey: encryptedVrfResult.vrfPublicKey,
       onEvent
     });
 

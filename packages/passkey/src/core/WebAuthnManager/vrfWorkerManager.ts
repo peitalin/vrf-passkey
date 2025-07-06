@@ -326,6 +326,7 @@ export class VrfWorkerManager {
     if (!this.vrfWorker) {
       throw new Error('VRF Web Worker not initialized after initialization attempt');
     }
+    console.log("GENERATE_VRF_KEYPAIR_BOOTSTRAP vrfInputParams: ", vrfInputParams)
 
     try {
       const message: VRFWorkerMessage = {
@@ -344,6 +345,7 @@ export class VrfWorkerManager {
       };
 
       const response = await this.sendMessage(message);
+      console.log("GENERATE_VRF_KEYPAIR_BOOTSTRAP response: ", response)
 
       if (!response.success || !response.data) {
         throw new Error(`VRF bootstrap keypair generation failed: ${response.error}`);
@@ -390,7 +392,7 @@ export class VrfWorkerManager {
     credential: PublicKeyCredential
   ): Promise<{
     vrfPublicKey: string;
-    encryptedVrfKeypair: any;
+    encryptedVrfKeypair: EncryptedVRFKeypair;
   }> {
     console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
     if (!this.vrfWorker) {
