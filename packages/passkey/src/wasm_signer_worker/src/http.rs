@@ -632,6 +632,10 @@ fn extract_detailed_execution_error(execution_outcome: &Value) -> String {
             serde_json::to_string_pretty(execution_outcome).unwrap_or_default())
 }
 
+//////////////////////////
+/// Tests
+//////////////////////////
+
 #[cfg(test)]
 mod tests {
     use super::*;

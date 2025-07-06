@@ -6,10 +6,21 @@ use ed25519_dalek::{SigningKey};
 use getrandom::getrandom;
 use hkdf::Hkdf;
 use bs58;
-use sha2::{Sha256, Digest};
+use sha2::Sha256;
 
 use crate::error::KdfError;
 use crate::types::EncryptedDataAesGcmResponse;
+use crate::config::{
+    aes_salt_for_account,
+    near_key_salt_for_account,
+    AES_ENCRYPTION_INFO,
+    ED25519_DUAL_PRF_INFO,
+    AES_KEY_SIZE,
+    AES_GCM_NONCE_SIZE,
+    ED25519_PRIVATE_KEY_SIZE,
+    ERROR_EMPTY_PRF_OUTPUT,
+    ERROR_INVALID_KEY_SIZE,
+};
 
 #[cfg(target_arch = "wasm32")]
 macro_rules! console_log {
@@ -20,10 +31,6 @@ macro_rules! console_log {
 macro_rules! console_log {
     ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
 }
-
-// === CONSTANTS ===
-const HKDF_INFO: &str = "near-key-encryption-info-v1";
-const HKDF_SALT: &str = "near-key-encryption-salt-v1";
 
 // === UTILITY FUNCTIONS ===
 
@@ -48,18 +55,18 @@ pub(crate) fn derive_account_specific_aes_key_from_prf(
     let prf_output = base64_url_decode(prf_output_base64)?;
 
     if prf_output.is_empty() {
-        return Err(KdfError::InvalidInput("PRF output cannot be empty".to_string()));
+        return Err(KdfError::InvalidInput(ERROR_EMPTY_PRF_OUTPUT.to_string()));
     }
 
     // 2. Create account-specific salt for AES key derivation (different from Ed25519)
-    let aes_salt = format!("aes-gcm-salt:{}", near_account_id);
+    let aes_salt = aes_salt_for_account(near_account_id);
     let salt_bytes = aes_salt.as_bytes();
 
     // 3. Use HKDF with account-specific domain separation
     let hk = Hkdf::<Sha256>::new(Some(salt_bytes), &prf_output);
-    let mut aes_key = vec![0u8; 32]; // 32 bytes for AES-256
+    let mut aes_key = vec![0u8; AES_KEY_SIZE];
 
-    let info = b"aes-gcm-encryption-key-v1";
+    let info = AES_ENCRYPTION_INFO.as_bytes();
     hk.expand(info, &mut aes_key)
         .map_err(|_| KdfError::HkdfError)?;
 
@@ -71,8 +78,8 @@ pub(crate) fn derive_account_specific_aes_key_from_prf(
 
 /// Encrypt data using AES-256-GCM
 pub(crate) fn encrypt_data_aes_gcm(plain_text_data_str: &str, key_bytes: &[u8]) -> Result<EncryptedDataAesGcmResponse, String> {
-    if key_bytes.len() != 32 {
-        return Err("Encryption key must be 32 bytes for AES-256-GCM.".to_string());
+    if key_bytes.len() != AES_KEY_SIZE {
+        return Err(ERROR_INVALID_KEY_SIZE.to_string());
     }
     let key_ga = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key_ga);
@@ -97,16 +104,16 @@ pub(crate) fn decrypt_data_aes_gcm(
     aes_gcm_nonce_b64u: &str,
     key_bytes: &[u8]
 ) -> Result<String, String> {
-    if key_bytes.len() != 32 {
-        return Err("Decryption key must be 32 bytes for AES-256-GCM.".to_string());
+    if key_bytes.len() != AES_KEY_SIZE {
+        return Err(ERROR_INVALID_KEY_SIZE.to_string());
     }
     let key_ga = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key_ga);
 
     let aes_gcm_nonce_bytes = Base64UrlUnpadded::decode_vec(aes_gcm_nonce_b64u)
         .map_err(|e| format!("Base64UrlUnpadded decode error for AES-GCM nonce: {}", e))?;
-    if aes_gcm_nonce_bytes.len() != 12 {
-        return Err("Decryption AES-GCM nonce must be 12 bytes.".to_string());
+    if aes_gcm_nonce_bytes.len() != AES_GCM_NONCE_SIZE {
+        return Err(format!("Decryption AES-GCM nonce must be {} bytes.", AES_GCM_NONCE_SIZE));
     }
     let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
 
@@ -122,78 +129,6 @@ pub(crate) fn decrypt_data_aes_gcm(
 
 // === KEY GENERATION ===
 
-// /// Derive and encrypt NEAR keypair from COSE P-256 credential (RECOMMENDED)
-// /// Now uses SECURE PRF-based key derivation instead of public coordinates
-// pub(crate) fn internal_derive_near_keypair_from_cose_and_encrypt_with_prf(
-//     attestation_object_b64u: &str,
-//     prf_output_base64: &str,
-//     account_id: &str,
-// ) -> Result<(String, EncryptedDataAesGcmResponse), String> {
-//     console_log!("RUST: Starting SECURE keypair derivation and encryption with PRF");
-
-//     // 1. Derive account-specific encryption key from PRF output
-//     let encryption_key = derive_account_specific_aes_key_from_prf(prf_output_base64, account_id)
-//         .map_err(|e| format!("Failed to derive account-specific encryption key: {:?}", e))?;
-
-//     // 2. Extract COSE coordinates for verification/logging only (not for key derivation!)
-//     let attestation_object_bytes = base64_url_decode(attestation_object_b64u)
-//         .map_err(|e| format!("Failed to decode attestation object: {:?}", e))?;
-
-//     let auth_data_bytes = crate::cose::parse_attestation_object(&attestation_object_bytes)
-//         .map_err(|e| format!("Failed to parse attestation object: {}", e))?;
-
-//     let cose_public_key_bytes = crate::cose::parse_authenticator_data(&auth_data_bytes)
-//         .map_err(|e| format!("Failed to parse authenticator data: {}", e))?;
-
-//     let (x_coord, y_coord) = crate::cose::extract_p256_coordinates_from_cose(&cose_public_key_bytes)
-//         .map_err(|e| format!("Failed to extract P-256 coordinates: {}", e))?;
-
-//     console_log!("RUST: Extracted COSE coordinates for verification (x: {} bytes, y: {} bytes)", x_coord.len(), y_coord.len());
-
-//     // 3. Derive deterministic NEAR keypair from PRF output
-//     let (private_key, public_key) = internal_derive_near_keypair_from_prf(prf_output_base64, account_id)?;
-
-//     console_log!("RUST: Derived SECURE NEAR keypair from PRF output");
-//     console_log!("RUST: Public key: {}", public_key);
-
-//     // 4. Encrypt private key using PRF-derived encryption key
-//     let encrypted_response = encrypt_data_aes_gcm(&private_key, &encryption_key)?;
-
-//     console_log!("RUST: Encrypted private key using PRF-derived encryption key");
-//     Ok((public_key, encrypted_response))
-// }
-
-// === DUAL PRF KEY DERIVATION FUNCTIONS ===
-// Based on docs/dual_prf_key_derivation.md Phase 2.2 and 2.3
-
-/// NEW: Secure AES key derivation from PRF output (prf.results.first)
-/// Pure PRF-based AES key derivation for encryption purposes only
-pub(crate) fn derive_aes_gcm_key_from_prf_output(
-    prf_output_base64: &str
-) -> Result<[u8; 32], KdfError> {
-    console_log!("RUST: Deriving AES-GCM key from PRF output (dual PRF workflow)");
-
-    // Decode PRF output from base64
-    let prf_output = base64_url_decode(prf_output_base64)?;
-
-    if prf_output.is_empty() {
-        return Err(KdfError::InvalidInput("PRF output cannot be empty".to_string()));
-    }
-
-    // Use HKDF with AES-specific domain separation
-    let info = b"aes-gcm-encryption-key-dual-prf-v1";
-    let salt = b"aes-gcm-domain-salt-v1";
-
-    let hk = Hkdf::<Sha256>::new(Some(salt), &prf_output);
-    let mut aes_key = [0u8; 32]; // 32 bytes for AES-256
-
-    hk.expand(info, &mut aes_key)
-        .map_err(|_| KdfError::HkdfError)?;
-
-    console_log!("RUST: Successfully derived AES-GCM key (32 bytes) from PRF output");
-    Ok(aes_key)
-}
-
 /// NEW: Secure Ed25519 key derivation from PRF output (prf.results.second)
 /// Pure PRF-based Ed25519 key derivation for signing purposes only
 pub(crate) fn derive_ed25519_key_from_prf_output(
@@ -206,18 +141,18 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
     let prf_output = base64_url_decode(prf_output_base64)?;
 
     if prf_output.is_empty() {
-        return Err(KdfError::InvalidInput("PRF output cannot be empty".to_string()));
+        return Err(KdfError::InvalidInput(ERROR_EMPTY_PRF_OUTPUT.to_string()));
     }
 
     // Create account-specific salt for Ed25519 key derivation (different from AES)
-    let ed25519_salt = format!("ed25519-salt:{}", account_id);
+    let ed25519_salt = near_key_salt_for_account(account_id);
     let salt_bytes = ed25519_salt.as_bytes();
 
     // Use HKDF with Ed25519-specific domain separation
     let hk = Hkdf::<Sha256>::new(Some(salt_bytes), &prf_output);
-    let mut ed25519_key_material = [0u8; 32]; // 32 bytes for Ed25519 seed
+    let mut ed25519_key_material = [0u8; ED25519_PRIVATE_KEY_SIZE];
 
-    let info = b"ed25519-signing-key-dual-prf-v1";
+    let info = ED25519_DUAL_PRF_INFO.as_bytes();
     hk.expand(info, &mut ed25519_key_material)
         .map_err(|_| KdfError::HkdfError)?;
 
@@ -239,7 +174,7 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
     Ok((near_private_key, near_public_key))
 }
 
-/// NEW: Complete dual PRF workflow
+/// Dual PRF workflow
 /// Derives both AES and Ed25519 keys from separate PRF outputs and encrypts the Ed25519 key
 pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
     dual_prf_outputs: &crate::types::DualPrfOutputs,
@@ -247,9 +182,10 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
 ) -> Result<(String, EncryptedDataAesGcmResponse), KdfError> {
     console_log!("RUST: Starting complete dual PRF workflow");
 
-    // 1. Derive AES key from first PRF output (prf.results.first)
-    let aes_key = derive_aes_gcm_key_from_prf_output(&dual_prf_outputs.aes_prf_output_base64)?;
-    console_log!("RUST: Derived AES key from first PRF output");
+    // 1. Derive account-specific AES key from first PRF output (prf.results.first)
+    // Use same account-specific method as decryption for consistency
+    let aes_key = derive_account_specific_aes_key_from_prf(&dual_prf_outputs.aes_prf_output_base64, account_id)?;
+    console_log!("RUST: Derived account-specific AES key from first PRF output");
 
     // 2. Derive Ed25519 key from second PRF output (prf.results.second)
     let (near_private_key, near_public_key) = derive_ed25519_key_from_prf_output(
@@ -258,72 +194,14 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
     )?;
     console_log!("RUST: Derived Ed25519 key from second PRF output");
 
-    // 3. Encrypt the Ed25519 private key using the AES key
+    // 3. Encrypt the Ed25519 private key using the account-specific AES key
     let encrypted_response = encrypt_data_aes_gcm(&near_private_key, &aes_key)
         .map_err(|e| KdfError::EncryptionError(e))?;
-    console_log!("RUST: Encrypted Ed25519 key using AES key from dual PRF");
+    console_log!("RUST: Encrypted Ed25519 key using account-specific AES key from dual PRF");
 
     console_log!("RUST: Dual PRF workflow completed successfully");
     Ok((near_public_key, encrypted_response))
 }
-
-/// Derive NEAR Ed25519 key from WebAuthn PRF output (SECURE METHOD)
-/// This replaces the insecure coordinate-based derivation
-pub(crate) fn internal_derive_near_keypair_from_prf(
-    prf_output_base64: &str,
-    account_id: &str,
-) -> Result<(String, String), String> {
-    console_log!("RUST: Deriving NEAR key pair from PRF output (secure method)");
-
-    // 1. Decode PRF output from base64
-    let prf_output_bytes = base64_url_decode(prf_output_base64)
-        .map_err(|e| format!("Failed to decode PRF output: {:?}", e))?;
-
-    if prf_output_bytes.is_empty() {
-        return Err("PRF output cannot be empty".to_string());
-    }
-
-    // 2. Create deterministic salt from account ID for key derivation
-    let account_salt = format!("near-key-derivation:{}", account_id);
-    let salt_bytes = account_salt.as_bytes();
-
-    // 3. Derive key material using HKDF with PRF output as input key material
-    let mut key_material = Vec::new();
-    key_material.extend_from_slice(&prf_output_bytes);
-    key_material.extend_from_slice(salt_bytes);
-
-    // 4. Hash the combined material to get 32-byte seed
-    let mut hasher = Sha256::new();
-    Digest::update(&mut hasher, &key_material);
-    let hash_bytes = Digest::finalize(hasher);
-
-    // 5. Use hash as Ed25519 seed
-    let private_key_seed: [u8; 32] = hash_bytes.into();
-    let signing_key = SigningKey::from_bytes(&private_key_seed);
-
-    // 6. Get the public key bytes
-    let verifying_key = signing_key.verifying_key();
-    let public_key_bytes = verifying_key.to_bytes();
-
-    // 7. NEAR Ed25519 private key format: 32-byte seed + 32-byte public key = 64 bytes total
-    let mut full_private_key = [0u8; 64];
-    full_private_key[0..32].copy_from_slice(&private_key_seed);
-    full_private_key[32..64].copy_from_slice(&public_key_bytes);
-
-    // 8. Encode private key in NEAR format: "ed25519:BASE58_FULL_PRIVATE_KEY"
-    let private_key_b58 = bs58::encode(&full_private_key).into_string();
-    let private_key_near_format = format!("ed25519:{}", private_key_b58);
-
-    // 9. Encode public key in NEAR format: "ed25519:BASE58_PUBLIC_KEY"
-    let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
-    let public_key_near_format = format!("ed25519:{}", public_key_b58);
-
-    console_log!("RUST: Derived secure NEAR key from PRF with public key: {}", public_key_near_format);
-    console_log!("RUST: Private key derivation is secure and deterministic");
-
-    Ok((private_key_near_format, public_key_near_format))
-}
-
 
 /// Decrypt private key from stored data and return as SigningKey
 /// Now uses account-specific HKDF for secure key derivation
@@ -379,6 +257,10 @@ pub fn decrypt_private_key_with_prf(
     console_log!("RUST: Successfully decrypted private key");
     Ok(signing_key)
 }
+
+//////////////////////////
+/// Tests
+//////////////////////////
 
 #[cfg(test)]
 mod tests {

@@ -377,6 +377,10 @@ pub fn get_action_handler(params: &ActionParams) -> Result<Box<dyn ActionHandler
     }
 }
 
+//////////////////////////
+/// Tests
+//////////////////////////
+
 #[cfg(test)]
 mod tests {
     use super::*;

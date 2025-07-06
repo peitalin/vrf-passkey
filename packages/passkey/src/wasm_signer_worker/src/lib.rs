@@ -1,4 +1,5 @@
 mod actions;
+mod config;
 mod crypto;
 mod cose;
 mod error;
@@ -11,14 +12,11 @@ mod types;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 use serde_json;
-use web_sys::console;
 use crate::crypto::{
     decrypt_private_key_with_prf,
     derive_ed25519_key_from_prf_output,
-    derive_account_specific_aes_key_from_prf,
 };
 use bs58;
-use base64::Engine;
 
 // Import from modules
 use crate::transaction::{
@@ -141,44 +139,6 @@ pub fn derive_and_encrypt_keypair_from_dual_prf_wasm(request_json: &str) -> Resu
     };
 
     Ok(response.to_json())
-}
-
-/// NEW: Standalone AES key derivation from PRF output (prf.results.first)
-#[wasm_bindgen]
-pub fn derive_aes_gcm_key_from_dual_prf(
-    prf_output_base64: &str,
-    account_id: &str,
-) -> Result<String, JsValue> {
-    console_log!("RUST: WASM binding - deriving account-specific AES key from PRF output");
-
-    let aes_key = derive_account_specific_aes_key_from_prf(prf_output_base64, account_id)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    // Convert to base64 string for JavaScript
-    let aes_key_b64 = base64::engine::general_purpose::STANDARD.encode(&aes_key);
-
-    console_log!("RUST: WASM binding - account-specific AES key derivation successful");
-    Ok(aes_key_b64)
-}
-
-/// NEW: Standalone Ed25519 key derivation from PRF output (prf.results.second)
-#[wasm_bindgen]
-pub fn derive_ed25519_key_from_dual_prf(
-    prf_output_base64: &str,
-    account_id: &str,
-) -> Result<String, JsValue> {
-    console_log!("RUST: WASM binding - deriving Ed25519 key from PRF output");
-
-    let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_base64, account_id)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let response = serde_json::json!({
-        "private_key": private_key,
-        "public_key": public_key
-    });
-
-    console_log!("RUST: WASM binding - Ed25519 key derivation successful");
-    Ok(response.to_string())
 }
 
 #[wasm_bindgen]

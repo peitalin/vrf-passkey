@@ -101,6 +101,10 @@ pub fn extract_cose_public_key_from_attestation_core(attestation_object_b64u: &s
     Ok(cose_public_key_bytes)
 }
 
+//////////////////////////
+/// Tests
+//////////////////////////
+
 #[cfg(test)]
 mod tests {
     use super::*;
