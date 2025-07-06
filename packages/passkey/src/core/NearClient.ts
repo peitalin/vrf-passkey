@@ -148,8 +148,8 @@ export class MinimalNearClient implements NearClient {
     const rpcConfigs = [
       { url: this.rpcUrl, finality: 'final' },
       { url: this.rpcUrl, finality: 'optimistic' },
-      { url: 'https://near-testnet.api.pagoda.co/rpc/v1/', finality: 'final' },
-      { url: 'https://near-testnet.api.pagoda.co/rpc/v1/', finality: 'optimistic' },
+      { url: 'https://rpc.testnet.near.org', finality: 'final' },
+      { url: 'https://rpc.testnet.near.org', finality: 'optimistic' },
     ];
 
     const attempts = rpcConfigs.map(({ url, finality }) => async () => {
@@ -183,7 +183,7 @@ export class MinimalNearClient implements NearClient {
   ): Promise<FinalExecutionOutcome> {
     const endpoints = [
       this.rpcUrl,
-      'https://near-testnet.api.pagoda.co/rpc/v1/',
+      'https://rpc.testnet.near.org',
     ];
 
     const attempts = endpoints.map(url => async () => {

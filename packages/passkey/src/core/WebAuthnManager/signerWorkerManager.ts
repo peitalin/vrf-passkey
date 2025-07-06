@@ -169,15 +169,21 @@ export class SignerWorkerManager {
     credential: PublicKeyCredential,
     nearAccountId: string,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
-
-    const attestationObject = credential.response as AuthenticatorAttestationResponse
-
     try {
       console.log('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
 
-      // Extract dual PRF outputs from the credential
-      const dualPrfOutputs = extractDualPrfOutputs(credential);
-      console.log('WebAuthnManager: Extracted dual PRF outputs for AES and Ed25519 key derivation');
+      // Serialize credential first to ensure consistent PRF extraction with decryption phase
+      const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
+
+      // Extract dual PRF outputs from serialized credential (same as decryption phase)
+      const dualPrfOutputs = {
+        aesPrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.first!,
+        ed25519PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.second!
+      };
+
+      if (!dualPrfOutputs.aesPrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
+        throw new Error('Dual PRF outputs missing from serialized credential');
+      }
 
       const response = await this.executeWorkerOperation({
         message: {
@@ -237,8 +243,6 @@ export class SignerWorkerManager {
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
       console.log('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
-      console.log('WebAuthnManager: Security enforced by device possession + biometrics + dual PRF cryptography');
-
       // For private key export, no VRF challenge is needed.
       // we can use local random challenge for WebAuthn authentication.
       // Security comes from device possession + biometrics, not challenge validation

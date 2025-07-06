@@ -45,10 +45,8 @@ const nearKeysDB = new PasskeyNearKeysDBManager();
 /////////////////////////////////////
 
 const {
-  // Dual PRF functions (now available)
+  // Dual PRF functions
   derive_and_encrypt_keypair_from_dual_prf_wasm,
-  derive_aes_gcm_key_from_dual_prf,
-  derive_ed25519_key_from_dual_prf,
   // Registration
   check_can_register_user,
   sign_verify_and_register_user,
@@ -211,35 +209,38 @@ async function handleDeriveNearKeypairAndEncrypt(
 ): Promise<void> {
   try {
     const { dualPrfOutputs, nearAccountId } = payload;
-    console.log('[signer-worker]: Using dual PRF key derivation with accountId context');
 
-    const request = {
-      dual_prf_outputs: {
-        aes_prf_output_base64: dualPrfOutputs.aesPrfOutput,
-        ed25519_prf_output_base64: dualPrfOutputs.ed25519PrfOutput
-      },
-      account_id: nearAccountId,
-    };
+    const encryptionResult = await derive_and_encrypt_keypair_from_dual_prf_wasm(
+      JSON.stringify({
+        dual_prf_outputs: {
+          aes_prf_output_base64: dualPrfOutputs.aesPrfOutput,
+          ed25519_prf_output_base64: dualPrfOutputs.ed25519PrfOutput
+        },
+        account_id: nearAccountId
+      })
+    );
 
-    console.log('[signer-worker]: Calling dual PRF WASM function');
-    const resultJson = derive_and_encrypt_keypair_from_dual_prf_wasm(JSON.stringify(request));
+    const parsedResult = JSON.parse(encryptionResult);
+    // Extract nested encrypted data structure
+    const encryptedPrivateKey = parsedResult.encrypted_private_key;
+    if (!encryptedPrivateKey) {
+      throw new Error('Missing encrypted_private_key in WASM result');
+    }
 
-    // Parse the structured response from WASM
-    const result = JSON.parse(resultJson);
-    const publicKey = result.public_key;
-    const encryptedPrivateKey = result.encrypted_private_key;
-    console.log('[signer-worker]: Dual PRF key derivation successful');
-    console.log('  - publicKey value:', publicKey);
-    console.log('  - encryptedPrivateKey type:', typeof encryptedPrivateKey);
+    const encryptedData = encryptedPrivateKey.encrypted_near_key_data_b64u;
+    const iv = encryptedPrivateKey.aes_gcm_nonce_b64u;
+
+    // Store the encrypted key in IndexedDB using flexible field names
+    if (!encryptedData || !iv) {
+      throw new Error(`Missing encrypted data or IV in WASM result. Available fields: ${Object.keys(parsedResult).join(', ')}`);
+    }
 
     const keyData: EncryptedKeyData = {
       nearAccountId: nearAccountId,
-      encryptedData: encryptedPrivateKey.encrypted_near_key_data_b64u,
-      iv: encryptedPrivateKey.aes_gcm_nonce_b64u,
+      encryptedData: encryptedData,
+      iv: iv,
       timestamp: Date.now()
     };
-
-    console.log('[signer-worker]: Dual PRF key derivation successful - NEAR keypair bound to WebAuthn credential');
     await nearKeysDB.storeEncryptedKey(keyData);
 
     const verified = await nearKeysDB.verifyKeyStorage(nearAccountId);
@@ -251,20 +252,15 @@ async function handleDeriveNearKeypairAndEncrypt(
       type: WorkerResponseType.ENCRYPTION_SUCCESS,
       payload: {
         nearAccountId,
-        publicKey,
-        stored: true,
+        publicKey: parsedResult.public_key,
+        stored: true
       }
     });
   } catch (error: any) {
-    console.error('[signer-worker]: Dual PRF key derivation failed:', error);
+    console.error('[signer-worker]: ENCRYPTION - Dual PRF key derivation failed:', error);
     sendResponseAndTerminate({
       type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
-      payload: {
-        error: `Dual PRF key derivation failed: ${error.message}`,
-        context: {
-          nearAccountId: payload.nearAccountId
-        }
-      }
+      payload: { error: error.message || 'Dual PRF key derivation failed' }
     });
   }
 }
@@ -454,20 +450,14 @@ async function handleSignVerifyAndRegisterUser(
       throw new Error('Missing required parameters for actual registration: vrfChallenge, credential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
     }
 
-    // Get encrypted key data for the account
-    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
-    if (!encryptedKeyData) {
+    // Extract AES PRF output for private key decryption
+    const { credentialWithoutPrf, aesPrfOutput } = takeAesPrfOutput(credential);
+
+    // Get encrypted key from storage
+    const encryptedKey = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKey) {
       throw new Error(`No encrypted key found for account: ${nearAccountId}`);
     }
-
-    // Extract PRF output from credential
-    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
-    if (!prfOutput) {
-      throw new Error('PRF output missing from credential.extensionResults: required for secure registration');
-    }
-
-    console.log('[signer-worker]: Calling sign_verify_and_register_user function with transaction metadata');
-    const { credentialWithoutPrf } = takeAesPrfOutput(credential);
 
     // Call the WASM function that handles actual registration (send_tx)
     const request = {
@@ -475,9 +465,9 @@ async function handleSignVerifyAndRegisterUser(
       vrf_challenge_data_json: JSON.stringify(vrfChallenge),
       webauthn_registration_json: JSON.stringify(credentialWithoutPrf),
       signer_account_id: signerAccountId,
-      encrypted_private_key_data: encryptedKeyData.encryptedData,
-      encrypted_private_key_iv: encryptedKeyData.iv,
-      prf_output_base64: prfOutput,
+      encrypted_private_key_data: encryptedKey.encryptedData,
+      encrypted_private_key_iv: encryptedKey.iv,
+      prf_output_base64: aesPrfOutput,
       nonce: Number(nonce),
       block_hash_bytes: Array.from(new Uint8Array(blockHashBytes))
     };

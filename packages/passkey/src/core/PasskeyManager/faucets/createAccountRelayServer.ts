@@ -19,7 +19,12 @@ export async function createAccountRelayServer(
     console.log('Creating NEAR account via relay server SSE');
 
     // Create promise to handle SSE response from fetch stream
-    const accountCreationPromise = new Promise<{success: boolean; message: string; transactionId?: string; error?: string}>((resolve, reject) => {
+    const accountCreationPromise = new Promise<{
+      success: boolean;
+      message: string;
+      transactionId?: string;
+      error?: string
+    }>((resolve, reject) => {
 
       // Make POST request and handle SSE response stream
       fetch(`${serverUrl}/relay/create-account-sse`, {
@@ -31,7 +36,6 @@ export async function createAccountRelayServer(
         body: JSON.stringify({
           accountId: nearAccountId,
           publicKey: publicKey, // Remove ed25519: prefix - server handles format
-          initialBalance: undefined // Use server default
         })
       })
       .then(async (response) => {
