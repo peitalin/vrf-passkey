@@ -19,7 +19,7 @@ function App() {
           contractId: 'web3-authn.testnet',
           nearNetwork: 'testnet',
           relayerAccount: 'web3-authn.testnet',
-          relayServerUrl: 'https://localhost:3000',
+          relayServerUrl: 'http://localhost:3000',
           initialUseRelayer: false
         }}
       >

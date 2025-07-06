@@ -11,8 +11,8 @@ export interface AppConfig {
 }
 
 const config: AppConfig = {
-  port: process.env.PORT || 3001,
-  expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost',
+  port: process.env.PORT || 3000, // Changed from 3001 to match frontend expectation
+  expectedOrigin: process.env.EXPECTED_ORIGIN || 'https://example.localhost', // Match frontend HTTPS protocol
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID || 'relayer.testnet',
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY || 'ed25519:examplePrivateKey...',
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',

@@ -62,6 +62,7 @@ export function PasskeyLoginMenu() {
     console.log('Registering account:', targetAccountId);
     try {
       const result = await registerPasskey(targetAccountId, {
+        useRelayer: useRelayer,
         onEvent: (event: RegistrationSSEEvent) => {
           switch (event.phase) {
             case 'webauthn-verification':
