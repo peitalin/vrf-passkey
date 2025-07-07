@@ -158,7 +158,8 @@ pub struct EncryptedDataAesGcmResponse {
 // === DUAL PRF KEY DERIVATION TYPES ===
 
 /// Dual PRF outputs for separate encryption and signing key derivation
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DualPrfOutputs {
     /// Base64-encoded PRF output from prf.results.first for AES-GCM encryption
     pub aes_prf_output_base64: String,
@@ -168,7 +169,8 @@ pub struct DualPrfOutputs {
 
 /// Updated derivation request supporting dual PRF workflow
 /// Replaces single PRF approach with separate encryption/signing key derivation
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DualPrfDeriveKeypairRequest {
     /// Dual PRF outputs for separate AES and Ed25519 key derivation
     pub dual_prf_outputs: DualPrfOutputs,
@@ -381,92 +383,9 @@ impl From<&AccessKeyPermission> for JsonAccessKeyPermission {
     }
 }
 
-// === JSON SERIALIZATION TRAIT ===
-
-pub trait JsonSerializable {
-    fn to_json(&self) -> String;
-}
-
-// === WASM FUNCTION RESPONSE TYPES ===
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct KeyGenerationResponse {
-    pub public_key: String,
-    pub encrypted_private_key: EncryptedDataAesGcmResponse,
-}
-
-impl JsonSerializable for KeyGenerationResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PrivateKeyDecryptionResponse {
-    pub private_key: String, // NEAR format: "ed25519:..."
-}
-
-impl JsonSerializable for PrivateKeyDecryptionResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct CosePublicKeyResponse {
-    pub public_key_bytes: String, // base64-encoded
-}
-
-impl JsonSerializable for CosePublicKeyResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct CoseValidationResponse {
-    pub valid: bool,
-    pub message: String,
-}
-
-impl JsonSerializable for CoseValidationResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TransactionSigningResponse {
-    pub success: bool,
-    pub signed_transaction: Option<JsonSignedTransaction>,
-    pub signed_transaction_borsh: Vec<u8>,
-    pub near_account_id: String,
-    pub verification_logs: Vec<String>,
-    pub error: Option<String>,
-}
-
-impl JsonSerializable for TransactionSigningResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RegistrationCheckResponse {
-    pub verified: bool,
-    pub registration_info: Option<RegistrationInfo>,
-    pub logs: Vec<String>,
-    pub signed_transaction: Option<JsonSignedTransaction>,
-    pub error: Option<String>,
-}
-
-impl JsonSerializable for RegistrationCheckResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
+// RegistrationInfo used in http.rs
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
     pub credential_public_key: Vec<u8>,
@@ -474,26 +393,11 @@ pub struct RegistrationInfo {
     pub vrf_public_key: Option<Vec<u8>>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RegistrationResponse {
-    pub verified: bool,
-    pub registration_info: Option<RegistrationInfo>,
-    pub logs: Vec<String>,
-    pub signed_transaction: Option<JsonSignedTransaction>,
-    pub pre_signed_delete_transaction: Option<JsonSignedTransaction>,
-    pub error: Option<String>,
-}
-
-impl JsonSerializable for RegistrationResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
 // === WASM FUNCTION INPUT REQUEST TYPES ===
 
 /// Request for private key decryption with dual PRF support
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DecryptPrivateKeyRequest {
     /// **DEPRECATED**: Single PRF output - use aes_prf_output_base64 for dual PRF
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -507,18 +411,18 @@ pub struct DecryptPrivateKeyRequest {
 }
 
 /// Input request for COSE operations
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtractCosePublicKeyRequest {
     pub attestation_object_b64u: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ValidateCoseKeyRequest {
     pub cose_key_bytes: Vec<u8>,
 }
 
 /// Input request for transaction signing with actions
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VerifyAndSignTransactionRequest {
     // Authentication
     pub prf_output_base64: String,
@@ -540,7 +444,7 @@ pub struct VerifyAndSignTransactionRequest {
 }
 
 /// Input request for transfer transaction signing
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VerifyAndSignTransferRequest {
     // Authentication
     pub prf_output_base64: String,
@@ -562,7 +466,7 @@ pub struct VerifyAndSignTransferRequest {
 }
 
 /// Input request for registration checking
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CheckCanRegisterUserRequest {
     pub contract_id: String,
     pub vrf_challenge_data_json: String,
@@ -571,7 +475,7 @@ pub struct CheckCanRegisterUserRequest {
 }
 
 /// Input request for user registration
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignVerifyAndRegisterUserRequest {
     pub contract_id: String,
     pub vrf_challenge_data_json: String,
@@ -585,7 +489,7 @@ pub struct SignVerifyAndRegisterUserRequest {
 }
 
 /// Input request for registration rollback
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RollbackFailedRegistrationRequest {
     // Authentication
     pub prf_output_base64: String,
@@ -609,7 +513,7 @@ pub struct RollbackFailedRegistrationRequest {
 }
 
 /// Input request for adding keys
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddKeyWithPrfRequest {
     // Authentication
     pub prf_output_base64: String,
@@ -631,7 +535,7 @@ pub struct AddKeyWithPrfRequest {
 }
 
 /// Input request for deleting keys
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeleteKeyWithPrfRequest {
     // Authentication
     pub prf_output_base64: String,
@@ -653,7 +557,7 @@ pub struct DeleteKeyWithPrfRequest {
 
 // === DETERMINISTIC KEYPAIR DERIVATION TYPES ===
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WebAuthnCredentialData {
     pub id: String,
     #[serde(rename = "rawId")]
@@ -666,14 +570,14 @@ pub struct WebAuthnCredentialData {
     pub client_extension_results: Option<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum WebAuthnCredentialResponse {
     Attestation(WebAuthnAttestationResponse),
     Assertion(WebAuthnAssertionResponse),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WebAuthnAttestationResponse {
     #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
@@ -682,7 +586,7 @@ pub struct WebAuthnAttestationResponse {
     pub transports: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WebAuthnAssertionResponse {
     #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
@@ -693,7 +597,7 @@ pub struct WebAuthnAssertionResponse {
     pub user_handle: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RecoverKeypairRequest {
     /// WebAuthn registration credential with attestation object for COSE key extraction
     pub credential: WebAuthnRegistrationCredentialData,
@@ -704,7 +608,7 @@ pub struct RecoverKeypairRequest {
     pub account_id_hint: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WebAuthnRegistrationCredentialData {
     pub id: String,
     #[serde(rename = "rawId")]
@@ -717,7 +621,7 @@ pub struct WebAuthnRegistrationCredentialData {
     pub client_extension_results: Option<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RecoverKeypairResponse {
     /// Deterministically derived NEAR public key in ed25519:... format
     #[serde(rename = "publicKey")]
@@ -725,10 +629,4 @@ pub struct RecoverKeypairResponse {
     /// Optional account ID hint passed through from request
     #[serde(rename = "accountIdHint")]
     pub account_id_hint: Option<String>,
-}
-
-impl JsonSerializable for RecoverKeypairResponse {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
 }

@@ -41,7 +41,8 @@ print_step "Generating TypeScript types from Rust..."
 if ./scripts/generate-types.sh > /dev/null 2>&1; then
     print_success "TypeScript types generated successfully"
 else
-    print_warning "Type generation completed with warnings (continuing build)"
+    print_error "Type generation failed"
+    exit 1
 fi
 
 # Step 3: Build WASM signer worker

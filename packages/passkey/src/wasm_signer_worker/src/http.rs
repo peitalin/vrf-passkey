@@ -110,9 +110,9 @@ const VERIFY_AND_REGISTER_USER_METHOD: &str = "verify_and_register_user";
 /// Perform contract verification via NEAR RPC directly from WASM
 pub async fn perform_contract_verification_wasm(
     contract_id: &str,
+    rpc_url: &str,
     vrf_data: VrfData,
     webauthn_authentication_credential: WebAuthnAuthenticationCredential,
-    rpc_url: &str,
 ) -> Result<ContractVerificationResult, String> {
     console_log!("RUST: Performing contract verification via WASM HTTP");
 

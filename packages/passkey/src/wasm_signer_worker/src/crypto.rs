@@ -45,7 +45,7 @@ fn base64_url_decode(input: &str) -> Result<Vec<u8>, KdfError> {
 /// Derive account-specific AES-GCM encryption key from PRF output using HKDF
 /// This provides domain separation for different accounts and is the ONLY AES derivation function
 /// Used for both encryption during registration and decryption during operations
-pub(crate) fn derive_account_specific_aes_key_from_prf(
+pub(crate) fn derive_aes_gcm_key_from_prf(
     prf_output_base64: &str,
     near_account_id: &str,
 ) -> Result<Vec<u8>, KdfError> {
@@ -160,11 +160,16 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
     let signing_key = SigningKey::from_bytes(&ed25519_key_material);
     let verifying_key = signing_key.verifying_key();
 
-    // Convert to NEAR format
-    let private_key_bytes = signing_key.to_bytes();
-    let public_key_bytes = verifying_key.to_bytes();
+    // Convert to NEAR format (64 bytes: 32-byte seed + 32-byte public key)
+    let seed_bytes = signing_key.to_bytes(); // 32 bytes
+    let public_key_bytes = verifying_key.to_bytes(); // 32 bytes
 
-    let private_key_b58 = bs58::encode(&private_key_bytes).into_string();
+    // NEAR private key format: concatenate seed + public key (64 bytes total)
+    let mut near_private_key_bytes = Vec::with_capacity(64);
+    near_private_key_bytes.extend_from_slice(&seed_bytes);
+    near_private_key_bytes.extend_from_slice(&public_key_bytes);
+
+    let private_key_b58 = bs58::encode(&near_private_key_bytes).into_string();
     let public_key_b58 = bs58::encode(&public_key_bytes).into_string();
 
     let near_private_key = format!("ed25519:{}", private_key_b58);
@@ -184,7 +189,7 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
 
     // 1. Derive account-specific AES key from first PRF output (prf.results.first)
     // Use same account-specific method as decryption for consistency
-    let aes_key = derive_account_specific_aes_key_from_prf(&dual_prf_outputs.aes_prf_output_base64, account_id)?;
+    let aes_key = derive_aes_gcm_key_from_prf(&dual_prf_outputs.aes_prf_output_base64, account_id)?;
     console_log!("RUST: Derived account-specific AES key from first PRF output");
 
     // 2. Derive Ed25519 key from second PRF output (prf.results.second)
@@ -206,15 +211,15 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
 /// Decrypt private key from stored data and return as SigningKey
 /// Now uses account-specific HKDF for secure key derivation
 pub fn decrypt_private_key_with_prf(
-    prf_output_base64: &str,
     near_account_id: &str,
+    prf_output_base64: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
 ) -> Result<SigningKey, String> {
     console_log!("RUST: Decrypting private key with PRF using account-specific HKDF");
 
     // 1. Derive decryption key from PRF using account-specific HKDF
-    let decryption_key = derive_account_specific_aes_key_from_prf(prf_output_base64, near_account_id)
+    let decryption_key = derive_aes_gcm_key_from_prf(prf_output_base64, near_account_id)
         .map_err(|e| format!("Account-specific key derivation failed: {:?}", e))?;
 
     // 2. Decrypt private key using AES-GCM
@@ -258,6 +263,28 @@ pub fn decrypt_private_key_with_prf(
     Ok(signing_key)
 }
 
+/// Encrypt private key with PRF output for storage
+pub fn encrypt_private_key_with_prf(
+    private_key_bytes: &str,
+    prf_output_base64: &str,
+) -> Result<String, String> {
+    console_log!("RUST: Encrypting private key with PRF output");
+
+    // Derive AES key from PRF output (using default account for recovery)
+    let aes_key_bytes = derive_aes_gcm_key_from_prf(prf_output_base64, "recovery-account.testnet")
+        .map_err(|e| format!("Failed to derive AES key from PRF: {}", e))?;
+
+    // Encrypt the private key
+    let encrypted_result = encrypt_data_aes_gcm(private_key_bytes, &aes_key_bytes)
+        .map_err(|e| format!("Failed to encrypt private key: {}", e))?;
+
+    // Return base64url-encoded result in format "encrypted_data:iv"
+    let result = format!("{}:{}", encrypted_result.encrypted_near_key_data_b64u, encrypted_result.aes_gcm_nonce_b64u);
+
+    console_log!("RUST: Private key encrypted successfully");
+    Ok(result)
+}
+
 //////////////////////////
 /// Tests
 //////////////////////////
@@ -272,23 +299,23 @@ mod tests {
         // Test with empty PRF output
         let empty_prf = "";
         let account_id = "test.testnet";
-        let result = derive_account_specific_aes_key_from_prf(empty_prf, account_id);
+        let result = derive_aes_gcm_key_from_prf(empty_prf, account_id);
         assert!(result.is_err());
 
         // Test with invalid base64
         let invalid_b64 = "not_valid_base64!!!";
-        let result = derive_account_specific_aes_key_from_prf(invalid_b64, account_id);
+        let result = derive_aes_gcm_key_from_prf(invalid_b64, account_id);
         assert!(result.is_err());
 
         // Test with short PRF output
         let short_prf = "YQ"; // base64 for "a"
-        let result = derive_account_specific_aes_key_from_prf(short_prf, account_id);
+        let result = derive_aes_gcm_key_from_prf(short_prf, account_id);
         assert!(result.is_ok()); // Should work with HKDF expansion
 
         // Test with different accounts producing different keys
         let test_prf = "dGVzdC1wcmYtb3V0cHV0";
-        let key1 = derive_account_specific_aes_key_from_prf(test_prf, "account1.testnet").unwrap();
-        let key2 = derive_account_specific_aes_key_from_prf(test_prf, "account2.testnet").unwrap();
+        let key1 = derive_aes_gcm_key_from_prf(test_prf, "account1.testnet").unwrap();
+        let key2 = derive_aes_gcm_key_from_prf(test_prf, "account2.testnet").unwrap();
         assert_ne!(key1, key2);
     }
 
@@ -332,7 +359,7 @@ mod tests {
 
         // Test with invalid base64url data
         let result = decrypt_data_aes_gcm("invalid_base64!!!", "dmFsaWRfbm9uY2U", &key);
-        assert!(result.is_err());
+                assert!(result.is_err());
 
         // Test with invalid nonce
         let result = decrypt_data_aes_gcm("dGVzdA", "invalid_nonce!!!", &key);
@@ -362,23 +389,23 @@ mod tests {
         let account_id = "test.testnet";
 
         // Test with empty encrypted data
-        let result = decrypt_private_key_with_prf(prf_output_b64, account_id, "", "dGVzdA");
+        let result = decrypt_private_key_with_prf(account_id, prf_output_b64, "", "dGVzdA");
         assert!(result.is_err());
 
         // Test with empty IV
-        let result = decrypt_private_key_with_prf(prf_output_b64, account_id, "dGVzdA", "");
+        let result = decrypt_private_key_with_prf(account_id, prf_output_b64, "dGVzdA", "");
         assert!(result.is_err());
 
         // Test with invalid base64
-        let result = decrypt_private_key_with_prf(prf_output_b64, account_id, "invalid!!!", "dGVzdA");
+        let result = decrypt_private_key_with_prf(account_id, prf_output_b64, "invalid!!!", "dGVzdA");
         assert!(result.is_err());
 
         // Test with empty PRF output
-        let result = decrypt_private_key_with_prf("", account_id, "dGVzdA", "dGVzdA");
+        let result = decrypt_private_key_with_prf(account_id, "", "dGVzdA", "dGVzdA");
         assert!(result.is_err());
 
         // Test with empty account ID
-        let result = decrypt_private_key_with_prf(prf_output_b64, "", "dGVzdA", "dGVzdA");
+        let result = decrypt_private_key_with_prf("", prf_output_b64, "dGVzdA", "dGVzdA");
         assert!(result.is_err());
     }
 
@@ -418,8 +445,8 @@ mod tests {
 
         // Test that the same inputs always produce the same key
         for _ in 0..10 {
-            let key1 = derive_account_specific_aes_key_from_prf(prf_output_b64, account_id).unwrap();
-            let key2 = derive_account_specific_aes_key_from_prf(prf_output_b64, account_id).unwrap();
+            let key1 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
+            let key2 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
             assert_eq!(key1, key2);
         }
     }
@@ -429,7 +456,7 @@ mod tests {
         let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0";
         let account_id = "test.testnet";
 
-        let (private_key, public_key) = internal_derive_near_keypair_from_prf(prf_output_b64, account_id).unwrap();
+        let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
 
         // Validate format
         assert!(private_key.starts_with("ed25519:"));
@@ -452,20 +479,20 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_aes_gcm_key_from_prf_output() {
+    fn test_derive_account_specific_aes_key() {
         let prf_output = "dGVzdC1wcmYtb3V0cHV0LWFhYWFhYWFhYWFhYQ";
+        let account_id = "test.testnet";
 
         // Test normal operation
-        let key = derive_aes_gcm_key_from_prf_output(prf_output).unwrap();
+        let key = derive_aes_gcm_key_from_prf(prf_output, account_id).unwrap();
         assert_eq!(key.len(), 32);
 
         // Test deterministic behavior
-        let key2 = derive_aes_gcm_key_from_prf_output(prf_output).unwrap();
+        let key2 = derive_aes_gcm_key_from_prf(prf_output, account_id).unwrap();
         assert_eq!(key, key2);
 
-        // Test different inputs produce different keys
-        let different_prf = "ZGlmZmVyZW50LXByZi1vdXRwdXQtYWFhYWFhYWE";
-        let key3 = derive_aes_gcm_key_from_prf_output(different_prf).unwrap();
+        // Test different accounts produce different keys
+        let key3 = derive_aes_gcm_key_from_prf(prf_output, "different.testnet").unwrap();
         assert_ne!(key, key3);
     }
 
@@ -522,7 +549,7 @@ mod tests {
         let account_id = "test.testnet";
 
         // Derive AES key separately
-        let _aes_key = derive_aes_gcm_key_from_prf_output(&dual_prf.aes_prf_output_base64).unwrap();
+        let _aes_key = derive_aes_gcm_key_from_prf(&dual_prf.aes_prf_output_base64, account_id).unwrap();
 
         // Derive Ed25519 key separately
         let (_ed25519_private, _ed25519_public) = derive_ed25519_key_from_prf_output(&dual_prf.ed25519_prf_output_base64, account_id).unwrap();

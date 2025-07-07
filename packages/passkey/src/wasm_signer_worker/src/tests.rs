@@ -7,10 +7,10 @@ use crate::transaction::*;
 fn create_test_keypair_with_prf(prf_output_b64: &str) -> (String, EncryptedDataAesGcmResponse) {
     // Use deterministic function with account-specific derivation
     let test_account = "test.testnet";
-    let (private_key, public_key) = internal_derive_near_keypair_from_prf(prf_output_b64, test_account).unwrap();
+    let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, test_account).unwrap();
 
     // Encrypt the key using account-specific HKDF (matches decrypt_private_key_with_prf)
-    let encryption_key = derive_account_specific_aes_key_from_prf(prf_output_b64, test_account).unwrap();
+    let encryption_key = derive_aes_gcm_key_from_prf(prf_output_b64, test_account).unwrap();
     let encrypted_result = encrypt_data_aes_gcm(&private_key, &encryption_key).unwrap();
 
     (public_key, encrypted_result)
@@ -21,15 +21,15 @@ fn test_account_specific_aes_key_derivation() {
     // Test account-specific AES key derivation
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
     let account_id = "test.testnet";
-    let key = derive_account_specific_aes_key_from_prf(prf_output_b64, account_id).unwrap();
+    let key = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
     assert_eq!(key.len(), 32);
 
     // Should be deterministic for same account
-    let key2 = derive_account_specific_aes_key_from_prf(prf_output_b64, account_id).unwrap();
+    let key2 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
     assert_eq!(key, key2);
 
     // Should be different for different accounts
-    let key3 = derive_account_specific_aes_key_from_prf(prf_output_b64, "different.testnet").unwrap();
+    let key3 = derive_aes_gcm_key_from_prf(prf_output_b64, "different.testnet").unwrap();
     assert_ne!(key, key3);
 }
 
@@ -55,19 +55,19 @@ fn test_deterministic_near_key_generation() {
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
     let account_id = "test.testnet";
 
-    let (private_key, public_key) = internal_derive_near_keypair_from_prf(prf_output_b64, account_id).unwrap();
+    let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
 
     // Should start with proper format
     assert!(private_key.starts_with("ed25519:"));
     assert!(public_key.starts_with("ed25519:"));
 
     // Should be deterministic
-    let (private_key2, public_key2) = internal_derive_near_keypair_from_prf(prf_output_b64, account_id).unwrap();
+    let (private_key2, public_key2) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
     assert_eq!(private_key, private_key2);
     assert_eq!(public_key, public_key2);
 
     // Should be different for different accounts
-    let (private_key3, public_key3) = internal_derive_near_keypair_from_prf(prf_output_b64, "different.testnet").unwrap();
+    let (private_key3, public_key3) = derive_ed25519_key_from_prf_output(prf_output_b64, "different.testnet").unwrap();
     assert_ne!(private_key, private_key3);
     assert_ne!(public_key, public_key3);
 }
@@ -79,15 +79,15 @@ fn test_deterministic_near_key_derivation() {
     let prf_output2 = "ZGlmZmVyZW50LXByZi1vdXRwdXQtZnJvbS13ZWJhdXRobg";
     let account_id = "test.testnet";
 
-    let (private_key1, public_key1) = internal_derive_near_keypair_from_prf(prf_output1, account_id).unwrap();
-    let (private_key2, public_key2) = internal_derive_near_keypair_from_prf(prf_output2, account_id).unwrap();
+    let (private_key1, public_key1) = derive_ed25519_key_from_prf_output(prf_output1, account_id).unwrap();
+    let (private_key2, public_key2) = derive_ed25519_key_from_prf_output(prf_output2, account_id).unwrap();
 
     // Different PRF outputs should generate different keys
     assert_ne!(private_key1, private_key2);
     assert_ne!(public_key1, public_key2);
 
     // But same PRF should be deterministic
-    let (private_key1_dup, public_key1_dup) = internal_derive_near_keypair_from_prf(prf_output1, account_id).unwrap();
+    let (private_key1_dup, public_key1_dup) = derive_ed25519_key_from_prf_output(prf_output1, account_id).unwrap();
     assert_eq!(private_key1, private_key1_dup);
     assert_eq!(public_key1, public_key1_dup);
 }
@@ -119,8 +119,8 @@ fn test_dual_prf_key_derivation() {
     let ed25519_prf = "dGVzdC1lZDI1NTE5LXByZi1vdXRwdXQ";
     let account_id = "test.testnet";
 
-    // Test AES key derivation
-    let aes_key = derive_aes_gcm_key_from_prf_output(aes_prf).unwrap();
+    // Test AES key derivation (account-specific)
+    let aes_key = derive_aes_gcm_key_from_prf(aes_prf, account_id).unwrap();
     assert_eq!(aes_key.len(), 32);
 
     // Test Ed25519 key derivation
@@ -147,13 +147,13 @@ fn test_dual_prf_key_isolation() {
     let account_id = "test.testnet";
 
     // Derive keys separately
-    let _aes_key = derive_aes_gcm_key_from_prf_output(aes_prf).unwrap();
+    let _aes_key = derive_aes_gcm_key_from_prf(aes_prf, account_id).unwrap();
 
     let (_ed25519_private, _ed25519_public) = derive_ed25519_key_from_prf_output(ed25519_prf, account_id).unwrap();
 
     // Keys should be completely independent - changing one PRF shouldn't affect the other
     let different_aes_prf = "ZGlmZmVyZW50LWFlcy1wcmYtb3V0cHV0";
-    let _aes_key_different = derive_aes_gcm_key_from_prf_output(different_aes_prf).unwrap();
+    let _aes_key_different = derive_aes_gcm_key_from_prf(different_aes_prf, account_id).unwrap();
 
     // Should still be able to derive Ed25519 key with original PRF
     let (_ed25519_private2, _ed25519_public2) = derive_ed25519_key_from_prf_output(ed25519_prf, account_id).unwrap();
@@ -168,11 +168,11 @@ fn test_dual_prf_edge_cases() {
     let minimal_prf = "YQ"; // base64 for "a"
 
     // These should fail gracefully
-    assert!(derive_aes_gcm_key_from_prf_output(empty_prf).is_err());
+    assert!(derive_aes_gcm_key_from_prf(empty_prf, account_id).is_err());
     assert!(derive_ed25519_key_from_prf_output(empty_prf, account_id).is_err());
 
     // Minimal PRF should still work (base64 padding is handled)
-    assert!(derive_aes_gcm_key_from_prf_output(minimal_prf).is_ok());
+    assert!(derive_aes_gcm_key_from_prf(minimal_prf, account_id).is_ok());
     assert!(derive_ed25519_key_from_prf_output(minimal_prf, account_id).is_ok());
 }
 
@@ -181,7 +181,7 @@ fn test_private_key_format_compatibility() {
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
     let account_id = "test.testnet";
 
-    let (private_key, _public_key) = internal_derive_near_keypair_from_prf(prf_output_b64, account_id).unwrap();
+    let (private_key, _public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
 
     // Verify NEAR private key format
     assert!(private_key.starts_with("ed25519:"), "Private key should start with ed25519:");
@@ -416,10 +416,10 @@ fn test_near_keypair_from_prf_flow() {
     let (_x_coord, _y_coord) = (&[1u8; 32], &[2u8; 32]); // Mock coordinates
 
     // Use PRF-based derivation instead
-    let (private_key, public_key) = internal_derive_near_keypair_from_prf(prf_output_b64, account_id).unwrap();
+    let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
 
     // Encrypt the private key
-    let encryption_key = derive_account_specific_aes_key_from_prf(prf_output_b64, account_id).unwrap();
+    let encryption_key = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
     let encrypted_result = encrypt_data_aes_gcm(&private_key, &encryption_key).unwrap();
 
     // Decrypt and verify

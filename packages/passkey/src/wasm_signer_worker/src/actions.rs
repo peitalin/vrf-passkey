@@ -2,17 +2,6 @@ use serde::{Serialize, Deserialize};
 use crate::types::*;
 use bs58;
 
-// Console logging for security events
-#[cfg(target_arch = "wasm32")]
-macro_rules! console_log {
-    ($($t:tt)*) => (crate::log(&format_args!($($t)*).to_string()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! console_log {
-    ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
-}
-
 // === ACTION TYPES AND HANDLERS ===
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

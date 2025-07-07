@@ -4,15 +4,6 @@ use borsh;
 use crate::types::*;
 use crate::actions::{ActionParams, get_action_handler};
 
-#[cfg(target_arch = "wasm32")]
-macro_rules! console_log {
-    ($($t:tt)*) => (crate::log(&format_args!($($t)*).to_string()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! console_log {
-    ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
-}
 
 /// Build a transaction with multiple actions
 pub fn build_transaction_with_actions(

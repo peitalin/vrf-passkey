@@ -84,7 +84,7 @@ pub fn parse_authenticator_data(auth_data_bytes: &[u8]) -> Result<Vec<u8>, Strin
 }
 
 /// Extract COSE public key from WebAuthn attestation object
-pub fn extract_cose_public_key_from_attestation_core(attestation_object_b64u: &str) -> Result<Vec<u8>, String> {
+pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -> Result<Vec<u8>, String> {
     console_log!("RUST: Extracting COSE public key from attestation object");
 
     // Decode the base64url attestation object
@@ -223,12 +223,12 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_cose_public_key_from_attestation_core() {
+    fn test_extract_cose_public_key_from_attestation() {
         // Create a mock attestation object and encode to base64url
         let attestation_object_bytes = create_mock_attestation_object();
         let attestation_object_b64u = Base64UrlUnpadded::encode_string(&attestation_object_bytes);
 
-        let cose_key_bytes = extract_cose_public_key_from_attestation_core(&attestation_object_b64u).unwrap();
+        let cose_key_bytes = extract_cose_public_key_from_attestation(&attestation_object_b64u).unwrap();
 
         // Verify it's a valid COSE key by parsing the CBOR structure
         let cbor_value: CborValue = ciborium::from_reader(cose_key_bytes.as_slice()).unwrap();
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_extract_cose_public_key_invalid_base64() {
         let invalid_b64 = "Invalid@Base64!";
-        let result = extract_cose_public_key_from_attestation_core(invalid_b64);
+        let result = extract_cose_public_key_from_attestation(invalid_b64);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to decode attestation object"));
     }
