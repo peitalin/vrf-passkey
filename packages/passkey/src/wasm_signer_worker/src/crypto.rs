@@ -264,25 +264,24 @@ pub fn decrypt_private_key_with_prf(
 }
 
 /// Encrypt private key with PRF output for storage
+/// Returns both encrypted data and IV separately for IndexedDB storage
 pub fn encrypt_private_key_with_prf(
     private_key_bytes: &str,
     prf_output_base64: &str,
-) -> Result<String, String> {
-    console_log!("RUST: Encrypting private key with PRF output");
+    near_account_id: &str,
+) -> Result<EncryptedDataAesGcmResponse, String> {
+    console_log!("RUST: Encrypting private key with PRF output for account: {}", near_account_id);
 
-    // Derive AES key from PRF output (using default account for recovery)
-    let aes_key_bytes = derive_aes_gcm_key_from_prf(prf_output_base64, "recovery-account.testnet")
+    // Derive AES key from PRF output using account-specific HKDF
+    let aes_key_bytes = derive_aes_gcm_key_from_prf(prf_output_base64, near_account_id)
         .map_err(|e| format!("Failed to derive AES key from PRF: {}", e))?;
 
     // Encrypt the private key
     let encrypted_result = encrypt_data_aes_gcm(private_key_bytes, &aes_key_bytes)
         .map_err(|e| format!("Failed to encrypt private key: {}", e))?;
 
-    // Return base64url-encoded result in format "encrypted_data:iv"
-    let result = format!("{}:{}", encrypted_result.encrypted_near_key_data_b64u, encrypted_result.aes_gcm_nonce_b64u);
-
     console_log!("RUST: Private key encrypted successfully");
-    Ok(result)
+    Ok(encrypted_result)
 }
 
 //////////////////////////

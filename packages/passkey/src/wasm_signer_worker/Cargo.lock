@@ -3397,6 +3397,8 @@ dependencies = [
  "cfg-if 1.0.1",
  "once_cell",
  "rustversion",
+ "serde",
+ "serde_json",
  "wasm-bindgen-macro",
 ]
 
