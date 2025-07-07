@@ -2,20 +2,20 @@
 
 A comprehensive WebAuthn passkey authentication system built for NEAR blockchain, featuring dual-mode authentication, client-side user management, and decentralized identity.
 
-## 🚀 Key Features
+## Key Features
 
-### 🔐 **Dual-Mode Authentication**
+### **Dual-Mode Authentication**
 - **FastAuth (Optimistic)**: Instant response with background blockchain updates
 - **SecureAuth (Contract Sync)**: Full on-chain verification before response
 - **User-configurable**: Toggle between modes based on preference
 
-### 👤 **Decentralized User Management**
+### **Decentralized User Management**
 - **Client-side state**: No server dependency for user data
 - **On-chain registry**: Decentralized user existence tracking
 - **Multi-user support**: Multiple NEAR accounts per device
 - **Privacy-focused**: Personal data stays local
 
-### 🔑 **Advanced Passkey Features**
+### **Advanced Passkey Features**
 - **PRF (Pseudo-Random Function)**: Secure key derivation from biometrics
 - **WASM crypto worker**: Isolated key management and transaction signing
 - **Cross-device sync**: Passkey backup and recovery support
@@ -23,7 +23,7 @@ A comprehensive WebAuthn passkey authentication system built for NEAR blockchain
 
 ## 📱 User Experience Flows
 
-### 🔐 **Registration Flow**
+### **Registration Flow**
 
 ```mermaid
 graph TD
@@ -55,7 +55,7 @@ graph TD
 6. User registry automatically updated
 7. Success response after contract confirmation
 
-### 🔓 **Authentication Flow**
+### **Authentication Flow**
 
 ```mermaid
 graph TD
@@ -84,7 +84,7 @@ graph TD
 - Synchronous authenticator updates
 - Login success after blockchain confirmation
 
-### 💳 **Transaction Signing Flow**
+### **Transaction Signing Flow**
 
 ```mermaid
 graph TD
@@ -102,7 +102,7 @@ graph TD
 5. Direct broadcast to NEAR RPC
 6. Success confirmation
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ### **Client-Side Components**
 - **ClientUserManager**: Local user data and preferences
@@ -122,48 +122,8 @@ graph TD
 - **Activity tracking**: Usage analytics and timestamps
 - **Security validation**: Commitment-based verification
 
-## ⚙️ Configuration Options
 
-### **Authentication Modes**
-
-| Mode | Speed | Security | Use Case |
-|------|-------|----------|----------|
-| **FastAuth** | ⚡ Instant | 🔒 High | Daily interactions, UX-focused |
-| **SecureAuth** | 🐢 Slower | 🔒🔒 Maximum | High-value transactions, security-critical |
-
-### **User Settings**
-- **Mode preference**: Persisted per user
-- **Multi-user support**: Switch between NEAR accounts
-- **Challenge timeout**: Configurable expiration
-- **Background sync**: Optional contract updates
-
-## 🔧 Technical Benefits
-
-### **Performance**
-- **Sub-second authentication** with FastAuth mode
-- **Parallel processing** of WebAuthn and blockchain operations
-- **Optimistic updates** for immediate user feedback
-- **Background synchronization** maintains consistency
-
-### **Security**
-- **Biometric key derivation** via PRF extension
-- **Hardware security module** protection
-- **On-chain commitment validation** for critical operations
-- **Client-side encryption** with WASM isolation
-
-### **Scalability**
-- **Reduced server load** with client-side user management
-- **Efficient blockchain usage** with batched updates
-- **Local-first architecture** with optional sync
-- **Multi-device support** through passkey standards
-
-### **User Experience**
-- **No passwords** required anywhere
-- **Cross-device roaming** with passkey sync
-- **Offline capability** for local operations
-- **Progressive enhancement** from fast to secure modes
-
-## 🚦 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -189,7 +149,7 @@ pnpm build-wasm
 # Start frontend (https://example.localhost)
 pnpm dev
 
-# Start backend (http://localhost:3001)
+# Start backend (http://localhost:3000)
 pnpm server
 ```
 
@@ -205,65 +165,3 @@ cargo test test_user_registry
 # Test authentication flows
 cargo test test_authentication
 ```
-
-## 🎯 Usage Examples
-
-### **Register a New User**
-1. Visit `https://example.localhost`
-2. Enter username
-3. Select authentication mode (Fast/Secure)
-4. Complete WebAuthn ceremony
-5. Success! User registered with NEAR account
-
-### **Authenticate Existing User**
-1. Click "Login with Passkey"
-2. WebAuthn authentication (biometric/PIN)
-3. Instant login (FastAuth) or wait for contract (SecureAuth)
-4. Access authenticated features
-
-### **Execute Blockchain Transaction**
-1. Login with passkey
-2. Click "Set Greeting" or other action
-3. Biometric authentication for signing
-4. Transaction broadcast and confirmation
-5. Updated state reflected in UI
-
-## 🔄 Migration & Deployment
-
-### **User Migration Strategy**
-- **No migration needed**: All users re-register with new system
-- **Fresh start**: Clean implementation without legacy constraints
-- **Backward compatibility**: Old users can re-register seamlessly
-
-### **Deployment Steps**
-1. Deploy updated smart contract
-2. Update backend server configuration
-3. Deploy frontend with new features
-4. Users re-register to access new capabilities
-
-## 🛣️ Roadmap
-
-### **Phase 1 ✅ Complete**
-- Client-side user management
-- Local storage architecture
-- Challenge management system
-
-### **Phase 2 ✅ Complete**
-- On-chain user registry
-- Dual-mode authentication
-- Background sync capabilities
-
-### **Phase 3 🔄 Next**
-- Enhanced challenge management
-- Advanced security features
-- Performance optimizations
-
-### **Future Enhancements**
-- Multi-signature support
-- Advanced analytics
-- Enterprise features
-- Mobile app integration
-
----
-
-**🔐 Built with security, performance, and user experience in mind.**

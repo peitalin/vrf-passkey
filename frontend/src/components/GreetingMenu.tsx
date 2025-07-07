@@ -84,7 +84,7 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
             break;
         }
       },
-      waitUntil: TxExecutionStatus.EXECUTED,
+      waitUntil: TxExecutionStatus.FINAL,
       hooks: {
         afterCall: (success: boolean, result?: any) => {
           if (success && result?.transactionId) {
