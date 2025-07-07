@@ -92,9 +92,6 @@ pub struct SignerWorkerMessage {
     #[serde(rename = "type")]
     pub msg_type: u32,
     pub payload: serde_json::Value,
-    #[serde(rename = "operationId")]
-    pub operation_id: Option<String>,
-    pub timestamp: Option<u64>,
 }
 
 /// Main worker response structure
@@ -103,9 +100,4 @@ pub struct SignerWorkerResponse {
     #[serde(rename = "type")]
     pub response_type: u32,
     pub payload: serde_json::Value,
-    #[serde(rename = "operationId")]
-    pub operation_id: Option<String>,
-    pub timestamp: Option<u64>,
-    #[serde(rename = "executionTime")]
-    pub execution_time: Option<u64>,
 }

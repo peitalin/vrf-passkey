@@ -4,7 +4,17 @@ import { base64UrlEncode, base58Decode } from '../../utils/encoders';
 import type {
   WorkerResponse,
   ActionParams,
-  WebAuthnRegistrationCredential
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+  RecoverKeypairSuccessResponse,
+  ErrorResponse,
+  CompletionResponse,
+  ProgressResponse,
+  SignatureSuccessResponse,
+  WasmEncryptionResult,
+  WasmRegistrationResult,
+  WasmTransactionSignResult,
+  WasmRecoverKeypairResult,
 } from '../types/signer-worker';
 import {
   WorkerRequestType,
@@ -18,12 +28,39 @@ import {
   serializeCredentialWithPRF,
   extractDualPrfOutputs,
   isCoseExtractionSuccess,
+  isRecoverKeypairSuccess,
+  isWorkerError,
+  isWorkerSuccess,
+  takeAesPrfOutput
 } from '../types/signer-worker';
 import { ActionType } from '../types/actions';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
+import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
+
+// === CONFIGURATION ===
+const CONFIG = {
+  TIMEOUTS: {
+    DEFAULT: 20_000,      // 20s
+    TRANSACTION: 60_000,  // 60s for contract verification + signing
+    REGISTRATION: 60_000, // 60s for registration operations
+  },
+  WORKER: {
+    URL: '/workers/web3authn-signer.worker.js',
+    TYPE: 'module' as const,
+    NAME: 'Web3AuthnSignerWorker',
+  },
+  RETRY: {
+    MAX_ATTEMPTS: 3,
+    BACKOFF_MS: 1000,
+  }
+} as const;
+
+// === IMPORT AUTO-GENERATED WASM TYPES ===
+// WASM-generated types now correctly match runtime data with js_name attributes
+import * as wasmModule from '../../wasm_signer_worker/wasm_signer_worker.js';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -33,17 +70,21 @@ import type { onProgressEvents } from '../types/webauthn';
  */
 export class SignerWorkerManager {
 
-  constructor() {}
+  private nearKeysDB: PasskeyNearKeysDBManager;
+
+  constructor() {
+    this.nearKeysDB = new PasskeyNearKeysDBManager();
+  }
 
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
-    const workerUrl = new URL('/workers/web3authn-signer.worker.js', window.location.origin);
+    const workerUrl = new URL(CONFIG.WORKER.URL, window.location.origin);
     console.log('Creating secure worker from:', workerUrl.href);
 
     try {
       const worker = new Worker(workerUrl, {
-        type: 'module',
-        name: 'Web3AuthnSignerWorker'
+        type: CONFIG.WORKER.TYPE,
+        name: CONFIG.WORKER.NAME
       });
 
       // Add error handling
@@ -66,12 +107,12 @@ export class SignerWorkerManager {
    * - Single-response operations (traditional request-response)
    * - Multi-response operations with progress updates (streaming SSE-like pattern)
    * - Consistent error handling and timeouts
-   * - Fallback behavior for backward compatibility
+   * - Strong WASM-generated types for all responses
    */
   private async executeWorkerOperation({
     message,
     onEvent,
-    timeoutMs = 30_000 // 30s
+    timeoutMs = CONFIG.TIMEOUTS.DEFAULT // 20s
   }: {
     message: Record<string, any>,
     onEvent?: (update: onProgressEvents) => void,
@@ -87,55 +128,50 @@ export class SignerWorkerManager {
       }, timeoutMs);
 
       const responses: WorkerResponse[] = [];
-      let finalResponse: WorkerResponse | null = null;
 
       worker.onmessage = (event) => {
+        // Use strong typing from WASM-generated types
         const response = event.data as WorkerResponse;
         responses.push(response);
 
-        // Handle progress updates
-        if (response.type === WorkerResponseType.VERIFICATION_PROGRESS ||
-            response.type === WorkerResponseType.SIGNING_PROGRESS ||
-            response.type === WorkerResponseType.REGISTRATION_PROGRESS) {
-          const payload = (response as any).payload;
-          onEvent?.(payload);
+        // Handle progress updates using WASM-generated numeric enum values
+        if (response.type === WorkerResponseType.VerificationProgress ||
+            response.type === WorkerResponseType.SigningProgress ||
+            response.type === WorkerResponseType.RegistrationProgress) {
+          const progressResponse = response as ProgressResponse;
+          onEvent?.(progressResponse.payload as onProgressEvents);
           return; // Continue listening for more messages
         }
 
-        // Handle completion messages
-        if (response.type === WorkerResponseType.VERIFICATION_COMPLETE) {
-          const verificationResult = (response as any).payload;
-          onEvent?.(verificationResult);
+        // Handle completion messages using WASM-generated numeric enum values
+        if (response.type === WorkerResponseType.SigningComplete ||
+            response.type === WorkerResponseType.RegistrationComplete ||
+            response.type === WorkerResponseType.VerificationComplete) {
+          const completionResponse = response as CompletionResponse;
+          onEvent?.(completionResponse.payload as onProgressEvents);
 
-          if (!verificationResult.success) {
-            clearTimeout(timeoutId);
-            worker.terminate();
-            reject(new Error(`Verification failed: ${verificationResult.error}`));
-            return;
+          clearTimeout(timeoutId);
+          worker.terminate();
+
+          if (completionResponse.payload.status === 'success') {
+            resolve(completionResponse);
+          } else {
+            reject(new Error(completionResponse.payload.message || 'Operation failed'));
           }
-          return; // Continue listening for signing messages
-        }
-
-        // Handle final completion
-        if (response.type === WorkerResponseType.SIGNING_COMPLETE ||
-            response.type === WorkerResponseType.REGISTRATION_COMPLETE) {
-          clearTimeout(timeoutId);
-          worker.terminate();
-          finalResponse = response;
-          resolve(finalResponse);
           return;
         }
 
-        // Handle errors
-        if (response.type === WorkerResponseType.ERROR) {
+        // Handle errors using WASM-generated enum
+        if (response.type === WorkerResponseType.Error) {
           clearTimeout(timeoutId);
           worker.terminate();
-          reject(new Error((response as any).payload.error));
+          const errorResponse = response as ErrorResponse;
+          reject(new Error(errorResponse.payload.error));
           return;
         }
 
-        // Handle other completion types (fallback to existing behavior)
-        if (response.type.includes('SUCCESS') || response.type.includes('FAILURE')) {
+        // Handle successful completion types using strong typing
+        if (isWorkerSuccess(response)) {
           clearTimeout(timeoutId);
           worker.terminate();
           resolve(response);
@@ -156,7 +192,13 @@ export class SignerWorkerManager {
         reject(new Error(`Worker error: ${errorMessage}`));
       };
 
-      worker.postMessage(message);
+      // Format message for Rust SignerWorkerMessage structure using WASM types
+      const formattedMessage = {
+        type: message.type, // Numeric enum value from WorkerRequestType
+        payload: message.payload,
+      };
+
+      worker.postMessage(formattedMessage);
     });
   }
 
@@ -187,7 +229,7 @@ export class SignerWorkerManager {
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT,
+          type: WorkerRequestType.DeriveNearKeypairAndEncrypt,
           payload: {
             dualPrfOutputs,
             nearAccountId: nearAccountId,
@@ -197,10 +239,30 @@ export class SignerWorkerManager {
 
       if (isEncryptionSuccess(response)) {
         console.log('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
+
+        const wasmResult = response.payload as WasmEncryptionResult;
+
+        // Store the encrypted key in IndexedDB using the manager
+        const keyData: EncryptedKeyData = {
+          nearAccountId: nearAccountId,
+          encryptedData: wasmResult.encryptedData,
+          iv: wasmResult.iv,
+          timestamp: Date.now()
+        };
+
+        await this.nearKeysDB.storeEncryptedKey(keyData);
+
+        // Verify storage
+        const verified = await this.nearKeysDB.verifyKeyStorage(nearAccountId);
+        if (!verified) {
+          throw new Error('Key storage verification failed');
+        }
+        console.log('WebAuthnManager: Encrypted key stored and verified in IndexedDB');
+
         return {
           success: true,
-          nearAccountId: nearAccountId,
-          publicKey: response.payload.publicKey
+          nearAccountId: wasmResult.nearAccountId,
+          publicKey: wasmResult.publicKey
         };
       } else {
         console.error('WebAuthnManager: Dual PRF registration failed:', response);
@@ -243,6 +305,14 @@ export class SignerWorkerManager {
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
       console.log('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
+
+      // Retrieve encrypted key data from IndexedDB in main thread
+      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+      }
+
       // For private key export, no VRF challenge is needed.
       // we can use local random challenge for WebAuthn authentication.
       // Security comes from device possession + biometrics, not challenge validation
@@ -260,19 +330,22 @@ export class SignerWorkerManager {
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+          type: WorkerRequestType.DecryptPrivateKeyWithPrf,
           payload: {
             nearAccountId: nearAccountId,
-            prfOutput: dualPrfOutputs.aesPrfOutput // Use AES PRF output for decryption
+            prfOutput: dualPrfOutputs.aesPrfOutput, // Use AES PRF output for decryption
+            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+            encryptedPrivateKeyIv: encryptedKeyData.iv
           }
         }
       });
 
       if (isDecryptionSuccess(response)) {
         console.log('WebAuthnManager: Dual PRF private key decryption successful');
+        const wasmResult = response.payload as wasmModule.DecryptPrivateKeyResult;
         return {
-          decryptedPrivateKey: response.payload.decryptedPrivateKey,
-          nearAccountId: nearAccountId
+          decryptedPrivateKey: wasmResult.privateKey,
+          nearAccountId: wasmResult.nearAccountId
         };
       } else {
         console.error('WebAuthnManager: Dual PRF private key decryption failed:', response);
@@ -309,7 +382,7 @@ export class SignerWorkerManager {
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.CHECK_CAN_REGISTER_USER,
+          type: WorkerRequestType.CheckCanRegisterUser,
           payload: {
             vrfChallenge,
             credential: serializeCredentialWithPRF(credential),
@@ -318,16 +391,17 @@ export class SignerWorkerManager {
           }
         },
         onEvent,
-        timeoutMs: 60000 // Longer timeout for contract verification
+        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
       if (isCheckRegistrationSuccess(response)) {
         console.log('WebAuthnManager: User can be registered on-chain');
+        const wasmResult = response.payload as wasmModule.RegistrationCheckResult;
         return {
           success: true,
-          verified: response.payload.verified,
-          registrationInfo: response.payload.registrationInfo,
-          logs: response.payload.logs,
+          verified: wasmResult.verified,
+          registrationInfo: wasmResult.registrationInfo,
+          logs: wasmResult.logs,
         };
       } else {
         console.error('WebAuthnManager: User cannot be registered on-chain:', response);
@@ -393,6 +467,16 @@ export class SignerWorkerManager {
         throw new Error('Client NEAR public key not provided - cannot get access key nonce');
       }
 
+      // Retrieve encrypted key data from IndexedDB in main thread
+      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+      }
+
+      // Extract PRF output from credential
+      const dualPrfOutputs = extractDualPrfOutputs(credential);
+
       // Get access key and transaction block info concurrently
       const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
         nearClient.viewAccessKey(signerAccountId, publicKeyStr),
@@ -426,7 +510,7 @@ export class SignerWorkerManager {
       // Step 2: Execute registration transaction via WASM
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER,
+          type: WorkerRequestType.SignVerifyAndRegisterUser,
           payload: {
             vrfChallenge,
             credential: serializeCredentialWithPRF(credential),
@@ -434,28 +518,33 @@ export class SignerWorkerManager {
             signerAccountId,
             nearAccountId,
             nonce: nonce.toString(),
-            blockHashBytes: transactionBlockHashBytes
+            blockHashBytes: transactionBlockHashBytes,
+            // Pass encrypted key data from IndexedDB
+            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+            encryptedPrivateKeyIv: encryptedKeyData.iv,
+            prfOutput: dualPrfOutputs.aesPrfOutput
           }
         },
         onEvent,
-        timeoutMs: 90000 // Extended timeout for transaction processing
+        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
       if (isRegistrationSuccess(response)) {
         console.log('WebAuthnManager: On-chain user registration transaction successful');
+        const wasmResult = response.payload as wasmModule.RegistrationResult;
         return {
-          verified: response.payload.verified,
-          registrationInfo: response.payload.registrationInfo,
-          logs: response.payload.logs,
+          verified: wasmResult.verified,
+          registrationInfo: wasmResult.registrationInfo,
+          logs: wasmResult.logs,
           signedTransaction: new SignedTransaction({
-            transaction: response.payload.signedTransaction.transaction,
-            signature: response.payload.signedTransaction.signature,
-            borsh_bytes: response.payload.signedTransaction.borsh_bytes
+            transaction: JSON.parse(wasmResult.signedTransaction?.transactionJson || '{}'),
+            signature: JSON.parse(wasmResult.signedTransaction?.signatureJson || '{}'),
+            borsh_bytes: Array.from(wasmResult.signedTransaction?.borshBytes || [])
           }),
           preSignedDeleteTransaction: new SignedTransaction({
-            transaction: response.payload.preSignedDeleteTransaction.transaction,
-            signature: response.payload.preSignedDeleteTransaction.signature,
-            borsh_bytes: response.payload.preSignedDeleteTransaction.borsh_bytes
+            transaction: JSON.parse(wasmResult.preSignedDeleteTransaction?.transactionJson || '{}'),
+            signature: JSON.parse(wasmResult.preSignedDeleteTransaction?.signatureJson || '{}'),
+            borsh_bytes: Array.from(wasmResult.preSignedDeleteTransaction?.borshBytes || [])
           })
         };
       } else {
@@ -504,9 +593,19 @@ export class SignerWorkerManager {
         }
       });
 
+      // Retrieve encrypted key data from IndexedDB in main thread
+      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
+      }
+
+      // Extract PRF output from credential
+      const dualPrfOutputs = extractDualPrfOutputs(payload.credential);
+
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS,
+          type: WorkerRequestType.SignTransactionWithActions,
           payload: {
             nearAccountId: payload.nearAccountId,
             receiverId: payload.receiverId,
@@ -518,23 +617,33 @@ export class SignerWorkerManager {
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
             credential: serializeCredentialWithPRF(payload.credential),
-            nearRpcUrl: payload.nearRpcUrl
+            nearRpcUrl: payload.nearRpcUrl,
+            // Pass encrypted key data from IndexedDB
+            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+            encryptedPrivateKeyIv: encryptedKeyData.iv,
+            prfOutput: dualPrfOutputs.aesPrfOutput
           }
         },
         onEvent, // onEvent callback for wasm-worker events
-        timeoutMs: 60000 // Longer timeout for contract verification + signing
+        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
+      console.log(">>>>>> WASM RESPONSE", response);
 
-      if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
+      if (isSignatureSuccess(response)) {
         console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
+        const wasmResult = response.payload as WasmTransactionSignResult;
+
+        if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
+          throw new Error('Incomplete signed transaction data received from worker');
+        }
+
         return {
           signedTransaction: new SignedTransaction({
-            transaction: response.payload.data.signed_transaction.transaction,
-            signature: response.payload.data.signed_transaction.signature,
-            borsh_bytes: response.payload.data.signed_transaction.borsh_bytes
+            transaction: JSON.parse(wasmResult.signedTransaction.transactionJson),
+            signature: JSON.parse(wasmResult.signedTransaction.signatureJson),
+            borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
           }),
-          nearAccountId: response.payload.data.near_account_id,
-          logs: response.payload.data.verification_logs
+          nearAccountId: payload.nearAccountId
         };
       } else {
         console.error('WebAuthnManager: Enhanced transaction signing failed:', response);
@@ -578,9 +687,19 @@ export class SignerWorkerManager {
       };
       validateActionParams(transferAction);
 
+      // Retrieve encrypted key data from IndexedDB in main thread
+      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
+      }
+
+      // Extract PRF output from credential
+      const dualPrfOutputs = extractDualPrfOutputs(payload.credential);
+
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.SIGN_TRANSFER_TRANSACTION,
+          type: WorkerRequestType.SignTransferTransaction,
           payload: {
             nearAccountId: payload.nearAccountId,
             receiverId: payload.receiverId,
@@ -592,23 +711,33 @@ export class SignerWorkerManager {
             vrfChallenge: payload.vrfChallenge,
             // Serialize credential right before sending - minimal exposure time
             credential: serializeCredentialWithPRF(payload.credential),
-            nearRpcUrl: payload.nearRpcUrl
+            nearRpcUrl: payload.nearRpcUrl,
+            // Pass encrypted key data from IndexedDB
+            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+            encryptedPrivateKeyIv: encryptedKeyData.iv,
+            prfOutput: dualPrfOutputs.aesPrfOutput
           }
         },
         onEvent, // onEvent callback for wasm-worker events
-        timeoutMs: 60000 // Longer timeout for contract verification + signing
+        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
-      if (response.type === WorkerResponseType.SIGNING_COMPLETE && (response as any).payload.success) {
+      if (isSignatureSuccess(response)) {
         console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
+        const wasmResult = response.payload as WasmTransactionSignResult;
+
+        if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
+          throw new Error('Incomplete signed transaction data received from worker');
+        }
+
         return {
           signedTransaction: new SignedTransaction({
-            transaction: response.payload.data.signed_transaction.transaction,
-            signature: response.payload.data.signed_transaction.signature,
-            borsh_bytes: response.payload.data.signed_transaction.borsh_bytes
+            transaction: JSON.parse(wasmResult.signedTransaction.transactionJson),
+            signature: JSON.parse(wasmResult.signedTransaction.signatureJson),
+            borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
           }),
-          nearAccountId: (response as any).payload.data.near_account_id,
-          logs: (response as any).payload.data.verification_logs
+          nearAccountId: payload.nearAccountId,
+          logs: wasmResult.logs || []
         };
       } else {
         console.error('WebAuthnManager: Enhanced transfer transaction signing failed:', response);
@@ -621,48 +750,58 @@ export class SignerWorkerManager {
   }
 
   /**
-   * Recover keypair from registration credential for account recovery
-   * Uses PRF-based Ed25519 key derivation with account-specific HKDF
+   * Recover keypair from authentication credential for account recovery
+   * Uses dual PRF-based Ed25519 key derivation with account-specific HKDF and AES encryption
    */
   async recoverKeypairFromPasskey(
-    registrationCredential: PublicKeyCredential,
+    credential: PublicKeyCredential,
     challenge: string,
     accountIdHint?: string
   ): Promise<{
     publicKey: string;
+    encryptedPrivateKey: string;
+    iv: string;
     accountIdHint?: string;
   }> {
     try {
-      console.log('SignerWorkerManager: Starting PRF-based keypair recovery from registration credential');
+      console.log('SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential');
 
-      // Serialize the registration credential for the worker (includes PRF outputs)
-      const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(
-        registrationCredential
+      // Serialize the authentication credential for the worker (includes dual PRF outputs)
+      const serializedCredential = serializeCredentialWithPRF<WebAuthnAuthenticationCredential>(
+        credential
       );
+
+      // Verify dual PRF outputs are available
+      if (!serializedCredential.clientExtensionResults?.prf?.results?.first ||
+          !serializedCredential.clientExtensionResults?.prf?.results?.second) {
+        throw new Error('Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available');
+      }
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY,
+          type: WorkerRequestType.RecoverKeypairFromPasskey,
           payload: {
             credential: serializedCredential,
-            challenge,
             accountIdHint
           }
         }
       });
 
-      if (response.type === WorkerResponseType.RECOVER_KEYPAIR_SUCCESS) {
-        console.log('SignerWorkerManager: keypair recovery successful');
+      if (isRecoverKeypairSuccess(response)) {
+        console.log('SignerWorkerManager: Dual PRF keypair recovery successful');
+        const wasmResult = response.payload as wasmModule.RecoverKeypairResult;
         return {
-          publicKey: (response as any).payload.publicKey,
-          accountIdHint: (response as any).payload.accountIdHint
+          publicKey: wasmResult.publicKey,
+          encryptedPrivateKey: wasmResult.encryptedData,
+          iv: wasmResult.iv,
+          accountIdHint: wasmResult.accountIdHint
         };
       } else {
-        console.error('SignerWorkerManager: PRF-based keypair derivation failed:', response);
-        throw new Error('keypair derivation failed in WASM worker');
+        console.error('SignerWorkerManager: Dual PRF-based keypair recovery failed:', response);
+        throw new Error('Dual PRF keypair recovery failed in WASM worker');
       }
     } catch (error: any) {
-      console.error('SignerWorkerManager: Deterministic keypair derivation error:', error);
+      console.error('SignerWorkerManager: Dual PRF keypair recovery error:', error);
       throw error;
     }
   }
@@ -677,7 +816,7 @@ export class SignerWorkerManager {
 
       const response = await this.executeWorkerOperation({
         message: {
-          type: WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY,
+          type: WorkerRequestType.ExtractCosePublicKey,
           payload: {
             attestationObjectBase64url
           }

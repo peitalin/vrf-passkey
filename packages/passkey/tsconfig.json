@@ -24,13 +24,13 @@
     "types": ["@playwright/test", "node"],
     "paths": {
       "@/*": ["./src/*"]
-    },
+    }
   },
   "include": [
     "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist",
+    "dist"
   ]
 }

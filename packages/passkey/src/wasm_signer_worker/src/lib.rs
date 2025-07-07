@@ -32,8 +32,6 @@ use crate::http::{
     WebAuthnRegistrationResponse,
     check_can_register_user_wasm,
     sign_registration_tx_wasm,
-    ContractVerificationResult,
-    ContractRegistrationResult,
 };
 use crate::types::*;
 use crate::actions::*;
@@ -214,10 +212,26 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 
     let mut logs: Vec<String> = Vec::new();
 
+    // Send initial progress message
+    send_progress_message(
+        "SIGNING_PROGRESS",
+        "preparation",
+        "Starting transaction verification and signing...",
+        &serde_json::json!({"step": 1, "total": 4}).to_string()
+    );
+
     // Step 1: Contract verification
     logs.push(format!("Starting contract verification for {}", request.verification.contract_id));
     logs.push("Parsing VRF challenge data...".to_string());
     logs.push("Preparing WebAuthn credential for verification...".to_string());
+
+    // Send verification progress
+    send_progress_message(
+        "VERIFICATION_PROGRESS",
+        "contract_verification",
+        "Verifying credentials with contract...",
+        &serde_json::json!({"step": 2, "total": 4}).to_string()
+    );
 
     // Convert structured types using From implementations
     let vrf_data = VrfData::try_from(vrf_challenge)?;
@@ -232,11 +246,34 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     ).await {
         Ok(result) => {
             logs.extend(result.logs.clone());
+
+            // Send verification complete progress
+            send_progress_message(
+                "VERIFICATION_COMPLETE",
+                "verification_complete",
+                "Contract verification completed successfully",
+                &serde_json::json!({
+                    "step": 2,
+                    "total": 4,
+                    "verified": result.verified,
+                    "logs": result.logs
+                }).to_string()
+            );
+
             result
         }
         Err(e) => {
             let error_msg = format!("Contract verification failed: {}", e);
             logs.push(error_msg.clone());
+
+            // Send error progress message
+            send_progress_message(
+                "VERIFICATION_PROGRESS",
+                "error",
+                &error_msg,
+                &serde_json::json!({"error": e.to_string()}).to_string()
+            );
+
             return Ok(TransactionSignResult::failed(logs, error_msg));
         }
     };
@@ -244,6 +281,14 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     if !verification_result.verified {
         let error_msg = verification_result.error.unwrap_or_else(|| "Contract verification failed".to_string());
         logs.push(error_msg.clone());
+
+        send_progress_message(
+            "VERIFICATION_PROGRESS",
+            "error",
+            &error_msg,
+            &serde_json::json!({"verified": false}).to_string()
+        );
+
         return Ok(TransactionSignResult::failed(logs, error_msg));
     }
 
@@ -251,6 +296,14 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 
     // Step 2: Transaction signing
     logs.push("Signing transaction in secure WASM context...".to_string());
+
+    // Send signing progress
+    send_progress_message(
+        "SIGNING_PROGRESS",
+        "transaction_signing",
+        "Decrypting private key and signing transaction...",
+        &serde_json::json!({"step": 3, "total": 4}).to_string()
+    );
 
     // Decrypt private key using structured types
     let decrypt_request = DecryptPrivateKeyRequest::new(
@@ -348,6 +401,19 @@ pub async fn verify_and_sign_near_transaction_with_actions(
 
     logs.push("Transaction verification and signing completed successfully".to_string());
     console_log!("RUST: Combined verification + signing completed successfully");
+
+    // Send completion progress message
+    send_progress_message(
+        "SIGNING_COMPLETE",
+        "signing_complete",
+        "Transaction signed successfully",
+        &serde_json::json!({
+            "step": 4,
+            "total": 4,
+            "success": true,
+            "logs": logs
+        }).to_string()
+    );
 
     Ok(TransactionSignResult::new(
         true,
@@ -456,6 +522,14 @@ pub async fn sign_verify_and_register_user(
 ) -> Result<RegistrationResult, JsValue> {
     console_log!("RUST: Performing actual user registration (state-changing function) using structured types");
 
+    // Send initial progress message
+    send_progress_message(
+        "REGISTRATION_PROGRESS",
+        "preparation",
+        "Starting user registration process...",
+        &serde_json::json!({"step": 1, "total": 4}).to_string()
+    );
+
     // Convert structured types using From implementations
     let vrf_data = VrfData::try_from(vrf_challenge)?;
     let webauthn_registration = WebAuthnRegistrationCredential::from(credential);
@@ -468,6 +542,14 @@ pub async fn sign_verify_and_register_user(
     let aes_prf_output = &request.decryption.aes_prf_output;
     let nonce = request.transaction.nonce;
     let block_hash_bytes = &request.transaction.block_hash_bytes;
+
+    // Send contract verification progress
+    send_progress_message(
+        "REGISTRATION_PROGRESS",
+        "contract_verification",
+        "Verifying credentials with contract...",
+        &serde_json::json!({"step": 2, "total": 4}).to_string()
+    );
 
     // Call the http module function with transaction metadata
     let registration_result = sign_registration_tx_wasm(
@@ -482,7 +564,24 @@ pub async fn sign_verify_and_register_user(
         block_hash_bytes,
     )
     .await
-    .map_err(|e| JsValue::from_str(&format!("Actual registration failed: {}", e)))?;
+    .map_err(|e| {
+        // Send error progress message
+        send_progress_message(
+            "REGISTRATION_PROGRESS",
+            "error",
+            &format!("Registration failed: {}", e),
+            &serde_json::json!({"error": e.to_string()}).to_string()
+        );
+        JsValue::from_str(&format!("Actual registration failed: {}", e))
+    })?;
+
+    // Send transaction signing progress
+    send_progress_message(
+        "REGISTRATION_PROGRESS",
+        "transaction_signing",
+        "Signing registration transaction...",
+        &serde_json::json!({"step": 3, "total": 4}).to_string()
+    );
 
     // Create structured response with embedded borsh bytes
     let signed_transaction = if let Some(ref signed_tx_bytes) = registration_result.signed_transaction_borsh {
@@ -520,6 +619,31 @@ pub async fn sign_verify_and_register_user(
             "".to_string(), // Not available from contract response
             None, // Not available from contract response
         ));
+
+    // Send completion progress message
+    if registration_result.verified {
+        send_progress_message(
+            "REGISTRATION_COMPLETE",
+            "verification_complete",
+            "User registration completed successfully",
+            &serde_json::json!({
+                "step": 4,
+                "total": 4,
+                "verified": true,
+                "logs": registration_result.logs
+            }).to_string()
+        );
+    } else {
+        send_progress_message(
+            "REGISTRATION_PROGRESS",
+            "error",
+            "Registration verification failed",
+            &serde_json::json!({
+                "verified": false,
+                "error": registration_result.error.as_ref().unwrap_or(&"Unknown verification error".to_string())
+            }).to_string()
+        );
+    }
 
     Ok(RegistrationResult::new(
         registration_result.verified,
@@ -780,13 +904,14 @@ impl DualPrfOutputs {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EncryptionResult {
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
     pub near_account_id: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "publicKey")]
     pub public_key: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "encryptedData")]
     pub encrypted_data: String,
     #[wasm_bindgen(getter_with_clone)]
     pub iv: String,
@@ -1007,14 +1132,15 @@ impl VrfChallengeStruct {
 // Recovery types
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecoverKeypairResult {
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "publicKey")]
     pub public_key: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "encryptedData")]
     pub encrypted_data: String,
     #[wasm_bindgen(getter_with_clone)]
     pub iv: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "accountIdHint")]
     pub account_id_hint: Option<String>,
 }
 
@@ -1065,10 +1191,11 @@ impl DecryptPrivateKeyRequest {
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecryptPrivateKeyResult {
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "privateKey")]
     pub private_key: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
     pub near_account_id: String,
 }
 
@@ -1227,11 +1354,12 @@ impl RegistrationRequest {
 // Transaction result types
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransactionSignResult {
     pub success: bool,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "transactionHash")]
     pub transaction_hash: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
     pub signed_transaction: Option<JsonSignedTransactionStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub logs: Vec<String>,
@@ -1272,11 +1400,12 @@ impl TransactionSignResult {
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KeyActionResult {
     pub success: bool,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "transactionHash")]
     pub transaction_hash: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
     pub signed_transaction: Option<JsonSignedTransactionStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub logs: Vec<String>,
@@ -1306,14 +1435,15 @@ impl KeyActionResult {
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistrationInfoStruct {
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "credentialId")]
     pub credential_id: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "credentialPublicKey")]
     pub credential_public_key: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "userId")]
     pub user_id: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "vrfPublicKey")]
     pub vrf_public_key: Option<Vec<u8>>,
 }
 
@@ -1337,13 +1467,14 @@ impl RegistrationInfoStruct {
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistrationCheckResult {
     pub verified: bool,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
     pub registration_info: Option<RegistrationInfoStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
     pub signed_transaction: Option<JsonSignedTransactionStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub error: Option<String>,
@@ -1371,15 +1502,16 @@ impl RegistrationCheckResult {
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistrationResult {
     pub verified: bool,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
     pub registration_info: Option<RegistrationInfoStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
     pub signed_transaction: Option<JsonSignedTransactionStruct>,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "preSignedDeleteTransaction")]
     pub pre_signed_delete_transaction: Option<JsonSignedTransactionStruct>,
     #[wasm_bindgen(getter_with_clone)]
     pub error: Option<String>,
@@ -1528,14 +1660,25 @@ impl DeleteKeyTxData {
     }
 }
 
+/// Response for COSE extraction with just the result
+#[wasm_bindgen]
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CoseExtractionResult {
+    #[wasm_bindgen(getter_with_clone, js_name = "cosePublicKeyBytes")]
+    #[serde(rename = "cosePublicKeyBytes")]
+    pub cose_public_key_bytes: Vec<u8>,
+}
+
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JsonSignedTransactionStruct {
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "transactionJson")]
     pub transaction_json: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "signatureJson")]
     pub signature_json: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[wasm_bindgen(getter_with_clone, js_name = "borshBytes")]
     pub borsh_bytes: Option<Vec<u8>>,
 }
 
@@ -1701,370 +1844,10 @@ impl From<WorkerResponseType> for u32 {
     }
 }
 
-// === MESSAGE HANDLING STRUCTURES ===
-
-#[derive(Serialize, Deserialize)]
-pub struct SignerWorkerMessage {
-    #[serde(rename = "type")]
-    pub msg_type: u32,
-    pub payload: serde_json::Value,
-    #[serde(rename = "operationId")]
-    pub operation_id: Option<String>,
-    pub timestamp: Option<u64>,
-}
-
-// === REQUEST PAYLOAD STRUCTURES ===
-
-#[derive(Deserialize)]
-struct DeriveKeypairPayload {
-    #[serde(rename = "dualPrfOutputs")]
-    dual_prf_outputs: DualPrfOutputsStruct,
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-}
-
-#[derive(Deserialize)]
-struct DualPrfOutputsStruct {
-    #[serde(rename = "aesPrfOutput")]
-    aes_prf_output: String,
-    #[serde(rename = "ed25519PrfOutput")]
-    ed25519_prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct RecoverKeypairPayload {
-    credential: SerializedCredential,
-    #[serde(rename = "accountIdHint")]
-    account_id_hint: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct SerializedCredential {
-    id: String,
-    #[serde(rename = "rawId")]
-    raw_id: String,
-    #[serde(rename = "type")]
-    credential_type: String,
-    #[serde(rename = "authenticatorAttachment")]
-    authenticator_attachment: Option<String>,
-    response: AuthenticationResponse,
-    #[serde(rename = "clientExtensionResults")]
-    client_extension_results: ClientExtensionResults,
-}
-
-#[derive(Deserialize)]
-struct AuthenticationResponse {
-    #[serde(rename = "clientDataJSON")]
-    client_data_json: String,
-    #[serde(rename = "authenticatorData")]
-    authenticator_data: String,
-    signature: String,
-    #[serde(rename = "userHandle")]
-    user_handle: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ClientExtensionResults {
-    prf: PrfResults,
-}
-
-#[derive(Deserialize)]
-struct PrfResults {
-    results: PrfOutputs,
-}
-
-#[derive(Deserialize)]
-struct PrfOutputs {
-    first: Option<String>,
-    second: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct DecryptKeyPayload {
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-}
-
-#[derive(Deserialize)]
-struct CheckCanRegisterUserPayload {
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedRegistrationCredential,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-}
-
-#[derive(Deserialize)]
-struct SerializedRegistrationCredential {
-    id: String,
-    #[serde(rename = "rawId")]
-    raw_id: String,
-    #[serde(rename = "type")]
-    credential_type: String,
-    #[serde(rename = "authenticatorAttachment")]
-    authenticator_attachment: Option<String>,
-    response: RegistrationResponse,
-    #[serde(rename = "clientExtensionResults")]
-    client_extension_results: ClientExtensionResults,
-}
-
-#[derive(Deserialize)]
-struct RegistrationResponse {
-    #[serde(rename = "clientDataJSON")]
-    client_data_json: String,
-    #[serde(rename = "attestationObject")]
-    attestation_object: String,
-    transports: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct VrfChallengePayload {
-    #[serde(rename = "vrfInput")]
-    vrf_input: String,
-    #[serde(rename = "vrfOutput")]
-    vrf_output: String,
-    #[serde(rename = "vrfProof")]
-    vrf_proof: String,
-    #[serde(rename = "vrfPublicKey")]
-    vrf_public_key: String,
-    #[serde(rename = "userId")]
-    user_id: String,
-    #[serde(rename = "rpId")]
-    rp_id: String,
-    #[serde(rename = "blockHeight")]
-    block_height: u64,
-    #[serde(rename = "blockHash")]
-    block_hash: String,
-}
-
-#[derive(Deserialize)]
-struct SignVerifyAndRegisterUserPayload {
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedRegistrationCredential,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    block_hash_bytes: Vec<u8>,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct SignTransactionWithActionsPayload {
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    #[serde(rename = "receiverId")]
-    receiver_id: String,
-    actions: String, // JSON string
-    nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    block_hash_bytes: Vec<u8>,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedCredential,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct SignTransferTransactionPayload {
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    #[serde(rename = "receiverId")]
-    receiver_id: String,
-    #[serde(rename = "depositAmount")]
-    deposit_amount: String,
-    nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    block_hash_bytes: Vec<u8>,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedCredential,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct AddKeyWithPrfPayload {
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedCredential,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    #[serde(rename = "newPublicKey")]
-    new_public_key: String,
-    #[serde(rename = "accessKeyJson")]
-    access_key_json: String,
-    nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    block_hash_bytes: Vec<u8>,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct DeleteKeyWithPrfPayload {
-    #[serde(rename = "vrfChallenge")]
-    vrf_challenge: VrfChallengePayload,
-    credential: SerializedCredential,
-    #[serde(rename = "contractId")]
-    contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    near_rpc_url: String,
-    #[serde(rename = "nearAccountId")]
-    near_account_id: String,
-    #[serde(rename = "publicKeyToDelete")]
-    public_key_to_delete: String,
-    nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    block_hash_bytes: Vec<u8>,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    prf_output: String,
-}
-
-#[derive(Deserialize)]
-struct ExtractCosePayload {
-    #[serde(rename = "attestationObjectBase64url")]
-    attestation_object_base64url: String,
-}
-
-#[derive(Serialize)]
-struct CoseExtractionResult {
-    #[serde(rename = "cosePublicKeyBytes")]
-    cose_public_key_bytes: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SignerWorkerResponse {
-    #[serde(rename = "type")]
-    pub response_type: u32,
-    pub payload: serde_json::Value,
-    #[serde(rename = "operationId")]
-    pub operation_id: Option<String>,
-    pub timestamp: Option<u64>,
-    #[serde(rename = "executionTime")]
-    pub execution_time: Option<u64>,
-}
-
-/// Unified message handler for all signer worker operations
-/// This replaces the TypeScript-based message dispatching with a Rust-based approach
-/// for better type safety and performance
-#[wasm_bindgen]
-pub async fn handle_signer_message(message: JsValue) -> Result<JsValue, JsValue> {
-    console_error_panic_hook::set_once();
-
-    // Use serde-wasm-bindgen instead of deprecated methods
-    let msg: SignerWorkerMessage = serde_wasm_bindgen::from_value(message)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse message: {:?}", e)))?;
-
-    let start_time = js_sys::Date::now();
-
-    // Convert numeric enum to WorkerRequestType using From trait
-    let request_type = WorkerRequestType::from(msg.msg_type);
-
-    // Route message to appropriate handler using type-safe enum
-    let result = match request_type {
-        WorkerRequestType::DeriveNearKeypairAndEncrypt => handle_derive_near_keypair_and_encrypt_msg(msg.payload),
-        WorkerRequestType::RecoverKeypairFromPasskey => handle_recover_keypair_from_passkey_msg(msg.payload),
-        WorkerRequestType::CheckCanRegisterUser => handle_check_can_register_user_msg(msg.payload).await,
-        WorkerRequestType::SignVerifyAndRegisterUser => handle_sign_verify_and_register_user_msg(msg.payload).await,
-        WorkerRequestType::DecryptPrivateKeyWithPrf => handle_decrypt_private_key_with_prf_msg(msg.payload),
-        WorkerRequestType::SignTransactionWithActions => handle_sign_transaction_with_actions_msg(msg.payload).await,
-        WorkerRequestType::SignTransferTransaction => handle_sign_transfer_transaction_msg(msg.payload).await,
-        WorkerRequestType::AddKeyWithPrf => handle_add_key_with_prf_msg(msg.payload).await,
-        WorkerRequestType::DeleteKeyWithPrf => handle_delete_key_with_prf_msg(msg.payload).await,
-        WorkerRequestType::ExtractCosePublicKey => handle_extract_cose_public_key_msg(msg.payload),
-    };
-
-    let execution_time = js_sys::Date::now() - start_time;
-
-    // Create response using type-safe enum
-    let response = match result {
-        Ok(payload) => {
-            let success_response_type = match request_type {
-                WorkerRequestType::DeriveNearKeypairAndEncrypt => WorkerResponseType::EncryptionSuccess,
-                WorkerRequestType::RecoverKeypairFromPasskey => WorkerResponseType::RecoverKeypairSuccess,
-                WorkerRequestType::CheckCanRegisterUser => WorkerResponseType::RegistrationSuccess,
-                WorkerRequestType::SignVerifyAndRegisterUser => WorkerResponseType::RegistrationSuccess,
-                WorkerRequestType::DecryptPrivateKeyWithPrf => WorkerResponseType::DecryptionSuccess,
-                WorkerRequestType::SignTransactionWithActions => WorkerResponseType::SignatureSuccess,
-                WorkerRequestType::SignTransferTransaction => WorkerResponseType::SignatureSuccess,
-                WorkerRequestType::AddKeyWithPrf => WorkerResponseType::SignatureSuccess,
-                WorkerRequestType::DeleteKeyWithPrf => WorkerResponseType::SignatureSuccess,
-                WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::CoseExtractionSuccess,
-            };
-
-            SignerWorkerResponse {
-                response_type: u32::from(success_response_type),
-                payload,
-                operation_id: msg.operation_id,
-                timestamp: Some(js_sys::Date::now() as u64),
-                execution_time: Some(execution_time as u64),
-            }
-        },
-        Err(error) => SignerWorkerResponse {
-            response_type: u32::from(WorkerResponseType::Error),
-            payload: serde_json::json!({ "error": error }),
-            operation_id: msg.operation_id,
-            timestamp: Some(js_sys::Date::now() as u64),
-            execution_time: Some(execution_time as u64),
-        },
-    };
-
-    // Use serde-wasm-bindgen instead of deprecated methods
-    serde_wasm_bindgen::to_value(&response)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize response: {:?}", e)))
-}
-
 // === MESSAGE HANDLER FUNCTIONS ===
 
-fn handle_derive_near_keypair_and_encrypt_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+/// Handle derive keypair request
+async fn handle_derive_near_keypair_and_encrypt_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let request: DeriveKeypairPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Invalid payload for DERIVE_NEAR_KEYPAIR_AND_ENCRYPT: {:?}", e))?;
 
@@ -2080,7 +1863,8 @@ fn handle_derive_near_keypair_and_encrypt_msg(payload: serde_json::Value) -> Res
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
-fn handle_recover_keypair_from_passkey_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+/// Handle recover keypair request
+async fn handle_recover_keypair_from_passkey_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let request: RecoverKeypairPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Invalid payload for RECOVER_KEYPAIR_FROM_PASSKEY: {:?}", e))?;
 
@@ -2111,6 +1895,7 @@ fn handle_recover_keypair_from_passkey_msg(payload: serde_json::Value) -> Result
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle check can register user request
 async fn handle_check_can_register_user_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: CheckCanRegisterUserPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse CheckCanRegisterUser payload: {}", e))?;
@@ -2144,14 +1929,14 @@ async fn handle_check_can_register_user_msg(payload: serde_json::Value) -> Resul
     );
 
     // Call the async WASM function
-    let wasm_result = check_can_register_user(&vrf_challenge, &credential, &check_request).await
+    let result = check_can_register_user(&vrf_challenge, &credential, &check_request).await
         .map_err(|e| format!("CheckCanRegisterUser failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle sign verify and register user request
 async fn handle_sign_verify_and_register_user_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: SignVerifyAndRegisterUserPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse SignVerifyAndRegisterUser payload: {}", e))?;
@@ -2206,15 +1991,15 @@ async fn handle_sign_verify_and_register_user_msg(payload: serde_json::Value) ->
     );
 
     // Call the async WASM function
-    let wasm_result = sign_verify_and_register_user(&vrf_challenge, &credential, &registration_request).await
+    let result = sign_verify_and_register_user(&vrf_challenge, &credential, &registration_request).await
         .map_err(|e| format!("SignVerifyAndRegisterUser failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
-fn handle_decrypt_private_key_with_prf_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+/// Handle decrypt private key request
+async fn handle_decrypt_private_key_with_prf_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let request: DecryptKeyPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Invalid payload for DECRYPT_PRIVATE_KEY_WITH_PRF: {:?}", e))?;
 
@@ -2232,6 +2017,7 @@ fn handle_decrypt_private_key_with_prf_msg(payload: serde_json::Value) -> Result
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle sign transaction with actions request
 async fn handle_sign_transaction_with_actions_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: SignTransactionWithActionsPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse SignTransactionWithActions payload: {}", e))?;
@@ -2288,14 +2074,14 @@ async fn handle_sign_transaction_with_actions_msg(payload: serde_json::Value) ->
     );
 
     // Call the async WASM function
-    let wasm_result = verify_and_sign_near_transaction_with_actions(&vrf_challenge, &credential, &signing_request).await
+    let result = verify_and_sign_near_transaction_with_actions(&vrf_challenge, &credential, &signing_request).await
         .map_err(|e| format!("SignTransactionWithActions failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle sign transfer transaction request
 async fn handle_sign_transfer_transaction_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: SignTransferTransactionPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse SignTransferTransaction payload: {}", e))?;
@@ -2352,14 +2138,14 @@ async fn handle_sign_transfer_transaction_msg(payload: serde_json::Value) -> Res
     );
 
     // Call the async WASM function
-    let wasm_result = verify_and_sign_near_transfer_transaction(&vrf_challenge, &credential, &transfer_request).await
+    let result = verify_and_sign_near_transfer_transaction(&vrf_challenge, &credential, &transfer_request).await
         .map_err(|e| format!("SignTransferTransaction failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle add key with PRF request
 async fn handle_add_key_with_prf_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: AddKeyWithPrfPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse AddKeyWithPrf payload: {}", e))?;
@@ -2416,14 +2202,14 @@ async fn handle_add_key_with_prf_msg(payload: serde_json::Value) -> Result<serde
     );
 
     // Call the async WASM function
-    let wasm_result = add_key_with_prf(&vrf_challenge, &credential, &add_key_request).await
+    let result = add_key_with_prf(&vrf_challenge, &credential, &add_key_request).await
         .map_err(|e| format!("AddKeyWithPrf failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Handle delete key with PRF request
 async fn handle_delete_key_with_prf_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: DeleteKeyWithPrfPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse DeleteKeyWithPrf payload: {}", e))?;
@@ -2479,15 +2265,15 @@ async fn handle_delete_key_with_prf_msg(payload: serde_json::Value) -> Result<se
     );
 
     // Call the async WASM function
-    let wasm_result = delete_key_with_prf(&vrf_challenge, &credential, &delete_key_request).await
+    let result = delete_key_with_prf(&vrf_challenge, &credential, &delete_key_request).await
         .map_err(|e| format!("DeleteKeyWithPrf failed: {:?}", e))?;
 
-    // Just serialize the WASM struct directly
-    serde_json::to_value(&wasm_result)
+    serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
-fn handle_extract_cose_public_key_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
+/// Handle extract COSE public key request
+async fn handle_extract_cose_public_key_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let request: ExtractCosePayload = serde_json::from_value(payload)
         .map_err(|e| format!("Invalid payload for EXTRACT_COSE_PUBLIC_KEY: {:?}", e))?;
 
@@ -2498,8 +2284,95 @@ fn handle_extract_cose_public_key_msg(payload: serde_json::Value) -> Result<serd
         cose_public_key_bytes: cose_key_bytes,
     };
 
-    // Just serialize the struct directly
     serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))
 }
 
+/// Unified message handler for all signer worker operations
+/// This replaces the TypeScript-based message dispatching with a Rust-based approach
+/// for better type safety and performance
+#[wasm_bindgen]
+pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue> {
+    console_error_panic_hook::set_once();
+
+    // Parse the JSON message
+    let msg: SignerWorkerMessage = serde_json::from_str(message_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse message: {:?}", e)))?;
+
+    // Convert numeric enum to WorkerRequestType using From trait
+    let request_type = WorkerRequestType::from(msg.msg_type);
+
+    // Route message to appropriate handler
+    let response_payload = match request_type {
+        WorkerRequestType::DeriveNearKeypairAndEncrypt => {
+            handle_derive_near_keypair_and_encrypt_msg(msg.payload).await
+        },
+        WorkerRequestType::RecoverKeypairFromPasskey => {
+            handle_recover_keypair_from_passkey_msg(msg.payload).await
+        },
+        WorkerRequestType::CheckCanRegisterUser => {
+            handle_check_can_register_user_msg(msg.payload).await
+        },
+        WorkerRequestType::SignVerifyAndRegisterUser => {
+            handle_sign_verify_and_register_user_msg(msg.payload).await
+        },
+        WorkerRequestType::DecryptPrivateKeyWithPrf => {
+            handle_decrypt_private_key_with_prf_msg(msg.payload).await
+        },
+        WorkerRequestType::SignTransactionWithActions => {
+            handle_sign_transaction_with_actions_msg(msg.payload).await
+        },
+        WorkerRequestType::SignTransferTransaction => {
+            handle_sign_transfer_transaction_msg(msg.payload).await
+        },
+        WorkerRequestType::AddKeyWithPrf => {
+            handle_add_key_with_prf_msg(msg.payload).await
+        },
+        WorkerRequestType::DeleteKeyWithPrf => {
+            handle_delete_key_with_prf_msg(msg.payload).await
+        },
+        WorkerRequestType::ExtractCosePublicKey => {
+            handle_extract_cose_public_key_msg(msg.payload).await
+        },
+    };
+
+    // Handle the result
+    let payload = match response_payload {
+        Ok(payload) => payload,
+        Err(error_msg) => {
+            let error_response = SignerWorkerResponse {
+                response_type: u32::from(WorkerResponseType::Error),
+                payload: serde_json::json!({
+                    "error": error_msg,
+                    "context": { "type": msg.msg_type }
+                }),
+            };
+            return Ok(serde_json::to_string(&error_response)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize error response: {:?}", e)))?);
+        }
+    };
+
+    // Determine response type based on request type
+    let response_type = match request_type {
+        WorkerRequestType::DeriveNearKeypairAndEncrypt => WorkerResponseType::EncryptionSuccess,
+        WorkerRequestType::RecoverKeypairFromPasskey => WorkerResponseType::RecoverKeypairSuccess,
+        WorkerRequestType::CheckCanRegisterUser => WorkerResponseType::RegistrationSuccess,
+        WorkerRequestType::SignVerifyAndRegisterUser => WorkerResponseType::RegistrationSuccess,
+        WorkerRequestType::DecryptPrivateKeyWithPrf => WorkerResponseType::DecryptionSuccess,
+        WorkerRequestType::SignTransactionWithActions => WorkerResponseType::SignatureSuccess,
+        WorkerRequestType::SignTransferTransaction => WorkerResponseType::SignatureSuccess,
+        WorkerRequestType::AddKeyWithPrf => WorkerResponseType::SignatureSuccess,
+        WorkerRequestType::DeleteKeyWithPrf => WorkerResponseType::SignatureSuccess,
+        WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::CoseExtractionSuccess,
+    };
+
+    // Create the final response
+    let response = SignerWorkerResponse {
+        response_type: u32::from(response_type),
+        payload,
+    };
+
+    // Return JSON string
+    serde_json::to_string(&response)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize response: {:?}", e)))
+}

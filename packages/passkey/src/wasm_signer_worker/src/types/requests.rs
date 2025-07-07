@@ -2,7 +2,127 @@
 // All request payload structures for different worker operations
 
 use serde::{Serialize, Deserialize};
-use super::{DualPrfOutputs, WebAuthnAttestationResponse, WebAuthnRegistrationCredentialData};
+use super::{WebAuthnRegistrationCredentialData};
+
+// === WASM-BINDGEN STRUCTS FOR DIRECT FUNCTION CALLS ===
+
+/// Decryption-specific parameters
+#[derive(Debug, Clone)]
+pub struct Decryption {
+    pub aes_prf_output: String,
+    pub encrypted_private_key_data: String,
+    pub encrypted_private_key_iv: String,
+}
+
+/// Transaction-specific parameters
+#[derive(Debug, Clone)]
+pub struct TxData {
+    pub signer_account_id: String,
+    pub receiver_account_id: String,
+    pub nonce: u64,
+    pub block_hash_bytes: Vec<u8>,
+    pub actions_json: String,
+}
+
+/// Contract verification parameters
+#[derive(Debug, Clone)]
+pub struct Verification {
+    pub contract_id: String,
+    pub near_rpc_url: String,
+}
+
+/// Improved transaction signing request with grouped parameters
+#[derive(Debug, Clone)]
+pub struct TransactionSigningRequest {
+    pub verification: Verification,
+    pub decryption: Decryption,
+    pub transaction: TxData,
+}
+
+/// Transfer-specific transaction data
+#[derive(Debug, Clone)]
+pub struct TransferTxData {
+    pub signer_account_id: String,
+    pub receiver_account_id: String,
+    pub nonce: u64,
+    pub block_hash_bytes: Vec<u8>,
+    pub deposit_amount: String,
+}
+
+/// Improved transfer transaction request with grouped parameters
+#[derive(Debug, Clone)]
+pub struct TransferTransactionRequest {
+    pub verification: Verification,
+    pub decryption: Decryption,
+    pub transaction: TransferTxData,
+}
+
+/// Registration transaction-specific parameters
+#[derive(Debug, Clone)]
+pub struct RegistrationTxData {
+    pub signer_account_id: String,
+    pub nonce: u64,
+    pub block_hash_bytes: Vec<u8>,
+}
+
+/// Improved registration request with grouped parameters
+#[derive(Debug, Clone)]
+pub struct RegistrationRequest {
+    pub verification: Verification,
+    pub decryption: Decryption,
+    pub transaction: RegistrationTxData,
+}
+
+/// Registration check request
+#[derive(Debug, Clone)]
+pub struct RegistrationCheckRequest {
+    pub contract_id: String,
+    pub near_rpc_url: String,
+}
+
+/// Add key transaction-specific parameters
+#[derive(Debug, Clone)]
+pub struct AddKeyTxData {
+    pub signer_account_id: String,
+    pub new_public_key: String,
+    pub access_key_json: String,
+    pub nonce: u64,
+    pub block_hash_bytes: Vec<u8>,
+}
+
+/// Delete key transaction-specific parameters
+#[derive(Debug, Clone)]
+pub struct DeleteKeyTxData {
+    pub signer_account_id: String,
+    pub public_key_to_delete: String,
+    pub nonce: u64,
+    pub block_hash_bytes: Vec<u8>,
+}
+
+/// Key action request with grouped parameters
+#[derive(Debug, Clone)]
+pub struct AddKeyRequest {
+    pub verification: Verification,
+    pub decryption: Decryption,
+    pub transaction: AddKeyTxData,
+}
+
+/// Delete key request with grouped parameters
+#[derive(Debug, Clone)]
+pub struct DeleteKeyRequest {
+    pub verification: Verification,
+    pub decryption: Decryption,
+    pub transaction: DeleteKeyTxData,
+}
+
+/// Decryption request
+#[derive(Debug, Clone)]
+pub struct DecryptPrivateKeyRequestStruct {
+    pub near_account_id: String,
+    pub aes_prf_output: String,
+    pub encrypted_private_key_data: String,
+    pub encrypted_private_key_iv: String,
+}
 
 // === KEYPAIR DERIVATION REQUESTS ===
 
@@ -14,7 +134,7 @@ pub struct DeriveKeypairPayload {
     pub near_account_id: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DualPrfOutputsStruct {
     #[serde(rename = "aesPrfOutput")]
     pub aes_prf_output: String,
