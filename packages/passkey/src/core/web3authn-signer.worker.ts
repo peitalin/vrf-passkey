@@ -20,6 +20,7 @@ import {
   type WorkerProgressMessage,
   ProgressMessageType,
   ProgressStep,
+  AddKeyWithPrfRequest,
   DeleteKeyWithPrfRequest,
   takeAesPrfOutput,
 } from './types/signer-worker.js';
@@ -45,21 +46,47 @@ const nearKeysDB = new PasskeyNearKeysDBManager();
 /////////////////////////////////////
 
 const {
-  // Dual PRF functions
-  derive_and_encrypt_keypair_from_dual_prf_wasm,
-  // Registration
+  // Dual PRF functions (structured)
+  derive_and_encrypt_keypair,
+  DualPrfOutputs,
+  // Registration (structured)
   check_can_register_user,
   sign_verify_and_register_user,
-  // Key exports/decryption
-  decrypt_private_key_with_prf_as_string,
-  // Transaction signing: combined verification + signing
+  // Key exports/decryption (structured)
+  decrypt_private_key_with_prf,
+  DecryptPrivateKeyRequest,
+  // Transaction signing: combined verification + signing (structured)
   verify_and_sign_near_transaction_with_actions,
   verify_and_sign_near_transfer_transaction,
-  // New action-specific functions
+  // New action-specific functions (structured)
   add_key_with_prf,
   delete_key_with_prf,
-  // Recover keypair from passkey
+  // Recover keypair from passkey (structured)
   recover_keypair_from_passkey,
+  // Structured types
+  WebAuthnRegistrationCredentialStruct,
+  WebAuthnAuthenticationCredentialStruct,
+  VrfChallengeStruct,
+  TransactionSigningRequest,
+  TransferTransactionRequest,
+  RegistrationCheckRequest,
+  RegistrationRequest,
+  AddKeyRequest,
+  DeleteKeyRequest,
+  // Grouped parameter structures
+  Decryption,
+  TxData,
+  TransferTxData,
+  RegistrationTxData,
+  AddKeyTxData,
+  DeleteKeyTxData,
+  Verification,
+  RecoverKeypairResult,
+  DecryptPrivateKeyResult,
+  TransactionSignResult,
+  KeyActionResult,
+  RegistrationCheckResult,
+  RegistrationResult,
   // COSE keys
   extract_cose_public_key_from_attestation,
 } = wasmModule;
@@ -115,557 +142,7 @@ async function initializeWasmWithCache(): Promise<void> {
   }
 }
 
-/////////////////////////////////////
-// === MAIN MESSAGE HANDLER ===
-/////////////////////////////////////
-
-let messageProcessed = false;
-
-self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
-  if (messageProcessed) {
-    sendResponseAndTerminate(createErrorResponse('Worker has already processed a message'));
-    return;
-  }
-
-  messageProcessed = true;
-  const { type, payload } = event.data;
-  console.log('[signer-worker]: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
-
-  try {
-    console.log('[signer-worker]: Starting WASM initialization...');
-    await initializeWasmWithCache();
-    console.log('[signer-worker]: WASM initialization completed, processing message...');
-
-    switch (type) {
-      case WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT:
-        await handleDeriveNearKeypairAndEncrypt(payload);
-        break;
-
-      case WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY:
-        await handleRecoverKeypairFromPasskey(payload);
-        break;
-
-      case WorkerRequestType.CHECK_CAN_REGISTER_USER:
-        await handleCheckCanRegisterUser(payload);
-        break;
-
-      case WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER:
-        await handleSignVerifyAndRegisterUser(payload);
-        break;
-
-      case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
-        await handleDecryptPrivateKeyWithPrf(payload);
-        break;
-
-      case WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS:
-        await handleVerifyAndSignNearTransactionWithActions(payload);
-        break;
-
-      case WorkerRequestType.SIGN_TRANSFER_TRANSACTION:
-        await handleSignTransferTransaction(payload);
-        break;
-
-      case WorkerRequestType.ADD_KEY_WITH_PRF:
-        await handleAddKeyWithPrf(payload);
-        break;
-
-      case WorkerRequestType.DELETE_KEY_WITH_PRF:
-        await handleDeleteKeyWithPrf(payload);
-        break;
-
-      case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
-        await handleExtractCosePublicKey(payload);
-        break;
-
-      default:
-        sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
-    }
-  } catch (error: any) {
-    console.error('[signer-worker]: Message processing failed:', {
-      error: error?.message || 'Unknown error',
-      stack: error?.stack,
-      name: error?.name,
-      type,
-      workerLocation: self.location.href
-    });
-    sendResponseAndTerminate(createErrorResponse(error?.message || 'Unknown error occurred'));
-  }
-};
-
-// === NEAR KEY DERIVATION AND ENCRYPTION HANDLER ===
-
-/**
- * Derives an AES-256-GCM symmetric key from the first PRF output,
- * Then derives NEAR ed25519 keypairs using HKDF from the second PRF output,
- * then encrypts the NEAR private key with the AES-256-GCM symmetric key.
- *
- * @param payload - The request payload containing:
- *   @param {string} payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
- *   @param {string} payload.nearAccountId - NEAR account ID for HKDF context and keypair association
- *   @param {string} payload.attestationObjectBase64url - Base64URL-encoded WebAuthn attestation object (used for verification only)
- */
-async function handleDeriveNearKeypairAndEncrypt(
-  payload: DeriveNearKeypairAndEncryptRequest['payload']
-): Promise<void> {
-  try {
-    const { dualPrfOutputs, nearAccountId } = payload;
-
-    const encryptionResult = await derive_and_encrypt_keypair_from_dual_prf_wasm(
-      JSON.stringify({
-        dual_prf_outputs: {
-          aes_prf_output_base64: dualPrfOutputs.aesPrfOutput,
-          ed25519_prf_output_base64: dualPrfOutputs.ed25519PrfOutput
-        },
-        account_id: nearAccountId
-      })
-    );
-
-    const parsedResult = JSON.parse(encryptionResult);
-    // Extract nested encrypted data structure
-    const encryptedPrivateKey = parsedResult.encrypted_private_key;
-    if (!encryptedPrivateKey) {
-      throw new Error('Missing encrypted_private_key in WASM result');
-    }
-
-    const encryptedData = encryptedPrivateKey.encrypted_near_key_data_b64u;
-    const iv = encryptedPrivateKey.aes_gcm_nonce_b64u;
-
-    // Store the encrypted key in IndexedDB using flexible field names
-    if (!encryptedData || !iv) {
-      throw new Error(`Missing encrypted data or IV in WASM result. Available fields: ${Object.keys(parsedResult).join(', ')}`);
-    }
-
-    const keyData: EncryptedKeyData = {
-      nearAccountId: nearAccountId,
-      encryptedData: encryptedData,
-      iv: iv,
-      timestamp: Date.now()
-    };
-    await nearKeysDB.storeEncryptedKey(keyData);
-
-    const verified = await nearKeysDB.verifyKeyStorage(nearAccountId);
-    if (!verified) {
-      throw new Error('Key storage verification failed');
-    }
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.ENCRYPTION_SUCCESS,
-      payload: {
-        nearAccountId,
-        publicKey: parsedResult.public_key,
-        stored: true
-      }
-    });
-  } catch (error: any) {
-    console.error('[signer-worker]: ENCRYPTION - Dual PRF key derivation failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
-      payload: { error: error.message || 'Dual PRF key derivation failed' }
-    });
-  }
-}
-
-/**
- * Handle deterministic keypair derivation from passkey for account recovery using PRF
- * @param payload - The request payload containing registration credential with PRF outputs and optional account hint
- */
-async function handleRecoverKeypairFromPasskey(
-  payload: RecoverKeypairFromPasskeyRequest['payload']
-): Promise<void> {
-  try {
-    const { credential, challenge, accountIdHint } = payload;
-    console.log('[signer-worker]: Deriving deterministic keypair from passkey using PRF outputs for recovery');
-
-    // Verify that PRF outputs are available in the credential
-    if (!credential.clientExtensionResults?.prf?.results?.second) {
-      throw new Error('Ed25519 PRF output (second) missing from credential - required for PRF-based key derivation');
-    }
-
-    console.log('[signer-worker]: PRF outputs confirmed in credential, proceeding with recovery');
-
-    // Call the WASM function with registration credential containing PRF outputs
-    const request = {
-      credential,
-      challenge,
-      accountIdHint
-    };
-
-    console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with PRF-enabled credential');
-    const resultJson = await recover_keypair_from_passkey(JSON.stringify(request));
-
-    // Parse the result
-    const result = JSON.parse(resultJson);
-    const publicKey = result.publicKey;
-    console.log('[signer-worker]: PRF-based keypair derivation successful');
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
-      payload: {
-        publicKey,
-        accountIdHint
-      }
-    });
-  } catch (error: any) {
-    console.error('[signer-worker]: PRF-based keypair derivation failed:', error.message);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
-      payload: { error: error.message || 'PRF-based keypair derivation failed' }
-    });
-  }
-}
-
-/////////////////////////////////////
-// === KEY EXPORT AND DECRYPTION HANDLER ===
-/////////////////////////////////////
-
-/**
- * Handle private key decryption with PRF
- * @param payload - The decryption request payload
- * @param payload.nearAccountId - NEAR account ID associated with the key
- * @param payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
- * @returns Promise that resolves when decryption is complete
- */
-async function handleDecryptPrivateKeyWithPrf(
-  payload: DecryptPrivateKeyWithPrfRequest['payload']
-): Promise<void> {
-  try {
-    const { nearAccountId, prfOutput } = payload;
-
-    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
-    if (!encryptedKeyData) {
-      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
-    }
-
-    // WASM function returns structured JSON and does HKDF internally
-    const request = {
-      prf_output_base64: prfOutput,
-      near_account_id: nearAccountId,
-      encrypted_private_key_data: encryptedKeyData.encryptedData,
-      encrypted_private_key_iv: encryptedKeyData.iv
-    };
-    const resultJson = await decrypt_private_key_with_prf_as_string(JSON.stringify(request));
-
-    // Parse the structured response
-    const result = JSON.parse(resultJson);
-    const decryptedPrivateKey = result.private_key;
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.DECRYPTION_SUCCESS,
-      payload: {
-        decryptedPrivateKey,
-        nearAccountId
-      }
-    });
-  } catch (error: any) {
-    console.error('[signer-worker]: Decryption failed:', error.message);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.DECRYPTION_FAILURE,
-      payload: { error: error.message || 'PRF decryption failed' }
-    });
-  }
-}
-
-/**
- * Handle checking if user can register (view function)
- * Calls check_can_register_user on the contract to check eligibility
- */
-async function handleCheckCanRegisterUser(
-  payload: CheckCanRegisterUserRequest['payload']
-): Promise<void> {
-  try {
-    const {
-      vrfChallenge,
-      credential,
-      contractId,
-      nearRpcUrl
-    } = payload;
-
-    console.log('[signer-worker]: Starting check if user can register (view function)');
-
-    // Validate required parameters
-    if (!vrfChallenge || !credential || !contractId || !nearRpcUrl) {
-      throw new Error('Missing required parameters for registration check: vrfChallenge, credential, contractId, nearRpcUrl');
-    }
-
-    const { credentialWithoutPrf } = takeAesPrfOutput(credential);
-    console.log('[signer-worker]: Calling check_can_register_user function');
-
-    // Call the WASM function that handles registration eligibility check
-    const request = {
-      contract_id: contractId,
-      vrf_challenge_data_json: JSON.stringify(vrfChallenge),
-      webauthn_registration_json: JSON.stringify(credentialWithoutPrf),
-      near_rpc_url: nearRpcUrl
-    };
-    const checkResultJson = await check_can_register_user(JSON.stringify(request));
-
-    // Parse the result
-    const checkResult = JSON.parse(checkResultJson);
-    console.log('[signer-worker]: Registration check result:', {
-      verified: checkResult.verified,
-      hasRegistrationInfo: !!checkResult.registration_info,
-      signedTransactionBorsh: checkResult.signed_transaction_borsh
-    });
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_SUCCESS,
-      payload: {
-        verified: checkResult.verified,
-        registrationInfo: checkResult.registration_info,
-        logs: checkResult.logs,
-      }
-    });
-
-  } catch (error: any) {
-    console.error('[signer-worker]: Check registration eligibility failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_FAILURE,
-      payload: { error: error.message || 'Check registration eligibility failed' }
-    });
-  }
-}
-
-/**
- * Handle actual user registration (state-changing function)
- * Calls sign_verify_and_register_user on the contract via send_tx to actually register
- */
-async function handleSignVerifyAndRegisterUser(
-  payload: SignVerifyAndRegisterUserRequest['payload']
-): Promise<void> {
-  try {
-    const {
-      vrfChallenge,
-      credential,
-      contractId,
-      signerAccountId,
-      nearAccountId,
-      nonce,
-      blockHashBytes
-    } = payload;
-
-    console.log('[signer-worker]: Starting actual user registration (state-changing function)');
-
-    // Validate required parameters
-    if (!vrfChallenge || !credential || !contractId || !signerAccountId || !nearAccountId || !nonce || !blockHashBytes) {
-      throw new Error('Missing required parameters for actual registration: vrfChallenge, credential, contractId, nearRpcUrl, signerAccountId, nearAccountId, nonce, blockHashBytes');
-    }
-
-    // Extract AES PRF output for private key decryption
-    const { credentialWithoutPrf, aesPrfOutput } = takeAesPrfOutput(credential);
-
-    // Get encrypted key from storage
-    const encryptedKey = await nearKeysDB.getEncryptedKey(nearAccountId);
-    if (!encryptedKey) {
-      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
-    }
-
-    // Call the WASM function that handles actual registration (send_tx)
-    const request = {
-      contract_id: contractId,
-      vrf_challenge_data_json: JSON.stringify(vrfChallenge),
-      webauthn_registration_json: JSON.stringify(credentialWithoutPrf),
-      signer_account_id: signerAccountId,
-      encrypted_private_key_data: encryptedKey.encryptedData,
-      encrypted_private_key_iv: encryptedKey.iv,
-      prf_output_base64: aesPrfOutput,
-      nonce: Number(nonce),
-      block_hash_bytes: Array.from(new Uint8Array(blockHashBytes))
-    };
-    const registrationResultJson = await sign_verify_and_register_user(JSON.stringify(request));
-
-    // Parse the result
-    const registrationResult = JSON.parse(registrationResultJson);
-    console.log('[signer-worker]: Actual registration result:', {
-      verified: registrationResult.verified,
-      hasRegistrationInfo: !!registrationResult.registration_info,
-      signedTransactionBorsh: registrationResult.signed_transaction_borsh
-    });
-
-    if (!registrationResult.verified) {
-      throw new Error('Actual registration verification failed');
-    }
-
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_SUCCESS,
-      payload: {
-        verified: registrationResult.verified,
-        registrationInfo: registrationResult.registration_info,
-        logs: registrationResult.logs,
-        signedTransaction: registrationResult.signed_transaction,
-        preSignedDeleteTransaction: registrationResult.pre_signed_delete_transaction
-      }
-    });
-
-  } catch (error: any) {
-    console.error('[signer-worker]: Actual user registration failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.REGISTRATION_FAILURE,
-      payload: { error: error.message || 'Actual user registration failed' }
-    });
-  }
-}
-
-// === NEW ACTION-BASED TRANSACTION SIGNING HANDLERS ===
-
-/**
- * Enhanced transaction signing with RPC verification and progress updates
- * NOTE: PRF output is extracted from credential in worker for security
- * Sends multiple messages: verification progress, verification complete, signing progress, signing complete
- */
-async function handleVerifyAndSignNearTransactionWithActions(
-  payload: SignTransactionWithActionsRequest['payload']
-): Promise<void> {
-  try {
-    const {
-      nearAccountId,
-      receiverId,
-      actions,
-      nonce,
-      blockHashBytes,
-      contractId,
-      vrfChallenge,
-      credential,
-      nearRpcUrl
-    } = payload;
-
-    console.log('[signer-worker]: Starting enhanced verify and sign with pure WASM implementation');
-
-    // Validate required parameters
-    if (!nearAccountId || !receiverId || !actions || !nonce || !blockHashBytes) {
-      throw new Error('Missing required transaction parameters');
-    }
-    if (!contractId || !vrfChallenge || !credential || !nearRpcUrl) {
-      throw new Error('Missing required verification parameters');
-    }
-
-    // Get encrypted key data for the account
-    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
-    if (!encryptedKeyData) {
-      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
-    }
-
-    // Extract PRF output using the method you wanted
-    if (!credential.clientExtensionResults?.prf?.results?.first) {
-      throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
-    }
-    console.log('[signer-worker]: PRF output extracted via getClientExtensionResults()');
-
-    let { credentialWithoutPrf, aesPrfOutput } = takeAesPrfOutput(credential);
-
-    // Call the pure WASM function that handles verification + signing with progress messages
-    const request = {
-      prf_output_base64: aesPrfOutput,
-      encrypted_private_key_data: encryptedKeyData.encryptedData,
-      encrypted_private_key_iv: encryptedKeyData.iv,
-      signer_account_id: nearAccountId,
-      receiver_account_id: receiverId,
-      nonce: Number(nonce),
-      block_hash_bytes: blockHashBytes, // Already an array of numbers, don't convert
-      actions_json: actions, // Already a JSON string
-      contract_id: contractId,
-      vrf_challenge_data_json: JSON.stringify(vrfChallenge),
-      webauthn_credential_json: JSON.stringify(credentialWithoutPrf),
-      near_rpc_url: nearRpcUrl
-    };
-    const signedTransactionBorsh = await verify_and_sign_near_transaction_with_actions(JSON.stringify(request));
-
-    console.log('[signer-worker]: Pure WASM verify and sign completed successfully');
-    // WASM function handles all messaging including SIGNING_COMPLETE
-    // The sendProgressMessage function will automatically decode signed transaction bytes
-  } catch (error: any) {
-    console.error('[signer-worker]: Enhanced verify and sign failed:', error);
-    sendResponseAndTerminate(createErrorResponse(
-      `Enhanced verify and sign failed: ${error.message}`
-    ));
-  }
-}
-
-/**
- * Handle Transfer transaction signing with PRF extracted from credential in worker
- * Enhanced mode with contract verification (PRF extracted in worker for security)
- */
-async function handleSignTransferTransaction(
-  payload: SignTransferTransactionRequest['payload']
-): Promise<void> {
-  try {
-    const {
-      nearAccountId,
-      receiverId,
-      depositAmount,
-      nonce,
-      blockHashBytes,
-      // Verification parameters for enhanced mode (all required)
-      contractId,
-      vrfChallenge,
-      credential,
-      nearRpcUrl
-    } = payload;
-
-    console.log('[signer-worker]: Starting Transfer transaction signing');
-
-    // Validate all required parameters
-    const requiredFields = ['nearAccountId', 'receiverId', 'depositAmount', 'nonce'];
-    const missingFields = requiredFields.filter(field => !payload[field as keyof typeof payload]);
-
-    if (missingFields.length > 0) {
-      throw new Error(`Missing required fields for transfer transaction signing: ${missingFields.join(', ')}`);
-    }
-    if (!blockHashBytes || blockHashBytes.length === 0) {
-      throw new Error('blockHashBytes is required and cannot be empty');
-    }
-    // All verification parameters are required
-    if (!contractId || !vrfChallenge || !credential || !nearRpcUrl) {
-      throw new Error('All verification parameters are required: contractId, vrfChallenge, credential, nearRpcUrl');
-    }
-
-    // Get PRF output from serialized credential (extracted in main thread with minimal exposure)
-    console.log('[signer-worker]: Getting PRF output from serialized credential');
-    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
-    if (!prfOutput) {
-      throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
-    }
-    console.log('[signer-worker]: PRF output available for secure signing');
-
-    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
-    if (!encryptedKeyData) {
-      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
-    }
-
-    console.log('[signer-worker]: Using enhanced mode with contract verification');
-
-    // Use the transfer-specific verify+sign WASM function
-    const request = {
-      prf_output_base64: prfOutput,
-      encrypted_private_key_data: encryptedKeyData.encryptedData,
-      encrypted_private_key_iv: encryptedKeyData.iv,
-      signer_account_id: nearAccountId,
-      receiver_account_id: receiverId,
-      deposit_amount: depositAmount,
-      nonce: Number(nonce),
-      block_hash_bytes: blockHashBytes, // Already an array of numbers
-      contract_id: contractId,
-      vrf_challenge_data_json: JSON.stringify(vrfChallenge),
-      webauthn_credential_json: JSON.stringify(credential),
-      near_rpc_url: nearRpcUrl
-    };
-    const signedTransactionBorsh = await verify_and_sign_near_transfer_transaction(JSON.stringify(request));
-
-    console.log('[signer-worker]: Enhanced Transfer transaction signing completed successfully');
-    // WASM function handles all messaging including SIGNING_COMPLETE
-    // The sendProgressMessage function will automatically decode signed transaction bytes
-
-  } catch (error: any) {
-    console.error('[signer-worker]: Transfer transaction signing failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_FAILURE,
-      payload: { error: error.message || 'Transfer transaction signing failed' }
-    });
-  }
-}
-
-/////////////////////////////////////
 // === PROGRESS MESSAGING ===
-/////////////////////////////////////
 
 /**
  * Function called by WASM to send progress messages
@@ -787,45 +264,21 @@ function sendProgressMessage(
 (globalThis as any).sendProgressMessage = sendProgressMessage;
 //////////////////////////////////////////////////////////////
 
-/////////////////////////////////////
-// === TRANSACTION UTILITIES ===
-/////////////////////////////////////
-
 // Send response message and terminate worker
-function sendResponseAndTerminate(response: WorkerResponse): void {
+const sendResponseAndTerminate = (response: WorkerResponse): void => {
   self.postMessage(response);
   self.close();
 }
 
-interface WasmResult {
-  publicKey: string;
-  encryptedPrivateKey: any;
-}
-
-function parseWasmResult(resultJson: string | object): WasmResult {
-  const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
-  const encryptedPrivateKey = typeof result.encryptedPrivateKey === 'string'
-    ? JSON.parse(result.encryptedPrivateKey)
-    : result.encryptedPrivateKey;
-
-  const finalResult = {
-    publicKey: result.publicKey,
-    encryptedPrivateKey
-  };
-  // console.log('[signer-worker]: parseWasmResult - Final result:', finalResult);
-  return finalResult;
-}
-
-/////////////////////////////////////
 // === ERROR HANDLING ===
-/////////////////////////////////////
 
-function createErrorResponse(error: string): WorkerResponse {
+const createErrorResponse = (error: string): WorkerResponse => {
   return {
     type: WorkerResponseType.ERROR,
     payload: { error }
   };
 }
+
 self.onerror = (message, filename, lineno, colno, error) => {
   console.error('[signer-worker]: Global error:', {
     message: typeof message === 'string' ? message : 'Unknown error',
@@ -842,68 +295,800 @@ self.onunhandledrejection = (event) => {
   event.preventDefault();
 };
 
-// === EXPORTS ===
-export type {
-  WorkerRequest,
-  WorkerResponse,
-  DeriveNearKeypairAndEncryptRequest,
-  DecryptPrivateKeyWithPrfRequest
+let messageProcessed = false;
+
+self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
+  if (messageProcessed) {
+    sendResponseAndTerminate(createErrorResponse('Worker has already processed a message'));
+    return;
+  }
+
+  messageProcessed = true;
+  const { type, payload } = event.data;
+  console.log('[signer-worker]: Received message:', { type, payload: { ...payload, prfOutput: '[REDACTED]' } });
+
+  try {
+    console.log('[signer-worker]: Starting WASM initialization...');
+    await initializeWasmWithCache();
+    console.log('[signer-worker]: WASM initialization completed, processing message...');
+
+    switch (type) {
+      case WorkerRequestType.DERIVE_NEAR_KEYPAIR_AND_ENCRYPT:
+        await handleDeriveNearKeypairAndEncrypt(payload);
+        break;
+
+      case WorkerRequestType.RECOVER_KEYPAIR_FROM_PASSKEY:
+        await handleRecoverKeypairFromPasskey(payload);
+        break;
+
+      case WorkerRequestType.CHECK_CAN_REGISTER_USER:
+        await handleCheckCanRegisterUser(payload);
+        break;
+
+      case WorkerRequestType.SIGN_VERIFY_AND_REGISTER_USER:
+        await handleSignVerifyAndRegisterUser(payload);
+        break;
+
+      case WorkerRequestType.DECRYPT_PRIVATE_KEY_WITH_PRF:
+        await handleDecryptPrivateKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.SIGN_TRANSACTION_WITH_ACTIONS:
+        await handleVerifyAndSignNearTransactionWithActions(payload);
+        break;
+
+      case WorkerRequestType.SIGN_TRANSFER_TRANSACTION:
+        await handleSignTransferTransaction(payload);
+        break;
+
+      case WorkerRequestType.ADD_KEY_WITH_PRF:
+        await handleAddKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.DELETE_KEY_WITH_PRF:
+        await handleDeleteKeyWithPrf(payload);
+        break;
+
+      case WorkerRequestType.EXTRACT_COSE_PUBLIC_KEY:
+        await handleExtractCosePublicKey(payload);
+        break;
+
+      default:
+        sendResponseAndTerminate(createErrorResponse(`Unknown message type: ${type}`));
+    }
+  } catch (error: any) {
+    console.error('[signer-worker]: Message processing failed:', {
+      error: error?.message || 'Unknown error',
+      stack: error?.stack,
+      name: error?.name,
+      type,
+      workerLocation: self.location.href
+    });
+    sendResponseAndTerminate(createErrorResponse(error?.message || 'Unknown error occurred'));
+  }
 };
+
+/////////////////////////////////////
+// === MESSAGE HANDLERS ===
+/////////////////////////////////////
+
+/**
+ * Derives an AES-256-GCM symmetric key from the first PRF output,
+ * Then derives NEAR ed25519 keypairs using HKDF from the second PRF output,
+ * then encrypts the NEAR private key with the AES-256-GCM symmetric key.
+ *
+ * @param payload - The request payload containing:
+ *   @param {string} payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
+ *   @param {string} payload.nearAccountId - NEAR account ID for HKDF context and keypair association
+ *   @param {string} payload.attestationObjectBase64url - Base64URL-encoded WebAuthn attestation object (used for verification only)
+ */
+async function handleDeriveNearKeypairAndEncrypt(
+  payload: DeriveNearKeypairAndEncryptRequest['payload']
+): Promise<void> {
+  try {
+    const { dualPrfOutputs, nearAccountId } = payload;
+
+    const dualPrfOutputsStruct = new DualPrfOutputs(
+      dualPrfOutputs.aesPrfOutput,
+      dualPrfOutputs.ed25519PrfOutput
+    );
+
+    const encryptionResult = derive_and_encrypt_keypair(
+      dualPrfOutputsStruct,
+      nearAccountId
+    );
+
+    console.log('[signer-worker]: WASM encryption result:', {
+      encrypted_data_length: encryptionResult.encrypted_data?.length,
+      iv_field: encryptionResult.iv,
+      iv_length: encryptionResult.iv?.length,
+      public_key: encryptionResult.public_key,
+      near_account_id: encryptionResult.near_account_id
+    });
+
+    // The result is now a structured object, not JSON
+    const encryptedData = encryptionResult.encrypted_data;
+    const iv = encryptionResult.iv;
+
+    // Store the encrypted key in IndexedDB using flexible field names
+    if (!encryptedData || !iv) {
+      throw new Error(`Missing encrypted data or IV in WASM result. Available fields: encrypted_data, iv, public_key, near_account_id, stored`);
+    }
+
+    const keyData: EncryptedKeyData = {
+      nearAccountId: nearAccountId,
+      encryptedData: encryptedData,
+      iv: iv,
+      timestamp: Date.now()
+    };
+    await nearKeysDB.storeEncryptedKey(keyData);
+
+    const verified = await nearKeysDB.verifyKeyStorage(nearAccountId);
+    if (!verified) {
+      throw new Error('Key storage verification failed');
+    }
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.ENCRYPTION_SUCCESS,
+      payload: {
+        nearAccountId,
+        publicKey: encryptionResult.public_key,
+        stored: true
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: ENCRYPTION - Dual PRF key derivation failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.DERIVE_NEAR_KEY_FAILURE,
+      payload: { error: error.message || 'Dual PRF key derivation failed' }
+    });
+  }
+}
+
+/**
+ * Handle deterministic keypair derivation from passkey for account recovery using PRF
+ * @param payload - The request payload containing registration credential with PRF outputs and optional account hint
+ */
+async function handleRecoverKeypairFromPasskey(
+  payload: RecoverKeypairFromPasskeyRequest['payload']
+): Promise<void> {
+  try {
+    const { credential, accountIdHint } = payload;
+    console.log('[signer-worker]: Deriving deterministic keypair from passkey using PRF outputs for recovery');
+
+    // Verify that PRF outputs are available in the credential
+    if (!credential.clientExtensionResults?.prf?.results?.second) {
+      throw new Error('Ed25519 PRF output (second) missing from credential - required for PRF-based key derivation');
+    }
+
+    console.log('[signer-worker]: PRF outputs confirmed in credential, proceeding with recovery');
+
+    // Create structured credential object
+    const credentialStruct = new WebAuthnRegistrationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.attestationObject,
+      credential.response.transports,
+      credential.clientExtensionResults?.prf?.results?.second || null // Ed25519 PRF output
+    );
+
+    console.log('[signer-worker]: Calling WASM recover_keypair_from_passkey with structured types');
+    const result = await recover_keypair_from_passkey(credentialStruct, accountIdHint);
+
+    // Result is now a structured object
+    const publicKey = result.public_key;
+    console.log('[signer-worker]: PRF-based keypair derivation successful');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.RECOVER_KEYPAIR_SUCCESS,
+      payload: {
+        publicKey,
+        accountIdHint
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: PRF-based keypair derivation failed:', error.message);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.RECOVER_KEYPAIR_FAILURE,
+      payload: { error: error.message || 'PRF-based keypair derivation failed' }
+    });
+  }
+}
+
+////////////////////////////////////////////
+// === KEY EXPORT AND DECRYPTION HANDLER ===
+////////////////////////////////////////////
+
+/**
+ * Handle private key decryption with PRF
+ * @param payload - The decryption request payload
+ * @param payload.nearAccountId - NEAR account ID associated with the key
+ * @param payload.prfOutput - Base64-encoded PRF output from WebAuthn assertion
+ * @returns Promise that resolves when decryption is complete
+ */
+async function handleDecryptPrivateKeyWithPrf(
+  payload: DecryptPrivateKeyWithPrfRequest['payload']
+): Promise<void> {
+  try {
+    const { nearAccountId, prfOutput } = payload;
+
+    console.log('[signer-worker]: Decrypting for account:', nearAccountId);
+    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    console.log('[signer-worker]: Retrieved encrypted data:', {
+      nearAccountId,
+      encryptedDataLength: encryptedKeyData.encryptedData.length,
+      ivLength: encryptedKeyData.iv.length,
+      ivValue: encryptedKeyData.iv,
+      timestamp: encryptedKeyData.timestamp
+    });
+
+    // Debug: Try to decode the IV to see if it's valid base64
+    try {
+      const ivBytes = atob(encryptedKeyData.iv.replace(/-/g, '+').replace(/_/g, '/'));
+      console.log('[signer-worker]: IV as base64 decodes to length:', ivBytes.length);
+    } catch (e) {
+      console.log('[signer-worker]: IV is not valid base64:', e);
+    }
+
+    // Create structured request
+    const request = new DecryptPrivateKeyRequest(
+      nearAccountId,                  // 1st: near_account_id
+      prfOutput,                      // 2nd: aes_prf_output
+      encryptedKeyData.encryptedData, // 3rd: encrypted_private_key_data
+      encryptedKeyData.iv             // 4th: encrypted_private_key_iv
+    );
+
+    console.log('[signer-worker]: Calling WASM decrypt_private_key_with_prf...');
+    const result = await decrypt_private_key_with_prf(request);
+
+    const decryptedPrivateKey = result.private_key;
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.DECRYPTION_SUCCESS,
+      payload: {
+        decryptedPrivateKey,
+        nearAccountId
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: Decryption failed:', error);
+    const errorMessage = error?.message || error?.toString() || String(error) || 'PRF decryption failed';
+    sendResponseAndTerminate({
+      type: WorkerResponseType.DECRYPTION_FAILURE,
+      payload: { error: errorMessage }
+    });
+  }
+}
+
+/**
+ * Handle checking if user can register (view function)
+ * Calls check_can_register_user on the contract to check eligibility
+ */
+async function handleCheckCanRegisterUser(
+  payload: CheckCanRegisterUserRequest['payload']
+): Promise<void> {
+  try {
+    console.log('[signer-worker]: Starting registration check with enhanced verification');
+
+    // Convert to structured types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      payload.vrfChallenge.vrfInput,
+      payload.vrfChallenge.vrfOutput,
+      payload.vrfChallenge.vrfProof,
+      payload.vrfChallenge.vrfPublicKey,
+      payload.vrfChallenge.userId,
+      payload.vrfChallenge.rpId,
+      BigInt(payload.vrfChallenge.blockHeight),
+      payload.vrfChallenge.blockHash,
+    );
+
+    const credentialStruct = new WebAuthnRegistrationCredentialStruct(
+      payload.credential.id,
+      payload.credential.rawId,
+      payload.credential.type,
+      payload.credential.authenticatorAttachment,
+      payload.credential.response.clientDataJSON,
+      payload.credential.response.attestationObject,
+      payload.credential.response.transports || null,
+      payload.credential.clientExtensionResults?.prf?.results?.second || null, // Ed25519 PRF for recovery
+    );
+
+    const requestStruct = new RegistrationCheckRequest(
+      payload.contractId,
+      payload.nearRpcUrl
+    );
+
+    // Call the structured function
+    const checkResult = await check_can_register_user(vrfChallengeStruct, credentialStruct, requestStruct);
+
+    // Result is now a structured object, not JSON
+    console.log('[signer-worker]: Registration check completed successfully');
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_SUCCESS,
+      payload: {
+        verified: checkResult.verified,
+        registrationInfo: checkResult.registration_info ? {
+          credential_id: Array.from(checkResult.registration_info.credential_id),
+          credential_public_key: Array.from(checkResult.registration_info.credential_public_key),
+          user_id: checkResult.registration_info.user_id,
+          vrf_public_key: checkResult.registration_info.vrf_public_key ? Array.from(checkResult.registration_info.vrf_public_key) : undefined,
+        } : undefined,
+        logs: checkResult.logs,
+      },
+      operationId: payload.contractId,
+      timestamp: Date.now()
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Registration check failed:', error);
+    sendResponseAndTerminate(createErrorResponse(`Registration check failed: ${error.message}`));
+  }
+}
+
+/**
+ * Handle actual user registration (state-changing function)
+ * Calls sign_verify_and_register_user on the contract via send_tx to actually register
+ */
+async function handleSignVerifyAndRegisterUser(
+  payload: SignVerifyAndRegisterUserRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      vrfChallenge,
+      credential,
+      contractId,
+      signerAccountId,
+      nearAccountId,
+      nonce,
+      blockHashBytes
+    } = payload;
+
+    console.log('[signer-worker]: Starting user registration with full verification');
+
+    // Get PRF output from serialized credential
+    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('PRF output missing from credential.extensionResults: required for secure signing');
+    }
+
+    // Get encrypted key data
+    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    // Convert TypeScript types to WASM struct types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      vrfChallenge.vrfInput,
+      vrfChallenge.vrfOutput,
+      vrfChallenge.vrfProof,
+      vrfChallenge.vrfPublicKey,
+      vrfChallenge.userId,
+      vrfChallenge.rpId,
+      BigInt(vrfChallenge.blockHeight),
+      vrfChallenge.blockHash
+    );
+
+    const credentialStruct = new WebAuthnRegistrationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.attestationObject,
+      credential.response.transports,
+      credential.clientExtensionResults?.prf?.results?.second || null
+    );
+
+    // Create grouped parameter structures
+    const decryption = new Decryption(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv
+    );
+    const transaction = new RegistrationTxData(
+      signerAccountId,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes)
+    );
+    const verification = new Verification(
+      contractId,
+      contractId // Use contractId as fallback for nearRpcUrl
+    );
+    const registrationRequest = new RegistrationRequest(
+      verification,
+      decryption,
+      transaction
+    );
+
+    // Call the structured WASM function
+    const registrationResult = await sign_verify_and_register_user(
+      vrfChallengeStruct,
+      credentialStruct,
+      registrationRequest
+    );
+
+    if (!registrationResult.verified) {
+      sendResponseAndTerminate({
+        type: WorkerResponseType.REGISTRATION_FAILURE,
+        payload: { error: registrationResult.error || 'Registration verification failed' }
+      });
+      return;
+    }
+
+    // Create signedTransaction objects for response (without functions - they can't be serialized)
+    const signedTransaction = registrationResult.signed_transaction ? {
+      transaction: JSON.parse(registrationResult.signed_transaction.transaction_json),
+      signature: JSON.parse(registrationResult.signed_transaction.signature_json),
+      borsh_bytes: Array.from(registrationResult.signed_transaction.borsh_bytes || new Uint8Array())
+    } : {
+      transaction: {},
+      signature: {},
+      borsh_bytes: []
+    };
+
+    const preSignedDeleteTransaction = registrationResult.pre_signed_delete_transaction ? {
+      transaction: JSON.parse(registrationResult.pre_signed_delete_transaction.transaction_json),
+      signature: JSON.parse(registrationResult.pre_signed_delete_transaction.signature_json),
+      borsh_bytes: Array.from(registrationResult.pre_signed_delete_transaction.borsh_bytes || new Uint8Array())
+    } : {
+      transaction: {},
+      signature: {},
+      borsh_bytes: []
+    };
+
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_SUCCESS,
+      payload: {
+        verified: registrationResult.verified,
+        registrationInfo: registrationResult.registration_info ? {
+          credential_id: Array.from(registrationResult.registration_info.credential_id),
+          credential_public_key: Array.from(registrationResult.registration_info.credential_public_key),
+          user_id: registrationResult.registration_info.user_id,
+          vrf_public_key: registrationResult.registration_info.vrf_public_key ? Array.from(registrationResult.registration_info.vrf_public_key) : undefined
+        } : {
+          credential_id: [],
+          credential_public_key: [],
+          user_id: nearAccountId,
+          vrf_public_key: undefined
+        },
+        logs: registrationResult.logs,
+        signedTransaction,
+        preSignedDeleteTransaction
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: User registration failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.REGISTRATION_FAILURE,
+      payload: { error: error.message || 'User registration failed' }
+    });
+  }
+}
+
+/**
+ * Enhanced transaction signing with RPC verification and progress updates
+ * NOTE: PRF output is extracted from credential in worker for security
+ * Sends multiple messages: verification progress, verification complete, signing progress, signing complete
+ */
+async function handleVerifyAndSignNearTransactionWithActions(
+  payload: SignTransactionWithActionsRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      nearAccountId,
+      receiverId,
+      actions,
+      nonce,
+      blockHashBytes,
+      contractId,
+      vrfChallenge,
+      credential,
+      nearRpcUrl
+    } = payload;
+
+    console.log('[signer-worker]: Starting transaction signing with actions');
+
+    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('PRF output missing from credential.clientExtensionResults: required for secure key decryption');
+    }
+
+    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    // Convert to structured WASM types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      vrfChallenge.vrfInput,
+      vrfChallenge.vrfOutput,
+      vrfChallenge.vrfProof,
+      vrfChallenge.vrfPublicKey,
+      vrfChallenge.userId,
+      vrfChallenge.rpId,
+      BigInt(vrfChallenge.blockHeight),
+      vrfChallenge.blockHash
+    );
+
+    const credentialStruct = new WebAuthnAuthenticationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.authenticatorData,
+      credential.response.signature,
+      credential.response.userHandle
+    );
+
+    // Create grouped parameters for the structured WASM request
+    const decryption = new Decryption(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv
+    );
+    const transaction = new TxData(
+      nearAccountId,
+      receiverId,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes),
+      actions
+    );
+    const verification = new Verification(
+      contractId,
+      nearRpcUrl
+    );
+    const requestStruct = new TransactionSigningRequest(
+      verification,
+      decryption,
+      transaction
+    );
+
+    const signedTransactionResult = await verify_and_sign_near_transaction_with_actions(
+      vrfChallengeStruct,
+      credentialStruct,
+      requestStruct
+    );
+
+    console.log('[signer-worker]: Pure WASM verify and sign completed successfully');
+
+    // Check if signed transaction is available
+    if (!signedTransactionResult.signed_transaction) {
+      throw new Error('Signed transaction missing from WASM result');
+    }
+
+    // Send completion response to main thread
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNING_COMPLETE,
+      payload: {
+        success: true,
+        data: {
+          signed_transaction: {
+            transaction: JSON.parse(signedTransactionResult.signed_transaction.transaction_json),
+            signature: JSON.parse(signedTransactionResult.signed_transaction.signature_json),
+            borsh_bytes: Array.from(signedTransactionResult.signed_transaction.borsh_bytes || new Uint8Array())
+          },
+          near_account_id: nearAccountId,
+          verification_logs: signedTransactionResult.logs || []
+        },
+      }
+    });
+  } catch (error: any) {
+    console.error('[signer-worker]: Enhanced verify and sign failed:', error);
+    sendResponseAndTerminate(createErrorResponse(
+      `Enhanced verify and sign failed: ${error.message}`
+    ));
+  }
+}
+
+/**
+ * Handle Transfer transaction signing with PRF extracted from credential in worker
+ * Enhanced mode with contract verification (PRF extracted in worker for security)
+ */
+async function handleSignTransferTransaction(
+  payload: SignTransferTransactionRequest['payload']
+): Promise<void> {
+  try {
+    const {
+      nearAccountId,
+      receiverId,
+      depositAmount,
+      nonce,
+      blockHashBytes,
+      contractId,
+      vrfChallenge,
+      credential,
+      nearRpcUrl
+    } = payload;
+
+    console.log('[signer-worker]: Starting Transfer transaction signing');
+
+    const prfOutput = credential.clientExtensionResults?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('PRF output missing from credential.extensionResults: required for secure key decryption');
+    }
+
+    const encryptedKeyData = await nearKeysDB.getEncryptedKey(nearAccountId);
+    if (!encryptedKeyData) {
+      throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+    }
+
+    // Convert to structured WASM types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      vrfChallenge.vrfInput,
+      vrfChallenge.vrfOutput,
+      vrfChallenge.vrfProof,
+      vrfChallenge.vrfPublicKey,
+      vrfChallenge.userId,
+      vrfChallenge.rpId,
+      BigInt(vrfChallenge.blockHeight),
+      vrfChallenge.blockHash
+    );
+
+    const credentialStruct = new WebAuthnAuthenticationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.authenticatorData,
+      credential.response.signature,
+      credential.response.userHandle
+    );
+
+    const decryption = new Decryption(
+      prfOutput,
+      encryptedKeyData.encryptedData,
+      encryptedKeyData.iv
+    );
+    const transaction = new TransferTxData(
+      nearAccountId,
+      receiverId,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes),
+      depositAmount
+    );
+    const verification = new Verification(
+      contractId,
+      nearRpcUrl
+    );
+    const requestStruct = new TransferTransactionRequest(
+      verification,
+      decryption,
+      transaction
+    );
+
+    const signedTransactionResult = await verify_and_sign_near_transfer_transaction(
+      vrfChallengeStruct,
+      credentialStruct,
+      requestStruct
+    );
+
+    console.log('[signer-worker]: Enhanced Transfer transaction signing completed successfully');
+
+    // Check if signed transaction is available
+    if (!signedTransactionResult.signed_transaction) {
+      throw new Error('Signed transaction missing from WASM result');
+    }
+
+    // Send completion response to main thread (cast to any to avoid type conflicts)
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNING_COMPLETE,
+      payload: {
+        success: true,
+        data: {
+          signed_transaction: {
+            transaction: JSON.parse(signedTransactionResult.signed_transaction.transaction_json),
+            signature: JSON.parse(signedTransactionResult.signed_transaction.signature_json),
+            borsh_bytes: Array.from(signedTransactionResult.signed_transaction.borsh_bytes || new Uint8Array())
+          },
+          near_account_id: nearAccountId,
+          verification_logs: signedTransactionResult.logs || []
+        }
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[signer-worker]: Transfer transaction signing failed:', error);
+    sendResponseAndTerminate({
+      type: WorkerResponseType.SIGNATURE_FAILURE,
+      payload: { error: error.message || 'Transfer transaction signing failed' }
+    });
+  }
+}
 
 /**
  * Handle AddKey transaction with PRF authentication
  */
 async function handleAddKeyWithPrf(
-  payload: any // TODO: Type properly once AddKeyWithPrfRequest is imported
+  payload: AddKeyWithPrfRequest['payload']
 ): Promise<void> {
   try {
-    console.log('[signer-worker]: AddKey with PRF - WASM function not yet available');
+    console.log('[signer-worker]: Starting AddKey with PRF authentication');
 
-    const addKeyRequest = {
-      prf_output_base64: payload.prfOutput,
-      encrypted_private_key_data: payload.encryptedPrivateKeyData,
-      encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
-      signer_account_id: payload.signerAccountId,
-      new_public_key: payload.newPublicKey,
-      access_key_json: payload.accessKeyJson,
-      nonce: Number(payload.nonce),
-      block_hash_bytes: payload.blockHashBytes, // Already an array of numbers
-      contract_id: payload.contractId,
-      vrf_challenge_data_json: JSON.stringify(payload.vrfChallenge),
-      webauthn_credential_json: JSON.stringify(payload.credential),
-      near_rpc_url: payload.nearRpcUrl
-    };
-    const result = await add_key_with_prf(JSON.stringify(addKeyRequest));
+    const {
+      prfOutput,
+      encryptedPrivateKeyData,
+      encryptedPrivateKeyIv,
+      signerAccountId,
+      newPublicKey,
+      accessKeyJson,
+      nonce,
+      blockHashBytes,
+      contractId,
+      vrfChallenge,
+      credential,
+      nearRpcUrl
+    } = payload;
 
-    // For now, use the general action-based function as a fallback
-    const actions = JSON.stringify([{
-      actionType: 'AddKey',
-      public_key: payload.newPublicKey,
-      access_key: payload.accessKeyJson
-    }]);
+    // Convert to structured WASM types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      vrfChallenge.vrfInput,
+      vrfChallenge.vrfOutput,
+      vrfChallenge.vrfProof,
+      vrfChallenge.vrfPublicKey,
+      vrfChallenge.userId,
+      vrfChallenge.rpId,
+      BigInt(vrfChallenge.blockHeight),
+      vrfChallenge.blockHash
+    );
 
-    const fallbackRequest = {
-      prf_output_base64: payload.prfOutput,
-      encrypted_private_key_data: payload.encryptedPrivateKeyData,
-      encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
-      signer_account_id: payload.signerAccountId,
-      receiver_account_id: payload.signerAccountId, // receiver same as signer for AddKey
-      nonce: Number(payload.nonce),
-      block_hash_bytes: payload.blockHashBytes, // Already an array of numbers
-      actions_json: actions,
-      contract_id: payload.contractId,
-      vrf_challenge_data_json: JSON.stringify(payload.vrfChallenge),
-      webauthn_credential_json: JSON.stringify(payload.credential),
-      near_rpc_url: payload.nearRpcUrl
-    };
-    await verify_and_sign_near_transaction_with_actions(JSON.stringify(fallbackRequest));
+    const credentialStruct = new WebAuthnAuthenticationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.authenticatorData,
+      credential.response.signature,
+      credential.response.userHandle
+    );
 
+    // Create grouped parameter structures
+    const decryption = new Decryption(
+      prfOutput,
+      encryptedPrivateKeyData,
+      encryptedPrivateKeyIv
+    );
+
+    // Create transaction data for AddKey action
+    const transaction = new AddKeyTxData(
+      signerAccountId,
+      newPublicKey,
+      accessKeyJson,
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes)
+    );
+    const verification = new Verification(
+      contractId,
+      nearRpcUrl
+    );
+    const requestStruct = new AddKeyRequest(
+      verification,
+      decryption,
+      transaction
+    );
+
+    const result = await add_key_with_prf(
+      vrfChallengeStruct,
+      credentialStruct,
+      requestStruct
+    );
+
+    console.log('[signer-worker]: Add key with PRF completed successfully');
   } catch (error: any) {
-    console.error('[signer-worker]: AddKey with PRF failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_FAILURE,
-      payload: { error: error.message || 'AddKey transaction failed' }
-    });
+    console.error('[signer-worker]: Add key with PRF failed:', error);
+    sendResponseAndTerminate(createErrorResponse(`Add key failed: ${error.message}`));
   }
 }
 
@@ -914,51 +1099,86 @@ async function handleDeleteKeyWithPrf(
   payload: DeleteKeyWithPrfRequest['payload']
 ): Promise<void> {
   try {
-    console.log('[signer-worker]: DeleteKey with PRF - WASM function not yet available');
+    console.log('[signer-worker]: Starting DeleteKey with PRF authentication');
 
-    const deleteKeyRequest = {
-      prf_output_base64: payload.prfOutput,
-      encrypted_private_key_data: payload.encryptedPrivateKeyData,
-      encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
-      signer_account_id: payload.signerAccountId,
-      public_key_to_delete: payload.publicKeyToDelete,
-      nonce: Number(payload.nonce),
-      block_hash_bytes: payload.blockHashBytes, // Already an array of numbers
-      contract_id: payload.contractId,
-      vrf_challenge_data_json: JSON.stringify(payload.vrfChallenge),
-      webauthn_credential_json: JSON.stringify(payload.credential),
-      near_rpc_url: payload.nearRpcUrl
-    };
-    const result = await delete_key_with_prf(JSON.stringify(deleteKeyRequest));
+    const {
+      prfOutput,
+      encryptedPrivateKeyData,
+      encryptedPrivateKeyIv,
+      signerAccountId,
+      publicKeyToDelete,
+      nonce,
+      blockHashBytes,
+      contractId,
+      vrfChallenge,
+      credential,
+      nearRpcUrl
+    } = payload;
 
-    // For now, use the general action-based function as a fallback
-    const actions = JSON.stringify([{
+    // Convert to structured WASM types
+    const vrfChallengeStruct = new VrfChallengeStruct(
+      vrfChallenge.vrfInput,
+      vrfChallenge.vrfOutput,
+      vrfChallenge.vrfProof,
+      vrfChallenge.vrfPublicKey,
+      vrfChallenge.userId,
+      vrfChallenge.rpId,
+      BigInt(vrfChallenge.blockHeight),
+      vrfChallenge.blockHash
+    );
+
+    const credentialStruct = new WebAuthnAuthenticationCredentialStruct(
+      credential.id,
+      credential.rawId,
+      credential.type,
+      credential.authenticatorAttachment,
+      credential.response.clientDataJSON,
+      credential.response.authenticatorData,
+      credential.response.signature,
+      credential.response.userHandle
+    );
+
+    // Create grouped parameter structures
+    const decryption = new Decryption(
+      prfOutput,
+      encryptedPrivateKeyData,
+      encryptedPrivateKeyIv
+    );
+
+    // Create actions JSON for DeleteKey action
+    const deleteKeyAction = {
       actionType: 'DeleteKey',
-      public_key: payload.publicKeyToDelete
-    }]);
-
-    const deleteKeyFallbackRequest = {
-      prf_output_base64: payload.prfOutput,
-      encrypted_private_key_data: payload.encryptedPrivateKeyData,
-      encrypted_private_key_iv: payload.encryptedPrivateKeyIv,
-      signer_account_id: payload.signerAccountId,
-      receiver_account_id: payload.signerAccountId, // receiver same as signer for DeleteKey
-      nonce: Number(payload.nonce),
-      block_hash_bytes: payload.blockHashBytes, // Already an array of numbers
-      actions_json: actions,
-      contract_id: payload.contractId,
-      vrf_challenge_data_json: JSON.stringify(payload.vrfChallenge),
-      webauthn_credential_json: JSON.stringify(payload.credential),
-      near_rpc_url: payload.nearRpcUrl
+      public_key: publicKeyToDelete
     };
-    await verify_and_sign_near_transaction_with_actions(JSON.stringify(deleteKeyFallbackRequest));
+    const actionsJson = JSON.stringify([deleteKeyAction]);
 
+    const transaction = new TxData(
+      signerAccountId,
+      signerAccountId, // receiver_id is same as signer for delete key
+      BigInt(nonce),
+      new Uint8Array(blockHashBytes),
+      actionsJson
+    );
+    const verification = new Verification(
+      contractId,
+      nearRpcUrl
+    );
+    const requestStruct = new TransactionSigningRequest(
+      verification,
+      decryption,
+      transaction
+    );
+
+    await verify_and_sign_near_transaction_with_actions(
+      vrfChallengeStruct,
+      credentialStruct,
+      requestStruct
+    );
+
+    console.log('[signer-worker]: Delete key with PRF completed successfully');
   } catch (error: any) {
-    console.error('[signer-worker]: DeleteKey with PRF failed:', error);
-    sendResponseAndTerminate({
-      type: WorkerResponseType.SIGNATURE_FAILURE,
-      payload: { error: error.message || 'DeleteKey transaction failed' }
-    });
+    console.error('[signer-worker]: Delete key with PRF failed:', error);
+    sendResponseAndTerminate(createErrorResponse(`Delete key failed: ${error.message}`));
   }
 }
 
@@ -972,7 +1192,7 @@ async function handleExtractCosePublicKey(
     console.log('[signer-worker]: Starting COSE public key extraction from attestation object');
 
     // Call the WASM function to extract COSE public key
-    const cosePublicKeyBytes = extract_cose_public_key_from_attestation(payload.attestationObjectBase64url);
+    const cosePublicKeyBytes = await extract_cose_public_key_from_attestation(payload.attestationObjectBase64url);
 
     console.log('[signer-worker]: COSE public key extraction successful, bytes length:', cosePublicKeyBytes.length);
 
@@ -991,3 +1211,10 @@ async function handleExtractCosePublicKey(
   }
 }
 
+// === EXPORTS ===
+export type {
+  WorkerRequest,
+  WorkerResponse,
+  DeriveNearKeypairAndEncryptRequest,
+  DecryptPrivateKeyWithPrfRequest
+};

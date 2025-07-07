@@ -11,17 +11,9 @@
     "upgrade-contract": "(cd webauthn-contract && sh ./upgrade.sh)"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "dotenv": "^16.5.0"
   },
   "dependencies": {
-    "@near-js/client": "^2.0.1",
-    "@near-js/crypto": "^2.0.1",
-    "@near-js/keystores-browser": "^2.0.1",
-    "@near-js/keystores-node": "^2.0.1",
-    "@near-js/signers": "^2.0.1",
-    "@near-js/tokens": "^2.0.1",
-    "cbor-x": "^1.6.0",
-    "dotenv": "^16.5.0",
-    "near-seed-phrase": "^0.2.1"
   }
 }

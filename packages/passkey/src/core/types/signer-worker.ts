@@ -16,6 +16,120 @@ export interface DualPrfOutputs {
   ed25519PrfOutput: string;
 }
 
+// === GROUPED PARAMETER INTERFACES ===
+
+/**
+ * Decryption-specific parameters for secure key operations
+ * Matches Rust Decryption struct
+ */
+export interface Decryption {
+  /** Base64-encoded PRF output for AES-GCM decryption */
+  aesPrfOutput: string;
+  /** Base64url-encoded encrypted private key data */
+  encryptedPrivateKeyData: string;
+  /** Base64url-encoded AES-GCM nonce */
+  encryptedPrivateKeyIv: string;
+}
+
+/**
+ * Transaction-specific parameters for NEAR actions
+ * Matches Rust TxData struct
+ */
+export interface TxData {
+  /** NEAR account ID that will sign the transaction */
+  signerAccountId: string;
+  /** NEAR account ID that will receive the transaction */
+  receiverAccountId: string;
+  /** Transaction nonce as number */
+  nonce: number;
+  /** Block hash bytes for the transaction */
+  blockHashBytes: number[];
+  /** JSON string containing array of actions */
+  actionsJson: string;
+}
+
+/**
+ * Contract verification parameters
+ * Matches Rust Verification struct
+ */
+export interface Verification {
+  /** Contract ID for verification */
+  contractId: string;
+  /** NEAR RPC provider URL for verification */
+  nearRpcUrl: string;
+}
+
+/**
+ * Registration transaction-specific parameters
+ * Matches Rust RegistrationTxData struct
+ */
+export interface RegistrationTxData {
+  /** Account ID that will sign the registration transaction */
+  signerAccountId: string;
+  /** Transaction nonce as number */
+  nonce: number;
+  /** Block hash bytes for the transaction */
+  blockHashBytes: number[];
+}
+
+/**
+ * Transfer transaction-specific parameters
+ * Matches Rust TransferTxData struct
+ */
+export interface TransferTxData {
+  /** Account ID that will sign the transfer */
+  signerAccountId: string;
+  /** Account ID that will receive the transfer */
+  receiverAccountId: string;
+  /** Transaction nonce as number */
+  nonce: number;
+  /** Block hash bytes for the transaction */
+  blockHashBytes: number[];
+  /** Transfer amount as string */
+  depositAmount: string;
+}
+
+// === GROUPED REQUEST INTERFACES ===
+
+/**
+ * Transaction signing request with grouped parameters
+ * Matches Rust TransactionSigningRequest struct
+ */
+export interface TransactionSigningRequestGrouped {
+  /** Verification parameters */
+  verification: Verification;
+  /** Decryption parameters */
+  decryption: Decryption;
+  /** Transaction parameters */
+  transaction: TxData;
+}
+
+/**
+ * Transfer transaction request with grouped parameters
+ * Matches Rust TransferTransactionRequest struct
+ */
+export interface TransferTransactionRequestGrouped {
+  /** Verification parameters */
+  verification: Verification;
+  /** Decryption parameters */
+  decryption: Decryption;
+  /** Transfer transaction parameters */
+  transaction: TransferTxData;
+}
+
+/**
+ * Registration request with grouped parameters
+ * Matches Rust RegistrationRequest struct
+ */
+export interface RegistrationRequestGrouped {
+  /** Verification parameters */
+  verification: Verification;
+  /** Decryption parameters */
+  decryption: Decryption;
+  /** Registration transaction parameters */
+  transaction: RegistrationTxData;
+}
+
 // === TRANSACTION TYPES ===
 
 /**
@@ -31,6 +145,19 @@ export interface StructuredSignedTransaction {
   encode: () => Uint8Array;
   /** Raw access to the full SignedTransaction instance for advanced usage */
   _raw: SignedTransaction;
+}
+
+/**
+ * Serializable transaction data for worker communication
+ * Contains the same data as SignedTransaction but without methods
+ */
+export interface SerializableSignedTransaction {
+  /** Decoded transaction object */
+  transaction: any;
+  /** Decoded signature object */
+  signature: any;
+  /** Borsh-encoded bytes as number array */
+  borsh_bytes: number[];
 }
 
 // === USER DATA TYPES ===
@@ -149,8 +276,6 @@ export interface RecoverKeypairFromPasskeyRequest extends BaseWorkerRequest {
   payload: {
     /** Serialized WebAuthn registration credential with attestation object for COSE key extraction */
     credential: WebAuthnRegistrationCredential;
-    /** Challenge that was used in the WebAuthn registration ceremony (base64url-encoded) */
-    challenge: string;
     /** Optional account ID hint for validation */
     accountIdHint?: string;
   };
@@ -304,7 +429,7 @@ function extractDualPrfFromCredential(credential: PublicKeyCredential): {
     const extensionResults = credential.getClientExtensionResults();
     const prfResults = extensionResults?.prf?.results;
 
-    return {
+  return {
       first: prfResults?.first ? base64UrlEncode(prfResults.first as ArrayBuffer) : undefined,
       second: prfResults?.second ? base64UrlEncode(prfResults.second as ArrayBuffer) : undefined
     };
@@ -354,11 +479,11 @@ export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCrede
     const attestationResponse = response as AuthenticatorAttestationResponse;
     return {
       ...credentialBase,
-      response: {
-        clientDataJSON: base64UrlEncode(attestationResponse.clientDataJSON),
-        attestationObject: base64UrlEncode(attestationResponse.attestationObject),
-        transports: attestationResponse.getTransports() || [],
-      },
+    response: {
+      clientDataJSON: base64UrlEncode(attestationResponse.clientDataJSON),
+      attestationObject: base64UrlEncode(attestationResponse.attestationObject),
+      transports: attestationResponse.getTransports() || [],
+    },
     } as C;
   } else {
     const assertionResponse = response as AuthenticatorAssertionResponse;
@@ -371,8 +496,8 @@ export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCrede
         userHandle: assertionResponse.userHandle ? base64UrlEncode(assertionResponse.userHandle as ArrayBuffer) : null,
       },
     } as C;
+    }
   }
-}
 
 type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
 
@@ -730,10 +855,10 @@ export interface RegistrationSuccessResponse extends BaseWorkerResponse {
     };
     /// Contract logs from the registration verification
     logs: string[];
-    /// Structured SignedTransaction object with embedded borsh bytes
-    signedTransaction: SignedTransaction;
-    /// Pre-signed delete transaction for rollback with embedded borsh bytes
-    preSignedDeleteTransaction: SignedTransaction;
+    /// Serializable SignedTransaction data (methods added on receiving end)
+    signedTransaction: SerializableSignedTransaction;
+    /// Pre-signed delete transaction for rollback (serializable)
+    preSignedDeleteTransaction: SerializableSignedTransaction;
   };
 }
 
@@ -1067,12 +1192,12 @@ export interface CompletionResponse {
       | WorkerResponseType.REGISTRATION_COMPLETE;
   payload: {
     success: boolean;
-    data?: any;
+    data: {
+      signed_transaction: SerializableSignedTransaction;
+      near_account_id: string;
+      verification_logs: string[];
+    };
     error?: string;
     logs?: string[];
-    /** SignedTransaction object */
-    signedTransaction: SignedTransaction;
-    /** Account ID for transaction signing operations */
-    nearAccountId?: string;
   };
 }
