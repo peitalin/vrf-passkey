@@ -257,7 +257,7 @@ impl VRFKeyManager {
 
     pub fn generate_vrf_challenge(&self, input_data: VRFInputData) -> Result<VRFChallengeData, String> {
         if !self.session_active || self.vrf_keypair.is_none() {
-            return Err(VrfWorkerError::VrfNotUnlocked);
+            return Err(VrfWorkerError::VrfNotUnlocked.to_string());
         }
 
         console::log_1(&log_messages::GENERATING_CHALLENGE.into());
@@ -383,7 +383,7 @@ impl VRFKeyManager {
         let hk = Hkdf::<Sha256>::new(None, &prf_key);
         let mut aes_key = [0u8; AES_KEY_SIZE];
         hk.expand(HKDF_AES_KEY_INFO, &mut aes_key)
-            .map_err(|_| VrfWorkerError::HkdfDerivationFailed(HkdfError::KeyDerivationFailed))?;
+            .map_err(|_| VrfWorkerError::HkdfDerivationFailed(HkdfError::KeyDerivationFailed).to_string())?;
 
         // Decode encrypted data and IV
         let encrypted_data = base64_url_decode(&encrypted_vrf_keypair.encrypted_vrf_data_b64u)
@@ -395,7 +395,7 @@ impl VRFKeyManager {
             return Err(VrfWorkerError::InvalidIvLength {
                 expected: AES_NONCE_SIZE,
                 actual: iv_nonce_bytes.len()
-            });
+            }.to_string());
         }
 
         // Decrypt the VRF keypair using derived AES key
@@ -454,24 +454,29 @@ impl VRFKeyManager {
     }
 
     /// Derive deterministic VRF keypair from PRF output for recovery
+    /// Optionally generates VRF challenge if input parameters are provided
     /// This is the main entry point for deterministic VRF derivation
     pub fn derive_vrf_keypair_from_prf(
         &self,
         prf_output: Vec<u8>,
         near_account_id: String,
+        vrf_input_params: Option<VRFInputData>,
     ) -> VrfResult<DeterministicVrfKeypairResponse> {
-        console::log_1(&format!("VRF WASM Web Worker: Deriving deterministic VRF keypair from PRF for account: {}", near_account_id).into());
+        console::log_1(&format!("VRF WASM Web Worker: Deriving deterministic VRF keypair from PRF for account: {} (with challenge: {})", near_account_id, vrf_input_params.is_some()).into());
 
         if prf_output.is_empty() {
             return Err(VrfWorkerError::empty_prf_output());
         }
 
         // Generate deterministic VRF keypair from PRF output
-        let vrf_keypair = self.generate_vrf_keypair_from_seed(&prf_output, &near_account_id)?;
+        let vrf_keypair = self.generate_vrf_keypair_from_seed(&prf_output, &near_account_id)
+            .map_err(|e| VrfWorkerError::InvalidMessageFormat(e))?;
 
         // Get public key bytes for response
         let vrf_public_key_bytes = bincode::serialize(&vrf_keypair.pk)
-            .map_err(|e| format!("Failed to serialize VRF public key: {:?}", e))?;
+            .map_err(|e| VrfWorkerError::SerializationError(
+                crate::errors::SerializationError::VrfPublicKeySerialization(format!("{:?}", e))
+            ))?;
         let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
 
         console::log_1(&format!(
@@ -479,11 +484,29 @@ impl VRFKeyManager {
             &vrf_public_key_b64[..DISPLAY_TRUNCATE_LENGTH.min(vrf_public_key_b64.len())]
         ).into());
 
-        // Note: We don't store this keypair in memory - it's derived on-demand
-        // This is different from bootstrap keypairs which are stored for immediate use
+        // Encrypt the VRF keypair with the same PRF output used for derivation
+        console::log_1(&"VRF WASM Web Worker: Encrypting deterministic VRF keypair with PRF output".into());
+        let (_public_key, encrypted_vrf_keypair) = self.encrypt_vrf_keypair_data(&vrf_keypair, &prf_output)
+            .map_err(|e| VrfWorkerError::InvalidMessageFormat(e))?;
+        console::log_1(&"VRF WASM Web Worker: VRF keypair encrypted successfully".into());
+
+        // Generate VRF challenge if input parameters provided
+        let vrf_challenge_data = if let Some(vrf_input_params) = vrf_input_params {
+            console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using deterministic keypair".into());
+            let challenge_data = self.generate_vrf_challenge_with_keypair(&vrf_keypair, vrf_input_params)
+                .map_err(|e| VrfWorkerError::InvalidMessageFormat(e))?;
+            console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully".into());
+            Some(challenge_data)
+        } else {
+            None
+        };
+
+        console::log_1(&"VRF WASM Web Worker: Deterministic VRF keypair derivation completed successfully".into());
 
         Ok(DeterministicVrfKeypairResponse {
             vrf_public_key: vrf_public_key_b64,
+            vrf_challenge_data,
+            encrypted_vrf_keypair: Some(encrypted_vrf_keypair),
             success: true,
         })
     }
@@ -568,6 +591,8 @@ pub struct EncryptedVrfKeypairResponse {
 #[derive(Serialize, Deserialize)]
 pub struct DeterministicVrfKeypairResponse {
     pub vrf_public_key: String,
+    pub vrf_challenge_data: Option<VRFChallengeData>,
+    pub encrypted_vrf_keypair: Option<serde_json::Value>,
     pub success: bool,
 }
 
@@ -652,7 +677,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                                     id: message.id,
                                     success: false,
                                     data: None,
-                                    error: Some(e),
+                                    error: Some(e.to_string()),
                                 }
                             }
                         } else {
@@ -757,7 +782,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                                 id: message.id,
                                 success: false,
                                 data: None,
-                                error: Some(e),
+                                error: Some(e.to_string()),
                             }
                         }
                     }
@@ -823,7 +848,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                                     id: message.id,
                                     success: false,
                                     data: None,
-                                    error: Some(e),
+                                    error: Some(e.to_string()),
                                 }
                             }
                         }
@@ -885,6 +910,10 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                             .unwrap_or("")
                             .to_string();
 
+                        // Parse optional VRF input parameters for challenge generation
+                        let vrf_input_params = data.get("vrfInputParams")
+                            .and_then(|params| serde_json::from_value::<VRFInputData>(params.clone()).ok());
+
                         if prf_output.is_empty() {
                             VRFWorkerResponse {
                                 id: message.id,
@@ -901,10 +930,12 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                             }
                         } else {
                             let manager = manager.borrow();
-                            match manager.derive_vrf_keypair_from_prf(prf_output, near_account_id) {
+                            match manager.derive_vrf_keypair_from_prf(prf_output, near_account_id, vrf_input_params) {
                                 Ok(derivation_result) => {
                                     let response_data = serde_json::json!({
                                         "vrf_public_key": derivation_result.vrf_public_key,
+                                        "vrf_challenge_data": derivation_result.vrf_challenge_data,
+                                        "encrypted_vrf_keypair": derivation_result.encrypted_vrf_keypair,
                                         "success": derivation_result.success
                                     });
 
@@ -919,7 +950,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                                     id: message.id,
                                     success: false,
                                     data: None,
-                                    error: Some(e),
+                                    error: Some(e.to_string()),
                                 }
                             }
                         }
