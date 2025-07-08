@@ -29,10 +29,36 @@ export const passkeyNearKeysDB = new PasskeyNearKeysDBManager();
 export class UnifiedIndexedDBManager {
   public readonly clientDB: PasskeyClientDBManager;
   public readonly nearKeysDB: PasskeyNearKeysDBManager;
+  private _initialized = false;
 
   constructor() {
     this.clientDB = passkeyClientDB;
     this.nearKeysDB = passkeyNearKeysDB;
+  }
+
+  /**
+   * Initialize both databases proactively
+   * This ensures both databases are created and ready for use
+   */
+  async initialize(): Promise<void> {
+    if (this._initialized) {
+      return;
+    }
+
+    try {
+      // Initialize both databases by calling a simple operation
+      // This will trigger the getDB() method in both managers and ensure databases are created
+      await Promise.all([
+        this.clientDB.getAppState('_init_check'),
+        this.nearKeysDB.hasEncryptedKey('_init_check')
+      ]);
+
+      this._initialized = true;
+      console.log('IndexedDB databases initialized successfully');
+    } catch (error) {
+      console.warn('Failed to initialize IndexedDB databases:', error);
+      // Don't throw - allow the SDK to continue working, databases will be initialized on first use
+    }
   }
 
   // === CONVENIENCE METHODS ===
@@ -61,3 +87,9 @@ export class UnifiedIndexedDBManager {
 
 // Export singleton instance of unified manager
 export const IndexedDBManager = new UnifiedIndexedDBManager();
+
+// Initialize databases proactively when the module is imported
+// This ensures both databases are created and available immediately
+IndexedDBManager.initialize().catch(error => {
+  console.warn('Failed to proactively initialize IndexedDB on module load:', error);
+});
