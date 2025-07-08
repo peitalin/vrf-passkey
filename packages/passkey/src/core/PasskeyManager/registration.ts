@@ -62,22 +62,22 @@ export async function registerPasskey(
     await hooks?.beforeCall?.();
 
     // Validate registration inputs
-    validateRegistrationInputs(nearAccountId, onEvent, onError, hooks);
+    await validateRegistrationInputs(context, nearAccountId, onEvent, onError);
 
     onEvent?.({
       step: 1,
       phase: 'webauthn-verification',
       status: 'progress',
       timestamp: Date.now(),
-      message: 'Generating VRF credentials...'
+      message: 'Account available - generating VRF credentials...'
     });
 
     // Step 1: Generate bootstrap VRF keypair + challenge for registration
     console.log('Registration Step 1: Generating VRF keypair + challenge for registration');
-    const vrfChallenge = await generateBootstrapVrfChallenge(
-      context,
-      nearAccountId,
-    );
+    const { vrfChallenge } = await Promise.all([
+      validateRegistrationInputs(context, nearAccountId, onEvent, onError),
+      generateBootstrapVrfChallenge(context, nearAccountId),
+    ]).then(([_, vrfChallenge]) => ({ vrfChallenge }));
 
     // Step 2: Use VRF output as WebAuthn challenge
     console.log('Registration Step 2: Use VRF output as WebAuthn challenge');
@@ -94,18 +94,6 @@ export async function registerPasskey(
       message: 'Performing WebAuthn registration with VRF challenge...'
     });
 
-    // TODO: Alternatively, if we want deterministically derived VRF keypairs (for easier account recovery)
-    // we can do the following:
-    // 1. bootstrap VRF_keypair_bootstrap + VRFChallenge_bootstrap
-    // 2. generate credentials from VRFChallenge_bootstrap
-    // 3. derive VRF_keypair_derived from credentials deterministically
-    //    -> use VRFChallenge_bootstrap for Registration TX
-    //    -> but save VRF_keypair_derived onchain in the Authenticator for future authentications
-    //
-    // However the VRF_keypair_derived saved onchain will not be cryptographically bound by the WebAuthn ceremony,
-    // and any random public key can be saved...so it's less secure, but this is possibly fine if we assume that
-    // the registration ceremony is done once, and not tampered with.
-
     const credential = await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
       nearAccountId,
       challenge: vrfChallengeBytes,
@@ -121,7 +109,12 @@ export async function registerPasskey(
 
     // Steps 4-6: Encrypt VRF keypair, generate NEAR keypair, and check registration in parallel
     console.log('Registration Steps 4-6: Encrypting VRF keypair, generating NEAR keypair with PRF, and checking registration');
-    const { encryptedVrfResult, keyGenResult, canRegisterUserResult } = await Promise.all([
+    const {
+      encryptedVrfResult,
+      keyGenResult,
+      canRegisterUserResult,
+      deterministicVrfResult
+    } = await Promise.all([
       webAuthnManager.encryptVrfKeypairWithCredentials({
         credential,
         vrfPublicKey: vrfChallenge.vrfPublicKey
@@ -144,8 +137,13 @@ export async function registerPasskey(
             message: `Checking registration: ${progress.message}`
           });
         },
+      }),
+      // Generate deterministic VRF keypair from PRF output for recovery
+      webAuthnManager.deriveVrfKeypairFromPrf({
+        credential,
+        nearAccountId
       })
-    ]).then(([encryptedVrfResult, keyGenResult, canRegisterUserResult]) => {
+    ]).then(([encryptedVrfResult, keyGenResult, canRegisterUserResult, deterministicVrfResult]) => {
       if (!encryptedVrfResult.encryptedVrfKeypair || !encryptedVrfResult.vrfPublicKey) {
         throw new Error('Failed to encrypt VRF keypair');
       }
@@ -155,8 +153,16 @@ export async function registerPasskey(
       if (!canRegisterUserResult.verified) {
         throw new Error(`Web3Authn contract registration check failed: ${canRegisterUserResult.error}`);
       }
-      return { encryptedVrfResult, keyGenResult, canRegisterUserResult };
+      if (!deterministicVrfResult.success || !deterministicVrfResult.vrfPublicKey) {
+        throw new Error('Failed to derive deterministic VRF keypair from PRF');
+      }
+      return { encryptedVrfResult, keyGenResult, canRegisterUserResult, deterministicVrfResult };
     });
+
+    console.log('✅ Dual VRF registration strategy:');
+    console.log(`  Bootstrap VRF key: ${vrfChallenge.vrfPublicKey.substring(0, 20)}... (WebAuthn-bound)`);
+    console.log(`  Deterministic VRF key: ${deterministicVrfResult.vrfPublicKey.substring(0, 20)}... (recovery-compatible)`);
+    console.log('Both keys will be stored on the contract for comprehensive VRF support');
 
     onEvent?.({
       step: 2,
@@ -248,6 +254,7 @@ export async function registerPasskey(
       contractId: webAuthnManager.configs.contractId,
       credential: credential,
       vrfChallenge: vrfChallenge,
+      deterministicVrfPublicKey: deterministicVrfResult.vrfPublicKey,
       signerAccountId: nearAccountId,
       nearAccountId: nearAccountId,
       publicKeyStr: keyGenResult.publicKey,
@@ -267,7 +274,7 @@ export async function registerPasskey(
     const contractVerified = contractRegistrationResult.verified;
     const signedTransaction = contractRegistrationResult.signedTransaction;
     const preSignedDeleteTransaction = contractRegistrationResult.preSignedDeleteTransaction;
-    console.log('>>>>>>>contractRegistrationResult', contractRegistrationResult);
+    console.log('>>>>>> contractRegistrationResult', contractRegistrationResult);
 
     // Store pre-signed delete transaction for rollback (always present when WASM worker succeeds)
     registrationState.preSignedDeleteTransaction = preSignedDeleteTransaction;
@@ -472,11 +479,11 @@ export async function generateBootstrapVrfChallenge(
  * @param onError - Optional callback for error handling
  * @param hooks - Optional hooks for registration lifecycle events
  */
-const validateRegistrationInputs = (
+const validateRegistrationInputs = async (
+  context: PasskeyManagerContext,
   nearAccountId: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
-  hooks?: OperationHooks,
 ) => {
 
   onEvent?.({
@@ -504,6 +511,16 @@ const validateRegistrationInputs = (
     const error = new Error('Passkey operations require a secure context (HTTPS or localhost).');
     onError?.(error);
     throw error;
+  }
+
+  const { nearClient } = context;
+  const accountInfo = await nearClient.viewAccount(nearAccountId);
+  if (accountInfo) {
+    // Account already exists
+    const errorMessage = `Account '${nearAccountId}' already exists. Please choose a different account ID.`;
+    console.error('Registration failed:', errorMessage);
+    onError?.(new Error(errorMessage));
+    throw new Error(errorMessage);
   }
 }
 

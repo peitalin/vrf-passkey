@@ -88,6 +88,7 @@ impl WebAuthnContract {
     /// # Arguments
     /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
     /// * `webauthn_registration` - WebAuthn registration credential from authenticator
+    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
     ///
     /// # Returns
     /// * `VerifyRegistrationResponse` - Contains verification status and registration info
@@ -98,11 +99,18 @@ impl WebAuthnContract {
         &mut self,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
 
-        log!("Verifying VRF proof and WebAuthn registration");
+        log!("Verifying VRF proof and WebAuthn registration with dual VRF support");
         log!("  - User ID: {}", vrf_data.user_id);
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
+        log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
+        if let Some(ref det_key) = deterministic_vrf_public_key {
+            log!("  - Deterministic VRF key: {} bytes", det_key.len());
+        } else {
+            log!("  - Deterministic VRF key: None (single VRF registration)");
+        }
 
         // 1. Validate VRF and extract WebAuthn challenge (view-only)
         let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
@@ -125,11 +133,12 @@ impl WebAuthnContract {
         // 3. If WebAuthn verification succeeded, store the authenticator and user data
         if webauthn_result.verified {
             if let Some(registration_info) = webauthn_result.registration_info {
-                // Store the authenticator and user data
+                // Store the authenticator and user data with dual VRF keys
                 let storage_result = self.store_authenticator_and_user(
                     registration_info,
                     webauthn_registration,
                     vrf_data.public_key,
+                    deterministic_vrf_public_key,
                 );
 
                 log!("VRF WebAuthn registration completed successfully");
@@ -512,7 +521,8 @@ impl WebAuthnContract {
     /// # Arguments
     /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
     /// * `credential` - The original registration credential containing transport info and attestation data
-    /// * `vrf_public_key` - Optional VRF public key to store if this is a VRF registration
+    /// * `bootstrap_vrf_public_key` - Bootstrap VRF public key (WebAuthn-bound)
+    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
     ///
     /// # Returns
     /// * `VerifyRegistrationResponse` - Contains verification status and registration info
@@ -521,7 +531,9 @@ impl WebAuthnContract {
     /// * `self` - Mutable reference to contract state
     /// * `registration_info` - RegistrationInfo struct containing credential data
     /// * `credential` - RegistrationCredential struct with transport and attestation data
-    /// * `vrf_public_key` - Optional Vec<u8> containing VRF public key
+    /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
+    /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
+    /// * for key recovery purposes
     ///
     /// # Private
     /// This is a private non-view function that modifies contract state
@@ -529,9 +541,10 @@ impl WebAuthnContract {
         &mut self,
         registration_info: RegistrationInfo,
         credential: WebAuthnRegistrationCredential,
-        vrf_public_key: Vec<u8>,
+        bootstrap_vrf_public_key: Vec<u8>,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
-        log!("Registration verification successful. Storing new authenticator.");
+        log!("Registration verification successful. Storing new authenticator with dual VRF support.");
 
         let credential_id_b64url = BASE64_URL_ENGINE.encode(&registration_info.credential_id);
 
@@ -557,14 +570,23 @@ impl WebAuthnContract {
         // use msg.sender as user account id
         let user_account_id = env::predecessor_account_id();
 
-        // Store the authenticator with the VRF public key
+        // Prepare VRF keys for storage
+        let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
+        if let Some(det_key) = deterministic_vrf_public_key {
+            vrf_keys.push(det_key);
+            log!("Storing authenticator with dual VRF keys: bootstrap + deterministic");
+        } else {
+            log!("Storing authenticator with single VRF key: bootstrap only");
+        }
+
+        // Store the authenticator with multiple VRF public keys
         self.store_authenticator(
             user_account_id.clone(),
             credential_id_b64url.clone(),
             registration_info.credential_public_key.clone(),
             transports,
             current_timestamp,
-            vrf_public_key.clone(),
+            vrf_keys,
         );
 
         // 2. Register user in user registry if not already registered
@@ -772,7 +794,11 @@ mod tests {
 
         // Note: This test will fail VRF verification since we're using mock data
         // but it will test the structure and flow of the VRF registration process
-        let result = contract.verify_and_register_user(vrf_data, webauthn_registration);
+        let result = contract.verify_and_register_user(
+            vrf_data,
+            webauthn_registration,
+            None
+        );
 
         // The result should fail VRF verification (expected with mock data)
         // but the test verifies the method structure and parameter handling

@@ -78,7 +78,7 @@ impl WebAuthnContract {
             .cloned()
     }
 
-    /// Store a new authenticator with VRF public key
+    /// Store a new authenticator with VRF public keys (supports single or multiple keys)
     pub fn store_authenticator(
         &mut self,
         user_id: AccountId,
@@ -86,15 +86,16 @@ impl WebAuthnContract {
         credential_public_key: Vec<u8>,
         transports: Option<Vec<AuthenticatorTransport>>,
         registered: String,
-        vrf_public_key: Vec<u8>,
+        vrf_public_keys: Vec<Vec<u8>>, // Changed from single key to vector of keys
     ) -> bool {
         require!(env::predecessor_account_id() == user_id, "Only the user can call this function");
 
+        let vrf_count = vrf_public_keys.len();
         let authenticator = StoredAuthenticator {
             credential_public_key,
             transports,
             registered,
-            vrf_public_keys: vec![vrf_public_key], // Initialize with first VRF key
+            vrf_public_keys, // Store all VRF keys
         };
 
         // Check if user's authenticator map exists, if not create it
@@ -113,7 +114,7 @@ impl WebAuthnContract {
         // Update credential->user mapping for account recovery
         self.add_credential_user_mapping(credential_id, user_id.clone());
 
-        log!("Stored authenticator for user {} with VRF support", user_id);
+        log!("Stored authenticator for user {} with {} VRF key(s)", user_id, vrf_count);
         true
     }
 

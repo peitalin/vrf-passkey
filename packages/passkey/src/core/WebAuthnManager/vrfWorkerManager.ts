@@ -435,21 +435,33 @@ export class VrfWorkerManager {
 
   /**
    * Derive deterministic VRF keypair from PRF output for account recovery
+   * Optionally generates VRF challenge if input parameters are provided
    * This enables deterministic VRF key derivation without needing stored VRF keypairs
    *
-   * @param prfOutput - Base64url-encoded PRF output from WebAuthn credential
+   * @param prfOutput - Base64url-encoded PRF output from WebAuthn credential (PRF Output 1)
    * @param nearAccountId - NEAR account ID for key derivation salt
-   * @returns Deterministic VRF public key derived from PRF
+   * @param vrfInputParams - Optional VRF input parameters for challenge generation
+   * @returns Deterministic VRF public key, optional VRF challenge, and encrypted VRF keypair for storage
    */
   async deriveVrfKeypairFromSeed({
     prfOutput,
-    nearAccountId
+    nearAccountId,
+    vrfInputParams
   }: {
     prfOutput: string;
     nearAccountId: string;
+    vrfInputParams?: {
+      userId: string;
+      rpId: string;
+      blockHeight: number;
+      blockHashBytes: number[];
+      timestamp: number;
+    };
   }): Promise<{
     success: boolean;
     vrfPublicKey: string;
+    vrfChallenge?: VRFChallenge;
+    encryptedVrfKeypair?: EncryptedVRFKeypair;
   }> {
     console.log('VRF Manager: Deriving deterministic VRF keypair from PRF output');
 
@@ -461,13 +473,26 @@ export class VrfWorkerManager {
       // Decode base64url PRF output to bytes for WASM worker
       const prfBytes = toWasmByteArray(new TextEncoder().encode(atob(prfOutput.replace(/-/g, '+').replace(/_/g, '/'))));
 
+      const messageData: any = {
+        prfOutput: Array.from(prfBytes),
+        nearAccountId: nearAccountId
+      };
+
+      // Add VRF input parameters if provided for challenge generation
+      if (vrfInputParams) {
+        messageData.vrfInputParams = {
+          user_id: vrfInputParams.userId,
+          rp_id: vrfInputParams.rpId,
+          block_height: vrfInputParams.blockHeight,
+          block_hash: vrfInputParams.blockHashBytes,
+          timestamp: vrfInputParams.timestamp
+        };
+      }
+
       const message: VRFWorkerMessage = {
         type: 'DERIVE_VRF_KEYPAIR_FROM_PRF',
         id: this.generateMessageId(),
-        data: {
-          prfOutput: Array.from(prfBytes),
-          nearAccountId: nearAccountId
-        }
+        data: messageData
       };
 
       const response = await this.sendMessage(message);
@@ -477,10 +502,37 @@ export class VrfWorkerManager {
       }
 
       console.log('VRF Manager: Deterministic VRF keypair derivation successful');
-      return {
+
+      const result: {
+        success: boolean;
+        vrfPublicKey: string;
+        vrfChallenge?: VRFChallenge;
+        encryptedVrfKeypair?: EncryptedVRFKeypair;
+      } = {
         success: response.data.success,
         vrfPublicKey: response.data.vrf_public_key
       };
+
+      // Add VRF challenge if it was generated
+      if (response.data.vrf_challenge_data) {
+        result.vrfChallenge = new VRFChallenge({
+          vrfInput: response.data.vrf_challenge_data.vrfInput,
+          vrfOutput: response.data.vrf_challenge_data.vrfOutput,
+          vrfProof: response.data.vrf_challenge_data.vrfProof,
+          vrfPublicKey: response.data.vrf_challenge_data.vrfPublicKey,
+          userId: response.data.vrf_challenge_data.userId,
+          rpId: response.data.vrf_challenge_data.rpId,
+          blockHeight: response.data.vrf_challenge_data.blockHeight,
+          blockHash: response.data.vrf_challenge_data.blockHash,
+        });
+      }
+
+      // Add encrypted VRF keypair if it was generated
+      if (response.data.encrypted_vrf_keypair) {
+        result.encryptedVrfKeypair = response.data.encrypted_vrf_keypair;
+      }
+
+      return result;
 
     } catch (error: any) {
       console.error('VRF Manager: VRF keypair derivation failed:', error);

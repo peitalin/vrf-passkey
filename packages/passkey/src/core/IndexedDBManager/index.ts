@@ -46,6 +46,7 @@ export class UnifiedIndexedDBManager {
     }
 
     try {
+      console.log('Initializing IndexedDB databases...');
       // Initialize both databases by calling a simple operation
       // This will trigger the getDB() method in both managers and ensure databases are created
       await Promise.all([
@@ -54,11 +55,18 @@ export class UnifiedIndexedDBManager {
       ]);
 
       this._initialized = true;
-      console.log('IndexedDB databases initialized successfully');
+      console.log('IndexedDB databases initialized successfully - passkeyClientDB and passkeyNearKeysDB ready');
     } catch (error) {
       console.warn('Failed to initialize IndexedDB databases:', error);
       // Don't throw - allow the SDK to continue working, databases will be initialized on first use
     }
+  }
+
+  /**
+   * Check if databases have been initialized
+   */
+  get isInitialized(): boolean {
+    return this._initialized;
   }
 
   // === CONVENIENCE METHODS ===

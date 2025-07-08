@@ -5,6 +5,8 @@ import type { VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
+import { base58Decode } from '../../utils/encoders';
+import { base64UrlEncode } from '../../utils/encoders';
 
 /**
  * Use case:
@@ -21,6 +23,11 @@ export interface RecoveryResult {
   publicKey: string;
   message: string;
   error?: string;
+  loginState?: {
+    isLoggedIn: boolean;
+    vrfActive: boolean;
+    vrfSessionDuration?: number;
+  };
 }
 
 export interface AccountLookupResult {
@@ -330,28 +337,24 @@ export async function recoverAccount(
       throw new Error(`Invalid NEAR account ID: ${validation.error}`);
     }
 
-    // Step 1: Generate bootstrap VRF keypair + challenge for registration
-    console.log('Registration Step 1: Generating VRF keypair + challenge for registration');
-    const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
-
-    // Step 2: Use VRF output as WebAuthn challenge
-    console.log('Registration Step 3: Use VRF output as WebAuthn challenge');
-    const vrfChallengeBytes = vrfChallenge.outputAs32Bytes();
+    // Step 1: Use simple random challenge for initial WebAuthn authentication (recovery approach)
+    console.log('Recovery Step 1: Using random challenge for initial WebAuthn authentication');
+    const randomChallenge = crypto.getRandomValues(new Uint8Array(32));
 
     if (reuseCredential) {
       console.log('Reusing credential from passkey discovery (no additional TouchID prompt)');
     }
-    // Reuse credential if provided (from passkey selection)
+    // Use random challenge for initial authentication to get PRF outputs
     const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
       nearAccountId: accountId,
-      challenge: vrfChallengeBytes,
+      challenge: randomChallenge,
       credentialIds: [reuseCredential?.id || '']
     });
 
     // Note: Any registration credential from the same passkey will work
     // The PRF-based derivation produces the same Ed25519 keypair from the same PRF outputs
     const recoveredKeypair = await webAuthnManager.recoverKeypairFromPasskey(
-      vrfChallengeBytes,
+      randomChallenge,
       credential,
       accountId
     );
@@ -371,29 +374,52 @@ export async function recoverAccount(
       throw new Error(`Account ${accountId} was not created with this passkey`);
     }
 
-    console.log('Registration Steps 5-7: Encrypting VRF keypair, generating NEAR keypair with PRF, and verifying account access');
-    const { encryptedVrfResult, keyGenResult } = await Promise.all([
-      webAuthnManager.encryptVrfKeypairWithCredentials({
-        credential,
-        vrfPublicKey: vrfChallenge.vrfPublicKey
-      }),
-      webAuthnManager.deriveNearKeypairAndEncrypt({
-        credential,
-        nearAccountId: accountId
-      })
-    ]).then(([encryptedVrfResult, keyGenResult]) => {
-      if (!encryptedVrfResult.encryptedVrfKeypair || !encryptedVrfResult.vrfPublicKey) {
-        throw new Error('Failed to encrypt VRF keypair');
-      }
-      if (!keyGenResult.success || !keyGenResult.publicKey) {
-        throw new Error('Failed to generate NEAR keypair with PRF');
-      }
-      // Skip checkCanRegisterUser during recovery - we're not registering, we're recovering
-      // Account ownership is verified by checking access key above
-      return { encryptedVrfResult, keyGenResult };
+    console.log('Recovery Steps 2-4: Deriving deterministic VRF keypair with challenge and generating NEAR keypair with PRF');
+
+    // Step 2: Get real NEAR block data for VRF challenge generation
+    console.log('Fetching real NEAR block data for VRF challenge...');
+    const blockInfo = await nearClient.viewBlock({ finality: 'final' });
+    const blockHashBytes: number[] = Array.from(base58Decode(blockInfo.header.hash));
+
+    const vrfInputParams = {
+      userId: accountId,
+      rpId: window.location.hostname,
+      blockHeight: blockInfo.header.height,
+      blockHashBytes: blockHashBytes,
+      timestamp: Date.now()
+    };
+
+    // Step 3: Derive deterministic VRF keypair AND generate VRF challenge in one call
+    const deterministicVrfResult = await webAuthnManager.deriveVrfKeypairFromPrf({
+      credential,
+      nearAccountId: accountId,
+      vrfInputParams
     });
 
-    console.log(`Account ownership verified for ${accountId}`);
+    if (!deterministicVrfResult.success || !deterministicVrfResult.vrfPublicKey || !deterministicVrfResult.vrfChallenge) {
+      throw new Error('Failed to derive deterministic VRF keypair and generate challenge from PRF');
+    }
+    if (!deterministicVrfResult.encryptedVrfKeypair) {
+      throw new Error('Failed to derive encrypted VRF keypair from PRF');
+    }
+    console.log('Deterministic VRF keypair and challenge generated successfully');
+    // Use the encrypted VRF keypair returned from the VRF derivation
+    const encryptedVrfResult = {
+      vrfPublicKey: deterministicVrfResult.vrfPublicKey,
+      encryptedVrfKeypair: deterministicVrfResult.encryptedVrfKeypair
+    };
+    const vrfChallenge = deterministicVrfResult.vrfChallenge;
+
+    // Step 4: Generate NEAR keypair with PRF
+    const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
+      credential,
+      nearAccountId: accountId
+    });
+
+    if (!keyGenResult.success || !keyGenResult.publicKey) {
+      throw new Error('Failed to generate NEAR keypair with PRF');
+    }
+    console.log('NEAR keypair generated and encrypted successfully');
 
     // 3. Perform recovery
     onEvent?.({
@@ -580,7 +606,74 @@ async function performAccountRecovery({
       console.log('VRF key will be added to contract during next VRF operation that requires contract verification');
     }
 
-    // 5. Update last login timestamp
+    // DEBUG: Check what VRF keys are stored on contract vs what we recovered
+    console.log('=== VRF KEY DEBUGGING ===');
+    console.log(`Recovered VRF public key: ${encryptedVrfResult.vrfPublicKey}`);
+
+    // Check what VRF keys are stored on contract for this account
+    try {
+      // Note: VRF keys are stored within authenticators, not as a separate method
+      const contractAuthenticators = await nearClient.view({
+        account: configs.contractId,
+        method: 'get_authenticators_by_user',
+        args: { user_id: accountId }
+      });
+
+      if (contractAuthenticators && contractAuthenticators.length > 0) {
+        // Extract VRF keys from all authenticators
+        const allVrfKeys: string[] = [];
+        contractAuthenticators.forEach(([credentialId, authenticator]: [string, any]) => {
+          if (authenticator.vrf_public_keys && Array.isArray(authenticator.vrf_public_keys)) {
+            // Convert byte arrays to base64url strings for comparison
+            authenticator.vrf_public_keys.forEach((keyBytes: number[]) => {
+              const keyString = base64UrlEncode(new Uint8Array(keyBytes));
+              allVrfKeys.push(keyString);
+            });
+          }
+        });
+
+        console.log(`Contract VRF keys for ${accountId}:`, allVrfKeys);
+
+        if (allVrfKeys.length > 0) {
+          const matchesContract = allVrfKeys.some((key: string) => key === encryptedVrfResult.vrfPublicKey);
+          console.log(`Recovered VRF key matches contract: ${matchesContract}`);
+          if (!matchesContract) {
+            console.warn('⚠️ VRF KEY MISMATCH: The recovered VRF key does not match any keys stored on the contract!');
+            console.warn('This will cause transaction signing to fail until the VRF key is properly registered.');
+          }
+        } else {
+          console.warn('⚠️ NO VRF KEYS: No VRF keys found in contract authenticators for this account.');
+          console.warn('The VRF key needs to be registered on the contract before transaction signing will work.');
+        }
+      } else {
+        console.warn('⚠️ NO AUTHENTICATORS: No authenticators found on contract for this account.');
+      }
+    } catch (vrfCheckError: any) {
+      console.log('Could not check contract VRF keys:', vrfCheckError.message);
+      console.log('This is expected during development when the contract method may not exist.');
+    }
+    console.log('=== END VRF KEY DEBUGGING ===');
+
+    // 5. Unlock VRF keypair in memory for immediate login
+    console.log('Account Recovery Step 5: Unlocking VRF keypair for immediate login');
+    try {
+      const unlockResult = await webAuthnManager.unlockVRFKeypair({
+        nearAccountId: accountId,
+        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+        credential: credential, // Use the same credential that was used for VRF encryption
+      });
+
+      if (!unlockResult.success) {
+        console.warn('VRF keypair unlock failed during recovery:', unlockResult.error);
+      } else {
+        console.log('✅ VRF keypair unlocked successfully during recovery');
+      }
+    } catch (unlockError: any) {
+      console.warn('VRF keypair unlock failed during recovery:', unlockError.message);
+      console.log('Recovery will continue without VRF unlock - user can login manually to unlock VRF');
+    }
+
+    // 6. Update last login timestamp
     await webAuthnManager.updateLastLogin(accountId);
 
     console.log(`Account recovery completed for ${accountId}`);

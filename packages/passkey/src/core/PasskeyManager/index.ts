@@ -79,6 +79,15 @@ export class PasskeyManager {
     return getLoginState(this.getContext(), nearAccountId);
   }
 
+  /**
+   * Refresh and get updated login state - useful after account recovery or login
+   * This forces a fresh check of VRF worker status and user data
+   */
+  async refreshLoginState(nearAccountId?: string): Promise<LoginState> {
+    // Clear any cached state if needed, then get fresh login state
+    return getLoginState(this.getContext(), nearAccountId);
+  }
+
   async getRecentLogins(): Promise<{ accountIds: string[], lastUsedAccountId: string|null }> {
     return getRecentLogins(this.getContext());
   }

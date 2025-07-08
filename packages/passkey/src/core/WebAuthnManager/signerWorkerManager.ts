@@ -442,19 +442,23 @@ export class SignerWorkerManager {
     vrfChallenge,
     credential,
     contractId,
+    deterministicVrfPublicKey,
     signerAccountId,
     nearAccountId,
     publicKeyStr,
     nearClient,
+    nearRpcUrl,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
     credential: PublicKeyCredential,
     contractId: string;
+    deterministicVrfPublicKey?: string; // Optional deterministic VRF key for dual registration
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string; // NEAR public key for nonce retrieval
     nearClient: NearClient; // NEAR RPC client for getting transaction metadata
+    nearRpcUrl: string; // NEAR RPC URL for contract verification
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     verified: boolean;
@@ -487,6 +491,23 @@ export class SignerWorkerManager {
 
       // Extract PRF output from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
+
+      // DEBUG: Log PRF output details
+      console.log('WebAuthnManager: DEBUG - PRF output extraction details:', {
+        aesPrfOutputLength: dualPrfOutputs.aesPrfOutput.length,
+        aesPrfOutputPreview: dualPrfOutputs.aesPrfOutput.substring(0, 20) + '...',
+        ed25519PrfOutputLength: dualPrfOutputs.ed25519PrfOutput.length,
+        ed25519PrfOutputPreview: dualPrfOutputs.ed25519PrfOutput.substring(0, 20) + '...',
+      });
+
+      // DEBUG: Log encrypted key data details
+      console.log('WebAuthnManager: DEBUG - Encrypted key data details:', {
+        encryptedDataLength: encryptedKeyData.encryptedData.length,
+        encryptedDataPreview: encryptedKeyData.encryptedData.substring(0, 20) + '...',
+        ivLength: encryptedKeyData.iv.length,
+        ivPreview: encryptedKeyData.iv.substring(0, 20) + '...',
+        timestamp: encryptedKeyData.timestamp
+      });
 
       // Get access key and transaction block info concurrently
       const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
@@ -533,7 +554,10 @@ export class SignerWorkerManager {
             // Pass encrypted key data from IndexedDB
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv,
-            prfOutput: dualPrfOutputs.aesPrfOutput
+            prfOutput: dualPrfOutputs.aesPrfOutput,
+            // Add missing nearRpcUrl field
+            nearRpcUrl,
+            deterministicVrfPublicKey,
           }
         },
         onEvent,

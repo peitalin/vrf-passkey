@@ -100,21 +100,33 @@ export class WebAuthnManager {
 
   /**
    * Derive deterministic VRF keypair from PRF output for recovery
+   * Optionally generates VRF challenge if input parameters are provided
    * This enables deterministic VRF key derivation from WebAuthn credentials
    *
    * @param credential - WebAuthn credential containing PRF outputs
    * @param nearAccountId - NEAR account ID for key derivation salt
-   * @returns Deterministic VRF public key derived from PRF
+   * @param vrfInputParams - Optional VRF input parameters for challenge generation
+   * @returns Deterministic VRF public key, optional VRF challenge, and encrypted VRF keypair for storage
    */
   async deriveVrfKeypairFromPrf({
     credential,
-    nearAccountId
+    nearAccountId,
+    vrfInputParams
   }: {
     credential: PublicKeyCredential;
     nearAccountId: string;
+    vrfInputParams?: {
+      userId: string;
+      rpId: string;
+      blockHeight: number;
+      blockHashBytes: number[];
+      timestamp: number;
+    };
   }): Promise<{
     success: boolean;
     vrfPublicKey: string;
+    vrfChallenge?: VRFChallenge;
+    encryptedVrfKeypair?: EncryptedVRFKeypair;
   }> {
     try {
       console.log('WebAuthnManager: Deriving deterministic VRF keypair from PRF output');
@@ -122,22 +134,53 @@ export class WebAuthnManager {
       // Extract PRF outputs from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
+      // DEBUG: Log PRF output details for VRF derivation
+      console.log('=== VRF DERIVATION DEBUGGING ===');
+      console.log(`Account ID: ${nearAccountId}`);
+      console.log(`AES PRF output (for VRF derivation): ${dualPrfOutputs.aesPrfOutput.substring(0, 20)}... (length: ${dualPrfOutputs.aesPrfOutput.length})`);
+      console.log(`Ed25519 PRF output: ${dualPrfOutputs.ed25519PrfOutput.substring(0, 20)}... (length: ${dualPrfOutputs.ed25519PrfOutput.length})`);
+
       // Use the first PRF output for VRF keypair derivation (AES PRF output)
       // This ensures deterministic derivation: same PRF + same account = same VRF keypair
       const vrfKeypairResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
         prfOutput: dualPrfOutputs.aesPrfOutput,
-        nearAccountId: nearAccountId
+        nearAccountId: nearAccountId,
+        vrfInputParams: vrfInputParams
       });
 
       if (!vrfKeypairResult.success) {
         throw new Error('VRF keypair derivation from PRF failed');
       }
 
+      console.log(`Derived VRF public key: ${vrfKeypairResult.vrfPublicKey}`);
+      if (vrfKeypairResult.vrfChallenge) {
+        console.log(`Generated VRF challenge with output: ${vrfKeypairResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
+      }
+      if (vrfKeypairResult.encryptedVrfKeypair) {
+        console.log(`Generated encrypted VRF keypair for storage`);
+      }
+      console.log('=== END VRF DERIVATION DEBUGGING ===');
       console.log('WebAuthnManager: Deterministic VRF keypair derived successfully');
-      return {
+
+      const result: {
+        success: boolean;
+        vrfPublicKey: string;
+        vrfChallenge?: VRFChallenge;
+        encryptedVrfKeypair?: EncryptedVRFKeypair;
+      } = {
         success: true,
         vrfPublicKey: vrfKeypairResult.vrfPublicKey
       };
+
+      if (vrfKeypairResult.vrfChallenge) {
+        result.vrfChallenge = vrfKeypairResult.vrfChallenge;
+      }
+
+      if (vrfKeypairResult.encryptedVrfKeypair) {
+        result.encryptedVrfKeypair = vrfKeypairResult.encryptedVrfKeypair;
+      }
+
+      return result;
 
     } catch (error: any) {
       console.error('WebAuthnManager: VRF keypair derivation from PRF error:', error);
@@ -708,6 +751,7 @@ export class WebAuthnManager {
     contractId,
     credential,
     vrfChallenge,
+    deterministicVrfPublicKey,
     signerAccountId,
     nearAccountId,
     publicKeyStr,
@@ -717,6 +761,7 @@ export class WebAuthnManager {
     contractId: string,
     credential: PublicKeyCredential,
     vrfChallenge: VRFChallenge,
+    deterministicVrfPublicKey: string, // deterministic VRF key for key recovery
     signerAccountId: string;
     nearAccountId: string;
     publicKeyStr: string;
@@ -736,11 +781,13 @@ export class WebAuthnManager {
         vrfChallenge,
         credential,
         contractId,
+        deterministicVrfPublicKey, // Pass through the deterministic VRF key
         signerAccountId,
         nearAccountId,
         publicKeyStr,
         nearClient,
         onEvent,
+        nearRpcUrl: this.configs.nearRpcUrl,
       });
 
       console.debug("On-chain registration completed:", registrationResult);
