@@ -606,9 +606,10 @@ async function performAccountRecovery({
       console.log('VRF key will be added to contract during next VRF operation that requires contract verification');
     }
 
-    // DEBUG: Check what VRF keys are stored on contract vs what we recovered
-    console.log('=== VRF KEY DEBUGGING ===');
-    console.log(`Recovered VRF public key: ${encryptedVrfResult.vrfPublicKey}`);
+    // DEBUG: Check what VRF keys are stored on contract vs what we derived
+    console.log('=== VRF KEY RECOVERY ANALYSIS ===');
+    console.log(`Deterministic VRF public key derived during recovery: ${encryptedVrfResult.vrfPublicKey}`);
+    console.log('Note: This deterministic VRF key is derived from recovery credential PRF and may differ from registration');
 
     // Check what VRF keys are stored on contract for this account
     try {
@@ -633,10 +634,11 @@ async function performAccountRecovery({
         });
 
         console.log(`Contract VRF keys for ${accountId}:`, allVrfKeys);
+        console.log('These are the VRF keys that were stored during original registration');
 
         if (allVrfKeys.length > 0) {
           const matchesContract = allVrfKeys.some((key: string) => key === encryptedVrfResult.vrfPublicKey);
-          console.log(`Recovered VRF key matches contract: ${matchesContract}`);
+          console.log(`Recovery-derived VRF key matches contract: ${matchesContract}`);
           if (!matchesContract) {
             console.warn('⚠️ VRF KEY MISMATCH: The recovered VRF key does not match any keys stored on the contract!');
             console.warn('This will cause transaction signing to fail until the VRF key is properly registered.');
@@ -654,23 +656,24 @@ async function performAccountRecovery({
     }
     console.log('=== END VRF KEY DEBUGGING ===');
 
-    // 5. Unlock VRF keypair in memory for immediate login
-    console.log('Account Recovery Step 5: Unlocking VRF keypair for immediate login');
+    // 5. Unlock VRF keypair in memory for immediate login (using same credential as derivation)
+    console.log('Account Recovery Step 5: Unlocking VRF keypair with same credential used for derivation');
     try {
       const unlockResult = await webAuthnManager.unlockVRFKeypair({
         nearAccountId: accountId,
         encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
-        credential: credential, // Use the same credential that was used for VRF encryption
+        credential: credential, // Use the same credential that was used for VRF derivation
       });
 
       if (!unlockResult.success) {
-        console.warn('VRF keypair unlock failed during recovery:', unlockResult.error);
+        console.warn('VRF keypair unlock failed during recovery (non-fatal):', unlockResult.error);
       } else {
-        console.log('✅ VRF keypair unlocked successfully during recovery');
+        console.log('✅ VRF keypair unlocked successfully during recovery with same credential');
       }
     } catch (unlockError: any) {
-      console.warn('VRF keypair unlock failed during recovery:', unlockError.message);
-      console.log('Recovery will continue without VRF unlock - user can login manually to unlock VRF');
+      console.warn('VRF keypair unlock failed during recovery (non-fatal):', unlockError.message);
+      console.log('This is expected - VRF keypair will be unlocked during the next VRF operation');
+      // Do not throw error - recovery can continue without VRF unlock
     }
 
     // 6. Update last login timestamp

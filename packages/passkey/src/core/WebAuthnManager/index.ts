@@ -24,7 +24,7 @@ import {
   VrfWorkerManager
 } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
-import { base64UrlEncode, base58Decode } from '../../utils/encoders';
+import { base64UrlEncode, base64UrlDecode, base58Decode, toWasmByteArray} from '../../utils/encoders';
 import {
   type UserData,
   type ActionParams,
@@ -134,32 +134,63 @@ export class WebAuthnManager {
       // Extract PRF outputs from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
-      // DEBUG: Log PRF output details for VRF derivation
-      console.log('=== VRF DERIVATION DEBUGGING ===');
-      console.log(`Account ID: ${nearAccountId}`);
-      console.log(`AES PRF output (for VRF derivation): ${dualPrfOutputs.aesPrfOutput.substring(0, 20)}... (length: ${dualPrfOutputs.aesPrfOutput.length})`);
-      console.log(`Ed25519 PRF output: ${dualPrfOutputs.ed25519PrfOutput.substring(0, 20)}... (length: ${dualPrfOutputs.ed25519PrfOutput.length})`);
+      // *** COMPREHENSIVE PRF OUTPUT LOGGING ***
+      console.log('=== VRF DERIVATION PRF ANALYSIS ===');
+      console.log('Account ID:', nearAccountId);
+      console.log('AES PRF output (for VRF derivation):');
+      console.log('  - Length:', dualPrfOutputs.aesPrfOutput.length);
+      console.log('  - >>>>>>>>> Full base64url:', dualPrfOutputs.aesPrfOutput);
+      console.log('  - First 20 chars:', dualPrfOutputs.aesPrfOutput.substring(0, 20));
+      console.log('  - Last 20 chars:', dualPrfOutputs.aesPrfOutput.substring(dualPrfOutputs.aesPrfOutput.length - 20));
+
+      console.log('Ed25519 PRF output:');
+      console.log('  - Length:', dualPrfOutputs.ed25519PrfOutput.length);
+      console.log('  - Full base64url:', dualPrfOutputs.ed25519PrfOutput);
+      console.log('  - First 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(0, 20));
+      console.log('  - Last 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(dualPrfOutputs.ed25519PrfOutput.length - 20));
+
+      // Convert to bytes for detailed analysis
+      try {
+        const aesBytes = base64UrlDecode(dualPrfOutputs.aesPrfOutput);
+        const ed25519Bytes = base64UrlDecode(dualPrfOutputs.ed25519PrfOutput);
+
+        console.log('AES PRF bytes:');
+        console.log('  - Byte length:', aesBytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
+
+        console.log('Ed25519 PRF bytes:');
+        console.log('  - Byte length:', ed25519Bytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
+      } catch (decodeError) {
+        console.error('Failed to decode PRF outputs for byte analysis:', decodeError);
+      }
+
+      console.log('PRF Salt Analysis (for comparison):');
+      console.log('  - AES salt would be: aes-gcm-salt:' + nearAccountId);
+      console.log('  - Ed25519 salt would be: ed25519-salt:' + nearAccountId);
+      console.log('=== END VRF DERIVATION PRF ANALYSIS ===');
 
       // Use the first PRF output for VRF keypair derivation (AES PRF output)
       // This ensures deterministic derivation: same PRF + same account = same VRF keypair
-      const vrfKeypairResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
+      const vrfResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
         prfOutput: dualPrfOutputs.aesPrfOutput,
-        nearAccountId: nearAccountId,
-        vrfInputParams: vrfInputParams
+        nearAccountId,
+        vrfInputParams
       });
 
-      if (!vrfKeypairResult.success) {
+      if (!vrfResult.success) {
         throw new Error('VRF keypair derivation from PRF failed');
       }
 
-      console.log(`Derived VRF public key: ${vrfKeypairResult.vrfPublicKey}`);
-      if (vrfKeypairResult.vrfChallenge) {
-        console.log(`Generated VRF challenge with output: ${vrfKeypairResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
+      console.log(`Derived VRF public key: ${vrfResult.vrfPublicKey}`);
+      if (vrfResult.vrfChallenge) {
+        console.log(`Generated VRF challenge with output: ${vrfResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
       }
-      if (vrfKeypairResult.encryptedVrfKeypair) {
+      if (vrfResult.encryptedVrfKeypair) {
         console.log(`Generated encrypted VRF keypair for storage`);
       }
-      console.log('=== END VRF DERIVATION DEBUGGING ===');
       console.log('WebAuthnManager: Deterministic VRF keypair derived successfully');
 
       const result: {
@@ -169,15 +200,15 @@ export class WebAuthnManager {
         encryptedVrfKeypair?: EncryptedVRFKeypair;
       } = {
         success: true,
-        vrfPublicKey: vrfKeypairResult.vrfPublicKey
+        vrfPublicKey: vrfResult.vrfPublicKey
       };
 
-      if (vrfKeypairResult.vrfChallenge) {
-        result.vrfChallenge = vrfKeypairResult.vrfChallenge;
+      if (vrfResult.vrfChallenge) {
+        result.vrfChallenge = vrfResult.vrfChallenge;
       }
 
-      if (vrfKeypairResult.encryptedVrfKeypair) {
-        result.encryptedVrfKeypair = vrfKeypairResult.encryptedVrfKeypair;
+      if (vrfResult.encryptedVrfKeypair) {
+        result.encryptedVrfKeypair = vrfResult.encryptedVrfKeypair;
       }
 
       return result;
@@ -213,58 +244,76 @@ export class WebAuthnManager {
   }
 
   /**
-   * Unlock VRF keypair in VRF Worker memory using PRF output from WebAuthn ceremony
-   * This decrypts the stored VRF keypair and keeps it in memory for challenge generation
-   * requires touchId (conditional - only if credential not provided)
-   *
-   * @param nearAccountId - NEAR account ID associated with the VRF keypair
-   * @param encryptedVrfKeypair - Encrypted VRF keypair data from storage
-   * @param credential - WebAuthn credential from TouchID prompt (optional)
-   * If not provided, will do a TouchID prompt (e.g. login flow)
-   * @returns Success status and optional error message
+   * Unlock VRF keypair in memory using PRF output
+   * This is called during login to decrypt and load the VRF keypair in-memory
    */
   async unlockVRFKeypair({
     nearAccountId,
     encryptedVrfKeypair,
     credential,
-    authenticators,
-    onEvent
   }: {
-    nearAccountId: string,
-    encryptedVrfKeypair: EncryptedVRFKeypair,
-    credential?: PublicKeyCredential,
-    authenticators?: ClientAuthenticatorData[],
-    onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
+    nearAccountId: string;
+    encryptedVrfKeypair: EncryptedVRFKeypair;
+    credential: PublicKeyCredential;
   }): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('WebAuthnManager: Unlocking VRF keypair with PRF output');
 
-    if (!authenticators) {
-      authenticators = await this.getAuthenticatorsByUser(nearAccountId);
-      if (!authenticators || authenticators.length === 0) {
-        throw new Error('No authenticators found for account ' + nearAccountId + '. Please register.');
+      // Extract only PRF Output 1 (AES PRF output) for VRF decryption
+      const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
+      if (!prfOutput) {
+        throw new Error('PRF output not found in WebAuthn credentials');
       }
-    }
 
-    if (!credential) {
-      credential = await this.touchIdPrompt.getCredentials({
-        nearAccountId,
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        authenticators,
+      console.log('WebAuthnManager: Using AES PRF output for VRF decryption (same format as derivation)');
+
+      // DEBUG: Add comprehensive logging to trace PRF processing differences
+      console.log('=== VRF UNLOCK DEBUGGING ===');
+      console.log('Account ID:', nearAccountId);
+      console.log('PRF Output (ArrayBuffer):', {
+        byteLength: prfOutput.byteLength,
+        preview: Array.from(new Uint8Array(prfOutput.slice(0, 10))),
+        base64Preview: base64UrlEncode(prfOutput).substring(0, 20) + '...'
       });
-    }
 
-    const prfOutput = credential.getClientExtensionResults().prf?.results?.first as ArrayBuffer;
-    if (!prfOutput) {
-      throw new Error('PRF output not found in WebAuthn credentials');
-    }
+      // Convert ArrayBuffer directly to the format expected by VRF worker
+      const prfBytes = toWasmByteArray(prfOutput);
+      console.log('PRF bytes for VRF worker:', {
+        length: prfBytes.length,
+        preview: prfBytes.slice(0, 10),
+        type: typeof prfBytes[0]
+      });
 
-    return await this.vrfWorkerManager.unlockVRFKeypair({
-      touchIdPrompt: this.touchIdPrompt,
-      nearAccountId: nearAccountId,
-      encryptedVrfKeypair: encryptedVrfKeypair,
-      authenticators,
-      prfOutput,
-      onEvent,
-    });
+      console.log('Encrypted VRF keypair:', {
+        nonce: encryptedVrfKeypair.aes_gcm_nonce_b64u,
+        encryptedDataPreview: encryptedVrfKeypair.encrypted_vrf_data_b64u.substring(0, 20) + '...',
+        encryptedDataLength: encryptedVrfKeypair.encrypted_vrf_data_b64u.length
+      });
+      console.log('=== END VRF UNLOCK DEBUGGING ===');
+
+      const unlockResult = await this.vrfWorkerManager.unlockVRFKeypair({
+        touchIdPrompt: this.touchIdPrompt,
+        nearAccountId,
+        encryptedVrfKeypair,
+        authenticators: [], // Not needed since we already have the credential
+        prfOutput: prfOutput, // Pass ArrayBuffer directly
+        onEvent: (event) => {
+          console.log('VRF unlock progress:', event);
+        },
+      });
+
+      if (!unlockResult.success) {
+        console.error('WebAuthnManager: VRF keypair unlock failed:', unlockResult.error);
+        return { success: false, error: unlockResult.error };
+      }
+
+      console.log('WebAuthnManager: VRF keypair unlocked successfully');
+      return { success: true };
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: VRF keypair unlock failed:', error.message);
+      return { success: false, error: error.message };
+    }
   }
 
   ///////////////////////////////////////
@@ -670,6 +719,45 @@ export class WebAuthnManager {
 
       // Extract dual PRF outputs from the registration credential
       const dualPrfOutputs = extractDualPrfOutputs(registrationCredential);
+
+      // *** COMPREHENSIVE REGISTRATION PRF OUTPUT LOGGING ***
+      console.log('=== REGISTRATION PRF ANALYSIS ===');
+      console.log('Account ID:', nearAccountId);
+      console.log('AES PRF output (from registration):');
+      console.log('  - Length:', dualPrfOutputs.aesPrfOutput.length);
+      console.log('  - Full base64url:', dualPrfOutputs.aesPrfOutput);
+      console.log('  - First 20 chars:', dualPrfOutputs.aesPrfOutput.substring(0, 20));
+      console.log('  - Last 20 chars:', dualPrfOutputs.aesPrfOutput.substring(dualPrfOutputs.aesPrfOutput.length - 20));
+
+      console.log('Ed25519 PRF output (from registration):');
+      console.log('  - Length:', dualPrfOutputs.ed25519PrfOutput.length);
+      console.log('  - Full base64url:', dualPrfOutputs.ed25519PrfOutput);
+      console.log('  - First 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(0, 20));
+      console.log('  - Last 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(dualPrfOutputs.ed25519PrfOutput.length - 20));
+
+      // Convert to bytes for detailed analysis
+      try {
+        const aesBytes = base64UrlDecode(dualPrfOutputs.aesPrfOutput);
+        const ed25519Bytes = base64UrlDecode(dualPrfOutputs.ed25519PrfOutput);
+
+        console.log('AES PRF bytes (from registration):');
+        console.log('  - Byte length:', aesBytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
+
+        console.log('Ed25519 PRF bytes (from registration):');
+        console.log('  - Byte length:', ed25519Bytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
+      } catch (decodeError) {
+        console.error('Failed to decode registration PRF outputs for byte analysis:', decodeError);
+      }
+
+      console.log('PRF Salt Analysis (registration context):');
+      console.log('  - AES salt used: aes-gcm-salt:' + nearAccountId);
+      console.log('  - Ed25519 salt used: ed25519-salt:' + nearAccountId);
+      console.log('=== END REGISTRATION PRF ANALYSIS ===');
+
       console.log('Dual PRF outputs extracted from registration credential');
 
       onEvent?.({

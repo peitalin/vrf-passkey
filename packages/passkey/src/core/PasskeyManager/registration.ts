@@ -477,7 +477,6 @@ export async function generateBootstrapVrfChallenge(
  * @param nearAccountId - NEAR account ID to validate
  * @param onEvent - Optional callback for registration progress events
  * @param onError - Optional callback for error handling
- * @param hooks - Optional hooks for registration lifecycle events
  */
 const validateRegistrationInputs = async (
   context: PasskeyManagerContext,
@@ -513,15 +512,6 @@ const validateRegistrationInputs = async (
     throw error;
   }
 
-  const { nearClient } = context;
-  const accountInfo = await nearClient.viewAccount(nearAccountId);
-  if (accountInfo) {
-    // Account already exists
-    const errorMessage = `Account '${nearAccountId}' already exists. Please choose a different account ID.`;
-    console.error('Registration failed:', errorMessage);
-    onError?.(new Error(errorMessage));
-    throw new Error(errorMessage);
-  }
 }
 
 /**

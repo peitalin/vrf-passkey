@@ -1,6 +1,6 @@
 import type { NearClient } from '../NearClient';
 import { SignedTransaction } from "../NearClient";
-import { base64UrlEncode, base58Decode } from '../../utils/encoders';
+import { base64UrlEncode, base64UrlDecode, base58Decode } from '../../utils/encoders';
 import type {
   ActionParams,
   WebAuthnAuthenticationCredential,
@@ -493,9 +493,9 @@ export class SignerWorkerManager {
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
       // DEBUG: Log PRF output details
-      console.log('WebAuthnManager: DEBUG - PRF output extraction details:', {
+      console.log('>>>>>>>>>> WebAuthnManager: DEBUG - PRF output extraction details:', {
         aesPrfOutputLength: dualPrfOutputs.aesPrfOutput.length,
-        aesPrfOutputPreview: dualPrfOutputs.aesPrfOutput.substring(0, 20) + '...',
+        aesPrfOutputPreview: dualPrfOutputs.aesPrfOutput,
         ed25519PrfOutputLength: dualPrfOutputs.ed25519PrfOutput.length,
         ed25519PrfOutputPreview: dualPrfOutputs.ed25519PrfOutput.substring(0, 20) + '...',
       });
@@ -667,8 +667,21 @@ export class SignerWorkerManager {
         console.error('WebAuthnManager: Enhanced transaction signing failed:', response);
         throw new Error('Enhanced transaction signing failed');
       }
-      console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
+
       const wasmResult = response.payload as WasmTransactionSignResult;
+
+      // Check if the operation succeeded (contract verification + signing)
+      if (!wasmResult.success) {
+        const errorMsg = wasmResult.error || 'Transaction signing failed';
+        console.error('WebAuthnManager: Transaction operation failed:', {
+          success: wasmResult.success,
+          error: wasmResult.error,
+          logs: wasmResult.logs
+        });
+        throw new Error(errorMsg);
+      }
+
+      console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
 
       if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
         throw new Error('Incomplete signed transaction data received from worker');
@@ -760,8 +773,20 @@ export class SignerWorkerManager {
         throw new Error('Enhanced transfer transaction signing failed');
       }
 
-      console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
       const wasmResult = response.payload;
+
+      // Check if the operation succeeded (contract verification + signing)
+      if (!wasmResult.success) {
+        const errorMsg = wasmResult.error || 'Transfer transaction signing failed';
+        console.error('WebAuthnManager: Transfer transaction operation failed:', {
+          success: wasmResult.success,
+          error: wasmResult.error,
+          logs: wasmResult.logs
+        });
+        throw new Error(errorMsg);
+      }
+
+      console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
 
       if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
         throw new Error('Incomplete signed transaction data received from worker');
@@ -808,6 +833,48 @@ export class SignerWorkerManager {
           !serializedCredential.clientExtensionResults?.prf?.results?.second) {
         throw new Error('Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available');
       }
+
+      // *** COMPREHENSIVE RECOVERY PRF OUTPUT LOGGING ***
+      console.log('=== RECOVERY KEYPAIR PRF ANALYSIS ===');
+      console.log('Account ID hint:', accountIdHint);
+      console.log('AES PRF output (for NEAR keypair recovery):');
+      console.log('  - Length:', serializedCredential.clientExtensionResults.prf.results.first.length);
+      console.log('  - >>>>>>>>> Full base64url:', serializedCredential.clientExtensionResults.prf.results.first);
+      console.log('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(0, 20));
+      console.log('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(serializedCredential.clientExtensionResults.prf.results.first.length - 20));
+
+      console.log('Ed25519 PRF output (for NEAR keypair recovery):');
+      console.log('  - Length:', serializedCredential.clientExtensionResults.prf.results.second.length);
+      console.log('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.second);
+      console.log('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(0, 20));
+      console.log('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(serializedCredential.clientExtensionResults.prf.results.second.length - 20));
+
+      // Convert to bytes for detailed analysis
+      try {
+        const aesBytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.first);
+        const ed25519Bytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.second);
+
+        console.log('AES PRF bytes (for NEAR keypair recovery):');
+        console.log('  - Byte length:', aesBytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
+
+        console.log('Ed25519 PRF bytes (for NEAR keypair recovery):');
+        console.log('  - Byte length:', ed25519Bytes.byteLength);
+        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
+        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
+      } catch (decodeError) {
+        console.error('Failed to decode recovery PRF outputs for byte analysis:', decodeError);
+      }
+
+      console.log('PRF Salt Analysis (recovery context):');
+      if (accountIdHint) {
+        console.log('  - AES salt would be: aes-gcm-salt:' + accountIdHint);
+        console.log('  - Ed25519 salt would be: ed25519-salt:' + accountIdHint);
+      } else {
+        console.log('  - No account ID hint - salt will be derived from credential analysis');
+      }
+      console.log('=== END RECOVERY KEYPAIR PRF ANALYSIS ===');
 
       // Use generic executeWorkerOperation with specific request type for better type safety
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.RecoverKeypairFromPasskey>({

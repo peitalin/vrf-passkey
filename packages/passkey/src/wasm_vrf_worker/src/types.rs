@@ -1,0 +1,90 @@
+use serde::{Deserialize, Serialize};
+
+// === TYPE DEFINITIONS ===
+
+#[derive(Serialize, Deserialize)]
+pub struct VRFKeypairData {
+    /// Bincode-serialized ECVRFKeyPair (includes both private key and public key)
+    pub keypair_bytes: Vec<u8>,
+    /// Base64url-encoded public key for convenience
+    pub public_key_base64: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EncryptedVRFKeypair {
+    pub encrypted_vrf_data_b64u: String,
+    pub aes_gcm_nonce_b64u: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct VRFInputData {
+    pub user_id: String,
+    pub rp_id: String,
+    pub block_height: u64,
+    pub block_hash: Vec<u8>,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VRFChallengeData {
+    #[serde(rename = "vrfInput")]
+    pub vrf_input: String,
+    #[serde(rename = "vrfOutput")]
+    pub vrf_output: String,
+    #[serde(rename = "vrfProof")]
+    pub vrf_proof: String,
+    #[serde(rename = "vrfPublicKey")]
+    pub vrf_public_key: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[serde(rename = "rpId")]
+    pub rp_id: String,
+    #[serde(rename = "blockHeight")]
+    pub block_height: u64,
+    #[serde(rename = "blockHash")]
+    pub block_hash: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VRFWorkerMessage {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub id: Option<String>,
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VRFWorkerResponse {
+    pub id: Option<String>,
+    pub success: bool,
+    pub data: Option<serde_json::Value>,
+    pub error: Option<String>,
+}
+
+// === RESPONSE TYPES ===
+
+#[derive(Serialize, Deserialize)]
+pub struct VrfKeypairResponse {
+    pub vrf_public_key: String,
+    pub encrypted_vrf_keypair: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VrfKeypairBootstrapResponse {
+    pub vrf_public_key: String,
+    pub vrf_challenge_data: Option<VRFChallengeData>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EncryptedVrfKeypairResponse {
+    pub vrf_public_key: String,
+    pub encrypted_vrf_keypair: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DeterministicVrfKeypairResponse {
+    pub vrf_public_key: String,
+    pub vrf_challenge_data: Option<VRFChallengeData>,
+    pub encrypted_vrf_keypair: Option<serde_json::Value>,
+    pub success: bool,
+}

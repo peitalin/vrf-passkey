@@ -176,7 +176,7 @@ export class VrfWorkerManager {
       data: {
         nearAccountId,
         encryptedVrfKeypair,
-        prfKey: toWasmByteArray(prfOutput)
+        prfKey: toWasmByteArray(prfOutput) // ArrayBuffer → number[]
       }
     };
 
@@ -410,7 +410,7 @@ export class VrfWorkerManager {
         id: this.generateMessageId(),
         data: {
           expectedPublicKey: expectedPublicKey,
-          prfKey: toWasmByteArray(prfOutput)
+          prfKey: toWasmByteArray(prfOutput) // ArrayBuffer → number[]
         }
       };
 
@@ -470,11 +470,9 @@ export class VrfWorkerManager {
     }
 
     try {
-      // Decode base64url PRF output to bytes for WASM worker
-      const prfBytes = toWasmByteArray(new TextEncoder().encode(atob(prfOutput.replace(/-/g, '+').replace(/_/g, '/'))));
-
+      // Pass base64url string directly - VRF worker handles conversion internally
       const messageData: any = {
-        prfOutput: Array.from(prfBytes),
+        prfOutput: prfOutput, // Base64url string → VRF worker handles conversion
         nearAccountId: nearAccountId
       };
 

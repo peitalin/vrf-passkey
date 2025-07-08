@@ -1,0 +1,395 @@
+use crate::*;
+use crate::config::message_types;
+use crate::errors::VrfWorkerError;
+
+/// Handle PING message
+pub fn handle_ping(message_id: Option<String>) -> VRFWorkerResponse {
+    VRFWorkerResponse {
+        id: message_id,
+        success: true,
+        data: Some(serde_json::json!({
+            "status": "alive",
+            "timestamp": Date::now()
+        })),
+        error: None,
+    }
+}
+
+/// Handle UNLOCK_VRF_KEYPAIR message
+pub fn handle_unlock_vrf_keypair(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+    data: Option<serde_json::Value>,
+) -> VRFWorkerResponse {
+    match data {
+        Some(data) => {
+            let near_account_id = data["nearAccountId"].as_str().unwrap_or("");
+
+            // Debug: Log the received encrypted VRF data structure
+            console::log_1(&format!("VRF WASM: Received encryptedVrfKeypair: {}",
+                serde_json::to_string_pretty(&data["encryptedVrfKeypair"]).unwrap_or_else(|_| "failed to serialize".to_string())).into());
+
+            let encrypted_vrf_keypair_result = serde_json::from_value::<EncryptedVRFKeypair>(data["encryptedVrfKeypair"].clone());
+
+            // Debug: Log the parsing result
+            match &encrypted_vrf_keypair_result {
+                Ok(_) => console::log_1(&"VRF WASM: Successfully parsed EncryptedVRFKeypair".into()),
+                Err(e) => console::log_1(&format!("VRF WASM: Failed to parse EncryptedVRFKeypair: {}", e).into()),
+            }
+
+            let prf_key = match process_prf_input(&data["prfKey"]) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(format!("Invalid PRF key: {}", e)),
+                    }
+                }
+            };
+
+            if near_account_id.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing nearAccountId".to_string()),
+                }
+            } else if let Ok(encrypted_vrf_keypair) = encrypted_vrf_keypair_result {
+                let mut manager = manager.borrow_mut();
+                match manager.unlock_vrf_keypair(near_account_id.to_string(), encrypted_vrf_keypair, prf_key) {
+                    Ok(_) => VRFWorkerResponse {
+                        id: message_id,
+                        success: true,
+                        data: None,
+                        error: None,
+                    },
+                    Err(e) => VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(e.to_string()),
+                    }
+                }
+            } else {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Failed to parse encrypted VRF data".to_string()),
+                }
+            }
+        }
+        None => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some("Missing unlock data".to_string()),
+        }
+    }
+}
+
+/// Handle GENERATE_VRF_CHALLENGE message
+pub fn handle_generate_vrf_challenge(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+    data: Option<serde_json::Value>,
+) -> VRFWorkerResponse {
+    match data {
+        Some(data) => {
+            match serde_json::from_value::<VRFInputData>(data) {
+                Ok(input_data) => {
+                    let manager = manager.borrow();
+                    match manager.generate_vrf_challenge(input_data) {
+                        Ok(challenge_data) => VRFWorkerResponse {
+                            id: message_id,
+                            success: true,
+                            data: Some(serde_json::to_value(&challenge_data).unwrap()),
+                            error: None,
+                        },
+                        Err(e) => VRFWorkerResponse {
+                            id: message_id,
+                            success: false,
+                            data: None,
+                            error: Some(e),
+                        }
+                    }
+                }
+                Err(e) => VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some(format!("Failed to parse VRF input data: {}", e)),
+                }
+            }
+        }
+        None => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some("Missing VRF input data".to_string()),
+        }
+    }
+}
+
+/// Handle GENERATE_VRF_KEYPAIR_BOOTSTRAP message
+pub fn handle_generate_vrf_keypair_bootstrap(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+    data: Option<serde_json::Value>,
+) -> VRFWorkerResponse {
+    match data {
+        Some(data) => {
+            // Check if VRF input parameters are provided for challenge generation
+            let vrf_input_params = data.get("vrfInputParams")
+                .and_then(|params| {
+                    match serde_json::from_value::<VRFInputData>(params.clone()) {
+                        Ok(parsed) => {
+                            console::log_1(&"VRF WASM: Successfully parsed VRFInputData".into());
+                            Some(parsed)
+                        },
+                        Err(e) => {
+                            console::log_1(&format!("VRF WASM: Failed to parse VRFInputData: {}", e).into());
+                            None
+                        }
+                    }
+                });
+
+            let mut manager = manager.borrow_mut();
+
+            console::log_1(&format!("VRF WASM Web Worker: Generating bootstrap VRF keypair - withChallenge: {}",
+                vrf_input_params.is_some()).into());
+
+            match manager.generate_vrf_keypair_bootstrap(vrf_input_params) {
+                Ok(bootstrap_data) => {
+                    // Structure response to match expected format
+                    let response_data = serde_json::json!({
+                        "vrf_public_key": bootstrap_data.vrf_public_key,
+                        "vrf_challenge_data": bootstrap_data.vrf_challenge_data
+                    });
+
+                    VRFWorkerResponse {
+                        id: message_id,
+                        success: true,
+                        data: Some(response_data),
+                        error: None,
+                    }
+                },
+                Err(e) => VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some(e.to_string()),
+                }
+            }
+        }
+        None => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some("Missing VRF bootstrap generation data".to_string()),
+        }
+    }
+}
+
+/// Handle ENCRYPT_VRF_KEYPAIR_WITH_PRF message
+pub fn handle_encrypt_vrf_keypair_with_prf(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+    data: Option<serde_json::Value>,
+) -> VRFWorkerResponse {
+    match data {
+        Some(data) => {
+            let expected_public_key = data["expectedPublicKey"].as_str()
+                .unwrap_or("")
+                .to_string();
+
+            let prf_key = match process_prf_input(&data["prfKey"]) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(format!("Invalid PRF key: {}", e)),
+                    }
+                }
+            };
+
+            if expected_public_key.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing expected public key".to_string()),
+                }
+            } else if prf_key.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing or invalid PRF key".to_string()),
+                }
+            } else {
+                let mut manager = manager.borrow_mut();
+
+                console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair with PRF output".into());
+
+                match manager.encrypt_vrf_keypair_with_prf(expected_public_key, prf_key) {
+                    Ok(encrypted_data) => {
+                        // Structure response to match expected format
+                        let response_data = serde_json::json!({
+                            "vrf_public_key": encrypted_data.vrf_public_key,
+                            "encrypted_vrf_keypair": encrypted_data.encrypted_vrf_keypair
+                        });
+
+                        VRFWorkerResponse {
+                            id: message_id,
+                            success: true,
+                            data: Some(response_data),
+                            error: None,
+                        }
+                    },
+                    Err(e) => VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(e.to_string()),
+                    }
+                }
+            }
+        }
+        None => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some("Missing VRF encryption data".to_string()),
+        }
+    }
+}
+
+/// Handle CHECK_VRF_STATUS message
+pub fn handle_check_vrf_status(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+) -> VRFWorkerResponse {
+    let manager = manager.borrow();
+    let status = manager.get_vrf_status();
+    VRFWorkerResponse {
+        id: message_id,
+        success: true,
+        data: Some(status),
+        error: None,
+    }
+}
+
+/// Handle LOGOUT message
+pub fn handle_logout(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+) -> VRFWorkerResponse {
+    let mut manager = manager.borrow_mut();
+    match manager.logout() {
+        Ok(_) => VRFWorkerResponse {
+            id: message_id,
+            success: true,
+            data: None,
+            error: None,
+        },
+        Err(e) => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some(e),
+        }
+    }
+}
+
+/// Handle DERIVE_VRF_KEYPAIR_FROM_PRF message
+pub fn handle_derive_vrf_keypair_from_prf(
+    manager: &std::cell::RefCell<VRFKeyManager>,
+    message_id: Option<String>,
+    data: Option<serde_json::Value>,
+) -> VRFWorkerResponse {
+    match data {
+        Some(data) => {
+            let prf_output = match process_prf_input(&data["prfOutput"]) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(format!("Invalid PRF output: {}", e)),
+                    }
+                }
+            };
+
+            let near_account_id = data["nearAccountId"].as_str()
+                .unwrap_or("")
+                .to_string();
+
+            // Parse optional VRF input parameters for challenge generation
+            let vrf_input_params = data.get("vrfInputParams")
+                .and_then(|params| serde_json::from_value::<VRFInputData>(params.clone()).ok());
+
+            if prf_output.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing or invalid PRF output".to_string()),
+                }
+            } else if near_account_id.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing NEAR account ID".to_string()),
+                }
+            } else {
+                let manager = manager.borrow();
+                match manager.derive_vrf_keypair_from_prf(prf_output, near_account_id, vrf_input_params) {
+                    Ok(derivation_result) => {
+                        let response_data = serde_json::json!({
+                            "vrf_public_key": derivation_result.vrf_public_key,
+                            "vrf_challenge_data": derivation_result.vrf_challenge_data,
+                            "encrypted_vrf_keypair": derivation_result.encrypted_vrf_keypair,
+                            "success": derivation_result.success
+                        });
+
+                        VRFWorkerResponse {
+                            id: message_id,
+                            success: true,
+                            data: Some(response_data),
+                            error: None,
+                        }
+                    },
+                    Err(e) => VRFWorkerResponse {
+                        id: message_id,
+                        success: false,
+                        data: None,
+                        error: Some(e.to_string()),
+                    }
+                }
+            }
+        }
+        None => VRFWorkerResponse {
+            id: message_id,
+            success: false,
+            data: None,
+            error: Some("Missing VRF derivation data".to_string()),
+        }
+    }
+}
+
+/// Handle unknown message types
+pub fn handle_unknown_message(message_type: String, message_id: Option<String>) -> VRFWorkerResponse {
+    VRFWorkerResponse {
+        id: message_id,
+        success: false,
+        data: None,
+        error: Some(format!("Unknown message type: {}", message_type)),
+    }
+}

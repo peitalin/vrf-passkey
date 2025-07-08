@@ -142,14 +142,18 @@ async function handleLoginUnlockVRF(
       message: 'Authenticating to unlock VRF keypair...'
     });
 
+    // Get credential for VRF unlock
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const credential = await webAuthnManager.touchIdPrompt.getCredentials({
+      nearAccountId,
+      challenge,
+      authenticators,
+    });
+
     const unlockResult = await webAuthnManager.unlockVRFKeypair({
       nearAccountId: nearAccountId,
       encryptedVrfKeypair: userData.encryptedVrfKeypair!, // non-null assertion; validated above
-      authenticators: authenticators,
-      onEvent: (event: { type: string, data: { step: string, message: string } }) => {
-        // Convert legacy event format if needed, or ignore for now
-        console.debug('VRF unlock progress:', event);
-      }
+      credential: credential, // Use the credential instead of authenticators
     });
 
     if (!unlockResult.success) {
