@@ -338,23 +338,24 @@ export async function recoverAccount(
     console.log('Registration Step 3: Use VRF output as WebAuthn challenge');
     const vrfChallengeBytes = vrfChallenge.outputAs32Bytes();
 
-    // Reuse credential if provided (from passkey selection), otherwise generate new one
-    const credential = reuseCredential || await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
-      nearAccountId: accountId,
-      challenge: vrfChallengeBytes,
-    });
-
     if (reuseCredential) {
       console.log('Reusing credential from passkey discovery (no additional TouchID prompt)');
     }
+    // Reuse credential if provided (from passkey selection)
+    const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
+      nearAccountId: accountId,
+      challenge: vrfChallengeBytes,
+      credentialIds: [reuseCredential?.id || '']
+    });
 
     // Note: Any registration credential from the same passkey will work
     // The PRF-based derivation produces the same Ed25519 keypair from the same PRF outputs
-    const ddKeypair = await webAuthnManager.recoverKeypairFromPasskey(
+    const recoveredKeypair = await webAuthnManager.recoverKeypairFromPasskey(
       vrfChallengeBytes,
-      credential
+      credential,
+      accountId
     );
-    console.log('DD-keypair derived from current passkey');
+    console.log('keypair derived from current passkey with encrypted private key for storage');
 
     // 2. Verify account ownership
     onEvent?.({
@@ -365,7 +366,7 @@ export async function recoverAccount(
       message: 'Verifying account ownership...'
     });
 
-    const hasAccess = await nearClient.viewAccessKey(accountId, ddKeypair.publicKey);
+    const hasAccess = await nearClient.viewAccessKey(accountId, recoveredKeypair.publicKey);
     if (!hasAccess) {
       throw new Error(`Account ${accountId} was not created with this passkey`);
     }
@@ -422,7 +423,11 @@ export async function recoverAccount(
     const recoveryResult = await performAccountRecovery({
       context,
       accountId,
-      publicKey: ddKeypair.publicKey,
+      publicKey: recoveredKeypair.publicKey,
+      encryptedKeypair: {
+        encryptedPrivateKey: recoveredKeypair.encryptedPrivateKey,
+        iv: recoveredKeypair.iv,
+      },
       vrfChallenge,
       credential,
       encryptedVrfResult,
@@ -473,6 +478,7 @@ async function performAccountRecovery({
   context,
   accountId,
   publicKey,
+  encryptedKeypair,
   vrfChallenge,
   credential,
   encryptedVrfResult,
@@ -480,6 +486,10 @@ async function performAccountRecovery({
   context: PasskeyManagerContext,
   accountId: string,
   publicKey: string,
+  encryptedKeypair: {
+    encryptedPrivateKey: string,
+    iv: string
+  },
   vrfChallenge: VRFChallenge,
   credential: PublicKeyCredential,
   encryptedVrfResult: { encryptedVrfKeypair: EncryptedVRFKeypair; vrfPublicKey: string },
@@ -549,6 +559,8 @@ async function performAccountRecovery({
       });
       console.log(`Updated user ${accountId} in IndexedDB with encrypted VRF keypair`);
     }
+
+    // TODO: save recovered encrypted keypair to IndexedDB: in packages/passkey/src/core/IndexedDBManager/passkeyNearKeysDB.ts
 
     // 3. Restore authenticator data to IndexedDB
     console.log('Restoring authenticator data to IndexedDB...');

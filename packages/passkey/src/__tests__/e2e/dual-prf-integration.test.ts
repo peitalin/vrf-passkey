@@ -89,7 +89,7 @@ test.describe('Dual PRF Key Derivation Integration', () => {
         console.log(`\n🔧 Testing dual PRF determinism with account: ${accountId}`);
 
         // Register account to generate dual PRF keys
-        const registrationResult = await passkeyManager.registerPasskey(accountId);
+        const registrationResult = await passkeyManager.registerPasskey(accountId, {});
 
         if (!registrationResult.success) {
           throw new Error('Account registration failed: ' + registrationResult.error);
@@ -147,7 +147,8 @@ test.describe('Dual PRF Key Derivation Integration', () => {
         // Verify that the PasskeyManager is using the dual PRF system
         // by checking it has the expected methods and configuration
         const hasWebAuthnManager = !!passkeyManager.webAuthnManager;
-        const hasVrfWorkerManager = !!passkeyManager.vrfWorkerManager;
+        // Check if VRF worker manager is accessible (via WebAuthnManager)
+        const hasVrfWorkerManager = !!(passkeyManager.webAuthnManager && typeof passkeyManager.webAuthnManager.getVrfWorkerStatus === 'function');
         const hasSignerWorkerManager = !!passkeyManager.webAuthnManager?.signerWorkerManager;
 
         console.log('✅ Dual PRF architecture verified:');

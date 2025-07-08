@@ -33,21 +33,15 @@ export {
 } from './core/types/signer-worker';
 
 export type {
-  WorkerRequest,
-  WorkerResponse as TypedWorkerResponse,
-  DeriveNearKeypairAndEncryptRequest,
-  DecryptPrivateKeyWithPrfRequest,
-  SignTransactionWithActionsRequest,
-  SignTransferTransactionRequest,
-  EncryptionSuccessResponse,
-  EncryptionFailureResponse,
-  RegistrationSuccessResponse,
-  RegistrationFailureResponse,
-  SignatureSuccessResponse,
-  SignatureFailureResponse,
-  DecryptionSuccessResponse,
-  DecryptionFailureResponse,
-  ErrorResponse
+  WorkerResponseForRequest,
+  EncryptionResponse,
+  RecoveryResponse,
+  CheckRegistrationResponse,
+  RegistrationResponse,
+  TransactionResponse,
+  TransferResponse,
+  DecryptionResponse,
+  CoseExtractionResponse,
 } from './core/types/signer-worker';
 
 export {

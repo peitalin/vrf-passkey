@@ -38,7 +38,7 @@ print_success "Build directory cleaned"
 
 # Step 2: Generate TypeScript types from Rust
 print_step "Generating TypeScript types from Rust..."
-if ./scripts/generate-types.sh > /dev/null 2>&1; then
+if ./scripts/generate-types.sh; then
     print_success "TypeScript types generated successfully"
 else
     print_error "Type generation failed"
@@ -48,7 +48,7 @@ fi
 # Step 3: Build WASM signer worker
 print_step "Building WASM signer worker..."
 cd src/wasm_signer_worker
-if wasm-pack build --target web --out-dir . > /dev/null 2>&1; then
+if wasm-pack build --target web --out-dir .; then
     print_success "WASM signer worker built successfully"
 else
     print_error "WASM signer worker build failed"
@@ -59,7 +59,7 @@ cd ../..
 # Step 4: Build WASM VRF worker
 print_step "Building WASM VRF worker..."
 cd src/wasm_vrf_worker
-if wasm-pack build --target web --out-dir . > /dev/null 2>&1; then
+if wasm-pack build --target web --out-dir .; then
     print_success "WASM VRF worker built successfully"
 else
     print_error "WASM VRF worker build failed"

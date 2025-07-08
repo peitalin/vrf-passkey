@@ -4,7 +4,7 @@
  * Similar to the VRF worker architecture
  */
 
-import type { WorkerRequest, WorkerResponse } from './types/signer-worker';
+import type { WorkerMessage, WorkerRequestType } from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
@@ -62,7 +62,7 @@ function sendProgressMessage(
   logs?: string
 ): void {
   try {
-    console.debug(`[signer-worker-v2]: Progress update: ${messageType} - ${step} - ${message}`);
+    console.debug(`[signer-worker]: Progress update: ${messageType} - ${step} - ${message}`);
 
     // Parse structured data and logs
     let parsedData: any = {};
@@ -71,14 +71,14 @@ function sendProgressMessage(
     try {
       parsedData = data ? JSON.parse(data) : {};
     } catch (error) {
-      console.warn('[signer-worker-v2]: Failed to parse progress data:', error);
+      console.warn('[signer-worker]: Failed to parse progress data:', error);
       parsedData = { rawData: data };
     }
 
     try {
       parsedLogs = logs ? JSON.parse(logs) : [];
     } catch (error) {
-      console.warn('[signer-worker-v2]: Failed to parse progress logs:', error);
+      console.warn('[signer-worker]: Failed to parse progress logs:', error);
       parsedLogs = logs ? [logs] : [];
     }
 
@@ -103,7 +103,7 @@ function sendProgressMessage(
     self.postMessage(progressMessage);
 
   } catch (error: any) {
-    console.error('[signer-worker-v2]: Failed to send progress message:', error);
+    console.error('[signer-worker]: Failed to send progress message:', error);
 
     // Send error message as fallback
     self.postMessage({
@@ -127,12 +127,12 @@ async function initializeWasm(): Promise<void> {
   try {
     await init({ module_or_path: wasmUrl });
   } catch (error: any) {
-    console.error('[signer-worker-v2]: WASM initialization failed:', error);
+    console.error('[signer-worker]: WASM initialization failed:', error);
     throw new Error(`WASM initialization failed: ${error?.message || 'Unknown error'}`);
   }
 }
 
-self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
+self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): Promise<void> => {
   if (messageProcessed) {
     self.postMessage({
       type: 'ERROR',
@@ -143,7 +143,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
   }
 
   messageProcessed = true;
-  console.log('[signer-worker-v2]: Received message:', { type: event.data.type });
+  console.log('[signer-worker]: Received message:', { type: event.data.type });
 
   try {
     // Initialize WASM
@@ -160,7 +160,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
     self.close();
 
   } catch (error: any) {
-    console.error('[signer-worker-v2]: Message processing failed:', error);
+    console.error('[signer-worker]: Message processing failed:', error);
 
     self.postMessage({
       type: 'ERROR',
@@ -174,7 +174,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>): Promise<void> => {
 };
 
 self.onerror = (message, filename, lineno, colno, error) => {
-  console.error('[signer-worker-v2]: Global error:', {
+  console.error('[signer-worker]: Global error:', {
     message: typeof message === 'string' ? message : 'Unknown error',
     filename: filename || 'unknown',
     lineno: lineno || 0,
@@ -184,6 +184,6 @@ self.onerror = (message, filename, lineno, colno, error) => {
 };
 
 self.onunhandledrejection = (event) => {
-  console.error('[signer-worker-v2]: Unhandled promise rejection:', event.reason);
+  console.error('[signer-worker]: Unhandled promise rejection:', event.reason);
   event.preventDefault();
 };

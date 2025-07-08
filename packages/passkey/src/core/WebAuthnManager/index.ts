@@ -637,37 +637,46 @@ export class WebAuthnManager {
   ///////////////////////////////////////
 
   /**
-   * Recover keypair from registration credential for account recovery
-   * Uses the attestation object to extract COSE public key and deterministically generate the same NEAR keypair
-   * @param challenge - The VRF challenge used in the WebAuthn registration ceremony
-   * @param registrationCredential - The original registration credential with attestation object
-   * @returns Public key for account lookup during recovery
+   * Recover keypair from authentication credential for account recovery
+   * Uses dual PRF outputs to re-derive the same NEAR keypair and re-encrypt it
+   * @param challenge - Random challenge for WebAuthn authentication ceremony
+   * @param authenticationCredential - The authentication credential with dual PRF outputs
+   * @param accountIdHint - Optional account ID hint for recovery
+   * @returns Public key and encrypted private key for secure storage
    */
   async recoverKeypairFromPasskey(
     challenge: Uint8Array<ArrayBuffer>,
-    registrationCredential: PublicKeyCredential,
+    authenticationCredential: PublicKeyCredential,
     accountIdHint?: string,
   ): Promise<{
     publicKey: string;
+    encryptedPrivateKey: string;
+    iv: string;
     accountIdHint?: string;
+    stored?: boolean;
   }> {
     try {
-      console.log('WebAuthnManager: recovering keypair from registration credential');
+      console.log('WebAuthnManager: recovering keypair from authentication credential with dual PRF outputs');
 
-      // If no registration credential provided, we need to get the original registration data
-      // In a real implementation, this would be stored during initial registration
-      if (!registrationCredential) {
+      // Verify we have an authentication credential (not registration)
+      if (!authenticationCredential) {
         throw new Error(
-          'Registration credential required for deterministic keypair derivation. ' +
-          'The original registration credential (with attestation object) must be provided or stored during registration.'
+          'Authentication credential required for account recovery. ' +
+          'Use an existing credential with dual PRF outputs to re-derive the same NEAR keypair.'
         );
       }
 
-      // Call the WASM worker to derive the deterministic keypair
+      // Verify dual PRF outputs are available
+      const prfResults = authenticationCredential.getClientExtensionResults()?.prf?.results;
+      if (!prfResults?.first || !prfResults?.second) {
+        throw new Error('Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available');
+      }
+
+      // Call the WASM worker to derive and encrypt the keypair using dual PRF
       const result = await this.signerWorkerManager.recoverKeypairFromPasskey(
-        registrationCredential,
+        authenticationCredential,
         base64UrlEncode(challenge),
-        undefined
+        accountIdHint
       );
 
        console.log('WebAuthnManager: Deterministic keypair derivation successful');

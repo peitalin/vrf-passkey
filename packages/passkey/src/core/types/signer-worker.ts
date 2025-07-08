@@ -23,16 +23,8 @@ import {
   WorkerRequestType,
   WorkerResponseType,
 } from '../../wasm_signer_worker/wasm_signer_worker.js';
-
-// Export the WASM enums directly - no string mapping needed!
+// Export the WASM enums directly
 export { WorkerRequestType, WorkerResponseType };
-
-// === TYPE DEFINITIONS ===
-// Create type unions from the numeric enum values
-export type WorkerRequestTypeValues = WorkerRequestType;
-export type WorkerResponseTypeValues = WorkerResponseType;
-
-// === DUAL PRF TYPES ===
 
 /**
  * Dual PRF outputs for separate encryption and signing key derivation
@@ -87,107 +79,6 @@ export interface Verification {
   nearRpcUrl: string;
 }
 
-/**
- * Registration transaction-specific parameters
- * Matches Rust RegistrationTxData struct
- */
-export interface RegistrationTxData {
-  /** Account ID that will sign the registration transaction */
-  signerAccountId: string;
-  /** Transaction nonce as number */
-  nonce: number;
-  /** Block hash bytes for the transaction */
-  blockHashBytes: number[];
-}
-
-/**
- * Transfer transaction-specific parameters
- * Matches Rust TransferTxData struct
- */
-export interface TransferTxData {
-  /** Account ID that will sign the transfer */
-  signerAccountId: string;
-  /** Account ID that will receive the transfer */
-  receiverAccountId: string;
-  /** Transaction nonce as number */
-  nonce: number;
-  /** Block hash bytes for the transaction */
-  blockHashBytes: number[];
-  /** Transfer amount as string */
-  depositAmount: string;
-}
-
-// === GROUPED REQUEST INTERFACES ===
-
-/**
- * Transaction signing request with grouped parameters
- * Matches Rust TransactionSigningRequest struct
- */
-export interface TransactionSigningRequestGrouped {
-  /** Verification parameters */
-  verification: Verification;
-  /** Decryption parameters */
-  decryption: Decryption;
-  /** Transaction parameters */
-  transaction: TxData;
-}
-
-/**
- * Transfer transaction request with grouped parameters
- * Matches Rust TransferTransactionRequest struct
- */
-export interface TransferTransactionRequestGrouped {
-  /** Verification parameters */
-  verification: Verification;
-  /** Decryption parameters */
-  decryption: Decryption;
-  /** Transfer transaction parameters */
-  transaction: TransferTxData;
-}
-
-/**
- * Registration request with grouped parameters
- * Matches Rust RegistrationRequest struct
- */
-export interface RegistrationRequestGrouped {
-  /** Verification parameters */
-  verification: Verification;
-  /** Decryption parameters */
-  decryption: Decryption;
-  /** Registration transaction parameters */
-  transaction: RegistrationTxData;
-}
-
-// === TRANSACTION TYPES ===
-
-/**
- * Structured SignedTransaction format that mirrors near-js
- * Provides both the decoded transaction/signature and helper methods
- */
-export interface StructuredSignedTransaction {
-  /** Decoded transaction object */
-  transaction: Transaction;
-  /** Decoded signature object */
-  signature: Signature;
-  /** Helper method to encode back to bytes */
-  encode: () => Uint8Array;
-  /** Raw access to the full SignedTransaction instance for advanced usage */
-  _raw: SignedTransaction;
-}
-
-/**
- * Serializable transaction data for worker communication
- * Contains the same data as SignedTransaction but without methods
- */
-export interface SerializableSignedTransaction {
-  /** Decoded transaction object */
-  transaction: any;
-  /** Decoded signature object */
-  signature: any;
-  /** Borsh-encoded bytes as number array */
-  borsh_bytes: number[];
-}
-
 // === USER DATA TYPES ===
 
 export interface UserData {
@@ -214,7 +105,7 @@ export interface UserData {
 export interface WorkerErrorDetails {
   code: WorkerErrorCode;
   message: string;
-  operation: WorkerRequestTypeValues;
+  operation: WorkerRequestType;
   timestamp: number;
   context?: Record<string, any>;
   stack?: string;
@@ -235,7 +126,7 @@ export enum WorkerErrorCode {
 
 // Base interface for all worker requests
 export interface BaseWorkerRequest {
-  type: WorkerRequestTypeValues;
+  type: WorkerRequestType;
   operationId?: string;
   timestamp?: number;
 }
@@ -443,17 +334,12 @@ export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
   };
 }
 
-export type WorkerRequest =
-  | DeriveNearKeypairAndEncryptRequest
-  | RecoverKeypairFromPasskeyRequest
-  | CheckCanRegisterUserRequest
-  | SignVerifyAndRegisterUserRequest
-  | DecryptPrivateKeyWithPrfRequest
-  | SignTransactionWithActionsRequest
-  | SignTransferTransactionRequest
-  | AddKeyWithPrfRequest
-  | DeleteKeyWithPrfRequest
-  | ExtractCosePublicKeyRequest;
+// === GENERIC REQUEST TYPE ===
+// Generic message interface that uses WASM types
+export interface WorkerMessage<T extends WorkerRequestType> {
+  type: T;
+  payload: any; // properly typed based on the specific request interface above
+}
 
 // === PROGRESS MESSAGE TYPES ===
 
@@ -510,187 +396,97 @@ export interface WorkerProgressMessage {
 
 // === RESPONSE MESSAGE INTERFACES ===
 
+// Base interface for all worker responses
 export interface BaseWorkerResponse {
-  type: WorkerResponseTypeValues;
+  type: WorkerResponseType;
   payload: Record<string, any>;
 }
 
-export interface EncryptionSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.EncryptionSuccess;
-  payload: WasmEncryptionResult;
+// === GENERIC WORKER RESPONSE TYPES ===
+
+// Map request types to their expected success response payloads (WASM types)
+export interface RequestResponseMap {
+  [WorkerRequestType.DeriveNearKeypairAndEncrypt]: WasmEncryptionResult;
+  [WorkerRequestType.RecoverKeypairFromPasskey]: WasmRecoverKeypairResult;
+  [WorkerRequestType.CheckCanRegisterUser]: WasmRegistrationCheckResult;
+  [WorkerRequestType.SignVerifyAndRegisterUser]: WasmRegistrationResult;
+  [WorkerRequestType.DecryptPrivateKeyWithPrf]: WasmDecryptPrivateKeyResult;
+  [WorkerRequestType.SignTransactionWithActions]: WasmTransactionSignResult;
+  [WorkerRequestType.SignTransferTransaction]: WasmTransactionSignResult;
+  [WorkerRequestType.AddKeyWithPrf]: WasmTransactionSignResult;
+  [WorkerRequestType.DeleteKeyWithPrf]: WasmTransactionSignResult;
+  [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
 }
 
-export interface EncryptionFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.DeriveNearKeyFailure;
+// Generic success response type that uses WASM types
+export interface WorkerSuccessResponse<T extends WorkerRequestType> extends BaseWorkerResponse {
+  type: WorkerResponseType;
+  payload: RequestResponseMap[T];
+}
+
+// Generic error response type
+export interface WorkerErrorResponse extends BaseWorkerResponse {
+  type: WorkerResponseType;
   payload: {
-    /** Error message describing the failure */
     error: string;
-    /** Error code for programmatic handling */
     errorCode?: WorkerErrorCode;
-    /** Additional error context */
     context?: Record<string, any>;
   };
 }
 
-export interface RecoverKeypairSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.RecoverKeypairSuccess;
-  payload: WasmRecoverKeypairResult;
+// Progress response type
+export interface WorkerProgressResponse extends BaseWorkerResponse {
+  type: typeof WorkerResponseType.VerificationProgress
+      | typeof WorkerResponseType.SigningProgress
+      | typeof WorkerResponseType.RegistrationProgress;
+  payload: onProgressEvents;
 }
 
-export interface RecoverKeypairFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.RecoverKeypairFailure;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
+// Completion response type
+export interface WorkerCompletionResponse extends BaseWorkerResponse {
+  type: typeof WorkerResponseType.VerificationComplete
+      | typeof WorkerResponseType.SigningComplete
+      | typeof WorkerResponseType.RegistrationComplete;
+  payload: onProgressEvents;
 }
 
-export interface CheckRegistrationSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.RegistrationSuccess;
-  payload: WasmRegistrationCheckResult;
+// === MAIN RESPONSE TYPE ===
+// This is the only response type you need - it's generic and uses WASM types
+export type WorkerResponseForRequest<T extends WorkerRequestType> =
+  | WorkerSuccessResponse<T>
+  | WorkerErrorResponse
+  | WorkerProgressResponse
+  | WorkerCompletionResponse;
+
+// === CONVENIENCE TYPE ALIASES ===
+
+export type EncryptionResponse = WorkerResponseForRequest<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt>;
+export type RecoveryResponse = WorkerResponseForRequest<typeof WorkerRequestType.RecoverKeypairFromPasskey>;
+export type CheckRegistrationResponse = WorkerResponseForRequest<typeof WorkerRequestType.CheckCanRegisterUser>;
+export type RegistrationResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignVerifyAndRegisterUser>;
+export type TransactionResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignTransactionWithActions>;
+export type TransferResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignTransferTransaction>;
+export type DecryptionResponse = WorkerResponseForRequest<typeof WorkerRequestType.DecryptPrivateKeyWithPrf>;
+export type CoseExtractionResponse = WorkerResponseForRequest<typeof WorkerRequestType.ExtractCosePublicKey>;
+
+// === TYPE GUARDS FOR GENERIC RESPONSES ===
+
+export function isWorkerSuccess<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerSuccessResponse<T> {
+  return (
+    response.type === WorkerResponseType.EncryptionSuccess ||
+    response.type === WorkerResponseType.RecoverKeypairSuccess ||
+    response.type === WorkerResponseType.RegistrationSuccess ||
+    response.type === WorkerResponseType.SignatureSuccess ||
+    response.type === WorkerResponseType.DecryptionSuccess ||
+    response.type === WorkerResponseType.CoseExtractionSuccess
+  );
 }
 
-export interface RegistrationSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.RegistrationSuccess;
-  payload: WasmRegistrationResult;
-}
-
-export interface RegistrationFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.RegistrationFailure;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export interface SignatureSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.SignatureSuccess;
-  payload: WasmTransactionSignResult;
-}
-
-export interface SignatureFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.SignatureFailure;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export interface DecryptionSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.DecryptionSuccess;
-  payload: WasmDecryptPrivateKeyResult;
-}
-
-export interface DecryptionFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.DecryptionFailure;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export interface ErrorResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.Error;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export interface CoseExtractionSuccessResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.CoseExtractionSuccess;
-  payload: wasmModule.CoseExtractionResult;
-}
-
-export interface CoseExtractionFailureResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.CoseExtractionFailure;
-  payload: {
-    /** Error message describing the failure */
-    error: string;
-    /** Error code for programmatic handling */
-    errorCode?: WorkerErrorCode;
-    /** Additional error context */
-    context?: Record<string, any>;
-  };
-}
-
-export type WorkerResponse =
-  | EncryptionSuccessResponse
-  | EncryptionFailureResponse
-  | RecoverKeypairSuccessResponse
-  | RecoverKeypairFailureResponse
-  | CheckRegistrationSuccessResponse
-  | RegistrationSuccessResponse
-  | RegistrationFailureResponse
-  | SignatureSuccessResponse
-  | SignatureFailureResponse
-  | DecryptionSuccessResponse
-  | DecryptionFailureResponse
-  | ProgressResponse
-  | CompletionResponse
-  | ErrorResponse
-  | CoseExtractionSuccessResponse
-  | CoseExtractionFailureResponse;
-
-// === TYPE GUARDS ===
-
-export function isEncryptionSuccess(response: WorkerResponse): response is EncryptionSuccessResponse {
-  return response.type === WorkerResponseType.EncryptionSuccess;
-}
-
-export function isRecoverKeypairSuccess(response: WorkerResponse): response is RecoverKeypairSuccessResponse {
-  return response.type === WorkerResponseType.RecoverKeypairSuccess;
-}
-
-export function isCheckRegistrationSuccess(response: WorkerResponse): response is CheckRegistrationSuccessResponse {
-  return response.type === WorkerResponseType.RegistrationSuccess;
-}
-
-export function isRegistrationSuccess(response: WorkerResponse): response is RegistrationSuccessResponse {
-  return response.type === WorkerResponseType.RegistrationSuccess;
-}
-
-export function isSignatureSuccess(response: WorkerResponse): response is SignatureSuccessResponse {
-  return response.type === WorkerResponseType.SignatureSuccess;
-}
-
-export function isDecryptionSuccess(response: WorkerResponse): response is DecryptionSuccessResponse {
-  return response.type === WorkerResponseType.DecryptionSuccess;
-}
-
-export function isCoseExtractionSuccess(response: WorkerResponse): response is CoseExtractionSuccessResponse {
-  return response.type === WorkerResponseType.CoseExtractionSuccess;
-}
-
-export function isWorkerError(response: WorkerResponse): response is
-  ErrorResponse |
-  EncryptionFailureResponse |
-  RecoverKeypairFailureResponse |
-  RegistrationFailureResponse |
-  SignatureFailureResponse |
-  DecryptionFailureResponse |
-  CoseExtractionFailureResponse
-{
+export function isWorkerError<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerErrorResponse {
   return (
     response.type === WorkerResponseType.Error ||
     response.type === WorkerResponseType.DeriveNearKeyFailure ||
@@ -702,22 +498,58 @@ export function isWorkerError(response: WorkerResponse): response is
   );
 }
 
-export function isWorkerSuccess(response: WorkerResponse): response is
-  EncryptionSuccessResponse |
-  RecoverKeypairSuccessResponse |
-  RegistrationSuccessResponse |
-  SignatureSuccessResponse |
-  DecryptionSuccessResponse |
-  CoseExtractionSuccessResponse
-{
+export function isWorkerProgress<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerProgressResponse {
   return (
-    response.type === WorkerResponseType.EncryptionSuccess ||
-    response.type === WorkerResponseType.RecoverKeypairSuccess ||
-    response.type === WorkerResponseType.RegistrationSuccess ||
-    response.type === WorkerResponseType.SignatureSuccess ||
-    response.type === WorkerResponseType.DecryptionSuccess ||
-    response.type === WorkerResponseType.CoseExtractionSuccess
+    response.type === WorkerResponseType.VerificationProgress ||
+    response.type === WorkerResponseType.SigningProgress ||
+    response.type === WorkerResponseType.RegistrationProgress
   );
+}
+
+export function isWorkerComplete<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerCompletionResponse {
+  return (
+    response.type === WorkerResponseType.VerificationComplete ||
+    response.type === WorkerResponseType.SigningComplete ||
+    response.type === WorkerResponseType.RegistrationComplete
+  );
+}
+
+// === SPECIFIC TYPE GUARDS FOR COMMON OPERATIONS ===
+
+export function isEncryptionSuccess(response: EncryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt> {
+  return response.type === WorkerResponseType.EncryptionSuccess;
+}
+
+export function isRecoverKeypairSuccess(response: RecoveryResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.RecoverKeypairFromPasskey> {
+  return response.type === WorkerResponseType.RecoverKeypairSuccess;
+}
+
+export function isCheckRegistrationSuccess(response: CheckRegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.CheckCanRegisterUser> {
+  return response.type === WorkerResponseType.RegistrationSuccess;
+}
+
+export function isRegistrationSuccess(response: RegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignVerifyAndRegisterUser> {
+  return response.type === WorkerResponseType.RegistrationSuccess;
+}
+
+export function isSignatureSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionWithActions> {
+  return response.type === WorkerResponseType.SignatureSuccess;
+}
+
+export function isTransferSuccess(response: TransferResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransferTransaction> {
+  return response.type === WorkerResponseType.SignatureSuccess;
+}
+
+export function isDecryptionSuccess(response: DecryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DecryptPrivateKeyWithPrf> {
+  return response.type === WorkerResponseType.DecryptionSuccess;
+}
+
+export function isCoseExtractionSuccess(response: CoseExtractionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
+  return response.type === WorkerResponseType.CoseExtractionSuccess;
 }
 
 // === ACTION TYPE VALIDATION ===
@@ -789,21 +621,6 @@ export function validateActionParams(actionParams: ActionParams): void {
     default:
       throw new Error(`Unsupported action type: ${(actionParams as any).actionType}`);
   }
-}
-
-// Progressive response interfaces
-export interface ProgressResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.VerificationProgress
-      | typeof WorkerResponseType.SigningProgress
-      | typeof WorkerResponseType.RegistrationProgress;
-  payload: onProgressEvents;
-}
-
-export interface CompletionResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.VerificationComplete
-      | typeof WorkerResponseType.SigningComplete
-      | typeof WorkerResponseType.RegistrationComplete;
-  payload: onProgressEvents;
 }
 
 // === WEBAUTHN CREDENTIAL TYPES ===
@@ -1023,3 +840,56 @@ export type ActionParams =
   | { actionType: ActionType.AddKey; public_key: string; access_key: string }
   | { actionType: ActionType.DeleteKey; public_key: string }
   | { actionType: ActionType.DeleteAccount; beneficiary_id: string }
+
+// === TYPE-SAFE HELPER FUNCTIONS ===
+
+/**
+ * Helper type to get just the success response payload type for a request
+ */
+export type SuccessPayloadForRequest<T extends WorkerRequestType> = RequestResponseMap[T];
+
+// === SPECIFIC TYPE-SAFE EXTRACTORS ===
+
+/**
+ * Type-safe extractor for encryption results
+ * Only works with successful responses, throws on error
+ */
+export function extractEncryptionResult(response: EncryptionResponse): WasmEncryptionResult {
+  if (isEncryptionSuccess(response)) {
+    return response.payload;
+  }
+  throw new Error('Cannot extract result from non-success response');
+}
+
+/**
+ * Type-safe extractor for transaction signing results
+ * Only works with successful responses, throws on error
+ */
+export function extractTransactionResult(response: TransactionResponse): WasmTransactionSignResult {
+  if (isSignatureSuccess(response)) {
+    return response.payload;
+  }
+  throw new Error('Cannot extract result from non-success response');
+}
+
+/**
+ * Type-safe extractor for registration results
+ * Only works with successful responses, throws on error
+ */
+export function extractRegistrationResult(response: RegistrationResponse): WasmRegistrationResult {
+  if (isRegistrationSuccess(response)) {
+    return response.payload;
+  }
+  throw new Error('Cannot extract result from non-success response');
+}
+
+/**
+ * Type-safe extractor for keypair recovery results
+ * Only works with successful responses, throws on error
+ */
+export function extractRecoveryResult(response: RecoveryResponse): WasmRecoverKeypairResult {
+  if (isRecoverKeypairSuccess(response)) {
+    return response.payload;
+  }
+  throw new Error('Cannot extract result from non-success response');
+}

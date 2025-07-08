@@ -179,9 +179,6 @@ export async function registerPasskey(
       message: 'Creating NEAR account...'
     });
 
-    console.log('>>>>>>>DEBUG: useRelayer', useRelayer);
-    console.log('>>>>>>>DEBUG: configs.relayServerUrl', configs.relayServerUrl);
-
     if (useRelayer) {
       if (!configs.relayServerUrl) {
         throw new Error('Relay server URL is required when useRelayer is true');

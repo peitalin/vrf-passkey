@@ -3,11 +3,14 @@ name = "wasm_signer_worker"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 # Empty workspace to make this package independent
 [workspace]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 aes-gcm = "0.10"

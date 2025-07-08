@@ -92,6 +92,7 @@ echo "Generated files:"
 echo "  - $SIGNER_TYPES (Signer worker types from wasm-bindgen)"
 echo "  - $VRF_TYPES (VRF worker types from wasm-bindgen)"
 echo "  - Validated against existing TypeScript codebase"
+echo ""
 
 # Clean up log file
 rm -f "$LOG_FILE"
