@@ -731,27 +731,27 @@ export class SignerWorkerManager {
         timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
-      if (isTransferSuccess(response)) {
-        console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
-        const wasmResult = response.payload;
-
-        if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
-          throw new Error('Incomplete signed transaction data received from worker');
-        }
-
-        return {
-          signedTransaction: new SignedTransaction({
-            transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
-            signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
-            borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
-          }),
-          nearAccountId: payload.nearAccountId,
-          logs: wasmResult.logs || []
-        };
-      } else {
+      if (!isTransferSuccess(response)) {
         console.error('WebAuthnManager: Enhanced transfer transaction signing failed:', response);
         throw new Error('Enhanced transfer transaction signing failed');
       }
+
+      console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
+      const wasmResult = response.payload;
+
+      if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
+        throw new Error('Incomplete signed transaction data received from worker');
+      }
+
+      return {
+        signedTransaction: new SignedTransaction({
+          transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
+          signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
+          borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
+        }),
+        nearAccountId: payload.nearAccountId,
+        logs: wasmResult.logs || []
+      };
     } catch (error: any) {
       console.error('WebAuthnManager: Enhanced transfer transaction signing error:', error);
       throw error;

@@ -434,6 +434,64 @@ export class VrfWorkerManager {
   }
 
   /**
+   * Derive deterministic VRF keypair from PRF output for account recovery
+   * This enables deterministic VRF key derivation without needing stored VRF keypairs
+   *
+   * @param prfOutput - Base64url-encoded PRF output from WebAuthn credential
+   * @param nearAccountId - NEAR account ID for key derivation salt
+   * @returns Deterministic VRF public key derived from PRF
+   */
+  async deriveVrfKeypairFromSeed({
+    prfOutput,
+    nearAccountId
+  }: {
+    prfOutput: string;
+    nearAccountId: string;
+  }): Promise<{
+    success: boolean;
+    vrfPublicKey: string;
+  }> {
+    console.log('VRF Manager: Deriving deterministic VRF keypair from PRF output');
+
+    if (!this.vrfWorker) {
+      throw new Error('VRF Web Worker not initialized');
+    }
+
+    try {
+      // Decode base64url PRF output to bytes for WASM worker
+      const prfBytes = toWasmByteArray(new TextEncoder().encode(atob(prfOutput.replace(/-/g, '+').replace(/_/g, '/'))));
+
+      const message: VRFWorkerMessage = {
+        type: 'DERIVE_VRF_KEYPAIR_FROM_PRF',
+        id: this.generateMessageId(),
+        data: {
+          prfOutput: Array.from(prfBytes),
+          nearAccountId: nearAccountId
+        }
+      };
+
+      const response = await this.sendMessage(message);
+
+      if (!response.success || !response.data) {
+        throw new Error(`VRF keypair derivation failed: ${response.error}`);
+      }
+
+      console.log('VRF Manager: Deterministic VRF keypair derivation successful');
+      return {
+        success: response.data.success,
+        vrfPublicKey: response.data.vrf_public_key
+      };
+
+    } catch (error: any) {
+      console.error('VRF Manager: VRF keypair derivation failed:', error);
+      return {
+        success: false,
+        vrfPublicKey: ''
+      };
+    }
+  }
+
+  /**
    * Test Web Worker communication with progressive retry
    */
   private async testWebWorkerCommunication(): Promise<void> {

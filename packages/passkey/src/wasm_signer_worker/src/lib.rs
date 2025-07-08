@@ -140,11 +140,9 @@ pub fn recover_keypair_from_passkey(
         .unwrap_or("recovery-account.testnet");
 
     // Derive Ed25519 keypair from Ed25519 PRF output using account-specific HKDF
+    // public_key already contains the ed25519: prefix from the crypto function
     let (private_key, public_key) = crate::crypto::derive_ed25519_key_from_prf_output(ed25519_prf_output, account_id)
         .map_err(|e| JsValue::from_str(&format!("Failed to derive Ed25519 key from PRF: {}", e)))?;
-
-    // Format as NEAR public key (public_key is already in the correct format)
-    let near_public_key = format!("ed25519:{}", public_key);
 
     // Encrypt the private key with the AES PRF output (correct usage)
     let encryption_result = crate::crypto::encrypt_private_key_with_prf(
@@ -157,7 +155,7 @@ pub fn recover_keypair_from_passkey(
     console_log!("RUST: PRF-based keypair recovery from authentication credential successful");
 
     Ok(RecoverKeypairResult::new(
-        near_public_key,
+        public_key,
         encryption_result.encrypted_near_key_data_b64u,
         encryption_result.aes_gcm_nonce_b64u, // IV
         account_id_hint

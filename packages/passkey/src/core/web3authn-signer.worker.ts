@@ -5,6 +5,7 @@
  */
 
 import type { WorkerMessage, WorkerRequestType } from './types/signer-worker';
+import { ProgressStep, ProgressMessageType } from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
@@ -18,29 +19,6 @@ import { Buffer } from 'buffer';
 globalThis.Buffer = Buffer;
 
 let messageProcessed = false;
-
-// === PROGRESS MESSAGE TYPES ===
-
-// Progress message types that can be sent from WASM to the main thread
-enum ProgressMessageType {
-  VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
-  VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
-  SIGNING_PROGRESS = 'SIGNING_PROGRESS',
-  SIGNING_COMPLETE = 'SIGNING_COMPLETE',
-  REGISTRATION_PROGRESS = 'REGISTRATION_PROGRESS',
-  REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
-}
-
-// Step identifiers for progress tracking
-enum ProgressStep {
-  PREPARATION = 'preparation',
-  AUTHENTICATION = 'authentication',
-  CONTRACT_VERIFICATION = 'contract_verification',
-  TRANSACTION_SIGNING = 'transaction_signing',
-  BROADCASTING = 'broadcasting',
-  VERIFICATION_COMPLETE = 'verification_complete',
-  SIGNING_COMPLETE = 'signing_complete',
-}
 
 /**
  * Function called by WASM to send progress messages

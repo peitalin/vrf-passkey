@@ -435,6 +435,58 @@ impl VRFKeyManager {
         Ok(vrf_keypair)
     }
 
+    /// Generate deterministic VRF keypair from seed material (PRF output)
+    /// This enables deterministic VRF key derivation for account recovery
+    fn generate_vrf_keypair_from_seed(&self, seed: &[u8], account_id: &str) -> Result<ECVRFKeyPair, String> {
+        console::log_1(&format!("VRF WASM Web Worker: Generating deterministic VRF keypair from seed for account: {}", account_id).into());
+
+        // Use HKDF-SHA256 to derive a proper 32-byte seed from PRF output
+        let hk = Hkdf::<Sha256>::new(Some(account_id.as_bytes()), seed);
+        let mut vrf_seed = [0u8; 32];
+        hk.expand(b"vrf-keypair-derivation-v1", &mut vrf_seed)
+            .map_err(|_| "HKDF VRF seed derivation failed".to_string())?;
+
+        // Generate VRF keypair deterministically from the derived seed
+        let mut rng = WasmRngFromSeed::from_seed(vrf_seed);
+        let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
+
+        console::log_1(&"VRF WASM Web Worker: Deterministic VRF keypair generated successfully".into());
+
+        Ok(vrf_keypair)
+    }
+
+    /// Derive deterministic VRF keypair from PRF output for recovery
+    /// This is the main entry point for deterministic VRF derivation
+    pub fn derive_vrf_keypair_from_prf(
+        &self,
+        prf_output: Vec<u8>,
+        near_account_id: String,
+    ) -> Result<DeterministicVrfKeypairResponse, String> {
+        console::log_1(&format!("VRF WASM Web Worker: Deriving deterministic VRF keypair from PRF for account: {}", near_account_id).into());
+
+        if prf_output.is_empty() {
+            return Err("PRF output cannot be empty".to_string());
+        }
+
+        // Generate deterministic VRF keypair from PRF output
+        let vrf_keypair = self.generate_vrf_keypair_from_seed(&prf_output, &near_account_id)?;
+
+        // Get public key bytes for response
+        let vrf_public_key_bytes = bincode::serialize(&vrf_keypair.pk)
+            .map_err(|e| format!("Failed to serialize VRF public key: {:?}", e))?;
+        let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
+
+        console::log_1(&format!("VRF WASM Web Worker: Deterministic VRF public key: {}...", &vrf_public_key_b64[..20.min(vrf_public_key_b64.len())]).into());
+
+        // Note: We don't store this keypair in memory - it's derived on-demand
+        // This is different from bootstrap keypairs which are stored for immediate use
+
+        Ok(DeterministicVrfKeypairResponse {
+            vrf_public_key: vrf_public_key_b64,
+            success: true,
+        })
+    }
+
     /// Encrypt VRF keypair data using PRF-derived AES key
     fn encrypt_vrf_keypair_data(&self, vrf_keypair: &ECVRFKeyPair, prf_key: &[u8]) -> Result<(String, serde_json::Value), String> {
         console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair data".into());
@@ -510,6 +562,12 @@ pub struct VrfKeypairBootstrapResponse {
 pub struct EncryptedVrfKeypairResponse {
     pub vrf_public_key: String,
     pub encrypted_vrf_keypair: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DeterministicVrfKeypairResponse {
+    pub vrf_public_key: String,
+    pub success: bool,
 }
 
 // === UTILITY FUNCTIONS ===
@@ -807,6 +865,69 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
                         success: false,
                         data: None,
                         error: Some(e),
+                    }
+                }
+            })
+        }
+
+        "DERIVE_VRF_KEYPAIR_FROM_PRF" => {
+            VRF_MANAGER.with(|manager| {
+                match message.data {
+                    Some(data) => {
+                        let prf_output: Vec<u8> = data["prfOutput"].as_array()
+                            .unwrap_or(&vec![])
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as u8))
+                            .collect();
+
+                        let near_account_id = data["nearAccountId"].as_str()
+                            .unwrap_or("")
+                            .to_string();
+
+                        if prf_output.is_empty() {
+                            VRFWorkerResponse {
+                                id: message.id,
+                                success: false,
+                                data: None,
+                                error: Some("Missing or invalid PRF output".to_string()),
+                            }
+                        } else if near_account_id.is_empty() {
+                            VRFWorkerResponse {
+                                id: message.id,
+                                success: false,
+                                data: None,
+                                error: Some("Missing NEAR account ID".to_string()),
+                            }
+                        } else {
+                            let manager = manager.borrow();
+                            match manager.derive_vrf_keypair_from_prf(prf_output, near_account_id) {
+                                Ok(derivation_result) => {
+                                    let response_data = serde_json::json!({
+                                        "vrf_public_key": derivation_result.vrf_public_key,
+                                        "success": derivation_result.success
+                                    });
+
+                                    VRFWorkerResponse {
+                                        id: message.id,
+                                        success: true,
+                                        data: Some(response_data),
+                                        error: None,
+                                    }
+                                },
+                                Err(e) => VRFWorkerResponse {
+                                    id: message.id,
+                                    success: false,
+                                    data: None,
+                                    error: Some(e),
+                                }
+                            }
+                        }
+                    }
+                    None => VRFWorkerResponse {
+                        id: message.id,
+                        success: false,
+                        data: None,
+                        error: Some("Missing VRF derivation data".to_string()),
                     }
                 }
             })

@@ -39,6 +39,7 @@ export interface VRFWorkerMessage {
       | 'GENERATE_VRF_CHALLENGE'
       | 'GENERATE_VRF_KEYPAIR_BOOTSTRAP'
       | 'ENCRYPT_VRF_KEYPAIR_WITH_PRF'
+      | 'DERIVE_VRF_KEYPAIR_FROM_PRF'
       | 'CHECK_VRF_STATUS'
       | 'LOGOUT';
   id?: string;

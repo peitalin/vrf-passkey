@@ -1,6 +1,6 @@
 // Core dependencies
 import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
-import { actionCreators, Transaction, createTransaction, Signature } from '@near-js/transactions';
+import { actionCreators, createTransaction, Signature } from '@near-js/transactions';
 
 // Internal types
 import type { PasskeyManagerContext } from '../PasskeyManager';
@@ -29,6 +29,7 @@ import {
   type UserData,
   type ActionParams,
 } from '../types/signer-worker';
+import { extractDualPrfOutputs } from '../types/signer-worker';
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -95,6 +96,56 @@ export class WebAuthnManager {
     vrfChallenge: VRFChallenge;
   }> {
     return await this.vrfWorkerManager.generateVrfKeypair(saveInMemory, vrfInputParams);
+  }
+
+  /**
+   * Derive deterministic VRF keypair from PRF output for recovery
+   * This enables deterministic VRF key derivation from WebAuthn credentials
+   *
+   * @param credential - WebAuthn credential containing PRF outputs
+   * @param nearAccountId - NEAR account ID for key derivation salt
+   * @returns Deterministic VRF public key derived from PRF
+   */
+  async deriveVrfKeypairFromPrf({
+    credential,
+    nearAccountId
+  }: {
+    credential: PublicKeyCredential;
+    nearAccountId: string;
+  }): Promise<{
+    success: boolean;
+    vrfPublicKey: string;
+  }> {
+    try {
+      console.log('WebAuthnManager: Deriving deterministic VRF keypair from PRF output');
+
+      // Extract PRF outputs from credential
+      const dualPrfOutputs = extractDualPrfOutputs(credential);
+
+      // Use the first PRF output for VRF keypair derivation (AES PRF output)
+      // This ensures deterministic derivation: same PRF + same account = same VRF keypair
+      const vrfKeypairResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
+        prfOutput: dualPrfOutputs.aesPrfOutput,
+        nearAccountId: nearAccountId
+      });
+
+      if (!vrfKeypairResult.success) {
+        throw new Error('VRF keypair derivation from PRF failed');
+      }
+
+      console.log('WebAuthnManager: Deterministic VRF keypair derived successfully');
+      return {
+        success: true,
+        vrfPublicKey: vrfKeypairResult.vrfPublicKey
+      };
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: VRF keypair derivation from PRF error:', error);
+      return {
+        success: false,
+        vrfPublicKey: ''
+      };
+    }
   }
 
   /**
@@ -496,6 +547,157 @@ export class WebAuthnManager {
       onEvent,
       nearRpcUrl: this.configs.nearRpcUrl,
     });
+  }
+
+  /**
+   * DUAL VRF REGISTRATION FLOW
+   *
+   * Implements the architectural solution to the chicken-and-egg problem:
+   * 1. Generate bootstrap VRF keypair (random) → creates VRF challenge
+   * 2. Single TouchID ceremony with VRF challenge → get dual PRF outputs
+   * 3. Derive deterministic VRF keypair from PRF output #1
+   * 4. Register BOTH VRF keys on-chain in vrf_public_keys array:
+   *    - vrf_public_keys[0] = Bootstrap VRF key (cryptographically bound to WebAuthn)
+   *    - vrf_public_keys[1] = Deterministic VRF key (for recovery/future use)
+   *
+   * Benefits:
+   * ✅ Single TouchID ceremony during registration
+   * ✅ Cryptographic binding preserved (bootstrap key)
+   * ✅ Deterministic recovery (deterministic key)
+   * ✅ No chicken-and-egg problems during recovery
+   * ✅ Future-proof architecture (can use either key for authentication)
+   */
+  async dualVrfRegistrationFlow({
+    nearAccountId,
+    vrfInputParams,
+    onEvent,
+  }: {
+    nearAccountId: string;
+    vrfInputParams: {
+      userId: string;
+      rpId: string;
+      blockHeight: number;
+      blockHashBytes: number[];
+      timestamp: number;
+    };
+    onEvent?: (update: onProgressEvents) => void;
+  }): Promise<{
+    bootstrapVrfPublicKey: string;
+    deterministicVrfPublicKey: string;
+    vrfChallenge: VRFChallenge;
+    registrationCredential: PublicKeyCredential;
+    encryptedBootstrapVrfKeypair: EncryptedVRFKeypair;
+    dualPrfOutputs: {
+      aesPrfOutput: string;
+      ed25519PrfOutput: string;
+    };
+  }> {
+    try {
+      console.log('WebAuthnManager: Starting dual VRF registration flow');
+
+      onEvent?.({
+        step: 1,
+        phase: 'preparation',
+        status: 'progress',
+        message: 'Generating bootstrap VRF keypair and challenge...'
+      });
+
+      // Step 1: Generate bootstrap VRF keypair (random) and VRF challenge
+      console.log('Step 1: Generating bootstrap VRF keypair + challenge');
+      const bootstrapResult = await this.generateVrfKeypair(true, vrfInputParams);
+      const bootstrapVrfPublicKey = bootstrapResult.vrfPublicKey;
+      const vrfChallenge = bootstrapResult.vrfChallenge;
+
+      console.log(`Bootstrap VRF public key: ${bootstrapVrfPublicKey.substring(0, 20)}...`);
+      console.log(`VRF challenge generated with bootstrap keypair`);
+
+      onEvent?.({
+        step: 2,
+        phase: 'authentication',
+        status: 'progress',
+        message: 'Performing TouchID ceremony with VRF challenge...'
+      });
+
+      // Step 2: Single TouchID ceremony with VRF challenge → get dual PRF outputs
+      console.log('Step 2: TouchID ceremony with VRF challenge');
+      const registrationCredential = await this.touchIdPrompt.generateRegistrationCredentials({
+        nearAccountId,
+        challenge: vrfChallenge.outputAs32Bytes(),
+      });
+
+      // Extract dual PRF outputs from the registration credential
+      const dualPrfOutputs = extractDualPrfOutputs(registrationCredential);
+      console.log('Dual PRF outputs extracted from registration credential');
+
+      onEvent?.({
+        step: 3,
+        phase: 'preparation',
+        status: 'progress',
+        message: 'Deriving deterministic VRF keypair from PRF output...'
+      });
+
+      // Step 3: Derive deterministic VRF keypair from PRF output #1 (AES PRF)
+      console.log('Step 3: Deriving deterministic VRF keypair from PRF output');
+      const deterministicResult = await this.deriveVrfKeypairFromPrf({
+        credential: registrationCredential,
+        nearAccountId
+      });
+
+      if (!deterministicResult.success) {
+        throw new Error('Failed to derive deterministic VRF keypair from PRF output');
+      }
+
+      const deterministicVrfPublicKey = deterministicResult.vrfPublicKey;
+      console.log(`Deterministic VRF public key: ${deterministicVrfPublicKey.substring(0, 20)}...`);
+
+      onEvent?.({
+        step: 4,
+        phase: 'preparation',
+        status: 'progress',
+        message: 'Encrypting bootstrap VRF keypair with PRF output...'
+      });
+
+      // Step 4: Encrypt bootstrap VRF keypair with PRF output for storage
+      console.log('Step 4: Encrypting bootstrap VRF keypair with PRF output');
+      const encryptionResult = await this.encryptVrfKeypairWithCredentials({
+        credential: registrationCredential,
+        vrfPublicKey: bootstrapVrfPublicKey,
+      });
+
+      console.log('Bootstrap VRF keypair encrypted and ready for storage');
+
+      onEvent?.({
+        step: 5,
+        phase: 'action-complete',
+        status: 'success',
+        message: 'Dual VRF registration flow completed successfully'
+      });
+
+      console.log('✅ Dual VRF registration flow completed successfully');
+      console.log(`Bootstrap VRF key (cryptographically bound): ${bootstrapVrfPublicKey.substring(0, 20)}...`);
+      console.log(`Deterministic VRF key (for recovery): ${deterministicVrfPublicKey.substring(0, 20)}...`);
+
+      return {
+        bootstrapVrfPublicKey,
+        deterministicVrfPublicKey,
+        vrfChallenge,
+        registrationCredential,
+        encryptedBootstrapVrfKeypair: encryptionResult.encryptedVrfKeypair,
+        dualPrfOutputs,
+      };
+
+    } catch (error: any) {
+      console.error('WebAuthnManager: Dual VRF registration flow error:', error);
+
+      onEvent?.({
+        step: 0,
+        phase: 'action-error',
+        status: 'error',
+        message: `Dual VRF registration failed: ${error.message}`
+      });
+
+      throw new Error(`Dual VRF registration flow failed: ${error.message}`);
+    }
   }
 
   /**

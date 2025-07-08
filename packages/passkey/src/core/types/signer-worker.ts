@@ -131,209 +131,6 @@ export interface BaseWorkerRequest {
   timestamp?: number;
 }
 
-// Dual PRF key derivation for secure private key generation
-export interface DeriveNearKeypairAndEncryptRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.DeriveNearKeypairAndEncrypt;
-  payload: {
-    /** Dual PRF outputs from WebAuthn */
-    dualPrfOutputs: DualPrfOutputs;
-    /** NEAR account ID for key derivation */
-    nearAccountId: string;
-  };
-}
-
-// WebAuthn + WASM private key recovery (view function)
-export interface RecoverKeypairFromPasskeyRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.RecoverKeypairFromPasskey;
-  payload: {
-    /** WebAuthn authentication credential with PRF outputs */
-    credential: WebAuthnAuthenticationCredential;
-    /** Optional account ID hint for recovery */
-    accountIdHint?: string;
-  };
-}
-
-export interface DecryptPrivateKeyWithPrfRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.DecryptPrivateKeyWithPrf;
-  payload: {
-    /** NEAR account ID */
-    nearAccountId: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-    /** Base64url-encoded encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Base64url-encoded AES-GCM nonce for decryption */
-    encryptedPrivateKeyIv: string;
-  };
-}
-
-// Check if user can register (view function)
-export interface CheckCanRegisterUserRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.CheckCanRegisterUser;
-  payload: {
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn registration credential */
-    credential: WebAuthnRegistrationCredential;
-    /** Contract ID for verification */
-    contractId: string;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-  };
-}
-
-// Multi-action request with WebAuthn verification (PRF extracted in worker for security)
-export interface SignTransactionWithActionsRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.SignTransactionWithActions;
-  payload: {
-    /** NEAR account ID for the signer */
-    nearAccountId: string;
-    /** Receiver account ID */
-    receiverId: string;
-    /** Serialized actions JSON string */
-    actions: string;
-    /** Transaction nonce */
-    nonce: string;
-    /** Block hash bytes */
-    blockHashBytes: number[];
-    /** Contract ID for verification */
-    contractId: string;
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn authentication credential with PRF outputs */
-    credential: WebAuthnAuthenticationCredential;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-    /** Base64url-encoded encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Base64url-encoded AES-GCM nonce for decryption */
-    encryptedPrivateKeyIv: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-  };
-}
-
-// Convenience request for Transfer transactions (PRF extracted in worker for security)
-export interface SignTransferTransactionRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.SignTransferTransaction;
-  payload: {
-    /** NEAR account ID for the signer */
-    nearAccountId: string;
-    /** Receiver account ID */
-    receiverId: string;
-    /** Transfer amount in yoctoNEAR */
-    depositAmount: string;
-    /** Transaction nonce */
-    nonce: string;
-    /** Block hash bytes */
-    blockHashBytes: number[];
-    /** Contract ID for verification */
-    contractId: string;
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn authentication credential with PRF outputs */
-    credential: WebAuthnAuthenticationCredential;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-    /** Base64url-encoded encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Base64url-encoded AES-GCM nonce for decryption */
-    encryptedPrivateKeyIv: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-  };
-}
-
-// Actually register user (state-changing function - send_tx RPC)
-export interface SignVerifyAndRegisterUserRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.SignVerifyAndRegisterUser;
-  payload: {
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn registration credential */
-    credential: WebAuthnRegistrationCredential;
-    /** Contract ID for verification */
-    contractId: string;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-    /** NEAR account ID for the user */
-    nearAccountId: string;
-    /** Transaction nonce */
-    nonce: string;
-    /** Block hash bytes */
-    blockHashBytes: number[];
-  };
-}
-
-// COSE public key extraction from attestation object
-export interface ExtractCosePublicKeyRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.ExtractCosePublicKey;
-  payload: {
-    /** Base64url-encoded attestation object */
-    attestationObjectBase64url: string;
-  };
-}
-
-// Add key with PRF authentication
-export interface AddKeyWithPrfRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.AddKeyWithPrf;
-  payload: {
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn authentication credential with PRF outputs */
-    credential: WebAuthnAuthenticationCredential;
-    /** Contract ID for verification */
-    contractId: string;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-    /** NEAR account ID */
-    nearAccountId: string;
-    /** New public key to add */
-    newPublicKey: string;
-    /** Access key permissions JSON */
-    accessKeyJson: string;
-    /** Transaction nonce */
-    nonce: string;
-    /** Block hash bytes */
-    blockHashBytes: number[];
-    /** Base64url-encoded encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Base64url-encoded AES-GCM nonce for decryption */
-    encryptedPrivateKeyIv: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-  };
-}
-
-// Delete key with PRF authentication
-export interface DeleteKeyWithPrfRequest extends BaseWorkerRequest {
-  type: typeof WorkerRequestType.DeleteKeyWithPrf;
-  payload: {
-    /** VRF challenge data */
-    vrfChallenge: VRFChallenge;
-    /** WebAuthn authentication credential with PRF outputs */
-    credential: WebAuthnAuthenticationCredential;
-    /** Contract ID for verification */
-    contractId: string;
-    /** NEAR RPC URL */
-    nearRpcUrl: string;
-    /** NEAR account ID */
-    nearAccountId: string;
-    /** Public key to delete */
-    publicKeyToDelete: string;
-    /** Transaction nonce */
-    nonce: string;
-    /** Block hash bytes */
-    blockHashBytes: number[];
-    /** Base64url-encoded encrypted private key data */
-    encryptedPrivateKeyData: string;
-    /** Base64url-encoded AES-GCM nonce for decryption */
-    encryptedPrivateKeyIv: string;
-    /** Base64-encoded PRF output from WebAuthn */
-    prfOutput: string;
-  };
-}
-
 // === GENERIC REQUEST TYPE ===
 // Generic message interface that uses WASM types
 export interface WorkerMessage<T extends WorkerRequestType> {
@@ -343,9 +140,7 @@ export interface WorkerMessage<T extends WorkerRequestType> {
 
 // === PROGRESS MESSAGE TYPES ===
 
-/**
- * Progress message types that can be sent from WASM to the main thread
- */
+// Progress message types that can be sent from WASM to the main thread
 export enum ProgressMessageType {
   VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
   VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
@@ -355,9 +150,7 @@ export enum ProgressMessageType {
   REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
 }
 
-/**
- * Step identifiers for progress tracking
- */
+// Step identifiers for progress tracking
 export enum ProgressStep {
   PREPARATION = 'preparation',
   AUTHENTICATION = 'authentication',
@@ -366,32 +159,6 @@ export enum ProgressStep {
   BROADCASTING = 'broadcasting',
   VERIFICATION_COMPLETE = 'verification_complete',
   SIGNING_COMPLETE = 'signing_complete',
-}
-
-/**
- * Parameters for the sendProgressMessage function called by WASM
- */
-export interface ProgressMessageParams {
-  /** Type of progress message */
-  messageType: ProgressMessageType | string;
-  /** Step identifier */
-  step: ProgressStep | string;
-  /** Human-readable progress message */
-  message: string;
-  /** JSON string containing structured data */
-  data: string;
-  /** Optional JSON string containing array of log messages */
-  logs?: string;
-}
-
-/**
- * Worker progress message that gets posted to the main thread
- */
-export interface WorkerProgressMessage {
-  /** Message type corresponding to WorkerResponseType */
-  type: string;
-  /** Payload containing onProgressEvents-compatible data plus legacy fields */
-  payload: any; // Will be properly typed when imported with onProgressEvents
 }
 
 // === RESPONSE MESSAGE INTERFACES ===

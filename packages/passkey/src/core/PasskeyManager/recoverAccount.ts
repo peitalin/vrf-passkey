@@ -371,8 +371,8 @@ export async function recoverAccount(
       throw new Error(`Account ${accountId} was not created with this passkey`);
     }
 
-    console.log('Registration Steps 5-7: Encrypting VRF keypair, generating NEAR keypair with PRF, and checking registration');
-    const { encryptedVrfResult, keyGenResult, canRegisterUserResult } = await Promise.all([
+    console.log('Registration Steps 5-7: Encrypting VRF keypair, generating NEAR keypair with PRF, and verifying account access');
+    const { encryptedVrfResult, keyGenResult } = await Promise.all([
       webAuthnManager.encryptVrfKeypairWithCredentials({
         credential,
         vrfPublicKey: vrfChallenge.vrfPublicKey
@@ -380,33 +380,17 @@ export async function recoverAccount(
       webAuthnManager.deriveNearKeypairAndEncrypt({
         credential,
         nearAccountId: accountId
-      }),
-      webAuthnManager.checkCanRegisterUser({
-        contractId: webAuthnManager.configs.contractId,
-        credential: credential,
-        vrfChallenge: vrfChallenge,
-        onEvent: (progress) => {
-          console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
-          onEvent?.({
-            step: 3,
-            phase: 'contract-verification',
-            status: 'progress',
-            timestamp: Date.now(),
-            message: `Checking registration: ${progress.message}`
-          });
-        },
       })
-    ]).then(([encryptedVrfResult, keyGenResult, canRegisterUserResult]) => {
+    ]).then(([encryptedVrfResult, keyGenResult]) => {
       if (!encryptedVrfResult.encryptedVrfKeypair || !encryptedVrfResult.vrfPublicKey) {
         throw new Error('Failed to encrypt VRF keypair');
       }
       if (!keyGenResult.success || !keyGenResult.publicKey) {
         throw new Error('Failed to generate NEAR keypair with PRF');
       }
-      if (!canRegisterUserResult.verified) {
-        throw new Error(`Web3Authn contract registration check failed: ${canRegisterUserResult.error}`);
-      }
-      return { encryptedVrfResult, keyGenResult, canRegisterUserResult };
+      // Skip checkCanRegisterUser during recovery - we're not registering, we're recovering
+      // Account ownership is verified by checking access key above
+      return { encryptedVrfResult, keyGenResult };
     });
 
     console.log(`Account ownership verified for ${accountId}`);
@@ -583,63 +567,17 @@ async function performAccountRecovery({
       console.log(`Restored authenticator ${credentialId} for ${accountId}`);
     }
 
-    // 4. Add VRF public key to authenticator (FIFO queue)
-    console.log('Adding VRF public key from encrypted keypair to authenticator...');
+    // 4. Skip VRF key addition during recovery - this should happen during normal operations
+    console.log('Skipping VRF key addition during recovery - will be added during next VRF operation');
+
+    // Note: The encrypted VRF keypair is stored locally and will be used for future VRF operations
+    // The VRF public key will be automatically added to the contract during the next VRF challenge
+    // that requires contract interaction (like registration or transaction signing)
 
     if (contractAuthenticators.length > 0) {
-      // Use the VRF public key from the encrypted result (same one that was generated during steps 5-7)
-      const vrfPublicKeyToAdd = encryptedVrfResult.vrfPublicKey;
-
-      // Add the VRF public key to the first authenticator on-chain
-      // (FIFO queue with max 5 keys, oldest will be removed if needed)
-      const firstAuthenticator = contractAuthenticators[0];
-
-      try {
-        console.log(`Adding VRF public key to authenticator: ${firstAuthenticator.credentialId}`);
-
-        // Get transaction metadata
-        const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-          nearClient.viewAccessKey(accountId, publicKey),
-          nearClient.viewBlock({ finality: 'final' })
-        ]);
-
-        if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
-          throw new Error(`Access key not found for account ${accountId} with public key ${publicKey}`);
-        }
-
-        const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
-        const blockHashString = transactionBlockInfo.header.hash;
-        const transactionBlockHashBytes = Array.from(Buffer.from(blockHashString, 'base64'));
-
-        // Convert VRF public key from base64 string to Uint8Array
-        const vrfPublicKeyBytes = Buffer.from(vrfPublicKeyToAdd, 'base64');
-
-        // Add VRF key to contract
-        const contractResult = await webAuthnManager.addVrfKeyToAuthenticator({
-          nearAccountId: accountId,
-          contractId: configs.contractId,
-          credentialId: firstAuthenticator.credentialId,
-          vrfPublicKey: vrfPublicKeyBytes,
-          nonce: nonce.toString(),
-          blockHashBytes: transactionBlockHashBytes,
-          vrfChallenge: vrfChallenge,
-          credential: credential,
-          nearRpcUrl: configs.nearRpcUrl,
-          onEvent: (progress) => {
-            console.debug(`VRF key addition progress: ${progress.message}`);
-          }
-        });
-
-        console.log(`VRF public key added successfully to ${firstAuthenticator.credentialId}`);
-        console.log(`Transaction ID: ${contractResult.signedTransaction.base64Encode()}`);
-
-      } catch (contractError: any) {
-        console.warn(`Failed to add VRF key to contract: ${contractError.message}`);
-        // Continue with recovery even if VRF key addition fails
-        // The encrypted VRF keypair is still stored locally and can be used
-      }
-
-      console.log(`Added VRF public key from encrypted keypair: ${vrfPublicKeyToAdd.substring(0, 20)}...`);
+      console.log(`VRF keypair encrypted and stored locally for account: ${accountId}`);
+      console.log(`VRF public key: ${encryptedVrfResult.vrfPublicKey.substring(0, 20)}...`);
+      console.log('VRF key will be added to contract during next VRF operation that requires contract verification');
     }
 
     // 5. Update last login timestamp
