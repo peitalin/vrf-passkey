@@ -1,3 +1,5 @@
+import { openDB, type IDBPDatabase } from 'idb';
+
 // === CONSTANTS ===
 
 const DB_CONFIG: PasskeyNearKeysDBConfig = {
@@ -23,51 +25,48 @@ interface PasskeyNearKeysDBConfig {
 
 export class PasskeyNearKeysDBManager {
   private config: PasskeyNearKeysDBConfig;
+  private db: IDBPDatabase | null = null;
 
   constructor(config: PasskeyNearKeysDBConfig = DB_CONFIG) {
     this.config = config;
   }
 
   /**
-   * Open IndexedDB connection
+   * Get database connection, initializing if necessary
    */
-  private async openDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.config.dbName, this.config.dbVersion);
+  private async getDB(): Promise<IDBPDatabase> {
+    if (this.db) {
+      return this.db;
+    }
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(this.config.storeName)) {
-          db.createObjectStore(this.config.storeName, { keyPath: this.config.keyPath });
+    this.db = await openDB(this.config.dbName, this.config.dbVersion, {
+      upgrade(db, oldVersion): void {
+        // Create store if it doesn't exist
+        if (!db.objectStoreNames.contains(DB_CONFIG.storeName)) {
+          db.createObjectStore(DB_CONFIG.storeName, { keyPath: DB_CONFIG.keyPath });
         }
-      };
+      },
+      blocked() {
+        console.warn('PasskeyNearKeysDB connection is blocked.');
+      },
+      blocking() {
+        console.warn('PasskeyNearKeysDB connection is blocking another connection.');
+      },
+      terminated: () => {
+        console.warn('PasskeyNearKeysDB connection has been terminated.');
+        this.db = null;
+      },
     });
+
+    return this.db;
   }
 
   /**
    * Store encrypted key data
    */
   async storeEncryptedKey(data: EncryptedKeyData): Promise<void> {
-    const db = await this.openDB();
-    const transaction = db.transaction([this.config.storeName], 'readwrite');
-    const store = transaction.objectStore(this.config.storeName);
-
-    return new Promise((resolve, reject) => {
-      const request = store.put(data);
-
-      request.onsuccess = () => {
-        db.close();
-        resolve();
-      };
-
-      request.onerror = () => {
-        db.close();
-        reject(request.error);
-      };
-    });
+    const db = await this.getDB();
+    await db.put(this.config.storeName, data);
   }
 
   /**
@@ -76,29 +75,14 @@ export class PasskeyNearKeysDBManager {
   async getEncryptedKey(nearAccountId: string): Promise<EncryptedKeyData | null> {
     console.log('PasskeyNearKeysDB: getEncryptedKey - Retrieving for account:', nearAccountId);
 
-    const db = await this.openDB();
-    const transaction = db.transaction([this.config.storeName], 'readonly');
-    const store = transaction.objectStore(this.config.storeName);
+    const db = await this.getDB();
+    const result = await db.get(this.config.storeName, nearAccountId);
 
-    return new Promise((resolve, reject) => {
-      const request = store.get(nearAccountId);
+    if (!result?.encryptedData) {
+      console.warn('PasskeyNearKeysDB: getEncryptedKey - No result found');
+    }
 
-      request.onsuccess = () => {
-        const result: EncryptedKeyData | null = request.result;
-        if (!result?.encryptedData) {
-          console.warn('PasskeyNearKeysDB: getEncryptedKey - No result found');
-        }
-
-        db.close();
-        resolve(result);
-      };
-
-      request.onerror = () => {
-        console.error('PasskeyNearKeysDB: getEncryptedKey - Error:', request.error);
-        db.close();
-        reject(request.error);
-      };
-    });
+    return result || null;
   }
 
   /**
@@ -120,76 +104,18 @@ export class PasskeyNearKeysDBManager {
   async deleteEncryptedKey(nearAccountId: string): Promise<void> {
     console.log('PasskeyNearKeysDB: deleteEncryptedKey - Deleting for account:', nearAccountId);
 
-    const db = await this.openDB();
-    const transaction = db.transaction([this.config.storeName], 'readwrite');
-    const store = transaction.objectStore(this.config.storeName);
+    const db = await this.getDB();
+    await db.delete(this.config.storeName, nearAccountId);
 
-    return new Promise((resolve, reject) => {
-      const request = store.delete(nearAccountId);
-
-      request.onsuccess = () => {
-        console.log('PasskeyNearKeysDB: deleteEncryptedKey - Successfully deleted');
-        db.close();
-        resolve();
-      };
-
-      request.onerror = () => {
-        console.error('PasskeyNearKeysDB: deleteEncryptedKey - Error:', request.error);
-        db.close();
-        reject(request.error);
-      };
-    });
+    console.log('PasskeyNearKeysDB: deleteEncryptedKey - Successfully deleted');
   }
 
   /**
    * Get all encrypted keys (for migration or debugging purposes)
    */
   async getAllEncryptedKeys(): Promise<EncryptedKeyData[]> {
-    const db = await this.openDB();
-    const transaction = db.transaction([this.config.storeName], 'readonly');
-    const store = transaction.objectStore(this.config.storeName);
-
-    return new Promise((resolve, reject) => {
-      const request = store.getAll();
-
-      request.onsuccess = () => {
-        db.close();
-        resolve(request.result || []);
-      };
-
-      request.onerror = () => {
-        console.error('PasskeyNearKeysDB: getAllEncryptedKeys - Error:', request.error);
-        db.close();
-        reject(request.error);
-      };
-    });
-  }
-
-  /**
-   * Clear all encrypted keys (for testing or reset purposes)
-   */
-  async clearAllEncryptedKeys(): Promise<void> {
-    console.log('PasskeyNearKeysDB: clearAllEncryptedKeys - Clearing all keys');
-
-    const db = await this.openDB();
-    const transaction = db.transaction([this.config.storeName], 'readwrite');
-    const store = transaction.objectStore(this.config.storeName);
-
-    return new Promise((resolve, reject) => {
-      const request = store.clear();
-
-      request.onsuccess = () => {
-        console.log('PasskeyNearKeysDB: clearAllEncryptedKeys - Successfully cleared');
-        db.close();
-        resolve();
-      };
-
-      request.onerror = () => {
-        console.error('PasskeyNearKeysDB: clearAllEncryptedKeys - Error:', request.error);
-        db.close();
-        reject(request.error);
-      };
-    });
+    const db = await this.getDB();
+    return await db.getAll(this.config.storeName);
   }
 
   /**
@@ -202,20 +128,6 @@ export class PasskeyNearKeysDBManager {
     } catch (error) {
       console.error('PasskeyNearKeysDB: hasEncryptedKey - Error:', error);
       return false;
-    }
-  }
-
-  /**
-   * Update timestamp for an existing encrypted key (for tracking last access)
-   */
-  async updateKeyTimestamp(nearAccountId: string): Promise<void> {
-    const existingKey = await this.getEncryptedKey(nearAccountId);
-    if (existingKey) {
-      const updatedKey: EncryptedKeyData = {
-        ...existingKey,
-        timestamp: Date.now()
-      };
-      await this.storeEncryptedKey(updatedKey);
     }
   }
 }
