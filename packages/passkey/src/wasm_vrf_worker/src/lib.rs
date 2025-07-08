@@ -18,8 +18,13 @@ use sha2::{Digest, Sha256};
 use hkdf::Hkdf;
 use getrandom::getrandom;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
-
 use zeroize::ZeroizeOnDrop;
+
+// Import configuration constants and error types
+mod config;
+mod errors;
+use config::*;
+use errors::{VrfWorkerError, VrfResult, HkdfError, AesError, SerializationError};
 
 // Set up panic hook for better error messages
 #[wasm_bindgen(start)]
@@ -122,7 +127,7 @@ pub struct VRFKeyManager {
 
 impl VRFKeyManager {
     pub fn new() -> Self {
-        console::log_1(&"VRF WASM Web Worker: VRFKeyManager ready (no user session active)".into());
+        console::log_1(&log_messages::VRF_MANAGER_READY.into());
         Self {
             vrf_keypair: None,
             session_active: false,
@@ -133,9 +138,9 @@ impl VRFKeyManager {
     pub fn generate_vrf_keypair_bootstrap(
         &mut self,
         vrf_input_params: Option<VRFInputData>,
-    ) -> Result<VrfKeypairBootstrapResponse, String> {
-        console::log_1(&"VRF WASM Web Worker: Generating VRF keypair for bootstrapping".into());
-        console::log_1(&"VRF keypair will be stored in memory unencrypted until PRF encryption".into());
+    ) -> VrfResult<VrfKeypairBootstrapResponse> {
+        console::log_1(&log_messages::GENERATING_BOOTSTRAP.into());
+        console::log_1(&log_messages::KEYPAIR_IN_MEMORY.into());
 
         // Clear any existing keypair (automatic zeroization via ZeroizeOnDrop)
         self.vrf_keypair.take();
@@ -145,7 +150,7 @@ impl VRFKeyManager {
 
         // Get public key bytes for response
         let vrf_public_key_bytes = bincode::serialize(&vrf_keypair.pk)
-            .map_err(|e| format!("Failed to serialize VRF public key: {:?}", e))?;
+            .map_err(|e| VrfWorkerError::SerializationError(SerializationError::VrfPublicKeySerialization(format!("{:?}", e))))?;
         let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
 
         // Store VRF keypair in memory (unencrypted)
@@ -153,8 +158,11 @@ impl VRFKeyManager {
         self.session_active = true;
         self.session_start_time = Date::now();
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair generated and stored in memory".into());
-        console::log_1(&format!("VRF Public Key: {}...", &vrf_public_key_b64[..20.min(vrf_public_key_b64.len())]).into());
+        console::log_1(&log_messages::KEYPAIR_GENERATED.into());
+        console::log_1(&format!(
+            "VRF Public Key: {}...",
+            &vrf_public_key_b64[..DISPLAY_TRUNCATE_LENGTH.min(vrf_public_key_b64.len())]
+        ).into());
 
         let mut result = VrfKeypairBootstrapResponse {
             vrf_public_key: vrf_public_key_b64,
@@ -172,7 +180,7 @@ impl VRFKeyManager {
             console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully".into());
         }
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair bootstrap completed".into());
+        console::log_1(&log_messages::BOOTSTRAP_COMPLETED.into());
         Ok(result)
     }
 
@@ -182,13 +190,16 @@ impl VRFKeyManager {
         &mut self,
         expected_public_key: String,
         prf_key: Vec<u8>,
-    ) -> Result<EncryptedVrfKeypairResponse, String> {
-        console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair with PRF output".into());
-        console::log_1(&format!("Expected public key: {}...", &expected_public_key[..20.min(expected_public_key.len())]).into());
+    ) -> VrfResult<EncryptedVrfKeypairResponse> {
+        console::log_1(&log_messages::ENCRYPTING_KEYPAIR.into());
+        console::log_1(&format!(
+            "Expected public key: {}...",
+            &expected_public_key[..DISPLAY_TRUNCATE_LENGTH.min(expected_public_key.len())]
+        ).into());
 
         // Verify we have an active VRF keypair in memory
         if !self.session_active || self.vrf_keypair.is_none() {
-            return Err("No VRF keypair in memory - please generate keypair first".to_string());
+            return Err(VrfWorkerError::NoVrfKeypair);
         }
 
         // Get the VRF keypair from memory and extract its public key
@@ -199,20 +210,19 @@ impl VRFKeyManager {
 
         // Verify the public key matches what's expected
         if stored_public_key != expected_public_key {
-            return Err(format!(
-                "VRF public key mismatch - expected: {}..., stored: {}...",
-                &expected_public_key[..20.min(expected_public_key.len())],
-                &stored_public_key[..20.min(stored_public_key.len())]
-            ));
+            return Err(VrfWorkerError::public_key_mismatch(&expected_public_key, &stored_public_key));
         }
 
-        console::log_1(&"VRF WASM Web Worker: Public key verification successful".into());
+        console::log_1(&log_messages::PUBLIC_KEY_VERIFIED.into());
 
         // Encrypt the VRF keypair
-        let (vrf_public_key, encrypted_vrf_keypair) = self.encrypt_vrf_keypair_data(vrf_keypair, &prf_key)?;
+        let (
+            vrf_public_key,
+            encrypted_vrf_keypair
+        ) = self.encrypt_vrf_keypair_data(vrf_keypair, &prf_key)?;
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair encrypted with PRF output".into());
-        console::log_1(&"VRF keypair ready for persistent storage".into());
+        console::log_1(&log_messages::KEYPAIR_ENCRYPTED.into());
+        console::log_1(&log_messages::READY_FOR_STORAGE.into());
 
         Ok(EncryptedVrfKeypairResponse {
             vrf_public_key,
@@ -239,7 +249,7 @@ impl VRFKeyManager {
         self.session_active = true;
         self.session_start_time = Date::now();
 
-        console::log_1(&"✅ VRF WASM Web Worker: VRF keypair unlocked successfully".into());
+        console::log_1(&log_messages::KEYPAIR_UNLOCKED.into());
         console::log_1(&format!("VRF WASM Web Worker: Session active for {}", near_account_id).into());
 
         Ok(())
@@ -247,18 +257,14 @@ impl VRFKeyManager {
 
     pub fn generate_vrf_challenge(&self, input_data: VRFInputData) -> Result<VRFChallengeData, String> {
         if !self.session_active || self.vrf_keypair.is_none() {
-            return Err("VRF keypair not unlocked - please login first".to_string());
+            return Err(VrfWorkerError::VrfNotUnlocked);
         }
 
-        console::log_1(&"VRF WASM Web Worker: Generating VRF challenge".into());
-        console::log_1(&format!("  - User ID: {}", input_data.user_id).into());
-        console::log_1(&format!("  - RP ID: {}", input_data.rp_id).into());
-        console::log_1(&format!("  - Block Height: {}", input_data.block_height).into());
-
+        console::log_1(&log_messages::GENERATING_CHALLENGE.into());
         let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
 
         // Construct VRF input according to specification from the contract test
-        let domain_separator = b"web_authn_challenge_v1";
+        let domain_separator = VRF_DOMAIN_SEPARATOR;
         let user_id_bytes = input_data.user_id.as_bytes();
         let rp_id_bytes = input_data.rp_id.as_bytes();
         let block_height_bytes = input_data.block_height.to_le_bytes();
@@ -292,9 +298,7 @@ impl VRFKeyManager {
             block_hash: base64_url_encode(&input_data.block_hash),
         };
 
-        console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully".into());
-        console::log_1(&format!("  - VRF Input: {}...", &result.vrf_input[..20.min(result.vrf_input.len())]).into());
-        console::log_1(&format!("  - VRF Output: {}...", &result.vrf_output[..20.min(result.vrf_output.len())]).into());
+        console::log_1(&log_messages::CHALLENGE_GENERATED.into());
 
         Ok(result)
     }
@@ -302,12 +306,9 @@ impl VRFKeyManager {
     /// Generate VRF challenge using a specific keypair (can be in-memory or provided)
     pub fn generate_vrf_challenge_with_keypair(&self, vrf_keypair: &ECVRFKeyPair, input_data: VRFInputData) -> Result<VRFChallengeData, String> {
         console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using provided keypair".into());
-        console::log_1(&format!("  - User ID: {}", input_data.user_id).into());
-        console::log_1(&format!("  - RP ID: {}", input_data.rp_id).into());
-        console::log_1(&format!("  - Block Height: {}", input_data.block_height).into());
 
         // Construct VRF input according to specification from the contract test
-        let domain_separator = b"web_authn_challenge_v1";
+        let domain_separator = VRF_DOMAIN_SEPARATOR;
         let user_id_bytes = input_data.user_id.as_bytes();
         let rp_id_bytes = input_data.rp_id.as_bytes();
         let block_height_bytes = input_data.block_height.to_le_bytes();
@@ -342,9 +343,6 @@ impl VRFKeyManager {
         };
 
         console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully using provided keypair".into());
-        console::log_1(&format!("  - VRF Input: {}...", &result.vrf_input[..20.min(result.vrf_input.len())]).into());
-        console::log_1(&format!("  - VRF Output: {}...", &result.vrf_output[..20.min(result.vrf_output.len())]).into());
-
         Ok(result)
     }
 
@@ -362,18 +360,15 @@ impl VRFKeyManager {
     }
 
     pub fn logout(&mut self) -> Result<(), String> {
-        console::log_1(&"VRF WASM Web Worker: Logging out and securely clearing VRF keypair".into());
-
+        console::log_1(&log_messages::LOGGING_OUT.into());
         // Clear VRF keypair (automatic zeroization via ZeroizeOnDrop)
         if self.vrf_keypair.take().is_some() {
-            console::log_1(&"VRF WASM Web Worker: VRF keypair cleared with automatic zeroization".into());
+            console::log_1(&log_messages::KEYPAIR_CLEARED.into());
         }
 
         // Clear session data
         self.session_active = false;
         self.session_start_time = 0.0;
-
-        console::log_1(&"VRF WASM Web Worker: Session cleared securely with automatic zeroization".into());
         Ok(())
     }
 
@@ -386,9 +381,9 @@ impl VRFKeyManager {
         console::log_1(&"VRF WASM Web Worker: Deriving AES key using HKDF-SHA256".into());
 
         let hk = Hkdf::<Sha256>::new(None, &prf_key);
-        let mut aes_key = [0u8; 32];
-        hk.expand(b"vrf-aes-key", &mut aes_key)
-            .map_err(|_| "HKDF key derivation failed".to_string())?;
+        let mut aes_key = [0u8; AES_KEY_SIZE];
+        hk.expand(HKDF_AES_KEY_INFO, &mut aes_key)
+            .map_err(|_| VrfWorkerError::HkdfDerivationFailed(HkdfError::KeyDerivationFailed))?;
 
         // Decode encrypted data and IV
         let encrypted_data = base64_url_decode(&encrypted_vrf_keypair.encrypted_vrf_data_b64u)
@@ -396,8 +391,11 @@ impl VRFKeyManager {
         let iv_nonce_bytes = base64_url_decode(&encrypted_vrf_keypair.aes_gcm_nonce_b64u)
             .map_err(|e| format!("Failed to decode IV: {}", e))?;
 
-        if iv_nonce_bytes.len() != 12 {
-            return Err("Invalid IV length for AES-GCM".to_string());
+        if iv_nonce_bytes.len() != AES_NONCE_SIZE {
+            return Err(VrfWorkerError::InvalidIvLength {
+                expected: AES_NONCE_SIZE,
+                actual: iv_nonce_bytes.len()
+            });
         }
 
         // Decrypt the VRF keypair using derived AES key
@@ -418,19 +416,19 @@ impl VRFKeyManager {
         let keypair: ECVRFKeyPair = bincode::deserialize(&keypair_data.keypair_bytes)
             .map_err(|e| format!("Failed to deserialize VRF keypair: {}", e))?;
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair successfully restored from bincode".into());
+        console::log_1(&log_messages::KEYPAIR_RESTORED.into());
         Ok(keypair)
     }
 
     /// Generate a new VRF keypair with cryptographically secure randomness
     fn generate_vrf_keypair(&self) -> Result<ECVRFKeyPair, String> {
-        console::log_1(&"VRF WASM Web Worker: Generating VRF keypair with secure randomness".into());
+        console::log_1(&log_messages::GENERATING_SECURE_KEYPAIR.into());
 
         // Generate VRF keypair with cryptographically secure randomness
         let mut rng = WasmRngFromSeed::from_entropy();
         let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair generated successfully".into());
+        console::log_1(&log_messages::SECURE_KEYPAIR_GENERATED.into());
 
         Ok(vrf_keypair)
     }
@@ -442,15 +440,15 @@ impl VRFKeyManager {
 
         // Use HKDF-SHA256 to derive a proper 32-byte seed from PRF output
         let hk = Hkdf::<Sha256>::new(Some(account_id.as_bytes()), seed);
-        let mut vrf_seed = [0u8; 32];
-        hk.expand(b"vrf-keypair-derivation-v1", &mut vrf_seed)
-            .map_err(|_| "HKDF VRF seed derivation failed".to_string())?;
+        let mut vrf_seed = [0u8; VRF_SEED_SIZE];
+        hk.expand(HKDF_VRF_KEYPAIR_INFO, &mut vrf_seed)
+            .map_err(|_| error_messages::HKDF_VRF_SEED_DERIVATION_FAILED.to_string())?;
 
         // Generate VRF keypair deterministically from the derived seed
         let mut rng = WasmRngFromSeed::from_seed(vrf_seed);
         let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
 
-        console::log_1(&"VRF WASM Web Worker: Deterministic VRF keypair generated successfully".into());
+        console::log_1(&log_messages::DETERMINISTIC_KEYPAIR_GENERATED.into());
 
         Ok(vrf_keypair)
     }
@@ -461,11 +459,11 @@ impl VRFKeyManager {
         &self,
         prf_output: Vec<u8>,
         near_account_id: String,
-    ) -> Result<DeterministicVrfKeypairResponse, String> {
+    ) -> VrfResult<DeterministicVrfKeypairResponse> {
         console::log_1(&format!("VRF WASM Web Worker: Deriving deterministic VRF keypair from PRF for account: {}", near_account_id).into());
 
         if prf_output.is_empty() {
-            return Err("PRF output cannot be empty".to_string());
+            return Err(VrfWorkerError::empty_prf_output());
         }
 
         // Generate deterministic VRF keypair from PRF output
@@ -476,7 +474,10 @@ impl VRFKeyManager {
             .map_err(|e| format!("Failed to serialize VRF public key: {:?}", e))?;
         let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
 
-        console::log_1(&format!("VRF WASM Web Worker: Deterministic VRF public key: {}...", &vrf_public_key_b64[..20.min(vrf_public_key_b64.len())]).into());
+        console::log_1(&format!(
+            "VRF WASM Web Worker: Deterministic VRF public key: {}...",
+            &vrf_public_key_b64[..DISPLAY_TRUNCATE_LENGTH.min(vrf_public_key_b64.len())]
+        ).into());
 
         // Note: We don't store this keypair in memory - it's derived on-demand
         // This is different from bootstrap keypairs which are stored for immediate use
@@ -489,7 +490,7 @@ impl VRFKeyManager {
 
     /// Encrypt VRF keypair data using PRF-derived AES key
     fn encrypt_vrf_keypair_data(&self, vrf_keypair: &ECVRFKeyPair, prf_key: &[u8]) -> Result<(String, serde_json::Value), String> {
-        console::log_1(&"VRF WASM Web Worker: Encrypting VRF keypair data".into());
+        console::log_1(&log_messages::ENCRYPTING_KEYPAIR_DATA.into());
 
         // Serialize the entire keypair using bincode for efficient, deterministic storage
         let vrf_keypair_bytes = bincode::serialize(vrf_keypair)
@@ -512,26 +513,26 @@ impl VRFKeyManager {
         // Encrypt the VRF keypair data using AES-GCM
         let encrypted_keypair = self.encrypt_vrf_keypair(&keypair_data_bytes, prf_key)?;
 
-        console::log_1(&"VRF WASM Web Worker: VRF keypair encrypted successfully".into());
+        console::log_1(&log_messages::KEYPAIR_DATA_ENCRYPTED.into());
 
         Ok((base64_url_encode(&vrf_public_key_bytes), encrypted_keypair))
     }
 
     /// Enhanced VRF keypair generation with explicit control over memory storage and challenge generation
     fn encrypt_vrf_keypair(&self, data: &[u8], key: &[u8]) -> Result<serde_json::Value, String> {
-        console::log_1(&"VRF WASM Web Worker: Deriving AES key using HKDF-SHA256 for encryption".into());
+        console::log_1(&log_messages::DERIVING_AES_FOR_ENCRYPTION.into());
 
         // Use HKDF-SHA256 to derive AES key from PRF key for better security
         let hk = Hkdf::<Sha256>::new(None, key);
-        let mut aes_key = [0u8; 32];
-        hk.expand(b"vrf-aes-key", &mut aes_key)
-            .map_err(|_| "HKDF key derivation failed".to_string())?;
+        let mut aes_key = [0u8; AES_KEY_SIZE];
+        hk.expand(HKDF_AES_KEY_INFO, &mut aes_key)
+            .map_err(|_| error_messages::HKDF_KEY_DERIVATION_FAILED.to_string())?;
 
         let cipher = Aes256Gcm::new_from_slice(&aes_key)
             .map_err(|e| format!("Failed to create cipher: {}", e))?;
 
         // Generate cryptographically secure random IV/nonce
-        let mut iv_nonce_bytes = [0u8; 12];
+        let mut iv_nonce_bytes = [0u8; AES_NONCE_SIZE];
         getrandom(&mut iv_nonce_bytes)
             .map_err(|e| format!("Failed to generate secure IV: {}", e))?;
         let nonce = Nonce::from_slice(&iv_nonce_bytes);
