@@ -318,6 +318,9 @@ pub struct SignVerifyAndRegisterUserPayload {
     pub encrypted_private_key_iv: String,
     #[serde(rename = "prfOutput")]
     pub prf_output: String,
+    #[serde(rename = "deterministicVrfPublicKey")]
+    pub deterministic_vrf_public_key: Option<String>,
+    // Optional deterministic VRF key for key recovery
 }
 
 /// Input request for registration checking

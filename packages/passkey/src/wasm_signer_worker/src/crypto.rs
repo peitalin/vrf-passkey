@@ -202,7 +202,6 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
     // 3. Encrypt the Ed25519 private key using the account-specific AES key
     let encrypted_response = encrypt_data_aes_gcm(&near_private_key, &aes_key)
         .map_err(|e| KdfError::EncryptionError(e))?;
-    console_log!("RUST: Encrypted Ed25519 key using account-specific AES key from dual PRF");
 
     console_log!("RUST: Dual PRF workflow completed successfully");
     Ok((near_public_key, encrypted_response))
@@ -212,21 +211,50 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
 /// Now uses account-specific HKDF for secure key derivation
 pub fn decrypt_private_key_with_prf(
     near_account_id: &str,
-    prf_output_base64: &str,
+    aes_prf_output: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
 ) -> Result<SigningKey, String> {
     console_log!("RUST: Decrypting private key with PRF using account-specific HKDF");
 
-    // 1. Derive decryption key from PRF using account-specific HKDF
-    let decryption_key = derive_aes_gcm_key_from_prf(prf_output_base64, near_account_id)
-        .map_err(|e| format!("Account-specific key derivation failed: {:?}", e))?;
+    // DEBUG: Log input parameters
+    console_log!("RUST: DEBUG - Decrypt inputs:");
+    console_log!("RUST: DEBUG - Account ID: {}", near_account_id);
+    console_log!("RUST: DEBUG - AES PRF output length: {}", aes_prf_output.len());
+    console_log!("RUST: DEBUG - AES PRF output preview: {}...",
+        if aes_prf_output.len() > 20 {
+            &aes_prf_output[..20]
+        } else {
+            aes_prf_output
+        });
+    console_log!("RUST: DEBUG - Encrypted data length: {}", encrypted_private_key_data.len());
+    console_log!("RUST: DEBUG - IV length: {}", encrypted_private_key_iv.len());
+
+    console_log!("RUST: Deriving account-specific AES key from PRF output using HKDF");
+
+    // DEBUG: Log before base64 decode of PRF output
+    console_log!("RUST: DEBUG - About to decode PRF output as base64url");
+    let aes_key = derive_aes_gcm_key_from_prf(aes_prf_output, near_account_id)
+        .map_err(|e| format!("Account-specific key derivation failed: {}", e))?;
+    console_log!("RUST: DEBUG - PRF output decoded successfully, AES key derived");
+
+    // DEBUG: Log before base64 decode of encrypted data
+    console_log!("RUST: DEBUG - About to decode encrypted private key data as base64url");
+    let encrypted_data_bytes = base64_url_decode(encrypted_private_key_data)
+        .map_err(|e| format!("Failed to decode encrypted private key data: {}", e))?;
+    console_log!("RUST: DEBUG - Encrypted data decoded successfully, {} bytes", encrypted_data_bytes.len());
+
+    // DEBUG: Log before base64 decode of IV
+    console_log!("RUST: DEBUG - About to decode IV as base64url");
+    let iv_nonce_bytes = base64_url_decode(encrypted_private_key_iv)
+        .map_err(|e| format!("Failed to decode IV: {}", e))?;
+    console_log!("RUST: DEBUG - IV decoded successfully, {} bytes", iv_nonce_bytes.len());
 
     // 2. Decrypt private key using AES-GCM
     let decrypted_private_key_str = decrypt_data_aes_gcm(
         encrypted_private_key_data,
         encrypted_private_key_iv,
-        &decryption_key,
+        &aes_key,
     )?;
 
     // 3. Parse private key (remove ed25519: prefix if present)

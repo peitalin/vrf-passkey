@@ -517,14 +517,15 @@ pub async fn sign_verify_and_register_user(
     vrf_challenge: &VrfChallengeStruct,
     credential: &WebAuthnRegistrationCredentialStruct,
     request: &RegistrationRequest,
+    deterministic_vrf_public_key: Option<String>, // Change to Option<String> for wasm-bindgen compatibility
 ) -> Result<RegistrationResult, JsValue> {
-    console_log!("RUST: Performing actual user registration (state-changing function) using structured types");
+    console_log!("RUST: Performing dual VRF user registration (state-changing function) using structured types");
 
     // Send initial progress message
     send_progress_message(
         "REGISTRATION_PROGRESS",
         "preparation",
-        "Starting user registration process...",
+        "Starting dual VRF user registration process...",
         &serde_json::json!({"step": 1, "total": 4}).to_string()
     );
 
@@ -553,6 +554,7 @@ pub async fn sign_verify_and_register_user(
     let registration_result = sign_registration_tx_wasm(
         contract_id,
         vrf_data,
+        deterministic_vrf_public_key.as_deref(), // Convert Option<String> to Option<&str>
         webauthn_registration,
         signer_account_id,
         encrypted_private_key_data,
@@ -1939,6 +1941,30 @@ async fn handle_sign_verify_and_register_user_msg(payload: serde_json::Value) ->
     let parsed_payload: SignVerifyAndRegisterUserPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse SignVerifyAndRegisterUser payload: {}", e))?;
 
+    // DEBUG: Log received payload details
+    console_log!("RUST: DEBUG - Received payload details:");
+    console_log!("RUST: DEBUG - PRF output length: {}", parsed_payload.prf_output.len());
+    console_log!("RUST: DEBUG - PRF output preview: {}...",
+        if parsed_payload.prf_output.len() > 20 {
+            &parsed_payload.prf_output[..20]
+        } else {
+            &parsed_payload.prf_output
+        });
+    console_log!("RUST: DEBUG - Encrypted data length: {}", parsed_payload.encrypted_private_key_data.len());
+    console_log!("RUST: DEBUG - Encrypted data preview: {}...",
+        if parsed_payload.encrypted_private_key_data.len() > 20 {
+            &parsed_payload.encrypted_private_key_data[..20]
+        } else {
+            &parsed_payload.encrypted_private_key_data
+        });
+    console_log!("RUST: DEBUG - IV length: {}", parsed_payload.encrypted_private_key_iv.len());
+    console_log!("RUST: DEBUG - IV preview: {}...",
+        if parsed_payload.encrypted_private_key_iv.len() > 20 {
+            &parsed_payload.encrypted_private_key_iv[..20]
+        } else {
+            &parsed_payload.encrypted_private_key_iv
+        });
+
     // Convert payload to WASM structs
     let vrf_challenge = VrfChallengeStruct::new(
         parsed_payload.vrf_challenge.vrf_input,
@@ -1989,8 +2015,13 @@ async fn handle_sign_verify_and_register_user_msg(payload: serde_json::Value) ->
     );
 
     // Call the async WASM function
-    let result = sign_verify_and_register_user(&vrf_challenge, &credential, &registration_request).await
-        .map_err(|e| format!("SignVerifyAndRegisterUser failed: {:?}", e))?;
+    let result = sign_verify_and_register_user(
+        &vrf_challenge,
+        &credential,
+        &registration_request,
+        parsed_payload.deterministic_vrf_public_key
+    ).await
+    .map_err(|e| format!("SignVerifyAndRegisterUser failed: {:?}", e))?;
 
     serde_json::to_value(&result)
         .map_err(|e| format!("Failed to serialize result: {:?}", e))

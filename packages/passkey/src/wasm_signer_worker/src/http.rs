@@ -45,7 +45,7 @@ pub struct RegistrationInfo {
 }
 
 /// VRF challenge data for contract verification
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VrfData {
     pub vrf_input_data: Vec<u8>,
     pub vrf_output: Vec<u8>,
@@ -259,10 +259,11 @@ pub async fn check_can_register_user_wasm(
 }
 
 /// Actually register user (STATE-CHANGING FUNCTION - uses send_tx RPC)
-/// This function stores the user registration data on-chain
+/// This function stores the user registration data on-chain with dual VRF support
 pub async fn sign_registration_tx_wasm(
     contract_id: &str,
     vrf_data: VrfData,
+    deterministic_vrf_public_key: Option<&str>, // Optional deterministic VRF key for dual registration
     webauthn_registration_credential: WebAuthnRegistrationCredential,
     signer_account_id: &str,
     encrypted_private_key_data: &str,
@@ -271,23 +272,41 @@ pub async fn sign_registration_tx_wasm(
     nonce: u64,
     block_hash_bytes: &[u8],
 ) -> Result<ContractRegistrationResult, String> {
-    console_log!("RUST: Performing actual user registration (state-changing function)");
+    console_log!("RUST: Performing dual VRF user registration (state-changing function)");
 
     // Step 1: Decrypt the private key using PRF with account-specific HKDF
     let private_key = crate::crypto::decrypt_private_key_with_prf(
-        prf_output_base64,
-        signer_account_id,
-        encrypted_private_key_data,
-        encrypted_private_key_iv,
+        signer_account_id,          // 1st parameter: Account ID
+        prf_output_base64,          // 2nd parameter: PRF output
+        encrypted_private_key_data, // 3rd parameter: Encrypted data
+        encrypted_private_key_iv,   // 4th parameter: IV
     ).map_err(|e| format!("Failed to decrypt private key: {:?}", e))?;
 
-    // Step 2: Build contract arguments for verify_and_register_user
+    // Step 2: Build dual VRF data for contract arguments
+    let mut dual_vrf_data = vrf_data.clone();
+    let deterministic_vrf_key_bytes = if let Some(det_vrf_key) = deterministic_vrf_public_key {
+        console_log!("RUST: Adding deterministic VRF key to registration: {}...",
+                    &det_vrf_key[..std::cmp::min(20, det_vrf_key.len())]);
+
+        let det_vrf_key_bytes = base64url_decode(det_vrf_key)
+            .map_err(|e| format!("Failed to decode deterministic VRF key: {}", e))?;
+
+        console_log!("RUST: Dual VRF registration - bootstrap: {} bytes, deterministic: {} bytes",
+                    dual_vrf_data.public_key.len(), det_vrf_key_bytes.len());
+        Some(det_vrf_key_bytes)
+    } else {
+        console_log!("RUST: Single VRF registration - using bootstrap VRF key only");
+        None
+    };
+
+    // Step 3: Build contract arguments for verify_and_register_user with dual VRF support
     let contract_args = serde_json::json!({
-        "vrf_data": vrf_data,
-        "webauthn_registration": webauthn_registration_credential
+        "vrf_data": dual_vrf_data,
+        "webauthn_registration": webauthn_registration_credential,
+        "deterministic_vrf_public_key": deterministic_vrf_key_bytes
     });
 
-    // Step 3: Create FunctionCall action using existing infrastructure
+    // Step 4: Create FunctionCall action using existing infrastructure
     let action_params = vec![crate::actions::ActionParams::FunctionCall {
         method_name: VERIFY_AND_REGISTER_USER_METHOD.to_string(),
         args: contract_args.to_string(),
@@ -297,11 +316,11 @@ pub async fn sign_registration_tx_wasm(
 
     console_log!("RUST: Building FunctionCall action for {}", VERIFY_AND_REGISTER_USER_METHOD);
 
-    // Step 4: Build actions using existing infrastructure
+    // Step 5: Build actions using existing infrastructure
     let actions = crate::transaction::build_actions_from_params(action_params)
         .map_err(|e| format!("Failed to build actions: {}", e))?;
 
-    // Step 5: Build transaction using existing infrastructure
+    // Step 6: Build transaction using existing infrastructure
     let transaction = crate::transaction::build_transaction_with_actions(
         signer_account_id,
         contract_id, // receiver_id is the contract
@@ -311,13 +330,13 @@ pub async fn sign_registration_tx_wasm(
         actions,
     ).map_err(|e| format!("Failed to build transaction: {}", e))?;
 
-    // Step 6: Sign registration transaction using existing infrastructure
+    // Step 7: Sign registration transaction using existing infrastructure
     let signed_registration_tx_bytes = crate::transaction::sign_transaction(transaction, &private_key)
         .map_err(|e| format!("Failed to sign registration transaction: {}", e))?;
 
     console_log!("RUST: Registration transaction signed successfully");
 
-    // Step 7: Generate pre-signed delete transaction for rollback with SAME nonce/block hash
+    // Step 8: Generate pre-signed delete transaction for rollback with SAME nonce/block hash
     console_log!("RUST: Generating pre-signed deleteAccount transaction for rollback");
 
     let delete_action_params = vec![crate::actions::ActionParams::DeleteAccount {
