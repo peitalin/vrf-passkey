@@ -1,47 +1,38 @@
 use wasm_bindgen::prelude::*;
-use web_sys::console;
-use js_sys::{JSON, Date};
+use wasm_bindgen::JsValue;
+use js_sys::JSON;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// VRF and crypto imports following the contract test pattern
-use vrf_wasm::ecvrf::ECVRFKeyPair;
-use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
-use vrf_wasm::traits::WasmRngFromSeed;
-use rand_core::SeedableRng;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
-};
-use sha2::{Digest, Sha256};
-use hkdf::Hkdf;
-use getrandom::getrandom;
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
-use zeroize::ZeroizeOnDrop;
+// Import log macros
+use log::{info, debug};
 
-// Import modules
 mod config;
 mod errors;
+mod handlers;
+mod manager;
+mod tests;
 mod types;
 mod utils;
-mod manager;
-mod handlers;
 
-#[cfg(test)]
-mod tests;
-
-// Re-export types and utilities
+// Re-export important types and functions
+pub use config::*;
+pub use errors::*;
+pub use handlers::*;
+pub use manager::*;
 pub use types::*;
 pub use utils::*;
-pub use manager::*;
-use handlers::*;
-use config::*;
-use errors::{VrfWorkerError, VrfResult, HkdfError, AesError, SerializationError};
 
 // Set up panic hook for better error messages
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
+
+    // Initialize logger with the configured log level
+    wasm_logger::init(wasm_logger::Config::new(config::CURRENT_LOG_LEVEL));
+
+    info!("VRF WASM Worker starting up...");
+    debug!("Logging system initialized with level: {:?}", config::CURRENT_LOG_LEVEL);
 }
 
 // === GLOBAL STATE ===
@@ -63,7 +54,7 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
     let message: VRFWorkerMessage = serde_json::from_str(&message_str)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse message: {}", e)))?;
 
-    web_sys::console::log_1(&format!("VRF WASM Web Worker: Received message - {}", message.msg_type).into());
+    debug!("Received message: {}", message.msg_type);
 
     let response = VRF_MANAGER.with(|manager| {
         match message.msg_type.as_str() {

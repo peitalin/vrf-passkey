@@ -1,7 +1,20 @@
-/// VRF Worker Configuration Constants
+/// Configuration constants for the VRF worker
 ///
-/// This module contains all configuration constants used by the VRF worker,
-/// including cryptographic parameters, domain separators, and other configurable values.
+/// This module centralizes configuration to ensure consistency
+/// and make updates easier.
+
+// === LOGGING CONFIGURATION ===
+
+/// Log level for the VRF worker
+/// Change this constant and recompile to adjust logging verbosity
+/// Available levels: Error, Warn, Info, Debug, Trace
+pub const CURRENT_LOG_LEVEL: log::Level = log::Level::Info;
+
+/// Whether to include timestamps in log messages
+pub const LOG_INCLUDE_TIMESTAMP: bool = false;
+
+/// Whether to include log level prefix in messages
+pub const LOG_INCLUDE_LEVEL: bool = true;
 
 // === CRYPTOGRAPHIC CONSTANTS ===
 

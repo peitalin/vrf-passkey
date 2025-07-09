@@ -1,6 +1,21 @@
-use crate::*;
 use crate::config::*;
-use crate::errors::{VrfWorkerError, VrfResult, HkdfError, AesError, SerializationError};
+use crate::errors::{VrfWorkerError, VrfResult, HkdfError, SerializationError};
+use crate::types::*;
+use crate::utils::{base64_url_encode, base64_url_decode};
+use log::{info, debug};
+use js_sys::Date;
+
+// VRF and crypto imports
+use vrf_wasm::ecvrf::ECVRFKeyPair;
+use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
+use vrf_wasm::traits::WasmRngFromSeed;
+use zeroize::ZeroizeOnDrop;
+use aes_gcm::{Aes256Gcm, Nonce, KeyInit};
+use aes_gcm::aead::Aead;
+use sha2::{Sha256, Digest};
+use hkdf::Hkdf;
+use getrandom::getrandom;
+use rand_core::SeedableRng;
 
 // === SECURE VRF KEYPAIR WRAPPER ===
 
@@ -30,7 +45,7 @@ pub struct VRFKeyManager {
 
 impl VRFKeyManager {
     pub fn new() -> Self {
-        console::log_1(&log_messages::VRF_MANAGER_READY.into());
+        info!("VRFKeyManager ready (no user session active)");
         Self {
             vrf_keypair: None,
             session_active: false,
@@ -42,8 +57,8 @@ impl VRFKeyManager {
         &mut self,
         vrf_input_params: Option<VRFInputData>,
     ) -> VrfResult<VrfKeypairBootstrapResponse> {
-        console::log_1(&log_messages::GENERATING_BOOTSTRAP.into());
-        console::log_1(&log_messages::KEYPAIR_IN_MEMORY.into());
+        info!("Generating VRF keypair for bootstrapping");
+        debug!("VRF keypair will be stored in memory unencrypted until PRF encryption");
 
         // Clear any existing keypair (automatic zeroization via ZeroizeOnDrop)
         self.vrf_keypair.take();
@@ -61,11 +76,11 @@ impl VRFKeyManager {
         self.session_active = true;
         self.session_start_time = Date::now();
 
-        console::log_1(&log_messages::KEYPAIR_GENERATED.into());
-        console::log_1(&format!(
+        info!("VRF keypair generated and stored in memory");
+        debug!(
             "VRF Public Key: {}...",
             &vrf_public_key_b64[..DISPLAY_TRUNCATE_LENGTH.min(vrf_public_key_b64.len())]
-        ).into());
+        );
 
         let mut result = VrfKeypairBootstrapResponse {
             vrf_public_key: vrf_public_key_b64,
@@ -74,16 +89,16 @@ impl VRFKeyManager {
 
         // Generate VRF challenge if input parameters provided
         if let Some(vrf_input) = vrf_input_params {
-            console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using bootstrapped keypair".into());
+            debug!("Generating VRF challenge using bootstrapped keypair");
 
             let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
             let challenge_result = self.generate_vrf_challenge_with_keypair(vrf_keypair, vrf_input)?;
             result.vrf_challenge_data = Some(challenge_result);
 
-            console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully".into());
+            info!("VRF challenge generated successfully");
         }
 
-        console::log_1(&log_messages::BOOTSTRAP_COMPLETED.into());
+        info!("VRF keypair bootstrap completed");
         Ok(result)
     }
 
@@ -94,11 +109,11 @@ impl VRFKeyManager {
         expected_public_key: String,
         prf_key: Vec<u8>,
     ) -> VrfResult<EncryptedVrfKeypairResponse> {
-        console::log_1(&log_messages::ENCRYPTING_KEYPAIR.into());
-        console::log_1(&format!(
+        info!("Encrypting VRF keypair with PRF output");
+        debug!(
             "Expected public key: {}...",
             &expected_public_key[..DISPLAY_TRUNCATE_LENGTH.min(expected_public_key.len())]
-        ).into());
+        );
 
         // Verify we have an active VRF keypair in memory
         if !self.session_active || self.vrf_keypair.is_none() {
@@ -116,7 +131,7 @@ impl VRFKeyManager {
             return Err(VrfWorkerError::public_key_mismatch(&expected_public_key, &stored_public_key));
         }
 
-        console::log_1(&log_messages::PUBLIC_KEY_VERIFIED.into());
+        debug!("Public key verification successful");
 
         // Encrypt the VRF keypair
         let (
@@ -124,8 +139,8 @@ impl VRFKeyManager {
             encrypted_vrf_keypair
         ) = self.encrypt_vrf_keypair_data(vrf_keypair, &prf_key)?;
 
-        console::log_1(&log_messages::KEYPAIR_ENCRYPTED.into());
-        console::log_1(&log_messages::READY_FOR_STORAGE.into());
+        info!("VRF keypair encrypted with PRF output");
+        debug!("VRF keypair ready for persistent storage");
 
         Ok(EncryptedVrfKeypairResponse {
             vrf_public_key,
@@ -139,7 +154,7 @@ impl VRFKeyManager {
         encrypted_vrf_keypair: EncryptedVRFKeypair,
         prf_key: Vec<u8>,
     ) -> Result<(), String> {
-        console::log_1(&format!("VRF WASM Web Worker: Unlocking VRF keypair for {}", near_account_id).into());
+        info!("Unlocking VRF keypair for {}", near_account_id);
 
         // Clear any existing keypair (automatic zeroization via ZeroizeOnDrop)
         self.vrf_keypair.take();
@@ -152,8 +167,8 @@ impl VRFKeyManager {
         self.session_active = true;
         self.session_start_time = Date::now();
 
-        console::log_1(&log_messages::KEYPAIR_UNLOCKED.into());
-        console::log_1(&format!("VRF WASM Web Worker: Session active for {}", near_account_id).into());
+        info!("✅ VRF keypair unlocked successfully");
+        debug!("Session active for {}", near_account_id);
 
         Ok(())
     }
@@ -163,7 +178,7 @@ impl VRFKeyManager {
             return Err(VrfWorkerError::VrfNotUnlocked.to_string());
         }
 
-        console::log_1(&log_messages::GENERATING_CHALLENGE.into());
+        info!("Generating VRF challenge");
         let vrf_keypair = self.vrf_keypair.as_ref().unwrap().inner();
 
         self.generate_vrf_challenge_with_keypair(vrf_keypair, input_data)
@@ -171,7 +186,7 @@ impl VRFKeyManager {
 
     /// Generate VRF challenge using a specific keypair (can be in-memory or provided)
     pub fn generate_vrf_challenge_with_keypair(&self, vrf_keypair: &ECVRFKeyPair, input_data: VRFInputData) -> Result<VRFChallengeData, String> {
-        console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using provided keypair".into());
+        debug!("Generating VRF challenge using provided keypair");
 
         // Construct VRF input according to specification from the contract test
         let domain_separator = VRF_DOMAIN_SEPARATOR;
@@ -208,7 +223,7 @@ impl VRFKeyManager {
             block_hash: base64_url_encode(&input_data.block_hash),
         };
 
-        console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully using provided keypair".into());
+        info!("VRF challenge generated successfully using provided keypair");
         Ok(result)
     }
 
@@ -226,10 +241,10 @@ impl VRFKeyManager {
     }
 
     pub fn logout(&mut self) -> Result<(), String> {
-        console::log_1(&log_messages::LOGGING_OUT.into());
+        info!("Logging out and securely clearing VRF keypair");
         // Clear VRF keypair (automatic zeroization via ZeroizeOnDrop)
         if self.vrf_keypair.take().is_some() {
-            console::log_1(&log_messages::KEYPAIR_CLEARED.into());
+            debug!("VRF keypair cleared with automatic zeroization");
         }
 
         // Clear session data
@@ -247,7 +262,11 @@ impl VRFKeyManager {
         near_account_id: String,
         vrf_input_params: Option<VRFInputData>,
     ) -> VrfResult<DeterministicVrfKeypairResponse> {
-        console::log_1(&format!("VRF WASM Web Worker: Deriving deterministic VRF keypair from PRF for account: {} (with challenge: {})", near_account_id, vrf_input_params.is_some()).into());
+        info!(
+            "Deriving deterministic VRF keypair from PRF for account: {} (with challenge: {})",
+            near_account_id,
+            vrf_input_params.is_some()
+        );
 
         if prf_output.is_empty() {
             return Err(VrfWorkerError::empty_prf_output());
@@ -264,29 +283,29 @@ impl VRFKeyManager {
             ))?;
         let vrf_public_key_b64 = base64_url_encode(&vrf_public_key_bytes);
 
-        console::log_1(&format!(
-            "VRF WASM Web Worker: Deterministic VRF public key: {}...",
+        debug!(
+            "Deterministic VRF public key: {}...",
             &vrf_public_key_b64[..DISPLAY_TRUNCATE_LENGTH.min(vrf_public_key_b64.len())]
-        ).into());
+        );
 
         // Encrypt the VRF keypair with the same PRF output used for derivation
-        console::log_1(&"VRF WASM Web Worker: Encrypting deterministic VRF keypair with PRF output".into());
+        debug!("Encrypting deterministic VRF keypair with PRF output");
         let (_public_key, encrypted_vrf_keypair) = self.encrypt_vrf_keypair_data(&vrf_keypair, &prf_output)
             .map_err(|e| VrfWorkerError::InvalidMessageFormat(e))?;
-        console::log_1(&"VRF WASM Web Worker: VRF keypair encrypted successfully".into());
+        debug!("VRF keypair encrypted successfully");
 
         // Generate VRF challenge if input parameters provided
         let vrf_challenge_data = if let Some(vrf_input_params) = vrf_input_params {
-            console::log_1(&"VRF WASM Web Worker: Generating VRF challenge using deterministic keypair".into());
+            debug!("Generating VRF challenge using deterministic keypair");
             let challenge_data = self.generate_vrf_challenge_with_keypair(&vrf_keypair, vrf_input_params)
                 .map_err(|e| VrfWorkerError::InvalidMessageFormat(e))?;
-            console::log_1(&"VRF WASM Web Worker: VRF challenge generated successfully".into());
+            info!("VRF challenge generated successfully");
             Some(challenge_data)
         } else {
             None
         };
 
-        console::log_1(&"VRF WASM Web Worker: Deterministic VRF keypair derivation completed successfully".into());
+        info!("Deterministic VRF keypair derivation completed successfully");
 
         Ok(DeterministicVrfKeypairResponse {
             vrf_public_key: vrf_public_key_b64,
@@ -304,7 +323,7 @@ impl VRFKeyManager {
         prf_key: Vec<u8>,
     ) -> Result<ECVRFKeyPair, String> {
         // Use HKDF-SHA256 to derive AES key from PRF key for better security
-        console::log_1(&"VRF WASM Web Worker: Deriving AES key using HKDF-SHA256".into());
+        debug!("Deriving AES key using HKDF-SHA256");
 
         let hk = Hkdf::<Sha256>::new(None, &prf_key);
         let mut aes_key = [0u8; AES_KEY_SIZE];
@@ -342,19 +361,19 @@ impl VRFKeyManager {
         let keypair: ECVRFKeyPair = bincode::deserialize(&keypair_data.keypair_bytes)
             .map_err(|e| format!("Failed to deserialize VRF keypair: {}", e))?;
 
-        console::log_1(&log_messages::KEYPAIR_RESTORED.into());
+        debug!("VRF keypair successfully restored from bincode");
         Ok(keypair)
     }
 
     /// Generate a new VRF keypair with cryptographically secure randomness
     fn generate_vrf_keypair(&self) -> Result<ECVRFKeyPair, String> {
-        console::log_1(&log_messages::GENERATING_SECURE_KEYPAIR.into());
+        debug!("Generating VRF keypair with secure randomness");
 
         // Generate VRF keypair with cryptographically secure randomness
         let mut rng = WasmRngFromSeed::from_entropy();
         let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
 
-        console::log_1(&log_messages::SECURE_KEYPAIR_GENERATED.into());
+        debug!("VRF keypair generated successfully");
 
         Ok(vrf_keypair)
     }
@@ -362,7 +381,7 @@ impl VRFKeyManager {
     /// Generate deterministic VRF keypair from seed material (PRF output)
     /// This enables deterministic VRF key derivation for account recovery
     fn generate_vrf_keypair_from_seed(&self, seed: &[u8], account_id: &str) -> Result<ECVRFKeyPair, String> {
-        console::log_1(&format!("VRF WASM Web Worker: Generating deterministic VRF keypair from seed for account: {}", account_id).into());
+        debug!("Generating deterministic VRF keypair from seed for account: {}", account_id);
 
         // Use HKDF-SHA256 to derive a proper 32-byte seed from PRF output
         let hk = Hkdf::<Sha256>::new(Some(account_id.as_bytes()), seed);
@@ -374,14 +393,14 @@ impl VRFKeyManager {
         let mut rng = WasmRngFromSeed::from_seed(vrf_seed);
         let vrf_keypair = ECVRFKeyPair::generate(&mut rng);
 
-        console::log_1(&log_messages::DETERMINISTIC_KEYPAIR_GENERATED.into());
+        debug!("Deterministic VRF keypair generated successfully");
 
         Ok(vrf_keypair)
     }
 
     /// Encrypt VRF keypair data using PRF-derived AES key
     fn encrypt_vrf_keypair_data(&self, vrf_keypair: &ECVRFKeyPair, prf_key: &[u8]) -> Result<(String, serde_json::Value), String> {
-        console::log_1(&log_messages::ENCRYPTING_KEYPAIR_DATA.into());
+        debug!("Encrypting VRF keypair data");
 
         // Serialize the entire keypair using bincode for efficient, deterministic storage
         let vrf_keypair_bytes = bincode::serialize(vrf_keypair)
@@ -404,14 +423,14 @@ impl VRFKeyManager {
         // Encrypt the VRF keypair data using AES-GCM
         let encrypted_keypair = self.encrypt_vrf_keypair(&keypair_data_bytes, prf_key)?;
 
-        console::log_1(&log_messages::KEYPAIR_DATA_ENCRYPTED.into());
+        debug!("VRF keypair encrypted successfully");
 
         Ok((base64_url_encode(&vrf_public_key_bytes), encrypted_keypair))
     }
 
     /// Enhanced VRF keypair generation with explicit control over memory storage and challenge generation
     fn encrypt_vrf_keypair(&self, data: &[u8], key: &[u8]) -> Result<serde_json::Value, String> {
-        console::log_1(&log_messages::DERIVING_AES_FOR_ENCRYPTION.into());
+        debug!("Deriving AES key using HKDF-SHA256 for encryption");
 
         // Use HKDF-SHA256 to derive AES key from PRF key for better security
         let hk = Hkdf::<Sha256>::new(None, key);
