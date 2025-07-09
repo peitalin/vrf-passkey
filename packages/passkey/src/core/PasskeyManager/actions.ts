@@ -186,7 +186,7 @@ async function verifyVrfAuthAndSignTransaction(
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
-  const vrfChallenge = await webAuthnManager.generateVRFChallenge(vrfInputData);
+  const vrfChallenge = await webAuthnManager.generateVrfChallenge(vrfInputData);
 
   onEvent?.({
     step: 2,

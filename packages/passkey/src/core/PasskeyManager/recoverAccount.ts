@@ -510,189 +510,25 @@ async function performAccountRecovery({
   try {
     console.log(`Performing recovery for account: ${accountId}`);
 
-    // 1. Sync on-chain authenticator data from web3authn contract
-    console.log('Syncing on-chain authenticator data...');
+    // 1. Sync on-chain authenticator data
+    const contractAuthenticators = await syncContractAuthenticators(nearClient, configs.contractId, accountId);
 
-    let contractAuthenticators: Array<{
-      credentialId: string;
-      authenticator: {
-        credential_public_key: number[];
-        transports?: { transport: string }[];
-        registered: string;
-        vrf_public_keys: number[][];
-      };
-    }> = [];
-
-    try {
-      // Query web3authn contract for stored authenticator data
-      const authenticatorsResult = await nearClient.view({
-        account: configs.contractId,
-        method: 'get_authenticators_by_user',
-        args: { user_id: accountId }
-      });
-
-      if (authenticatorsResult && Array.isArray(authenticatorsResult)) {
-        contractAuthenticators = authenticatorsResult.map(([credentialId, authenticator]: [string, any]) => ({
-          credentialId,
-          authenticator
-        }));
-        console.log(`Found ${contractAuthenticators.length} authenticators on-chain for ${accountId}`);
-      }
-    } catch (contractError: any) {
-      console.warn('Failed to fetch authenticators from contract:', contractError.message);
-      // Continue with recovery even if contract query fails
-    }
-
-    // 2. Restore local IndexedDB user data
-    console.log('Restoring user data to IndexedDB...');
-
-    const existingUser = await webAuthnManager.getUser(accountId);
-    if (!existingUser) {
-      // Register user if they don't exist locally
-      await webAuthnManager.registerUser(accountId, {
-        clientNearPublicKey: publicKey,
-        prfSupported: true,
-        lastUpdated: Date.now(),
-        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair, // Store the encrypted VRF keypair
-      });
-      console.log(`Registered user ${accountId} in IndexedDB with encrypted VRF keypair`);
-    } else {
-      // Update existing user data
-      await webAuthnManager.storeUserData({
-        nearAccountId: accountId,
-        clientNearPublicKey: publicKey,
-        lastUpdated: Date.now(),
-        prfSupported: existingUser.prfSupported ?? true,
-        deterministicKey: true,
-        passkeyCredential: existingUser.passkeyCredential,
-        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair // Store the encrypted VRF keypair
-      });
-      console.log(`Updated user ${accountId} in IndexedDB with encrypted VRF keypair`);
-    }
-
-    // TODO: save recovered encrypted keypair to IndexedDB: in packages/passkey/src/core/IndexedDBManager/passkeyNearKeysDB.ts
+    // 2. Restore user data to IndexedDB
+    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair);
 
     // 3. Restore authenticator data to IndexedDB
-    console.log('Restoring authenticator data to IndexedDB...');
+    await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
 
-    for (const { credentialId, authenticator } of contractAuthenticators) {
-      const credentialPublicKey = new Uint8Array(authenticator.credential_public_key);
-      const transports = authenticator.transports?.map(t => t.transport) || [];
+    // 4. Unlock VRF keypair in memory for immediate login
+    const vrfUnlockSuccess = await unlockVrfKeypair(webAuthnManager, accountId, encryptedVrfResult.encryptedVrfKeypair, credential);
 
-      await webAuthnManager.storeAuthenticator({
-        nearAccountId: accountId,
-        credentialId: credentialId,
-        credentialPublicKey,
-        transports,
-        name: `Recovered Authenticator`,
-        registered: authenticator.registered,
-        syncedAt: new Date().toISOString(),
-        vrfPublicKey: vrfChallenge.vrfPublicKey
-      });
-
-      console.log(`Restored authenticator ${credentialId} for ${accountId}`);
-    }
-
-    // 4. Skip VRF key addition during recovery - this should happen during normal operations
-    console.log('Skipping VRF key addition during recovery - will be added during next VRF operation');
-
-    // Note: The encrypted VRF keypair is stored locally and will be used for future VRF operations
-    // The VRF public key will be automatically added to the contract during the next VRF challenge
-    // that requires contract interaction (like registration or transaction signing)
-
-    if (contractAuthenticators.length > 0) {
-      console.log(`VRF keypair encrypted and stored locally for account: ${accountId}`);
-      console.log(`VRF public key: ${encryptedVrfResult.vrfPublicKey.substring(0, 20)}...`);
-      console.log('VRF key will be added to contract during next VRF operation that requires contract verification');
-    }
-
-    // DEBUG: Check what VRF keys are stored on contract vs what we derived
-    console.log('=== VRF KEY RECOVERY ANALYSIS ===');
-    console.log(`Deterministic VRF public key derived during recovery: ${encryptedVrfResult.vrfPublicKey}`);
-    console.log('Note: This deterministic VRF key is derived from recovery credential PRF and may differ from registration');
-
-    // Check what VRF keys are stored on contract for this account
-    try {
-      // Note: VRF keys are stored within authenticators, not as a separate method
-      const contractAuthenticators = await nearClient.view({
-        account: configs.contractId,
-        method: 'get_authenticators_by_user',
-        args: { user_id: accountId }
-      });
-
-      if (contractAuthenticators && contractAuthenticators.length > 0) {
-        // Extract VRF keys from all authenticators
-        const allVrfKeys: string[] = [];
-        contractAuthenticators.forEach(([credentialId, authenticator]: [string, any]) => {
-          if (authenticator.vrf_public_keys && Array.isArray(authenticator.vrf_public_keys)) {
-            // Convert byte arrays to base64url strings for comparison
-            authenticator.vrf_public_keys.forEach((keyBytes: number[]) => {
-              const keyString = base64UrlEncode(new Uint8Array(keyBytes));
-              allVrfKeys.push(keyString);
-            });
-          }
-        });
-
-        console.log(`Contract VRF keys for ${accountId}:`, allVrfKeys);
-        console.log('These are the VRF keys that were stored during original registration');
-
-        if (allVrfKeys.length > 0) {
-          const matchesContract = allVrfKeys.some((key: string) => key === encryptedVrfResult.vrfPublicKey);
-          console.log(`Recovery-derived VRF key matches contract: ${matchesContract}`);
-          if (!matchesContract) {
-            console.warn('⚠️ VRF KEY MISMATCH: The recovered VRF key does not match any keys stored on the contract!');
-            console.warn('This will cause transaction signing to fail until the VRF key is properly registered.');
-          }
-        } else {
-          console.warn('⚠️ NO VRF KEYS: No VRF keys found in contract authenticators for this account.');
-          console.warn('The VRF key needs to be registered on the contract before transaction signing will work.');
-        }
-      } else {
-        console.warn('⚠️ NO AUTHENTICATORS: No authenticators found on contract for this account.');
-      }
-    } catch (vrfCheckError: any) {
-      console.log('Could not check contract VRF keys:', vrfCheckError.message);
-      console.log('This is expected during development when the contract method may not exist.');
-    }
-    console.log('=== END VRF KEY DEBUGGING ===');
-
-    // 5. Unlock VRF keypair in memory for immediate login (using same credential as derivation)
-    console.log('Account Recovery Step 5: Unlocking VRF keypair with same credential used for derivation');
-    let vrfUnlockSuccess = false;
-    try {
-      const unlockResult = await webAuthnManager.unlockVRFKeypair({
-        nearAccountId: accountId,
-        encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
-        credential: credential, // Use the same credential that was used for VRF derivation
-      });
-
-      if (unlockResult.success) {
-        console.log('✅ VRF keypair unlocked successfully during recovery with same credential');
-        vrfUnlockSuccess = true;
-      } else {
-        console.warn('VRF keypair unlock failed during recovery:', unlockResult.error);
-      }
-    } catch (unlockError: any) {
-      console.warn('VRF keypair unlock failed during recovery:', unlockError.message);
-      console.log('VRF keypair will be unlocked during the next VRF operation');
-      // Do not throw error - recovery can continue without VRF unlock
-    }
-
-    // 6. Update last login timestamp
+    // 5. Update last login timestamp and get final login state
     await webAuthnManager.updateLastLogin(accountId);
-
-    // 7. Get final login state to include in recovery result
-    const loginState = await webAuthnManager.checkVrfStatus();
-    const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
+    const loginState = await getRecoveryLoginState(webAuthnManager, accountId);
 
     console.log(`Account recovery completed for ${accountId}`, {
-      vrfUnlockSuccess,
-      vrfActive: isVrfActive,
-      loginState: {
-        isLoggedIn: isVrfActive,
-        vrfActive: isVrfActive,
-        vrfSessionDuration: loginState.sessionDuration
-      }
+      vrfActive: loginState.vrfActive,
+      isLoggedIn: loginState.isLoggedIn
     });
 
     return {
@@ -700,16 +536,106 @@ async function performAccountRecovery({
       accountId,
       publicKey,
       message: 'Account successfully recovered',
-      loginState: {
-        isLoggedIn: isVrfActive,
-        vrfActive: isVrfActive,
-        vrfSessionDuration: loginState.sessionDuration
-      }
+      loginState
     };
 
   } catch (error: any) {
     console.error('[performAccountRecovery] Error:', error);
     throw new Error(`Recovery process failed: ${error.message}`);
   }
+}
+
+// Helper functions for cleaner code organization
+
+async function syncContractAuthenticators(nearClient: any, contractId: string, accountId: string) {
+  try {
+    const authenticatorsResult = await nearClient.view({
+      account: contractId,
+      method: 'get_authenticators_by_user',
+      args: { user_id: accountId }
+    });
+
+    if (authenticatorsResult && Array.isArray(authenticatorsResult)) {
+      return authenticatorsResult.map(([credentialId, authenticator]: [string, any]) => ({
+        credentialId,
+        authenticator
+      }));
+    }
+    return [];
+  } catch (error: any) {
+    console.warn('Failed to fetch authenticators from contract:', error.message);
+    return [];
+  }
+}
+
+async function restoreUserData(webAuthnManager: any, accountId: string, publicKey: string, encryptedVrfKeypair: EncryptedVRFKeypair) {
+  const existingUser = await webAuthnManager.getUser(accountId);
+
+  if (!existingUser) {
+    await webAuthnManager.registerUser(accountId, {
+      clientNearPublicKey: publicKey,
+      prfSupported: true,
+      lastUpdated: Date.now(),
+      encryptedVrfKeypair,
+    });
+  } else {
+    await webAuthnManager.storeUserData({
+      nearAccountId: accountId,
+      clientNearPublicKey: publicKey,
+      lastUpdated: Date.now(),
+      prfSupported: existingUser.prfSupported ?? true,
+      deterministicKey: true,
+      passkeyCredential: existingUser.passkeyCredential,
+      encryptedVrfKeypair
+    });
+  }
+}
+
+async function restoreAuthenticators(webAuthnManager: any, accountId: string, contractAuthenticators: any[], vrfPublicKey: string) {
+  for (const { credentialId, authenticator } of contractAuthenticators) {
+    const credentialPublicKey = new Uint8Array(authenticator.credential_public_key);
+    const transports = authenticator.transports?.map((t: any) => t.transport) || [];
+
+    await webAuthnManager.storeAuthenticator({
+      nearAccountId: accountId,
+      credentialId: credentialId,
+      credentialPublicKey,
+      transports,
+      name: `Recovered Authenticator`,
+      registered: authenticator.registered,
+      syncedAt: new Date().toISOString(),
+      vrfPublicKey
+    });
+  }
+}
+
+async function unlockVrfKeypair(webAuthnManager: any, accountId: string, encryptedVrfKeypair: EncryptedVRFKeypair, credential: PublicKeyCredential): Promise<boolean> {
+  try {
+    const unlockResult = await webAuthnManager.unlockVRFKeypair({
+      nearAccountId: accountId,
+      encryptedVrfKeypair,
+      credential,
+    });
+
+    if (unlockResult.success) {
+      console.log('✅ VRF keypair unlocked successfully during recovery');
+      return true;
+    }
+    return false;
+  } catch (error: any) {
+    console.warn('VRF keypair unlock failed during recovery:', error.message);
+    return false;
+  }
+}
+
+async function getRecoveryLoginState(webAuthnManager: any, accountId: string) {
+  const loginState = await webAuthnManager.checkVrfStatus();
+  const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
+
+  return {
+    isLoggedIn: isVrfActive,
+    vrfActive: isVrfActive,
+    vrfSessionDuration: loginState.sessionDuration
+  };
 }
 

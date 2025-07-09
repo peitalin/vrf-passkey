@@ -35,18 +35,8 @@ export default defineConfig({
     },
   },
   define: {
-    // Let nodePolyfills handle global, process, and Buffer definitions.
-    // Keep environment-specific variables if needed.
     'process.env.NODE_ENV': JSON.stringify('development'), // Hardcode for client bundle
-    // 'process.env': JSON.stringify({}), // Likely handled by plugin
-    // 'process': JSON.stringify({ env: {} }), // Likely handled by plugin
-    // 'global.Buffer': 'Buffer', // Handled by plugin
-    // 'globalThis.Buffer': 'Buffer', // Handled by plugin
   },
   optimizeDeps: {
-    // The plugin might also influence what needs to be optimized.
-    // If 'buffer' is correctly polyfilled and resolved by the plugin,
-    // explicitly including it here might not be necessary.
-    // include: ['buffer'],
   },
 })

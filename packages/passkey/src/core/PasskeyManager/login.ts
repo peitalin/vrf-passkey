@@ -230,11 +230,14 @@ export async function getLoginState(
     // Get comprehensive user data from IndexedDB (single call instead of two)
     const userData = await webAuthnManager.getUser(targetAccountId);
     const publicKey = userData?.clientNearPublicKey || null;
-    // For now, assume VRF is not active (can be enhanced later if needed)
-    const vrfActive = false;
+
+    // Check actual VRF worker status
+    const vrfStatus = await webAuthnManager.checkVrfStatus();
+    const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
+
     // Determine if user is considered "logged in"
-    // User is logged in if they have user data and valid credentials
-    const isLoggedIn = !!(userData && userData.clientNearPublicKey);
+    // User is logged in if they have user data and VRF is active
+    const isLoggedIn = !!(userData && userData.clientNearPublicKey && vrfActive);
 
     return {
       isLoggedIn,
@@ -242,7 +245,7 @@ export async function getLoginState(
       publicKey,
       vrfActive,
       userData,
-      vrfSessionDuration: 0
+      vrfSessionDuration: vrfStatus.sessionDuration || 0
     };
 
   } catch (error: any) {

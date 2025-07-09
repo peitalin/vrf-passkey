@@ -26,8 +26,8 @@ export function PasskeyLoginMenu() {
     },
     loginPasskey,
     registerPasskey,
-    recoverAccountWithAccountId,
     startAccountRecoveryFlow,
+    refreshLoginState,
     // UI
     setInputUsername,
     passkeyManager,
@@ -100,24 +100,30 @@ export function PasskeyLoginMenu() {
   };
 
   const onRecover = async () => {
-    if (!targetAccountId) {
-      return;
-    }
+    if (!targetAccountId) return;
 
-    console.log('Recovering account:', targetAccountId);
-    const flow = await startAccountRecoveryFlow({
-      onEvent: (event) => {
-        console.log('Recovery event:', event);
-      },
-      onError: (error) => {
-        console.error(error)
+    try {
+      const flow = startAccountRecoveryFlow({
+        onEvent: async (event) => {
+          if (event.phase === 'action-complete' && event.status === 'success') {
+            await refreshLoginState(targetAccountId);
+          }
+        },
+        onError: (error) => console.error('Recovery error:', error)
+      });
+
+      const options = await flow.discover(targetAccountId);
+      const result = await flow.recover(options[0]);
+
+      if (result.success) {
+        toast.success(`Account ${targetAccountId} recovered successfully!`);
+      } else {
+        toast.error(`Recovery failed: ${result.error || 'Unknown error'}`);
       }
-    });
-    console.log("recover account flow: ", flow)
-    const options = await flow.discover(targetAccountId);
-    console.log("recover account options: ", options)
-    const result = await flow.recover(options[0]);
-    console.log("recover account result: ", result)
+    } catch (error: any) {
+      console.error('Recovery error:', error);
+      toast.error(`Recovery failed: ${error.message}`);
+    }
   };
 
   const onLogin = async () => {
