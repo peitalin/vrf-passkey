@@ -133,6 +133,8 @@ export interface PasskeyContextType {
     userData: any | null;
     vrfSessionDuration?: number;
   }>;
+  // Manually refresh login state
+  refreshLoginState: (nearAccountId?: string) => Promise<void>;
   // Account input management
   setInputUsername: (username: string) => void;
   refreshAccountData: () => Promise<void>;

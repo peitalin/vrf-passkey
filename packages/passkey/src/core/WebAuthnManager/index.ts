@@ -54,20 +54,28 @@ export class WebAuthnManager {
     this.signerWorkerManager = new SignerWorkerManager();
     this.touchIdPrompt = new TouchIdPrompt();
     this.configs = configs;
+
+    this.vrfWorkerManager.initialize().catch(error => {
+      console.warn('WebAuthnManager: VRF worker initialization failed:', error);
+    });
   }
 
   ///////////////////////////////////////
   // VRF MANAGER FUNCTIONS
   ///////////////////////////////////////
 
-  async generateVRFChallenge(inputData: {
+  async generateVrfChallenge(inputData: {
     userId: string;
     rpId: string;
     blockHeight: number;
     blockHashBytes: number[];
     timestamp?: number;
   }): Promise<VRFChallenge> {
-    return this.vrfWorkerManager.generateVrfChallenge(inputData);
+    return this.vrfWorkerManager.generateVrfChallenge({
+      ...inputData,
+      blockHash: base64UrlEncode(new Uint8Array(inputData.blockHashBytes)),
+      timestamp: inputData.timestamp || Date.now()
+    });
   }
 
   /**
@@ -92,7 +100,7 @@ export class WebAuthnManager {
     vrfPublicKey: string;
     vrfChallenge: VRFChallenge;
   }> {
-    const result = await this.vrfWorkerManager.generateVrfKeypairBootstrap(vrfInputParams);
+    const result = await this.vrfWorkerManager.generateVrfKeypair(vrfInputParams, true);
     if (!result.vrfChallenge) {
       throw new Error('VRF challenge generation failed');
     }
@@ -292,11 +300,13 @@ export class WebAuthnManager {
       });
       console.log('=== END VRF UNLOCK DEBUGGING ===');
 
-      const unlockResult = await this.vrfWorkerManager.unlockVrfKeypair(
+      const unlockResult = await this.vrfWorkerManager.unlockVrfKeypair({
+        touchIdPrompt: this.touchIdPrompt,
         nearAccountId,
         encryptedVrfKeypair,
-        prfOutputBase64 // Pass base64url string directly
-      );
+        authenticators: [], // Empty array since we already have the credential
+        prfOutput: prfOutput
+      });
 
       if (!unlockResult.success) {
         console.error('WebAuthnManager: VRF keypair unlock failed');
@@ -1195,6 +1205,13 @@ export class WebAuthnManager {
 
       throw new Error(`VRF key addition failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Check VRF worker status
+   */
+  async checkVrfStatus(): Promise<{ active: boolean; nearAccountId: string | null; sessionDuration?: number }> {
+    return this.vrfWorkerManager.checkVrfStatus();
   }
 
 }

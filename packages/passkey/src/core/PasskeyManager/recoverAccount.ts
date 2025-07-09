@@ -658,6 +658,7 @@ async function performAccountRecovery({
 
     // 5. Unlock VRF keypair in memory for immediate login (using same credential as derivation)
     console.log('Account Recovery Step 5: Unlocking VRF keypair with same credential used for derivation');
+    let vrfUnlockSuccess = false;
     try {
       const unlockResult = await webAuthnManager.unlockVRFKeypair({
         nearAccountId: accountId,
@@ -665,27 +666,45 @@ async function performAccountRecovery({
         credential: credential, // Use the same credential that was used for VRF derivation
       });
 
-      if (!unlockResult.success) {
-        console.warn('VRF keypair unlock failed during recovery (non-fatal):', unlockResult.error);
-      } else {
+      if (unlockResult.success) {
         console.log('✅ VRF keypair unlocked successfully during recovery with same credential');
+        vrfUnlockSuccess = true;
+      } else {
+        console.warn('VRF keypair unlock failed during recovery:', unlockResult.error);
       }
     } catch (unlockError: any) {
-      console.warn('VRF keypair unlock failed during recovery (non-fatal):', unlockError.message);
-      console.log('This is expected - VRF keypair will be unlocked during the next VRF operation');
+      console.warn('VRF keypair unlock failed during recovery:', unlockError.message);
+      console.log('VRF keypair will be unlocked during the next VRF operation');
       // Do not throw error - recovery can continue without VRF unlock
     }
 
     // 6. Update last login timestamp
     await webAuthnManager.updateLastLogin(accountId);
 
-    console.log(`Account recovery completed for ${accountId}`);
+    // 7. Get final login state to include in recovery result
+    const loginState = await webAuthnManager.checkVrfStatus();
+    const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
+
+    console.log(`Account recovery completed for ${accountId}`, {
+      vrfUnlockSuccess,
+      vrfActive: isVrfActive,
+      loginState: {
+        isLoggedIn: isVrfActive,
+        vrfActive: isVrfActive,
+        vrfSessionDuration: loginState.sessionDuration
+      }
+    });
 
     return {
       success: true,
       accountId,
       publicKey,
-      message: 'Account successfully recovered'
+      message: 'Account successfully recovered',
+      loginState: {
+        isLoggedIn: isVrfActive,
+        vrfActive: isVrfActive,
+        vrfSessionDuration: loginState.sessionDuration
+      }
     };
 
   } catch (error: any) {
