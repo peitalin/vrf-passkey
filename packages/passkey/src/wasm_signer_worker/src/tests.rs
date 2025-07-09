@@ -100,10 +100,10 @@ fn test_private_key_decryption_with_prf() {
     // Create a test keypair and encrypt it
     let (public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
-    // Test decryption
+    // Test decryption - fix parameter order: (near_account_id, aes_prf_output, encrypted_data, iv)
     let _decrypted_key = decrypt_private_key_with_prf(
-        prf_output_b64,
         account_id,
+        prf_output_b64,
         &encrypted_result.encrypted_near_key_data_b64u,
         &encrypted_result.aes_gcm_nonce_b64u,
     ).unwrap();
@@ -422,10 +422,10 @@ fn test_near_keypair_from_prf_flow() {
     let encryption_key = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
     let encrypted_result = encrypt_data_aes_gcm(&private_key, &encryption_key).unwrap();
 
-    // Decrypt and verify
+    // Decrypt and verify - fix parameter order: (near_account_id, aes_prf_output, encrypted_data, iv)
     let _decrypted_key = decrypt_private_key_with_prf(
-        prf_output_b64,
         account_id,
+        prf_output_b64,
         &encrypted_result.encrypted_near_key_data_b64u,
         &encrypted_result.aes_gcm_nonce_b64u,
     ).unwrap();

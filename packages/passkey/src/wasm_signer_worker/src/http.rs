@@ -5,16 +5,9 @@ use serde_json::Value;
 use base64::prelude::*;
 use bs58;
 use serde::{Serialize, Deserialize};
+use log::{info, debug, warn};
 
-#[cfg(target_arch = "wasm32")]
-macro_rules! console_log {
-    ($($t:tt)*) => (crate::log(&format_args!($($t)*).to_string()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! console_log {
-    ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
-}
+// Logging is now handled by the standard log crate
 
 /// Contract verification result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +107,7 @@ pub async fn perform_contract_verification_wasm(
     vrf_data: VrfData,
     webauthn_authentication_credential: WebAuthnAuthenticationCredential,
 ) -> Result<ContractVerificationResult, String> {
-    console_log!("RUST: Performing contract verification via WASM HTTP");
+    info!("RUST: Performing contract verification via WASM HTTP");
 
     // Build contract arguments
     let contract_args = serde_json::json!({
@@ -136,12 +129,12 @@ pub async fn perform_contract_verification_wasm(
         }
     });
 
-    console_log!("RUST: Making RPC call to: {}", rpc_url);
+    info!("RUST: Making RPC call to: {}", rpc_url);
 
     // Execute the request using shared helper
     let result = execute_rpc_request(rpc_url, &rpc_body).await?;
 
-    console_log!("RUST: Received RPC response");
+    info!("RUST: Received RPC response");
 
     // Parse RPC response
     if let Some(error) = result.get("error") {
@@ -186,7 +179,7 @@ pub async fn perform_contract_verification_wasm(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    console_log!("RUST: Contract verification result: verified={}, user_exists={}", verified, user_exists);
+    info!("RUST: Contract verification result: verified={}, user_exists={}", verified, user_exists);
 
     // Since this is a view function, we don't get actual registration_info
     // Return minimal info if verification succeeds to maintain API compatibility
@@ -209,7 +202,7 @@ pub async fn perform_contract_verification_wasm(
         })
         .unwrap_or_default();
 
-    console_log!("RUST: Contract verification result: verified={}, logs={:?}", verified, logs);
+    info!("RUST: Contract verification result: verified={}, logs={:?}", verified, logs);
 
     Ok(ContractVerificationResult {
         success: true,
@@ -227,7 +220,7 @@ pub async fn check_can_register_user_wasm(
     webauthn_registration_credential: WebAuthnRegistrationCredential,
     rpc_url: &str,
 ) -> Result<ContractRegistrationResult, String> {
-    console_log!("RUST: Checking if user can register (view function)");
+    info!("RUST: Checking if user can register (view function)");
 
     // Build contract arguments
     let contract_args = serde_json::json!({
@@ -249,7 +242,7 @@ pub async fn check_can_register_user_wasm(
         }
     });
 
-    console_log!("RUST: Making registration check RPC call to: {}", rpc_url);
+    info!("RUST: Making registration check RPC call to: {}", rpc_url);
 
     // Execute the request (reuse the same HTTP logic)
     let response_result = execute_rpc_request(rpc_url, &rpc_body).await?;
@@ -272,7 +265,7 @@ pub async fn sign_registration_tx_wasm(
     nonce: u64,
     block_hash_bytes: &[u8],
 ) -> Result<ContractRegistrationResult, String> {
-    console_log!("RUST: Performing dual VRF user registration (state-changing function)");
+    info!("RUST: Performing dual VRF user registration (state-changing function)");
 
     // Step 1: Decrypt the private key using PRF with account-specific HKDF
     let private_key = crate::crypto::decrypt_private_key_with_prf(
@@ -283,25 +276,20 @@ pub async fn sign_registration_tx_wasm(
     ).map_err(|e| format!("Failed to decrypt private key: {:?}", e))?;
 
     // Step 2: Build dual VRF data for contract arguments
-    let mut dual_vrf_data = vrf_data.clone();
     let deterministic_vrf_key_bytes = if let Some(det_vrf_key) = deterministic_vrf_public_key {
-        console_log!("RUST: Adding deterministic VRF key to registration: {}...",
-                    &det_vrf_key[..std::cmp::min(20, det_vrf_key.len())]);
 
         let det_vrf_key_bytes = base64url_decode(det_vrf_key)
             .map_err(|e| format!("Failed to decode deterministic VRF key: {}", e))?;
 
-        console_log!("RUST: Dual VRF registration - bootstrap: {} bytes, deterministic: {} bytes",
-                    dual_vrf_data.public_key.len(), det_vrf_key_bytes.len());
         Some(det_vrf_key_bytes)
     } else {
-        console_log!("RUST: Single VRF registration - using bootstrap VRF key only");
+        debug!("RUST: Single VRF registration - using bootstrap VRF key only");
         None
     };
 
     // Step 3: Build contract arguments for verify_and_register_user with dual VRF support
     let contract_args = serde_json::json!({
-        "vrf_data": dual_vrf_data,
+        "vrf_data": vrf_data,
         "webauthn_registration": webauthn_registration_credential,
         "deterministic_vrf_public_key": deterministic_vrf_key_bytes
     });
@@ -314,7 +302,7 @@ pub async fn sign_registration_tx_wasm(
         deposit: "0".to_string(),
     }];
 
-    console_log!("RUST: Building FunctionCall action for {}", VERIFY_AND_REGISTER_USER_METHOD);
+    info!("RUST: Building FunctionCall action for {}", VERIFY_AND_REGISTER_USER_METHOD);
 
     // Step 5: Build actions using existing infrastructure
     let actions = crate::transaction::build_actions_from_params(action_params)
@@ -334,10 +322,10 @@ pub async fn sign_registration_tx_wasm(
     let signed_registration_tx_bytes = crate::transaction::sign_transaction(transaction, &private_key)
         .map_err(|e| format!("Failed to sign registration transaction: {}", e))?;
 
-    console_log!("RUST: Registration transaction signed successfully");
+    info!("RUST: Registration transaction signed successfully");
 
     // Step 8: Generate pre-signed delete transaction for rollback with SAME nonce/block hash
-    console_log!("RUST: Generating pre-signed deleteAccount transaction for rollback");
+    info!("RUST: Generating pre-signed deleteAccount transaction for rollback");
 
     let delete_action_params = vec![crate::actions::ActionParams::DeleteAccount {
         beneficiary_id: "testnet".to_string(), // Default beneficiary for rollback
@@ -359,8 +347,8 @@ pub async fn sign_registration_tx_wasm(
     let signed_delete_tx_bytes = crate::transaction::sign_transaction(delete_transaction, &private_key)
         .map_err(|e| format!("Failed to sign delete transaction: {}", e))?;
 
-    console_log!("RUST: Pre-signed deleteAccount transaction created - same nonce ensures mutual exclusivity");
-    console_log!("RUST: Registration transaction: {} bytes, Delete transaction: {} bytes",
+    info!("RUST: Pre-signed deleteAccount transaction created - same nonce ensures mutual exclusivity");
+    info!("RUST: Registration transaction: {} bytes, Delete transaction: {} bytes",
                  signed_registration_tx_bytes.len(), signed_delete_tx_bytes.len());
 
     Ok(ContractRegistrationResult {
@@ -467,14 +455,14 @@ async fn execute_rpc_request(rpc_url: &str, rpc_body: &serde_json::Value) -> Res
 
 /// Parse response for view-only registration check
 fn parse_view_registration_response(result: serde_json::Value) -> Result<ContractRegistrationResult, String> {
-    console_log!("RUST: Received registration check RPC response");
+    info!("RUST: Received registration check RPC response");
 
     // Parse RPC response
     if let Some(error) = result.get("error") {
         let error_msg = error.get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("Unknown RPC error");
-        console_log!("RUST: RPC error: {}", error_msg);
+        warn!("RUST: RPC error: {}", error_msg);
         return Ok(ContractRegistrationResult {
             success: false,
             verified: false,
@@ -491,7 +479,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
         .ok_or("Missing result in RPC response")?;
 
     // Debug: log the full contract result structure
-    console_log!("RUST: Full contract result: {}", serde_json::to_string_pretty(&contract_result).unwrap_or_default());
+    debug!("RUST: Full contract result: {}", serde_json::to_string_pretty(&contract_result).unwrap_or_default());
 
     let result_bytes = contract_result.get("result")
         .and_then(|r| r.as_array())
@@ -506,13 +494,13 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
     let result_string = String::from_utf8(result_u8)
         .map_err(|e| format!("Failed to decode result string: {}", e))?;
 
-    console_log!("RUST: Contract response string: {}", result_string);
+    info!("RUST: Contract response string: {}", result_string);
 
     // Parse contract response
     let contract_response: Value = serde_json::from_str(&result_string)
         .map_err(|e| format!("Failed to parse contract response: {}", e))?;
 
-    console_log!("RUST: Parsed contract response: {}", serde_json::to_string_pretty(&contract_response).unwrap_or_default());
+    info!("RUST: Parsed contract response: {}", serde_json::to_string_pretty(&contract_response).unwrap_or_default());
 
     let verified = contract_response.get("verified")
         .and_then(|v| v.as_bool())
@@ -523,7 +511,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    console_log!("RUST: Contract verification result: verified={}, user_exists={}", verified, user_exists);
+    info!("RUST: Contract verification result: verified={}, user_exists={}", verified, user_exists);
 
     // Since this is a view function, we don't get actual registration_info
     // Return minimal info if verification succeeds to maintain API compatibility
@@ -546,7 +534,7 @@ fn parse_view_registration_response(result: serde_json::Value) -> Result<Contrac
         })
         .unwrap_or_default();
 
-    console_log!("RUST: Contract registration check result: verified={}, user_exists={}, logs={:?}", verified, user_exists, logs);
+    info!("RUST: Contract registration check result: verified={}, user_exists={}, logs={:?}", verified, user_exists, logs);
 
     Ok(ContractRegistrationResult {
         success: true,

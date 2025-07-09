@@ -34,6 +34,9 @@ wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 vrf-wasm = { version = "0.7", features = ["browser"] }
 rand_core = "0.6"
 rand_chacha = "0.3"
+# Logging dependencies
+log = "0.4"
+wasm-logger = "0.2"
 
 # WASM HTTP dependencies
 web-sys = { version = "0.3", features = [

@@ -4,6 +4,13 @@
 /// and make updates easier. All salt, info, and domain separation strings
 /// are defined here.
 
+// === LOGGING CONFIGURATION ===
+
+/// Log level for the signer worker
+/// Change this constant and recompile to adjust logging verbosity
+/// Levels: Error = 1, Warn = 2, Info = 3, Debug = 4, Trace = 5
+pub const CURRENT_LOG_LEVEL: log::Level = log::Level::Info;
+
 // === AES-GCM ENCRYPTION CONSTANTS ===
 
 /// Salt template for account-specific AES key derivation

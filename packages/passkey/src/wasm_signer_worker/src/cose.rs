@@ -1,17 +1,8 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ciborium::Value as CborValue;
+use log::debug;
 
 use crate::error::KdfError;
-
-#[cfg(target_arch = "wasm32")]
-macro_rules! console_log {
-    ($($t:tt)*) => (crate::log(&format_args!($($t)*).to_string()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! console_log {
-    ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
-}
 
 /// Helper function for base64url decoding
 fn base64_url_decode(input: &str) -> Result<Vec<u8>, KdfError> {
@@ -85,7 +76,7 @@ pub fn parse_authenticator_data(auth_data_bytes: &[u8]) -> Result<Vec<u8>, Strin
 
 /// Extract COSE public key from WebAuthn attestation object
 pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -> Result<Vec<u8>, String> {
-    console_log!("RUST: Extracting COSE public key from attestation object");
+    debug!("Extracting COSE public key from attestation object");
 
     // Decode the base64url attestation object
     let attestation_object_bytes = base64_url_decode(attestation_object_b64u)
@@ -97,7 +88,7 @@ pub fn extract_cose_public_key_from_attestation(attestation_object_b64u: &str) -
     // Extract the COSE public key from authenticator data
     let cose_public_key_bytes = parse_authenticator_data(&auth_data_bytes)?;
 
-    console_log!("RUST: Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
+    debug!("Successfully extracted COSE public key ({} bytes)", cose_public_key_bytes.len());
     Ok(cose_public_key_bytes)
 }
 

@@ -16,6 +16,9 @@ use bs58;
 use serde::{Deserialize, Serialize};
 use ed25519_dalek::SigningKey;
 
+// Import log macros
+use log::{info, debug, warn};
+
 // Import from modules
 use crate::transaction::{
     sign_transaction,
@@ -44,22 +47,12 @@ extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     pub fn log(s: &str);
     #[wasm_bindgen(js_namespace = console, js_name = warn)]
-    fn warn(s: &str);
+    fn warn_console(s: &str);
     #[wasm_bindgen(js_namespace = console, js_name = error)]
-    fn error(s: &str);
+    fn error_console(s: &str);
     // Import JavaScript function for sending progress messages
     #[wasm_bindgen(js_name = "sendProgressMessage")]
     fn send_progress_message(message_type: &str, step: &str, message: &str, data: &str);
-}
-
-#[cfg(target_arch = "wasm32")]
-macro_rules! console_log {
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! console_log {
-    ($($t:tt)*) => (eprintln!("[LOG] {}", format_args!($($t)*)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -100,6 +93,12 @@ fn send_progress_with_logs(message_type: &str, step: &str, message: &str, data: 
 pub fn init_panic_hook() {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
+
+    // Initialize logger with the configured log level
+    wasm_logger::init(wasm_logger::Config::new(config::CURRENT_LOG_LEVEL));
+
+    info!("Signer WASM Worker starting up...");
+    debug!("Logging system initialized with level: {:?}", config::CURRENT_LOG_LEVEL);
 }
 
 // === WASM BINDINGS FOR KEY GENERATION ===
@@ -109,12 +108,12 @@ pub fn init_panic_hook() {
 pub fn extract_cose_public_key_from_attestation(
     attestation_object_b64u: &str,
 ) -> Result<Vec<u8>, JsValue> {
-    console_log!("RUST: WASM binding - extracting COSE public key from attestation object");
+    info!("RUST: WASM binding - extracting COSE public key from attestation object");
 
     let cose_public_key_bytes = crate::cose::extract_cose_public_key_from_attestation(attestation_object_b64u)
         .map_err(|e| JsValue::from_str(&format!("Failed to extract COSE public key: {}", e)))?;
 
-    console_log!("RUST: WASM binding - COSE public key extraction successful ({} bytes)", cose_public_key_bytes.len());
+    info!("RUST: WASM binding - COSE public key extraction successful ({} bytes)", cose_public_key_bytes.len());
     Ok(cose_public_key_bytes)
 }
 
@@ -125,14 +124,14 @@ pub fn recover_keypair_from_passkey(
     credential: &WebAuthnAuthenticationCredentialRecoveryStruct,
     account_id_hint: Option<String>,
 ) -> Result<RecoverKeypairResult, JsValue> {
-    console_log!("RUST: WASM binding - deriving deterministic keypair from passkey using dual PRF outputs");
-    console_log!("RUST: Parsed authentication credential with ID: {}", credential.id);
+    info!("RUST: WASM binding - deriving deterministic keypair from passkey using dual PRF outputs");
+    info!("RUST: Parsed authentication credential with ID: {}", credential.id);
 
     // Extract both PRF outputs from the recovery credential
     let aes_prf_output = &credential.aes_prf_output;
     let ed25519_prf_output = &credential.ed25519_prf_output;
 
-    console_log!("RUST: Extracted dual PRF outputs for recovery - AES for encryption, Ed25519 for key derivation");
+    info!("RUST: Extracted dual PRF outputs for recovery - AES for encryption, Ed25519 for key derivation");
 
     // Use account hint if provided, otherwise generate placeholder
     let account_id = account_id_hint
@@ -151,8 +150,8 @@ pub fn recover_keypair_from_passkey(
         account_id,
     ).map_err(|e| JsValue::from_str(&format!("Failed to encrypt private key with AES PRF: {}", e)))?;
 
-    console_log!("RUST: Successfully derived NEAR keypair from Ed25519 PRF and encrypted with AES PRF");
-    console_log!("RUST: PRF-based keypair recovery from authentication credential successful");
+    info!("RUST: Successfully derived NEAR keypair from Ed25519 PRF and encrypted with AES PRF");
+    info!("RUST: PRF-based keypair recovery from authentication credential successful");
 
     Ok(RecoverKeypairResult::new(
         public_key,
@@ -167,7 +166,7 @@ pub fn recover_keypair_from_passkey(
 pub fn decrypt_private_key_with_prf(
     request: &DecryptPrivateKeyRequest,
 ) -> Result<DecryptPrivateKeyResult, JsValue> {
-    console_log!("RUST: Decrypting private key with PRF using structured types");
+    info!("RUST: Decrypting private key with PRF using structured types");
 
     // Use the core function to decrypt and get SigningKey
     let signing_key = crate::crypto::decrypt_private_key_with_prf(
@@ -189,7 +188,7 @@ pub fn decrypt_private_key_with_prf(
 
     let private_key_near_format = format!("ed25519:{}", bs58::encode(&full_private_key).into_string());
 
-    console_log!("RUST: Private key decrypted successfully with structured types");
+    info!("RUST: Private key decrypted successfully with structured types");
 
     Ok(DecryptPrivateKeyResult::new(
         private_key_near_format,
@@ -206,7 +205,7 @@ pub async fn verify_and_sign_near_transaction_with_actions(
     credential: &WebAuthnAuthenticationCredentialStruct,
     request: &TransactionSigningRequest,
 ) -> Result<TransactionSignResult, JsValue> {
-    console_log!("RUST: Verify and sign NEAR transaction with actions using structured types");
+    info!("RUST: Verify and sign NEAR transaction with actions using structured types");
 
     let mut logs: Vec<String> = Vec::new();
 
@@ -392,13 +391,13 @@ pub async fn verify_and_sign_near_transaction_with_actions(
             Some(signed_tx_bytes),
         )),
         Err(e) => {
-            console_log!("RUST: Warning - Failed to decode signed transaction for structured response: {}", e);
+            warn!("RUST: Warning - Failed to decode signed transaction for structured response: {}", e);
             None
         }
     };
 
     logs.push("Transaction verification and signing completed successfully".to_string());
-    console_log!("RUST: Combined verification + signing completed successfully");
+    info!("RUST: Combined verification + signing completed successfully");
 
     // Send completion progress message
     send_progress_message(
@@ -428,7 +427,7 @@ pub async fn verify_and_sign_near_transfer_transaction(
     credential: &WebAuthnAuthenticationCredentialStruct,
     request: &TransferTransactionRequest,
 ) -> Result<TransactionSignResult, JsValue> {
-    console_log!("RUST: Starting transfer transaction verification + signing using structured types");
+    info!("RUST: Starting transfer transaction verification + signing using structured types");
 
     // Convert transfer parameters to action-based format
     let transfer_actions = vec![ActionParams::Transfer {
@@ -464,7 +463,7 @@ pub async fn check_can_register_user(
     credential: &WebAuthnRegistrationCredentialStruct,
     request: &RegistrationCheckRequest,
 ) -> Result<RegistrationCheckResult, JsValue> {
-    console_log!("RUST: Checking if user can register (view function) using structured types");
+    info!("RUST: Checking if user can register (view function) using structured types");
 
     // Convert structured types using From implementations
     let vrf_data = VrfData::try_from(vrf_challenge)?;
@@ -519,7 +518,7 @@ pub async fn sign_verify_and_register_user(
     request: &RegistrationRequest,
     deterministic_vrf_public_key: Option<String>, // Change to Option<String> for wasm-bindgen compatibility
 ) -> Result<RegistrationResult, JsValue> {
-    console_log!("RUST: Performing dual VRF user registration (state-changing function) using structured types");
+    info!("RUST: Performing dual VRF user registration (state-changing function) using structured types");
 
     // Send initial progress message
     send_progress_message(
@@ -662,7 +661,7 @@ pub async fn add_key_with_prf(
     credential: &WebAuthnAuthenticationCredentialStruct,
     request: &AddKeyRequest,
 ) -> Result<KeyActionResult, JsValue> {
-    console_log!("RUST: Starting AddKey transaction with PRF authentication using structured types");
+    info!("RUST: Starting AddKey transaction with PRF authentication using structured types");
 
     let add_key_action = ActionParams::AddKey {
         public_key: request.transaction.new_public_key.clone(),
@@ -703,7 +702,7 @@ pub async fn delete_key_with_prf(
     credential: &WebAuthnAuthenticationCredentialStruct,
     request: &DeleteKeyRequest,
 ) -> Result<KeyActionResult, JsValue> {
-    console_log!("RUST: Starting DeleteKey transaction with PRF authentication using structured types");
+    info!("RUST: Starting DeleteKey transaction with PRF authentication using structured types");
 
     let delete_key_action = ActionParams::DeleteKey {
         public_key: request.transaction.public_key_to_delete.clone(),
@@ -741,7 +740,7 @@ pub fn derive_and_encrypt_keypair(
     dual_prf_outputs: &DualPrfOutputs,
     near_account_id: &str,
 ) -> Result<EncryptionResult, JsValue> {
-    console_log!("RUST: WASM binding - starting structured dual PRF keypair derivation");
+    info!("RUST: WASM binding - starting structured dual PRF keypair derivation");
 
     // Convert wasm-bindgen types to internal types
     let internal_dual_prf_outputs = crate::types::DualPrfOutputs {
@@ -755,7 +754,7 @@ pub fn derive_and_encrypt_keypair(
         near_account_id
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    console_log!("RUST: Structured dual PRF keypair derivation successful");
+    info!("RUST: Structured dual PRF keypair derivation successful");
 
     // Return structured result (no JSON serialization)
     Ok(EncryptionResult::new(
@@ -1940,30 +1939,6 @@ async fn handle_check_can_register_user_msg(payload: serde_json::Value) -> Resul
 async fn handle_sign_verify_and_register_user_msg(payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let parsed_payload: SignVerifyAndRegisterUserPayload = serde_json::from_value(payload)
         .map_err(|e| format!("Failed to parse SignVerifyAndRegisterUser payload: {}", e))?;
-
-    // DEBUG: Log received payload details
-    console_log!("RUST: DEBUG - Received payload details:");
-    console_log!("RUST: DEBUG - PRF output length: {}", parsed_payload.prf_output.len());
-    console_log!("RUST: DEBUG - PRF output preview: {}...",
-        if parsed_payload.prf_output.len() > 20 {
-            &parsed_payload.prf_output[..20]
-        } else {
-            &parsed_payload.prf_output
-        });
-    console_log!("RUST: DEBUG - Encrypted data length: {}", parsed_payload.encrypted_private_key_data.len());
-    console_log!("RUST: DEBUG - Encrypted data preview: {}...",
-        if parsed_payload.encrypted_private_key_data.len() > 20 {
-            &parsed_payload.encrypted_private_key_data[..20]
-        } else {
-            &parsed_payload.encrypted_private_key_data
-        });
-    console_log!("RUST: DEBUG - IV length: {}", parsed_payload.encrypted_private_key_iv.len());
-    console_log!("RUST: DEBUG - IV preview: {}...",
-        if parsed_payload.encrypted_private_key_iv.len() > 20 {
-            &parsed_payload.encrypted_private_key_iv[..20]
-        } else {
-            &parsed_payload.encrypted_private_key_iv
-        });
 
     // Convert payload to WASM structs
     let vrf_challenge = VrfChallengeStruct::new(
