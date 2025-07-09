@@ -17,12 +17,7 @@ import {
   SignedTransaction
 } from '../NearClient';
 import { SignerWorkerManager } from './signerWorkerManager';
-import {
-  type EncryptedVRFKeypair,
-  type VRFInputData,
-  type VRFWorkerStatus,
-  VrfWorkerManager
-} from './vrfWorkerManager';
+import { VrfWorkerManager } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode, base64UrlDecode, base58Decode, toWasmByteArray} from '../../utils/encoders';
 import {
@@ -30,6 +25,14 @@ import {
   type ActionParams,
 } from '../types/signer-worker';
 import { extractDualPrfOutputs } from '../types/signer-worker';
+import { EncryptedVRFKeypair, VRFInputData } from '../types/vrf-worker';
+
+// Define interfaces that are missing
+export interface VRFWorkerStatus {
+  active: boolean;
+  nearAccountId: string | null;
+  sessionDuration?: number;
+}
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -57,20 +60,14 @@ export class WebAuthnManager {
   // VRF MANAGER FUNCTIONS
   ///////////////////////////////////////
 
-  async initializeVrfWorkerManager(): Promise<void> {
-    return this.vrfWorkerManager.initialize();
-  }
-
-  async getVrfWorkerStatus(): Promise<VRFWorkerStatus> {
-    return this.vrfWorkerManager.getVrfWorkerStatus();
-  }
-
-  async clearVrfSession(): Promise<void> {
-    return this.vrfWorkerManager.clearVrfSession();
-  }
-
-  async generateVRFChallenge(vrfInputData: VRFInputData): Promise<VRFChallenge> {
-    return this.vrfWorkerManager.generateVRFChallenge(vrfInputData);
+  async generateVRFChallenge(inputData: {
+    userId: string;
+    rpId: string;
+    blockHeight: number;
+    blockHashBytes: number[];
+    timestamp?: number;
+  }): Promise<VRFChallenge> {
+    return this.vrfWorkerManager.generateVrfChallenge(inputData);
   }
 
   /**
@@ -95,7 +92,14 @@ export class WebAuthnManager {
     vrfPublicKey: string;
     vrfChallenge: VRFChallenge;
   }> {
-    return await this.vrfWorkerManager.generateVrfKeypair(saveInMemory, vrfInputParams);
+    const result = await this.vrfWorkerManager.generateVrfKeypairBootstrap(vrfInputParams);
+    if (!result.vrfChallenge) {
+      throw new Error('VRF challenge generation failed');
+    }
+    return {
+      vrfPublicKey: result.vrfPublicKey,
+      vrfChallenge: result.vrfChallenge
+    };
   }
 
   /**
@@ -257,15 +261,12 @@ export class WebAuthnManager {
     credential: PublicKeyCredential;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log('WebAuthnManager: Unlocking VRF keypair with PRF output');
+      console.log('WebAuthnManager: Unlocking VRF keypair');
 
-      // Extract only PRF Output 1 (AES PRF output) for VRF decryption
       const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
       if (!prfOutput) {
         throw new Error('PRF output not found in WebAuthn credentials');
       }
-
-      console.log('WebAuthnManager: Using AES PRF output for VRF decryption (same format as derivation)');
 
       // DEBUG: Add comprehensive logging to trace PRF processing differences
       console.log('=== VRF UNLOCK DEBUGGING ===');
@@ -276,12 +277,12 @@ export class WebAuthnManager {
         base64Preview: base64UrlEncode(prfOutput).substring(0, 20) + '...'
       });
 
-      // Convert ArrayBuffer directly to the format expected by VRF worker
-      const prfBytes = toWasmByteArray(prfOutput);
-      console.log('PRF bytes for VRF worker:', {
-        length: prfBytes.length,
-        preview: prfBytes.slice(0, 10),
-        type: typeof prfBytes[0]
+      // Convert ArrayBuffer to base64url string for consistent processing
+      const prfOutputBase64 = base64UrlEncode(prfOutput);
+      console.log('PRF output as base64url:', {
+        length: prfOutputBase64.length,
+        preview: prfOutputBase64.substring(0, 20) + '...',
+        type: 'string'
       });
 
       console.log('Encrypted VRF keypair:', {
@@ -291,20 +292,15 @@ export class WebAuthnManager {
       });
       console.log('=== END VRF UNLOCK DEBUGGING ===');
 
-      const unlockResult = await this.vrfWorkerManager.unlockVRFKeypair({
-        touchIdPrompt: this.touchIdPrompt,
+      const unlockResult = await this.vrfWorkerManager.unlockVrfKeypair(
         nearAccountId,
         encryptedVrfKeypair,
-        authenticators: [], // Not needed since we already have the credential
-        prfOutput: prfOutput, // Pass ArrayBuffer directly
-        onEvent: (event) => {
-          console.log('VRF unlock progress:', event);
-        },
-      });
+        prfOutputBase64 // Pass base64url string directly
+      );
 
       if (!unlockResult.success) {
-        console.error('WebAuthnManager: VRF keypair unlock failed:', unlockResult.error);
-        return { success: false, error: unlockResult.error };
+        console.error('WebAuthnManager: VRF keypair unlock failed');
+        return { success: false, error: 'VRF keypair unlock failed' };
       }
 
       console.log('WebAuthnManager: VRF keypair unlocked successfully');

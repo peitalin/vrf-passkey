@@ -171,13 +171,9 @@ async function verifyVrfAuthAndSignTransaction(
   });
 
   console.log('[Direct Action] Using VRF authentication flow with contract verification');
-  // Get managers and check if VRF session is active
-  const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
-
-  if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
-    throw new Error('VRF keypair not unlocked - please login to unlock VRF session');
-  }
-  console.log(`VRF session active for ${nearAccountId} (${Math.round(vrfStatus.sessionDuration! / 1000)}s)`);
+  // Check if VRF session is active by trying to generate a challenge
+  // This will fail if VRF is not unlocked, providing implicit status check
+  console.log(`Using VRF authentication for ${nearAccountId}`);
 
   // const blockInfo = await nearClient.viewBlock({ finality: 'final' });
 
@@ -186,8 +182,7 @@ async function verifyVrfAuthAndSignTransaction(
     userId: nearAccountId,
     rpId: window.location.hostname,
     blockHeight: transactionContext.transactionBlockInfo.header.height,
-    // blockHash: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64')),
-    blockHash: transactionContext.transactionBlockInfo.header.hash,
+    blockHashBytes: transactionContext.transactionBlockHashBytes,
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge

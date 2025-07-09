@@ -5,7 +5,7 @@ use serde_json;
 
 // Import existing types, functions, and constants from other modules
 use crate::types::{VRFInputData, EncryptedVRFKeypair, VRFWorkerMessage, VRFWorkerResponse};
-use crate::utils::{base64_url_encode, base64_url_decode, process_prf_input};
+use crate::utils::{base64_url_encode, base64_url_decode};
 use crate::config::{AES_KEY_SIZE, AES_NONCE_SIZE, VRF_SEED_SIZE, VRF_DOMAIN_SEPARATOR, HKDF_AES_KEY_INFO, HKDF_VRF_KEYPAIR_INFO};
 
 // Test helper functions
@@ -18,28 +18,19 @@ fn create_test_account_id() -> String {
 }
 
 #[test]
-fn test_prf_input_processing_consistency() {
+fn test_base64url_prf_processing_consistency() {
     let test_prf_bytes = create_test_prf_output();
     let test_prf_base64url = base64_url_encode(&test_prf_bytes);
 
-    // Test both input formats produce same result
-    let result_from_string = process_prf_input(&serde_json::Value::String(test_prf_base64url.clone()));
-    let result_from_array = process_prf_input(&serde_json::Value::Array(
-        test_prf_bytes.iter().map(|&b| serde_json::Value::Number(serde_json::Number::from(b))).collect()
-    ));
+    // Test that base64url encoding/decoding is consistent
+    let decoded_result = base64_url_decode(&test_prf_base64url);
+    assert!(decoded_result.is_ok(), "Base64url decoding should succeed");
 
-    assert!(result_from_string.is_ok(), "String PRF processing should succeed");
-    assert!(result_from_array.is_ok(), "Array PRF processing should succeed");
+    let decoded_bytes = decoded_result.unwrap();
+    assert_eq!(decoded_bytes.len(), 32, "PRF should be exactly 32 bytes");
+    assert_eq!(decoded_bytes, test_prf_bytes, "Base64url round-trip should preserve original bytes");
 
-    let string_result = result_from_string.unwrap();
-    let array_result = result_from_array.unwrap();
-
-    assert_eq!(string_result.len(), 32, "PRF should be exactly 32 bytes");
-    assert_eq!(array_result.len(), 32, "PRF should be exactly 32 bytes");
-    assert_eq!(string_result, array_result, "Both PRF processing methods should produce identical results");
-    assert_eq!(string_result, test_prf_bytes, "PRF processing should preserve original bytes");
-
-    println!("✅ PRF input processing consistency test passed");
+    println!("✅ Base64url PRF processing consistency test passed");
 }
 
 #[test]
@@ -173,34 +164,57 @@ fn test_account_id_salt_generation() {
 }
 
 #[test]
-fn test_utf8_encoding_bug_prevention() {
-    // This test demonstrates the UTF-8 encoding bug that was causing issues
+fn test_prf_base64url_edge_cases() {
+    // Test empty base64url string
+    let empty_result = base64_url_decode("");
+    assert!(empty_result.is_ok(), "Empty base64url should decode successfully");
+    assert_eq!(empty_result.unwrap(), Vec::<u8>::new(), "Empty base64url should produce empty bytes");
+
+    // Test invalid base64url characters
+    let invalid_result = base64_url_decode("invalid!!!");
+    assert!(invalid_result.is_err(), "Invalid base64url should fail to decode");
+
+    // Test padded base64url (should fail since base64url is unpadded)
+    let padded_result = base64_url_decode("SGVsbG8=");
+    assert!(padded_result.is_err(), "Padded base64url should fail to decode");
+
+    // Test valid base64url with URL-safe characters
+    let urlsafe_result = base64_url_decode("SGVsbG8_LQ");
+    assert!(urlsafe_result.is_ok(), "URL-safe base64url should decode successfully");
+
+    println!("✅ PRF base64url edge cases test passed");
+}
+
+#[test]
+fn test_worker_message_prf_field_extraction() {
+    // Test that we can extract base64url PRF fields from worker messages
     let test_prf_bytes = create_test_prf_output();
+    let test_prf_base64url = base64_url_encode(&test_prf_bytes);
 
-    // Correct approach: base64url encoding preserves binary data
-    let correct_base64url = base64_url_encode(&test_prf_bytes);
-    let correct_decoded = base64_url_decode(&correct_base64url).expect("Should decode correctly");
-    assert_eq!(test_prf_bytes, correct_decoded, "Correct encoding should be lossless");
+    // Test message with prfKey field (for encryption operations)
+    let message_data = serde_json::json!({
+        "prfKey": test_prf_base64url,
+        "expectedPublicKey": "test-public-key",
+        "nearAccountId": "test.testnet"
+    });
 
-    // Demonstrate the bug: treating binary data as UTF-8 can corrupt it
-    // This would happen if someone tried to convert PRF bytes to a string incorrectly
-    let utf8_result = std::str::from_utf8(&test_prf_bytes);
+    let prf_key_field = message_data["prfKey"].as_str().unwrap_or("");
+    assert_eq!(prf_key_field, test_prf_base64url, "PRF key field should match original");
 
-    // Most binary data is NOT valid UTF-8, which would cause the bug
-    if utf8_result.is_err() {
-        println!("✅ Binary PRF data is not valid UTF-8 (expected - this prevents the bug)");
-    } else {
-        // If it happens to be valid UTF-8, show that round-trip can still corrupt data
-        let utf8_string = utf8_result.unwrap();
-        let utf8_bytes = utf8_string.as_bytes();
+    let decoded_prf = base64_url_decode(prf_key_field).expect("Should decode PRF key");
+    assert_eq!(decoded_prf, test_prf_bytes, "Decoded PRF should match original bytes");
 
-        // The round-trip through UTF-8 might not preserve original bytes
-        if utf8_bytes != test_prf_bytes {
-            println!("✅ UTF-8 round-trip corrupted data (demonstrates the bug)");
-        } else {
-            println!("⚠️ UTF-8 round-trip happened to preserve data (rare case)");
-        }
-    }
+    // Test message with prfOutput field (for derivation operations)
+    let derivation_data = serde_json::json!({
+        "prfOutput": test_prf_base64url,
+        "nearAccountId": "test.testnet"
+    });
 
-    println!("✅ UTF-8 encoding bug prevention test passed");
+    let prf_output_field = derivation_data["prfOutput"].as_str().unwrap_or("");
+    assert_eq!(prf_output_field, test_prf_base64url, "PRF output field should match original");
+
+    let decoded_output = base64_url_decode(prf_output_field).expect("Should decode PRF output");
+    assert_eq!(decoded_output, test_prf_bytes, "Decoded PRF output should match original bytes");
+
+    println!("✅ Worker message PRF field extraction test passed");
 }

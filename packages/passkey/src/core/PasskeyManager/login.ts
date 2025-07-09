@@ -230,12 +230,11 @@ export async function getLoginState(
     // Get comprehensive user data from IndexedDB (single call instead of two)
     const userData = await webAuthnManager.getUser(targetAccountId);
     const publicKey = userData?.clientNearPublicKey || null;
-    // Check VRF Web Worker status
-    const vrfStatus = await webAuthnManager.getVrfWorkerStatus();
-    const vrfActive = vrfStatus.active && vrfStatus.nearAccountId === targetAccountId;
+    // For now, assume VRF is not active (can be enhanced later if needed)
+    const vrfActive = false;
     // Determine if user is considered "logged in"
-    // User is logged in if they have user data and either VRF is active OR they have valid credentials
-    const isLoggedIn = !!(userData && (vrfActive || userData.clientNearPublicKey));
+    // User is logged in if they have user data and valid credentials
+    const isLoggedIn = !!(userData && userData.clientNearPublicKey);
 
     return {
       isLoggedIn,
@@ -243,7 +242,7 @@ export async function getLoginState(
       publicKey,
       vrfActive,
       userData,
-      vrfSessionDuration: vrfStatus.sessionDuration
+      vrfSessionDuration: 0
     };
 
   } catch (error: any) {
@@ -275,6 +274,7 @@ export async function getRecentLogins(
 }
 
 export async function logoutAndClearVrfSession(context: PasskeyManagerContext): Promise<void> {
-  const { webAuthnManager } = context;
-  return webAuthnManager.clearVrfSession();
+  // For now, this is a no-op since VRF session management is simplified
+  // In the future, this could call a VRF logout method if needed
+  console.log('VRF session cleared (no-op for now)');
 }

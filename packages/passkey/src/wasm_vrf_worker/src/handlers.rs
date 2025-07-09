@@ -37,14 +37,15 @@ pub fn handle_unlock_vrf_keypair(
                 Err(e) => console::log_1(&format!("VRF WASM: Failed to parse EncryptedVRFKeypair: {}", e).into()),
             }
 
-            let prf_key = match process_prf_input(&data["prfKey"]) {
+            let prf_key_base64 = data["prfKey"].as_str().unwrap_or("");
+            let prf_key = match base64_url_decode(prf_key_base64) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     return VRFWorkerResponse {
                         id: message_id,
                         success: false,
                         data: None,
-                        error: Some(format!("Invalid PRF key: {}", e)),
+                        error: Some(format!("Invalid PRF key base64url: {}", e)),
                     }
                 }
             };
@@ -55,6 +56,13 @@ pub fn handle_unlock_vrf_keypair(
                     success: false,
                     data: None,
                     error: Some("Missing nearAccountId".to_string()),
+                }
+            } else if prf_key.is_empty() {
+                VRFWorkerResponse {
+                    id: message_id,
+                    success: false,
+                    data: None,
+                    error: Some("Missing or invalid PRF key".to_string()),
                 }
             } else if let Ok(encrypted_vrf_keypair) = encrypted_vrf_keypair_result {
                 let mut manager = manager.borrow_mut();
@@ -205,14 +213,15 @@ pub fn handle_encrypt_vrf_keypair_with_prf(
                 .unwrap_or("")
                 .to_string();
 
-            let prf_key = match process_prf_input(&data["prfKey"]) {
+            let prf_key_base64 = data["prfKey"].as_str().unwrap_or("");
+            let prf_key = match base64_url_decode(prf_key_base64) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     return VRFWorkerResponse {
                         id: message_id,
                         success: false,
                         data: None,
-                        error: Some(format!("Invalid PRF key: {}", e)),
+                        error: Some(format!("Invalid PRF key base64url: {}", e)),
                     }
                 }
             };
@@ -314,14 +323,15 @@ pub fn handle_derive_vrf_keypair_from_prf(
 ) -> VRFWorkerResponse {
     match data {
         Some(data) => {
-            let prf_output = match process_prf_input(&data["prfOutput"]) {
+            let prf_output_base64 = data["prfOutput"].as_str().unwrap_or("");
+            let prf_output = match base64_url_decode(prf_output_base64) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     return VRFWorkerResponse {
                         id: message_id,
                         success: false,
                         data: None,
-                        error: Some(format!("Invalid PRF output: {}", e)),
+                        error: Some(format!("Invalid PRF output base64url: {}", e)),
                     }
                 }
             };

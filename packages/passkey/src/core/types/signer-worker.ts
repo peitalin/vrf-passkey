@@ -441,8 +441,26 @@ export interface WebAuthnRegistrationCredential {
 }
 
 /**
+ * Extract the first PRF output from WebAuthn credential
+ * For AES-GCM derivation.
+ *
+ * @param credential - WebAuthn credential with dual PRF extension results
+ * @returns Base64url-encoded AES PRF output
+ * @throws Error if AES PRF output is not available
+ */
+export function extractAesPrfOutput(credential: PublicKeyCredential): { aesPrfOutput: string } {
+  const extensions = credential.getClientExtensionResults();
+  const aesPrfOutput = extensions.prf?.results?.first as ArrayBuffer;
+  if (!aesPrfOutput) {
+    throw new Error('AES PRF output required but not available - ensure first PRF output is present');
+  }
+  return {
+    aesPrfOutput: base64UrlEncode(aesPrfOutput),
+  };
+}
+
+/**
  * Extract dual PRF outputs from WebAuthn credential
- * Based on docs/dual_prf_key_derivation.md implementation plan
  *
  * @param credential - WebAuthn credential with dual PRF extension results
  * @returns DualPrfOutputs with both AES and Ed25519 PRF outputs
@@ -450,46 +468,44 @@ export interface WebAuthnRegistrationCredential {
  */
 export function extractDualPrfOutputs(credential: PublicKeyCredential): DualPrfOutputs {
   const extensions = credential.getClientExtensionResults();
-  const prfResults = extensions.prf?.results;
+  const aesPrfOutput = extensions.prf?.results?.first;
+  const ed25519PrfOutput = extensions.prf?.results?.second;
 
-  if (!prfResults?.first || !prfResults?.second) {
+  if (!aesPrfOutput || !ed25519PrfOutput) {
     throw new Error('Dual PRF outputs required but not available - ensure both first and second PRF outputs are present');
   }
 
-  // Convert BufferSource to ArrayBuffer if needed
-  const firstArrayBuffer = prfResults.first instanceof ArrayBuffer
-    ? prfResults.first
-    : prfResults.first.buffer.slice(prfResults.first.byteOffset, prfResults.first.byteOffset + prfResults.first.byteLength);
-
-  const secondArrayBuffer = prfResults.second instanceof ArrayBuffer
-    ? prfResults.second
-    : prfResults.second.buffer.slice(prfResults.second.byteOffset, prfResults.second.byteOffset + prfResults.second.byteLength);
-
   return {
-    aesPrfOutput: base64UrlEncode(firstArrayBuffer),
-    ed25519PrfOutput: base64UrlEncode(secondArrayBuffer)
+    aesPrfOutput: base64UrlEncode(aesPrfOutput as ArrayBuffer),
+    ed25519PrfOutput: base64UrlEncode(ed25519PrfOutput as ArrayBuffer)
+  };
+}
+/**
+ * Extract dual PRF outputs from WebAuthn credential extension results
+ * ENCODING: Uses base64url for WASM compatibility
+ */
+function extractDualPrfFromCredential(credential: PublicKeyCredential): {
+  first?: string;
+  second?: string;
+} {
+  const extensionResults = credential.getClientExtensionResults();
+  const prfResults = extensionResults?.prf?.results;
+  return {
+    first: prfResults?.first ? base64UrlEncode(prfResults.first as ArrayBuffer) : undefined,
+    second: prfResults?.second ? base64UrlEncode(prfResults.second as ArrayBuffer) : undefined
   };
 }
 
+type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
+
 /**
  * Serialize PublicKeyCredential with PRF handling for both authentication and registration
- *
- * UNIFIED APPROACH:
- * - Automatically detects credential type (registration vs authentication)
  * - Handles dual PRF extraction consistently
  * - Uses base64url encoding for WASM compatibility
- *
- * SECURITY FEATURES:
- * - Just-in-time serialization - minimal exposure time
- * - Consistent base64url encoding for proper WASM decoding
- * - Secure against encoding/decoding failures
  */
-export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential>(
+export function serializeCredentialWithPRF<C extends SerializableCredential>(
   credential: PublicKeyCredential
 ): C {
-  // Extract dual PRF outputs immediately for secure transfer to worker
-  const prfOutputs = extractDualPrfFromCredential(credential);
-
   // Check if this is a registration credential by looking for attestationObject
   const response = credential.response;
   const isRegistration = 'attestationObject' in response;
@@ -502,7 +518,7 @@ export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCrede
     response: {},
     clientExtensionResults: {
       prf: {
-        results: prfOutputs
+        results: extractDualPrfFromCredential(credential)
       }
     }
   }
@@ -528,34 +544,8 @@ export function serializeCredentialWithPRF<C extends WebAuthnAuthenticationCrede
         userHandle: assertionResponse.userHandle ? base64UrlEncode(assertionResponse.userHandle as ArrayBuffer) : null,
       },
     } as C;
-    }
-  }
-
-/**
- * Extract dual PRF outputs from WebAuthn credential extension results
- *
- * SECURITY: Immediate extraction minimizes exposure time of PRF outputs
- * ENCODING: Uses base64url for WASM compatibility
- */
-function extractDualPrfFromCredential(credential: PublicKeyCredential): {
-  first?: string;
-  second?: string;
-} {
-  try {
-    const extensionResults = credential.getClientExtensionResults();
-    const prfResults = extensionResults?.prf?.results;
-
-  return {
-      first: prfResults?.first ? base64UrlEncode(prfResults.first as ArrayBuffer) : undefined,
-      second: prfResults?.second ? base64UrlEncode(prfResults.second as ArrayBuffer) : undefined
-    };
-  } catch (error) {
-    console.warn('[serialize]: Dual PRF extraction failed:', error);
-    throw new Error('[serialize]: Dual PRF extraction failed. Please try again.');
   }
 }
-
-type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
 
 /**
  * Removes PRF outputs from the credential and returns the credential without PRF along with just the AES PRF output

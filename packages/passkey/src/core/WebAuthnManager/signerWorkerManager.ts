@@ -492,23 +492,6 @@ export class SignerWorkerManager {
       // Extract PRF output from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
-      // DEBUG: Log PRF output details
-      console.log('>>>>>>>>>> WebAuthnManager: DEBUG - PRF output extraction details:', {
-        aesPrfOutputLength: dualPrfOutputs.aesPrfOutput.length,
-        aesPrfOutputPreview: dualPrfOutputs.aesPrfOutput,
-        ed25519PrfOutputLength: dualPrfOutputs.ed25519PrfOutput.length,
-        ed25519PrfOutputPreview: dualPrfOutputs.ed25519PrfOutput.substring(0, 20) + '...',
-      });
-
-      // DEBUG: Log encrypted key data details
-      console.log('WebAuthnManager: DEBUG - Encrypted key data details:', {
-        encryptedDataLength: encryptedKeyData.encryptedData.length,
-        encryptedDataPreview: encryptedKeyData.encryptedData.substring(0, 20) + '...',
-        ivLength: encryptedKeyData.iv.length,
-        ivPreview: encryptedKeyData.iv.substring(0, 20) + '...',
-        timestamp: encryptedKeyData.timestamp
-      });
-
       // Get access key and transaction block info concurrently
       const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
         nearClient.viewAccessKey(signerAccountId, publicKeyStr),

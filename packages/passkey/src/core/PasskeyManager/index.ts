@@ -41,8 +41,7 @@ export class PasskeyManager {
     // Use provided client or create default one
     this.nearClient = nearClient || new MinimalNearClient(configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(configs);
-    // Initialize VRF Worker in the background
-    this.initializeVrfWorkerManager();
+    // VRF worker initializes automatically in the constructor
   }
 
   /**
@@ -283,14 +282,7 @@ export class PasskeyManager {
    * Internal VRF Worker initialization that runs automatically
    * This abstracts VRF implementation details away from users
    */
-  private async initializeVrfWorkerManager(): Promise<void> {
-    try {
-      console.log('PasskeyManager: Initializing VRF Web Worker...');
-      await this.webAuthnManager.initializeVrfWorkerManager();
-    } catch (error: any) {
-      console.warn('️PasskeyManager: VRF Web Worker auto-initialization failed:', error.message);
-    }
-  }
+
 
   private getContext(): PasskeyManagerContext {
     return {
