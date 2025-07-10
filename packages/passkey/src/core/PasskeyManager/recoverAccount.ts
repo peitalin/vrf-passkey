@@ -1,4 +1,3 @@
-import type { NearClient } from '../NearClient';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { VRFChallenge } from '../types';
@@ -6,7 +5,6 @@ import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
 import { base58Decode } from '../../utils/encoders';
-import { base64UrlEncode } from '../../utils/encoders';
 
 /**
  * Use case:
@@ -202,28 +200,19 @@ export class AccountRecoveryFlow {
 }
 
 /**
- * Public API: Get available passkeys for account recovery UI
- * Returns a list of passkeys/accounts that can be recovered
+ * Get available passkeys for account recovery
  */
 async function getRecoverableAccounts(
   context: PasskeyManagerContext,
   accountId: string
 ): Promise<PasskeyOption[]> {
-  try {
-    const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
-
-    const availablePasskeys = await getAvailablePasskeysForDomain(context, vrfChallenge, accountId);
-    // Filter to only return passkeys with known account IDs for recovery
-    return availablePasskeys.filter(passkey => passkey.accountId !== null);
-  } catch (error: any) {
-    console.error('Error getting recoverable accounts:', error);
-    return [];
-  }
+  const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
+  const availablePasskeys = await getAvailablePasskeysForDomain(context, vrfChallenge, accountId);
+  return availablePasskeys.filter(passkey => passkey.accountId !== null);
 }
 
 /**
- * Get available passkeys for the current domain and their associated accounts
- * Uses efficient contract-based discovery with single authentication ceremony
+ * Discover passkeys for domain using contract-based lookup
  */
 async function getAvailablePasskeysForDomain(
   context: PasskeyManagerContext,
@@ -231,84 +220,62 @@ async function getAvailablePasskeysForDomain(
   accountId: string
 ): Promise<PasskeyOption[]> {
   const { webAuthnManager, nearClient, configs } = context;
-  console.log('Discovering recoverable accounts for:', accountId);
 
-  try {
-    // Step 1: Get credential IDs for this account from contract
-    console.log('Querying contract for credential IDs...');
-    const credentialIds = await nearClient.view({
-      account: configs.contractId,
-      method: 'get_credential_ids_by_account',
-      args: { account_id: accountId }
-    });
-
-    if (credentialIds.length === 0) {
-      console.log('No credential IDs found for account:', accountId);
-      return [{
-        credentialId: 'manual-input',
-        accountId: null,
-        publicKey: '',
-        displayName: 'No credentials found - manual account entry required',
-        credential: null,
-      }];
-    }
-
-    console.log(`Found ${credentialIds.length} credential IDs for ${accountId}:`, credentialIds);
-
-    // Step 2: Single WebAuthn authentication ceremony with all credential IDs
-    console.log('Starting WebAuthn authentication with available credentials...');
-    const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
-      nearAccountId: accountId,
-      challenge: vrfChallenge.outputAs32Bytes(),
-      credentialIds: credentialIds,
-    });
-
-    // Step 3: Determine which credential ID was used
-    const usedCredentialId = credential.id;
-    console.log(`✅ Authentication successful with credential: ${usedCredentialId}`);
-
-    // Return the successful credential option
-    return [{
-      credentialId: usedCredentialId,
-      accountId: accountId,
-      publicKey: '', // Will be derived during actual recovery
-      displayName: `${accountId} (Authenticated with this passkey)`,
-      credential: credential // Store the successful credential for reuse
-    }];
-
-  } catch (error: any) {
-    console.error('Error discovering passkey accounts:', error);
-
-    // If WebAuthn authentication was cancelled or failed, still provide manual option
-    if (error.message?.includes('cancelled') || error.message?.includes('NotAllowedError')) {
-      console.log('WebAuthn authentication cancelled by user');
-      return [{
-        credentialId: 'manual-input',
-        accountId: null,
-        publicKey: '',
-        displayName: 'Authentication cancelled - enter account ID manually',
-        credential: null,
-      }];
-    }
-
-    // For other errors, provide fallback
+  const credentialIds = await getCredentialIdsFromContract(nearClient, configs.contractId, accountId);
+  if (credentialIds.length === 0) {
     return [{
       credentialId: 'manual-input',
       accountId: null,
       publicKey: '',
-      displayName: 'Discovery failed - enter account ID manually',
+      displayName: 'No credentials found - manual account entry required',
       credential: null,
     }];
+  }
+
+  const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
+    nearAccountId: accountId,
+    challenge: vrfChallenge.outputAs32Bytes(),
+    credentialIds: credentialIds,
+  });
+
+  if (!credential) {
+    return [{
+      credentialId: 'manual-input',
+      accountId: null,
+      publicKey: '',
+      displayName: 'Authentication failed - enter account ID manually',
+      credential: null,
+    }];
+  }
+
+  return [{
+    credentialId: credential.id,
+    accountId: accountId,
+    publicKey: '',
+    displayName: `${accountId} (Authenticated with this passkey)`,
+    credential: credential
+  }];
+}
+
+/**
+ * Get credential IDs from contract
+ */
+async function getCredentialIdsFromContract(nearClient: any, contractId: string, accountId: string): Promise<string[]> {
+  try {
+    const credentialIds = await nearClient.view({
+      account: contractId,
+      method: 'get_credential_ids_by_account',
+      args: { account_id: accountId }
+    });
+    return credentialIds || [];
+  } catch (error: any) {
+    console.warn('Failed to fetch credential IDs from contract:', error.message);
+    return [];
   }
 }
 
 /**
- * Main entry point for account recovery
- *
- * Recommended Flow:
- * 1. Frontend calls getRecoverableAccounts() to display available passkeys/accounts
- * 2. User selects an account from the UI
- * 3. Frontend calls this function with the selected accountId and optional reusable credential
+ * Main account recovery function
  */
 export async function recoverAccount(
   context: PasskeyManagerContext,
@@ -316,7 +283,6 @@ export async function recoverAccount(
   options?: ActionOptions,
   reuseCredential?: PublicKeyCredential
 ): Promise<RecoveryResult> {
-
   const { onEvent, onError, hooks } = options || {};
   const { webAuthnManager, nearClient } = context;
 
@@ -331,36 +297,14 @@ export async function recoverAccount(
   });
 
   try {
-    // Validate account ID
     const validation = validateNearAccountId(accountId);
     if (!validation.valid) {
-      throw new Error(`Invalid NEAR account ID: ${validation.error}`);
+      return handleRecoveryError(accountId, `Invalid NEAR account ID: ${validation.error}`, onError, hooks);
     }
 
-    // Step 1: Use simple random challenge for initial WebAuthn authentication (recovery approach)
-    console.log('Recovery Step 1: Using random challenge for initial WebAuthn authentication');
-    const randomChallenge = crypto.getRandomValues(new Uint8Array(32));
+    const credential = await getOrCreateCredential(webAuthnManager, accountId, reuseCredential);
+    const recoveredKeypair = await deriveKeypairFromCredential(webAuthnManager, credential, accountId);
 
-    if (reuseCredential) {
-      console.log('Reusing credential from passkey discovery (no additional TouchID prompt)');
-    }
-    // Use random challenge for initial authentication to get PRF outputs
-    const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
-      nearAccountId: accountId,
-      challenge: randomChallenge,
-      credentialIds: [reuseCredential?.id || '']
-    });
-
-    // Note: Any registration credential from the same passkey will work
-    // The PRF-based derivation produces the same Ed25519 keypair from the same PRF outputs
-    const recoveredKeypair = await webAuthnManager.recoverKeypairFromPasskey(
-      randomChallenge,
-      credential,
-      accountId
-    );
-    console.log('keypair derived from current passkey with encrypted private key for storage');
-
-    // 2. Verify account ownership
     onEvent?.({
       step: 3,
       phase: 'contract-verification',
@@ -369,59 +313,36 @@ export async function recoverAccount(
       message: 'Verifying account ownership...'
     });
 
-    const hasAccess = await nearClient.viewAccessKey(accountId, recoveredKeypair.publicKey);
+    const { hasAccess, blockHeight, blockHashBytes } = await Promise.all([
+      nearClient.viewAccessKey(accountId, recoveredKeypair.publicKey),
+      nearClient.viewBlock({ finality: 'final' })
+    ]).then(([hasAccess, blockInfo]) => {
+      return {
+        hasAccess,
+        blockHeight: blockInfo.header.height,
+        blockHashBytes: Array.from(base58Decode(blockInfo.header.hash)),
+      };
+    });
+
     if (!hasAccess) {
-      throw new Error(`Account ${accountId} was not created with this passkey`);
+      return handleRecoveryError(accountId, `Account ${accountId} was not created with this passkey`, onError, hooks);
     }
-
-    console.log('Recovery Steps 2-4: Deriving deterministic VRF keypair with challenge and generating NEAR keypair with PRF');
-
-    // Step 2: Get real NEAR block data for VRF challenge generation
-    console.log('Fetching real NEAR block data for VRF challenge...');
-    const blockInfo = await nearClient.viewBlock({ finality: 'final' });
-    const blockHashBytes: number[] = Array.from(base58Decode(blockInfo.header.hash));
-
     const vrfInputParams = {
       userId: accountId,
       rpId: window.location.hostname,
-      blockHeight: blockInfo.header.height,
-      blockHashBytes: blockHashBytes,
+      blockHeight,
+      blockHashBytes,
       timestamp: Date.now()
     };
-
-    // Step 3: Derive deterministic VRF keypair AND generate VRF challenge in one call
-    const deterministicVrfResult = await webAuthnManager.deriveVrfKeypairFromPrf({
+    const { encryptedVrfResult, vrfChallenge } = await deriveVrfKeypair(
+      webAuthnManager,
       credential,
-      nearAccountId: accountId,
+      accountId,
       vrfInputParams
-    });
+    );
 
-    if (!deterministicVrfResult.success || !deterministicVrfResult.vrfPublicKey || !deterministicVrfResult.vrfChallenge) {
-      throw new Error('Failed to derive deterministic VRF keypair and generate challenge from PRF');
-    }
-    if (!deterministicVrfResult.encryptedVrfKeypair) {
-      throw new Error('Failed to derive encrypted VRF keypair from PRF');
-    }
-    console.log('Deterministic VRF keypair and challenge generated successfully');
-    // Use the encrypted VRF keypair returned from the VRF derivation
-    const encryptedVrfResult = {
-      vrfPublicKey: deterministicVrfResult.vrfPublicKey,
-      encryptedVrfKeypair: deterministicVrfResult.encryptedVrfKeypair
-    };
-    const vrfChallenge = deterministicVrfResult.vrfChallenge;
+    await generateNearKeypair(webAuthnManager, credential, accountId);
 
-    // Step 4: Generate NEAR keypair with PRF
-    const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
-      credential,
-      nearAccountId: accountId
-    });
-
-    if (!keyGenResult.success || !keyGenResult.publicKey) {
-      throw new Error('Failed to generate NEAR keypair with PRF');
-    }
-    console.log('NEAR keypair generated and encrypted successfully');
-
-    // 3. Perform recovery
     onEvent?.({
       step: 4,
       phase: 'transaction-signing',
@@ -453,31 +374,107 @@ export async function recoverAccount(
 
     hooks?.afterCall?.(true, recoveryResult);
     return recoveryResult;
-
   } catch (error: any) {
-    console.error('[recoverByAccountId] Error:', error);
-    onError?.(error);
-
-    onEvent?.({
-      step: 0,
-      phase: 'action-error',
-      status: 'error',
-      timestamp: Date.now(),
-      message: `Account recovery failed: ${error.message}`,
-      error: error.message
-    });
-
-    const errorResult: RecoveryResult = {
-      success: false,
-      accountId: accountId,
-      publicKey: '',
-      message: `Recovery failed: ${error.message}`,
-      error: error.message
-    };
-
-    hooks?.afterCall?.(false, error);
-    return errorResult;
+    return handleRecoveryError(accountId, error.message, onError, hooks);
   }
+}
+
+/**
+ * Get credential (reuse existing or create new)
+ */
+async function getOrCreateCredential(
+  webAuthnManager: any,
+  accountId: string,
+  reuseCredential?: PublicKeyCredential
+): Promise<PublicKeyCredential> {
+  if (reuseCredential) {
+    const prfResults = reuseCredential.getClientExtensionResults()?.prf?.results;
+    if (!prfResults?.first || !prfResults?.second) {
+      throw new Error('Reused credential missing PRF outputs - cannot proceed with recovery');
+    }
+    return reuseCredential;
+  }
+
+  const randomChallenge = crypto.getRandomValues(new Uint8Array(32));
+  return await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
+    nearAccountId: accountId,
+    challenge: randomChallenge,
+    credentialIds: []
+  });
+}
+
+/**
+ * Derive keypair from credential
+ */
+async function deriveKeypairFromCredential(webAuthnManager: any, credential: PublicKeyCredential, accountId: string) {
+  return await webAuthnManager.recoverKeypairFromPasskey(
+    crypto.getRandomValues(new Uint8Array(32)),
+    credential,
+    accountId
+  );
+}
+
+/**
+ * Derive VRF keypair and generate challenge
+ */
+async function deriveVrfKeypair(webAuthnManager: any, credential: PublicKeyCredential, accountId: string, vrfInputParams: any) {
+  const deterministicVrfResult = await webAuthnManager.deriveVrfKeypairFromPrf({
+    credential,
+    nearAccountId: accountId,
+    vrfInputParams
+  });
+
+  if (
+    !deterministicVrfResult.success ||
+    !deterministicVrfResult.vrfPublicKey ||
+    !deterministicVrfResult.vrfChallenge ||
+    !deterministicVrfResult.encryptedVrfKeypair
+  ) {
+    throw new Error('Failed to derive deterministic VRF keypair and generate challenge from PRF');
+  }
+
+  return {
+    encryptedVrfResult: {
+      vrfPublicKey: deterministicVrfResult.vrfPublicKey,
+      encryptedVrfKeypair: deterministicVrfResult.encryptedVrfKeypair
+    },
+    vrfChallenge: deterministicVrfResult.vrfChallenge
+  };
+}
+
+/**
+ * Generate and encrypt NEAR keypair
+ */
+async function generateNearKeypair(webAuthnManager: any, credential: PublicKeyCredential, accountId: string) {
+  const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
+    credential,
+    nearAccountId: accountId
+  });
+
+  if (!keyGenResult.success || !keyGenResult.publicKey) {
+    throw new Error('Failed to generate NEAR keypair with PRF');
+  }
+
+  return keyGenResult;
+}
+
+/**
+ * Handle recovery error
+ */
+function handleRecoveryError(accountId: string, errorMessage: string, onError: any, hooks: any): RecoveryResult {
+  console.error('[recoverAccount] Error:', errorMessage);
+  onError?.(new Error(errorMessage));
+
+  const errorResult: RecoveryResult = {
+    success: false,
+    accountId,
+    publicKey: '',
+    message: `Recovery failed: ${errorMessage}`,
+    error: errorMessage
+  };
+
+  hooks?.afterCall?.(false, new Error(errorMessage));
+  return errorResult;
 }
 
 /**
@@ -520,7 +517,15 @@ async function performAccountRecovery({
     await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
 
     // 4. Unlock VRF keypair in memory for immediate login
-    const vrfUnlockSuccess = await unlockVrfKeypair(webAuthnManager, accountId, encryptedVrfResult.encryptedVrfKeypair, credential);
+    const vrfUnlockResult = await webAuthnManager.unlockVRFKeypair({
+      nearAccountId: accountId,
+      encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+      credential,
+    });
+
+    if (!vrfUnlockResult.success) {
+      console.warn('VRF keypair unlock failed during recovery');
+    }
 
     // 5. Update last login timestamp and get final login state
     await webAuthnManager.updateLastLogin(accountId);
@@ -609,29 +614,9 @@ async function restoreAuthenticators(webAuthnManager: any, accountId: string, co
   }
 }
 
-async function unlockVrfKeypair(webAuthnManager: any, accountId: string, encryptedVrfKeypair: EncryptedVRFKeypair, credential: PublicKeyCredential): Promise<boolean> {
-  try {
-    const unlockResult = await webAuthnManager.unlockVRFKeypair({
-      nearAccountId: accountId,
-      encryptedVrfKeypair,
-      credential,
-    });
-
-    if (unlockResult.success) {
-      console.log('✅ VRF keypair unlocked successfully during recovery');
-      return true;
-    }
-    return false;
-  } catch (error: any) {
-    console.warn('VRF keypair unlock failed during recovery:', error.message);
-    return false;
-  }
-}
-
 async function getRecoveryLoginState(webAuthnManager: any, accountId: string) {
   const loginState = await webAuthnManager.checkVrfStatus();
   const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
-
   return {
     isLoggedIn: isVrfActive,
     vrfActive: isVrfActive,
