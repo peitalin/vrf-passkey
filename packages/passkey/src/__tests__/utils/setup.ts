@@ -5,13 +5,14 @@
  */
 
 import { Page } from '@playwright/test';
+import type { PasskeyManager } from '../../index';
 
 /**
  * Test utility interface available in browser context
  */
 export interface TestUtils {
-  PasskeyManager: any;
-  passkeyManager: any;
+  PasskeyManager: typeof PasskeyManager;
+  passkeyManager: PasskeyManager;
   configs: {
     nearNetwork: 'testnet';
     relayerAccount: string;
@@ -69,7 +70,7 @@ export async function setupBasicPasskeyTest(
 ): Promise<void> {
   const config = { ...DEFAULT_TEST_CONFIG, ...options };
 
-      // Navigate to the frontend first
+  // Navigate to the frontend first
   await page.goto(config.frontendUrl);
 
   // Inject import map immediately after page load, before any imports
@@ -89,39 +90,20 @@ export async function setupBasicPasskeyTest(
     } else {
       document.head.appendChild(importMap);
     }
-    console.log('✅ Import map injected');
+    console.log('Import map injected');
   });
   await page.waitForLoadState('networkidle');
 
   // Set up real PasskeyManager with simple failure injection
   await page.evaluate(async (setupOptions) => {
     try {
-      // Try multiple import paths to find a working one
-      let PasskeyManager;
-      try {
-        // Try the frontend's bundled version first
-        console.log('Trying frontend bundled import...');
-        // @ts-ignore - Runtime import path
-        const frontendModule = await import('/@fs/Users/pta/Dev/rust/reveries-passkey/packages/passkey/src/index.ts');
-        PasskeyManager = frontendModule.PasskeyManager;
-        console.log('✅ Using frontend bundled PasskeyManager');
-      } catch (error1) {
-        const error1Message = error1 instanceof Error ? error1.message : String(error1);
-        console.log('Frontend bundle failed, trying SDK direct import...', error1Message);
-        try {
-          // Fallback to SDK import (will likely fail due to bare imports)
-          // @ts-ignore - Runtime import path
-          const sdkModule = await import('/sdk/esm/index.js');
-          PasskeyManager = sdkModule.PasskeyManager;
-          console.log('✅ Using SDK PasskeyManager');
-        } catch (error2) {
-          const error2Message = error2 instanceof Error ? error2.message : String(error2);
-          console.log('SDK import failed:', error2Message);
-          throw new Error(`Failed to import PasskeyManager: ${error2Message}`);
-        }
-      }
+      // Try relative import from the test location
+      console.log('Trying relative import from test location...');
+      // @ts-ignore - Runtime import path
+      const relativeModule = await import('../../index.ts');
+      const PasskeyManager = relativeModule.PasskeyManager;
 
-            // Create configuration
+      // Create configuration
       const configs = {
         nearNetwork: setupOptions.nearNetwork as 'testnet',
         relayerAccount: setupOptions.relayerAccount,
@@ -222,12 +204,12 @@ export async function setupBasicPasskeyTest(
         }
       };
 
-      console.log('✅ PasskeyManager setup completed with failure mocking');
+      console.log('PasskeyManager setup completed with failure mocking');
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('❌ PasskeyManager setup failed:', errorMessage);
-      console.error('❌ Full error object:', error);
+      console.error('PasskeyManager setup failed:', errorMessage);
+      console.error('Full error object:', error);
 
       // Fallback to basic utilities
       (window as any).testUtils = {
@@ -240,19 +222,19 @@ export async function setupBasicPasskeyTest(
         },
         failureMocks: {
           webAuthnFailure: () => {
-            console.log('⚠️ Dummy webAuthnFailure mock (PasskeyManager setup failed)');
+            console.log('️Dummy webAuthnFailure mock (PasskeyManager setup failed)');
           },
           faucetFailure: () => {
-            console.log('⚠️ Dummy faucetFailure mock (PasskeyManager setup failed)');
+            console.log('Dummy faucetFailure mock (PasskeyManager setup failed)');
           },
           rpcFailure: () => {
-            console.log('⚠️ Dummy rpcFailure mock (PasskeyManager setup failed)');
+            console.log('Dummy rpcFailure mock (PasskeyManager setup failed)');
           },
           indexedDBFailure: () => {
-            console.log('⚠️ Dummy indexedDBFailure mock (PasskeyManager setup failed)');
+            console.log('Dummy indexedDBFailure mock (PasskeyManager setup failed)');
           },
           restore: () => {
-            console.log('⚠️ Dummy restore mock (PasskeyManager setup failed)');
+            console.log('Dummy restore mock (PasskeyManager setup failed)');
           }
         }
       };
