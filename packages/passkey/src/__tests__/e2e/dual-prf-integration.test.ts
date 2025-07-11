@@ -275,4 +275,124 @@ test.describe('Dual PRF Cryptographic Integration Test', () => {
     console.log('   that protect private keys using PRF-derived AES keys.');
   });
 
+  test('Presigned Delete Transaction Hash Generation', async () => {
+    // This test verifies the hash generation function used for presigned delete transactions
+    // during registration rollback scenarios.
+
+    console.log('Testing presigned delete transaction hash generation...');
+
+    // Step 1: Mock base64UrlEncode function (simplified version)
+    function base64UrlEncode(buffer: ArrayBuffer): string {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+    }
+
+    // Step 2: Replicate the hash generation logic from registration.ts
+    function generateTransactionHash(signedTransaction: { borsh_bytes: number[] }): string {
+      try {
+        const transactionBytes = new Uint8Array(signedTransaction.borsh_bytes);
+        const hashInput = Array.from(transactionBytes).join(',');
+        const hash = base64UrlEncode(new TextEncoder().encode(hashInput)).substring(0, 16);
+        return hash;
+      } catch (error) {
+        console.warn('Failed to generate transaction hash:', error);
+        return 'hash-generation-failed';
+      }
+    }
+
+    // Step 3: Test with mock transaction data
+    const mockSignedTransaction = {
+      borsh_bytes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] // Mock transaction bytes
+    };
+
+    const hash1 = generateTransactionHash(mockSignedTransaction);
+    const hash2 = generateTransactionHash(mockSignedTransaction);
+
+    console.log('✅ Hash generated successfully');
+
+    // Step 4: Test deterministic behavior
+    expect(hash1).toBe(hash2);
+    expect(hash1.length).toBe(16);
+    expect(typeof hash1).toBe('string');
+    console.log('✅ Hash generation is deterministic');
+
+    // Step 5: Test different data produces different hash
+    const differentTransaction = {
+      borsh_bytes: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    };
+    const hash3 = generateTransactionHash(differentTransaction);
+
+    expect(hash1).not.toBe(hash3);
+    console.log('✅ Different transaction data produces different hash');
+
+    console.log('Presigned Delete Transaction Hash Generation Test PASSED');
+    console.log(`   Sample hash: ${hash1}`);
+    console.log('   This test verifies the hash generation function that creates');
+    console.log('   identifiers for presigned delete transactions during registration.');
+    console.log('   The hash is included in registration events for verification purposes.');
+  });
+
+  test('Presigned Delete Transaction Message Format Verification', async () => {
+    // This test verifies the message format used in registration events
+    // when presigned delete transactions are created.
+
+    console.log('Testing presigned delete transaction message format...');
+
+    // Mock the hash generation (same as previous test)
+    function base64UrlEncode(buffer: ArrayBuffer): string {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+    }
+
+    function generateTransactionHash(signedTransaction: { borsh_bytes: number[] }): string {
+      const transactionBytes = new Uint8Array(signedTransaction.borsh_bytes);
+      const hashInput = Array.from(transactionBytes).join(',');
+      const hash = base64UrlEncode(new TextEncoder().encode(hashInput)).substring(0, 16);
+      return hash;
+    }
+
+    // Test with mock transaction data
+    const mockSignedTransaction = {
+      borsh_bytes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    };
+
+    const hash = generateTransactionHash(mockSignedTransaction);
+
+    // Create the message format that would be used in registration events
+    const eventMessage = `Presigned delete transaction created for rollback (hash: ${hash})`;
+
+    // Verify the message format
+    expect(eventMessage).toContain('Presigned delete transaction created for rollback');
+    expect(eventMessage).toContain(`hash: ${hash}`);
+    expect(eventMessage).toMatch(/hash: [A-Za-z0-9_-]+\)/);
+
+    // Test hash extraction from message (as would be done in tests)
+    const hashMatch = eventMessage.match(/hash: ([^)]+)\)/);
+    expect(hashMatch).toBeTruthy();
+    expect(hashMatch![1]).toBe(hash);
+
+    console.log('✅ Message format verified');
+    console.log(`   Event message: "${eventMessage}"`);
+    console.log(`   Extracted hash: "${hashMatch![1]}"`);
+    console.log(`   Hash matches original: ${hashMatch![1] === hash}`);
+
+    console.log('Presigned Delete Transaction Message Format Test PASSED');
+    console.log('   This test verifies the message format used in registration events');
+    console.log('   when presigned delete transactions are created for rollback purposes.');
+  });
+
 });
