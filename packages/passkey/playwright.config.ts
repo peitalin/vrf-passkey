@@ -1,55 +1,37 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test';
 
+/**
+ * @see https://playwright.dev/docs/test-configuration
+ */
 export default defineConfig({
   testDir: './src/__tests__/e2e',
-  outputDir: '/tmp/playwright-results',
-  timeout: 30000,
-  expect: { timeout: 5000 },
-  fullyParallel: true,
-  forbidOnly: true,
-  retries: 1,
+  fullyParallel: false,
+  retries: 0,
   workers: 2,
-  // reporter: 'html', // generate reports
-  reporter: 'list',
-
+  reporter: 'html',
   use: {
+    /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: 'https://example.localhost',
-    // trace: 'on-first-retry',
-    // video: 'retain-on-failure',
-    // screenshot: 'only-on-failure',
-    trace: 'off',
-    video: 'off',
-    screenshot: 'off',
+    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    trace: 'on-first-retry',
   },
 
+  /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium-web3-authn',
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: [
-            '--enable-web-auth-testing-api',
-            '--enable-experimental-web-platform-features',
-            '--ignore-certificate-errors'
-          ]
-        },
-        permissions: ['camera', 'microphone'],
-        ignoreHTTPSErrors: true,
-      },
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'webkit-touchid',
-      use: {
-        ...devices['Desktop Safari'],
-        launchOptions: {
-          args: [
-            '--enable-experimental-web-platform-features',
-            '--ignore-certificate-errors'
-          ]
-        },
-        ignoreHTTPSErrors: true,
-      },
-    }
+    // Note: WebAuthn Virtual Authenticator requires CDP which is only available in Chromium
+    // Safari/WebKit tests would need different WebAuthn testing approach
   ],
-})
+
+  /* Run your local dev server before starting the tests */
+  webServer: {
+    command: 'cd ../../frontend && npm run dev',
+    url: 'https://example.localhost',
+    reuseExistingServer: true,
+    timeout: 120000, // Increased timeout to allow for build
+    ignoreHTTPSErrors: true,
+  },
+});

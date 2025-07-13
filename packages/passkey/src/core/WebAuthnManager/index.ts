@@ -100,7 +100,7 @@ export class WebAuthnManager {
     vrfPublicKey: string;
     vrfChallenge: VRFChallenge;
   }> {
-    const result = await this.vrfWorkerManager.generateVrfKeypair(vrfInputParams, true);
+    const result = await this.vrfWorkerManager.generateVrfKeypair(vrfInputParams, saveInMemory);
     if (!result.vrfChallenge) {
       throw new Error('VRF challenge generation failed');
     }

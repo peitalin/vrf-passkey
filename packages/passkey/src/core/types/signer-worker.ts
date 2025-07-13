@@ -544,8 +544,8 @@ export function serializeCredentialWithPRF<C extends SerializableCredential>(
         userHandle: assertionResponse.userHandle ? base64UrlEncode(assertionResponse.userHandle as ArrayBuffer) : null,
       },
     } as C;
+    }
   }
-}
 
 /**
  * Removes PRF outputs from the credential and returns the credential without PRF along with just the AES PRF output

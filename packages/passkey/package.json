@@ -34,8 +34,8 @@
     "build:ts": "tsc -p tsconfig.build.json",
     "build:bundle": "rollup -c rollup.config.js",
     "dev": "rollup -c rollup.config.js -w",
-    "test": "playwright test",
-    "test:show": "playwright test && pnpm exec playwright show-report",
+    "test": "npm run build:check || npm run build && playwright test",
+    "build:check": "[ -d dist ] && [ -f dist/web3authn-signer.worker.js ] && [ -f dist/web3authn-vrf.worker.js ] && echo 'SDK build verified' || (echo 'SDK not built - run npm run build first' && exit 1)",
     "lint": "eslint . --ext .ts,.tsx",
     "copy-wasm-assets": "./scripts/copy-wasm-assets.sh",
     "type-check": "tsc --noEmit",
@@ -91,7 +91,7 @@
     "@rollup/plugin-node-resolve": "^15.2.0",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.1.0",
-    "@types/node": "^20.19.0",
+    "@types/node": "^20.19.7",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
@@ -109,6 +109,7 @@
     "rollup": "^4.9.0",
     "rollup-plugin-copy": "^3.5.0",
     "rollup-plugin-postcss": "^4.0.2",
+    "serve": "^14.2.4",
     "typescript": "^5.8.3",
     "zod": "^3.22.4"
   }

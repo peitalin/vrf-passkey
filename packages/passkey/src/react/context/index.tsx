@@ -228,31 +228,31 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   // Function to manually refresh login state
   const refreshLoginState = useCallback(async (nearAccountId?: string) => {
-    try {
+      try {
       const loginState = await passkeyManager.getLoginState(nearAccountId);
 
-      if (loginState.nearAccountId) {
-        // User is only logged in if VRF worker has private key in memory
-        const isVRFLoggedIn = loginState.vrfActive;
+        if (loginState.nearAccountId) {
+          // User is only logged in if VRF worker has private key in memory
+          const isVRFLoggedIn = loginState.vrfActive;
 
-        setLoginState(prevState => ({
-          ...prevState,
-          nearAccountId: loginState.nearAccountId,
-          nearPublicKey: loginState.publicKey,
-          isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
-        }));
+          setLoginState(prevState => ({
+            ...prevState,
+            nearAccountId: loginState.nearAccountId,
+            nearPublicKey: loginState.publicKey,
+            isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
+          }));
 
         console.log('Refreshed login state:', {
-          nearAccountId: loginState.nearAccountId,
-          publicKey: loginState.publicKey,
-          isLoggedIn: isVRFLoggedIn,
-          vrfActive: loginState.vrfActive,
-          hasUserData: !!loginState.userData
-        });
-      }
-    } catch (error) {
+            nearAccountId: loginState.nearAccountId,
+            publicKey: loginState.publicKey,
+            isLoggedIn: isVRFLoggedIn,
+            vrfActive: loginState.vrfActive,
+            hasUserData: !!loginState.userData
+          });
+        }
+      } catch (error) {
       console.error('Error refreshing login state:', error);
-    }
+      }
   }, [passkeyManager]);
 
   // Load user data on mount
