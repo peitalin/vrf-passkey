@@ -77,6 +77,10 @@ export interface TestUtils {
 }
 
 // =============================================================================
+// WEBAUTHN ATTESTATION OBJECT UTILITIES
+// =============================================================================
+
+// =============================================================================
 // SETUP HELPER FUNCTIONS
 // =============================================================================
 // These functions implement the 5-step setup process in a modular way
@@ -276,7 +280,85 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
     const originalCredentialsCreate = navigator.credentials?.create;
     const originalCredentialsGet = navigator.credentials?.get;
 
-    // Create proper mock PRF outputs that match WASM worker expectations
+    /**
+     * Creates a properly formatted CBOR-encoded WebAuthn attestation object
+     * that matches the contract's expectations for successful verification.
+     *
+     * Note: WebAuthn attestation object utilities are now defined inline within
+     * the setupWebAuthnMocks function to ensure they're available in browser context
+     */
+    const createProperAttestationObject = (rpIdHash: Uint8Array): Uint8Array => {
+      // Create valid authenticator data following contract format
+      const authData = new Uint8Array(37 + 16 + 2 + 17 + 77); // Fixed size for this mock
+      let offset = 0;
+
+      // RP ID hash (32 bytes)
+      authData.set(rpIdHash, offset);
+      offset += 32;
+
+      // Flags (1 byte): UP (0x01) + UV (0x04) + AT (0x40) = 0x45
+      authData[offset] = 0x45;
+      offset += 1;
+
+      // Counter (4 bytes)
+      authData[offset] = 0x00;
+      authData[offset + 1] = 0x00;
+      authData[offset + 2] = 0x00;
+      authData[offset + 3] = 0x01;
+      offset += 4;
+
+      // AAGUID (16 bytes) - all zeros for mock
+      for (let i = 0; i < 16; i++) {
+        authData[offset + i] = 0x00;
+      }
+      offset += 16;
+
+      // Credential ID length (2 bytes)
+      const credentialId = new TextEncoder().encode('test_mock_credential');
+      authData[offset] = 0x00;
+      authData[offset + 1] = credentialId.length;
+      offset += 2;
+
+      // Credential ID
+      authData.set(credentialId, offset);
+      offset += credentialId.length;
+
+      // Mock COSE Ed25519 public key (77 bytes total)
+      const mockEd25519Pubkey = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) {
+        mockEd25519Pubkey[i] = 0x42;
+      }
+
+      // Simple CBOR encoding for the COSE key (simplified for mock)
+      const coseKeyBytes = new Uint8Array([
+        0xa4, // map with 4 items
+        0x01, 0x01, // kty: OKP
+        0x03, 0x27, // alg: EdDSA (-8)
+        0x20, 0x06, // crv: Ed25519
+        0x21, 0x58, 0x20, // x: bytes(32)
+        ...mockEd25519Pubkey
+      ]);
+
+      authData.set(coseKeyBytes, offset);
+
+      // Simple CBOR encoding for attestation object
+      const attestationObjectBytes = new Uint8Array([
+        0xa3, // map with 3 items
+        0x63, 0x66, 0x6d, 0x74, // "fmt"
+        0x64, 0x6e, 0x6f, 0x6e, 0x65, // "none"
+        0x68, 0x61, 0x75, 0x74, 0x68, 0x44, 0x61, 0x74, 0x61, // "authData"
+        0x59, (authData.length >> 8) & 0xff, authData.length & 0xff, // bytes(authData.length)
+        ...authData,
+        0x67, 0x61, 0x74, 0x74, 0x53, 0x74, 0x6d, 0x74, // "attStmt"
+        0xa0 // empty map
+      ]);
+
+      return attestationObjectBytes;
+    };
+
+    /**
+     * Creates mock PRF outputs for WebAuthn PRF extension testing
+     */
     const createMockPRFOutput = (seed: string, length: number = 32): ArrayBuffer => {
       const encoder = new TextEncoder();
       const seedBytes = encoder.encode(seed + Date.now().toString());
@@ -286,9 +368,6 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
       }
       return output.buffer;
     };
-
-    const mockAESPRFOutput = createMockPRFOutput('aes-gcm-test-seed', 32);
-    const mockEd25519PRFOutput = createMockPRFOutput('ed25519-test-seed', 32);
 
     // Override WebAuthn API to include PRF extension support
     if (navigator.credentials) {
@@ -305,6 +384,9 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const rpIdHashBuffer = await crypto.subtle.digest('SHA-256', rpIdBytes);
         const rpIdHash = new Uint8Array(rpIdHashBuffer);
 
+        // Create proper CBOR-encoded attestation object that matches contract expectations
+        const attestationObjectBytes = createProperAttestationObject(rpIdHash);
+
         return {
           id: 'test-credential-' + Date.now(),
           rawId: new Uint8Array(16).fill(0).map((_, i) => i + 1),
@@ -317,7 +399,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               origin: window.location.origin,
               crossOrigin: false
             })),
-            attestationObject: new Uint8Array([0xa3, 0x63, 0x66, 0x6d, 0x74, 0x64, 0x6e, 0x6f, 0x6e, 0x65]),
+            attestationObject: attestationObjectBytes,
             getPublicKey: () => new Uint8Array(65).fill(0).map((_, i) => i + 1),
             getPublicKeyAlgorithm: () => -7,
             getTransports: () => ['internal', 'hybrid']
@@ -328,8 +410,8 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  first: mockAESPRFOutput,
-                  second: mockEd25519PRFOutput
+                  first: createMockPRFOutput('aes-gcm-test-seed', 32),
+                  second: createMockPRFOutput('ed25519-test-seed', 32)
                 }
               };
             }
@@ -369,8 +451,8 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  first: mockAESPRFOutput,
-                  second: mockEd25519PRFOutput
+                  first: createMockPRFOutput('aes-gcm-test-seed', 32),
+                  second: createMockPRFOutput('ed25519-test-seed', 32)
                 }
               };
             }

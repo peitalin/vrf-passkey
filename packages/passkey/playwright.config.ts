@@ -7,7 +7,7 @@ export default defineConfig({
   testDir: './src/__tests__/e2e',
   fullyParallel: false,
   retries: 0,
-  workers: 2,
+  workers: 1, // Reduced to 1 to prevent parallel faucet requests and rate limiting
   reporter: 'html',
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
