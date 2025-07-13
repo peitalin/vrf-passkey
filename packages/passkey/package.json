@@ -34,7 +34,7 @@
     "build:ts": "tsc -p tsconfig.build.json",
     "build:bundle": "rollup -c rollup.config.js",
     "dev": "rollup -c rollup.config.js -w",
-    "test": "npm run build:check || npm run build && playwright test",
+    "test": "npm run build:check || (npm run build && mkdir -p ../../frontend/public/sdk && cp -r dist/* ../../frontend/public/sdk/ && mkdir -p ../../frontend/public/workers && cp dist/web3authn-*.worker.js ../../frontend/public/workers/ && cp dist/wasm_*worker*.* ../../frontend/public/workers/ && echo 'SDK built and copied to frontend for testing') && playwright test",
     "build:check": "[ -d dist ] && [ -f dist/web3authn-signer.worker.js ] && [ -f dist/web3authn-vrf.worker.js ] && echo 'SDK build verified' || (echo 'SDK not built - run npm run build first' && exit 1)",
     "lint": "eslint . --ext .ts,.tsx",
     "copy-wasm-assets": "./scripts/copy-wasm-assets.sh",
