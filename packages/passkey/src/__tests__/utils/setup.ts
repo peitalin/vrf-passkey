@@ -358,10 +358,14 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
     /**
      * Creates mock PRF outputs for WebAuthn PRF extension testing
+     * IMPORTANT: PRF outputs must be deterministic for the same credential and account
+     * to ensure encryption/decryption consistency across operations
      */
-    const createMockPRFOutput = (seed: string, length: number = 32): ArrayBuffer => {
+    const createMockPRFOutput = (seed: string, accountHint: string = '', length: number = 32): ArrayBuffer => {
       const encoder = new TextEncoder();
-      const seedBytes = encoder.encode(seed + Date.now().toString());
+      // Use deterministic seed based on credential and account, NOT timestamp
+      const deterministic_seed = `${seed}-${accountHint}-deterministic-v1`;
+      const seedBytes = encoder.encode(deterministic_seed);
       const output = new Uint8Array(length);
       for (let i = 0; i < length; i++) {
         output[i] = (seedBytes[i % seedBytes.length] + i * 7) % 256;
@@ -384,12 +388,16 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const rpIdHashBuffer = await crypto.subtle.digest('SHA-256', rpIdBytes);
         const rpIdHash = new Uint8Array(rpIdHashBuffer);
 
+        // Extract account ID from user info for deterministic PRF
+        const accountId = options.publicKey.user?.name || 'default-account';
+        const credentialId = `test-credential-${accountId}-${Date.now()}`;
+
         // Create proper CBOR-encoded attestation object that matches contract expectations
         const attestationObjectBytes = createProperAttestationObject(rpIdHash);
 
         return {
-          id: 'test-credential-' + Date.now(),
-          rawId: new Uint8Array(16).fill(0).map((_, i) => i + 1),
+          id: credentialId,
+          rawId: new TextEncoder().encode(credentialId),
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
@@ -410,8 +418,8 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  first: createMockPRFOutput('aes-gcm-test-seed', 32),
-                  second: createMockPRFOutput('ed25519-test-seed', 32)
+                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
+                  second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
                 }
               };
             }
@@ -429,9 +437,17 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         const prfRequested = options.publicKey.extensions?.prf;
 
+        // Extract account ID from allowCredentials or use default
+        const firstCredential = options.publicKey.allowCredentials?.[0];
+        const accountId = firstCredential ?
+          new TextDecoder().decode(firstCredential.id).match(/test-credential-([^-]+)/)?.[1] || 'default-account' :
+          'default-account';
+
+        const credentialId = `test-credential-${accountId}-auth`;
+
         return {
-          id: 'test-credential-' + Date.now(),
-          rawId: new Uint8Array(16).fill(0).map((_, i) => i + 1),
+          id: credentialId,
+          rawId: new TextEncoder().encode(credentialId),
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
@@ -451,8 +467,8 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  first: createMockPRFOutput('aes-gcm-test-seed', 32),
-                  second: createMockPRFOutput('ed25519-test-seed', 32)
+                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
+                  second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
                 }
               };
             }
