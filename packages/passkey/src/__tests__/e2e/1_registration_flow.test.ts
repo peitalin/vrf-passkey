@@ -239,16 +239,20 @@ test.describe('PasskeyManager Registration Flow', () => {
     });
 
     console.log('=== TEST RESULT ===');
-    console.log('Success:', result.success);
-    if (!result.success) {
-      console.log('Error:', result.error);
-      console.log('Stack:', result.stack);
-    } else {
+    if (result.success) {
+      console.log('Success:', result.success);
       console.log('Registration completed:', result.registrationCompleted);
       console.log('Account exists:', result.accountExists);
       console.log('Flow progression:', result.flowProgression);
       console.log('Total events:', result.flowProgression?.totalEvents || 0);
     }
+
+    // Output console messages for debugging
+    console.log('=== BROWSER CONSOLE MESSAGES ===');
+    consoleMessages.slice(-20).forEach((msg, index) => {
+      console.log(`${index + 1}: ${msg}`);
+    });
+    console.log('=== END CONSOLE MESSAGES ===');
 
     // Assertions for complete registration flow testing
     expect(result.success).toBe(true);
@@ -256,7 +260,7 @@ test.describe('PasskeyManager Registration Flow', () => {
 
     // Verify basic setup worked
     expect(result.testAccountId).toMatch(/^e2etest\d+\.testnet$/);
-    // expect(result.configs).toBeDefined(); // Skip this check for now
+    expect(result.configs).toBeDefined(); // Skip this check for now
 
     // Verify registration flow was attempted
     expect(result.registrationResult).toBeDefined();
@@ -267,17 +271,17 @@ test.describe('PasskeyManager Registration Flow', () => {
 
         // Check if registration completed successfully
     if (result.registrationResult?.success) {
-      console.log('✅ Registration completed successfully with Virtual Authenticator');
+      console.log('Registration completed successfully with Virtual Authenticator');
       expect(result.registrationCompleted).toBe(true);
       expect(result.flowProgression?.reachedCompletion).toBe(true);
       expect(result.flowProgression?.successfulSteps).toBeGreaterThan(0);
 
       // If registration succeeded, account should exist
       if (result.accountExists) {
-        console.log('✅ NEAR account was created successfully');
+        console.log('NEAR account was created successfully');
 
         // Send remaining balance to web3-authn.testnet contract
-        console.log('💰 Sending remaining NEAR balance to web3-authn.testnet contract...');
+        console.log('Sending remaining NEAR balance to web3-authn.testnet contract...');
         const transferResult = await page.evaluate(async (accountId) => {
           try {
             const { passkeyManager } = (window as any).testUtils;
@@ -324,10 +328,10 @@ test.describe('PasskeyManager Registration Flow', () => {
           // Handle expected contract verification failure with mock authenticator
           if (transferResult.error?.includes('Contract verification failed') ||
               transferResult.error?.includes('No stored authenticator found')) {
-            console.log(`ℹ️ Balance transfer attempted but failed at contract verification (expected with mock authenticator)`);
+            console.log(`️Balance transfer attempted but failed at contract verification (expected with mock authenticator)`);
             console.log(`   This is normal in test environment - the balance would be transferred in production`);
           } else {
-            console.log(`ℹ️ Balance transfer skipped: ${transferResult.reason || transferResult.error}`);
+            console.log(`Balance transfer skipped: ${transferResult.reason || transferResult.error}`);
           }
         }
       }
@@ -344,11 +348,11 @@ test.describe('PasskeyManager Registration Flow', () => {
       if ((result as any).registrationError) {
         const errorMsg = ((result as any).registrationError as string).toLowerCase();
         if (errorMsg.includes('rate limit') || errorMsg.includes('faucet')) {
-          console.log('ℹ️ Registration failed due to faucet rate limiting (expected in CI)');
+          console.log('️Registration failed due to faucet rate limiting (expected in CI)');
         } else if (errorMsg.includes('network') || errorMsg.includes('rpc')) {
-          console.log('ℹ️ Registration failed due to network issues (expected in CI)');
+          console.log('Registration failed due to network issues (expected in CI)');
         } else {
-          console.log('⚠️ Registration failed with unexpected error:', (result as any).registrationError);
+          console.log('️Registration failed with unexpected error:', (result as any).registrationError);
         }
       }
     }
@@ -360,7 +364,7 @@ test.describe('PasskeyManager Registration Flow', () => {
       expect(result.configs.contractId).toBe('web3-authn.testnet');
     }
 
-    console.log(`✅ Registration flow test completed for ${result.testAccountId}`);
+    console.log(`Registration flow test completed for ${result.testAccountId}`);
     console.log(`   - WebAuthn reached: ${result.flowProgression?.reachedWebAuthn}`);
     console.log(`   - Events generated: ${result.flowProgression?.totalEvents}`);
     console.log(`   - Successful steps: ${result.flowProgression?.successfulSteps}`);

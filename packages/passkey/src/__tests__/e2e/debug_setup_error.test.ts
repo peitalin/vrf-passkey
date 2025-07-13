@@ -1,0 +1,112 @@
+/**
+ * Debug test to capture PasskeyManager setup errors
+ */
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Debug Setup Errors', () => {
+
+  test('Debug PasskeyManager setup error', async ({ page }) => {
+    // Navigate to the frontend
+    await page.goto('https://example.localhost');
+
+    const result = await page.evaluate(async () => {
+      try {
+        console.log('=== DEBUG PASSKEY MANAGER SETUP ERROR ===');
+
+        // Step 1: Inject import map manually (same as setup)
+        console.log('Step 1: Injecting import map...');
+        const importMap = document.createElement('script');
+        importMap.type = 'importmap';
+        importMap.textContent = JSON.stringify({
+          imports: {
+            'bs58': 'https://esm.sh/bs58@6.0.0',
+            'idb': 'https://esm.sh/idb@8.0.0',
+            'js-sha256': 'https://esm.sh/js-sha256@0.11.0',
+            'buffer': 'https://esm.sh/buffer@6.0.3',
+            '@near-js/transactions': 'https://esm.sh/@near-js/transactions@1.3.0',
+            '@near-js/utils': 'https://esm.sh/@near-js/utils@0.3.0',
+            '@near-js/crypto': 'https://esm.sh/@near-js/crypto@1.4.0',
+            '@near-js/accounts': 'https://esm.sh/@near-js/accounts@1.3.0',
+            '@near-js/providers': 'https://esm.sh/@near-js/providers@1.0.0'
+          }
+        });
+        document.head.appendChild(importMap);
+        console.log('Import map injected');
+
+        // Add a delay to ensure import map is processed
+        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log('Waited for import map to be processed');
+
+        // Step 2: Try to create PasskeyManager directly and catch the error
+        console.log('Step 2: Attempting PasskeyManager creation...');
+        try {
+          // @ts-ignore
+          const { PasskeyManager } = await import('/sdk/esm/index.js');
+          console.log('PasskeyManager class imported successfully');
+
+          const configs = {
+            nearRpcUrl: 'https://rpc.testnet.near.org',
+            contractId: 'web3-authn.testnet',
+            relayerAccount: 'web3-authn.testnet'
+          };
+          console.log('Configs prepared:', configs);
+
+          console.log('Creating PasskeyManager instance...');
+          const passkeyManager = new PasskeyManager(configs);
+          console.log('PasskeyManager created successfully!');
+          console.log('PasskeyManager type:', typeof passkeyManager);
+          console.log('PasskeyManager methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(passkeyManager)));
+          console.log('Has getLoginState:', typeof passkeyManager.getLoginState === 'function');
+
+          return {
+            success: true,
+            error: null,
+            passkeyManagerCreated: true,
+            hasGetLoginState: typeof passkeyManager.getLoginState === 'function'
+          };
+
+        } catch (passkeyManagerError: any) {
+          console.error('PasskeyManager creation failed with error:', passkeyManagerError);
+          console.error('Error message:', passkeyManagerError.message);
+          console.error('Error stack:', passkeyManagerError.stack);
+          console.error('Error name:', passkeyManagerError.name);
+
+          return {
+            success: false,
+            error: passkeyManagerError.message,
+            errorName: passkeyManagerError.name,
+            errorStack: passkeyManagerError.stack,
+            passkeyManagerCreated: false
+          };
+        }
+
+      } catch (outerError: any) {
+        console.error('Outer error:', outerError);
+        return {
+          success: false,
+          error: outerError.message,
+          errorStack: outerError.stack,
+          outerError: true
+        };
+      }
+    });
+
+    console.log('PasskeyManager setup debug result:', result);
+
+    if (!result.success) {
+      console.log('PasskeyManager setup failed');
+      console.log('Error:', result.error);
+      console.log('Error name:', result.errorName);
+      if (result.errorStack) {
+        console.log('Error stack:', result.errorStack);
+      }
+    } else {
+      console.log('PasskeyManager setup successful!');
+      console.log('PasskeyManager created:', result.passkeyManagerCreated);
+      console.log('Has getLoginState:', result.hasGetLoginState);
+    }
+
+    expect(result).toBeDefined();
+  });
+});
