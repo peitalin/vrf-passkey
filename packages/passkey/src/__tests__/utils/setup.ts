@@ -24,6 +24,32 @@
  * 3. STABILIZATION WAIT: Allow browser environment to settle
  * 4. DYNAMIC IMPORTS: Load PasskeyManager only after environment is ready
  * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
+ *
+ * CRITICAL: Credential ID Format Consistency Fix
+ * ==============================================
+ *
+ * Fixed Issue: Contract verification was failing during actions flow with error:
+ * "No stored authenticator found for credential ID"
+ *
+ * Root Cause: Credential ID format mismatch between registration and authentication
+ *
+ * The WebAuthn contract expects credential IDs to be handled consistently:
+ * 1. Registration: Credential ID bytes are embedded in attestation object
+ * 2. Storage: Contract calls BASE64_URL_ENGINE.encode(&credential_id_bytes) for storage key
+ * 3. Authentication: Contract looks up using webauthn_authentication.id directly
+ *
+ * The Fix:
+ * - Registration: Use base64url-encoded credential ID in both response.id and attestation object
+ * - Authentication: Return same base64url-encoded format for contract lookup
+ * - Both flows now use: base64UrlEncode(TextEncoder.encode("test-credential-{accountId}-auth"))
+ *
+ * This ensures the contract can successfully store during registration and lookup during authentication.
+ *
+ * Impact:
+ * - ✅ Registration flow: Now works correctly
+ * - ✅ Contract verification: Now finds stored credentials
+ * - ⚠️ Login flow: May need VRF keypair storage key updates due to credential ID format change
+ * - ⚠️ Recovery flow: May need similar updates for credential lookup consistency
  */
 
 // STATIC IMPORTS: Safe to load early
@@ -34,7 +60,7 @@
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page } from '@playwright/test';
 import type { PasskeyManager } from '../../index';
-import { base64UrlEncode, base64UrlDecode } from '../../utils/encoders';
+import { base64UrlEncode } from '../../utils/encoders';
 
 /**
  * Test utility interface available in browser context
@@ -234,6 +260,18 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
         console.error('Failed to import base64UrlEncode fallback:', encoderError);
       }
     }
+
+    // Also ensure base64UrlDecode is available for credential ID decoding
+    if (typeof (window as any).base64UrlDecode === 'undefined') {
+      try {
+        // @ts-ignore
+        const { base64UrlDecode } = await import('/sdk/esm/utils/encoders.js');
+        (window as any).base64UrlDecode = base64UrlDecode;
+        console.log('base64UrlDecode made available globally for credential ID decoding');
+      } catch (encoderError) {
+        console.error('Failed to import base64UrlDecode fallback:', encoderError);
+      }
+    }
   });
 
   console.log('Step 5 Complete: Global fallbacks in place');
@@ -284,12 +322,29 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
      * Creates a properly formatted CBOR-encoded WebAuthn attestation object
      * that matches the contract's expectations for successful verification.
      *
+     * CRITICAL: Credential ID Format Consistency
+     * ==========================================
+     *
+     * The WebAuthn contract expects credential IDs to be handled consistently:
+     * 1. Registration: Credential ID bytes are embedded in attestation object
+     * 2. Storage: Contract base64url-encodes the credential ID bytes for storage key
+     * 3. Authentication: Contract looks up using the same base64url-encoded string
+     *
+     * This function ensures that:
+     * - The credential ID embedded in attestation object matches the response ID
+     * - Both use the same byte representation that will be base64url-encoded consistently
+     * - The contract can successfully look up stored credentials during authentication
+     *
      * Note: WebAuthn attestation object utilities are now defined inline within
      * the setupWebAuthnMocks function to ensure they're available in browser context
      */
-    const createProperAttestationObject = (rpIdHash: Uint8Array): Uint8Array => {
+    const createProperAttestationObject = (rpIdHash: Uint8Array, credentialIdString: string): Uint8Array => {
+      // CRITICAL: Convert string credential ID to bytes for embedding in attestation object
+      // This ensures the contract will store and lookup the credential using the same format
+      const credentialIdBytes = new TextEncoder().encode(credentialIdString);
+
       // Create valid authenticator data following contract format
-      const authData = new Uint8Array(37 + 16 + 2 + 17 + 77); // Fixed size for this mock
+      const authData = new Uint8Array(37 + 16 + 2 + credentialIdBytes.length + 77); // Dynamic size based on credential ID
       let offset = 0;
 
       // RP ID hash (32 bytes)
@@ -314,14 +369,14 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
       offset += 16;
 
       // Credential ID length (2 bytes)
-      const credentialId = new TextEncoder().encode('test_mock_credential');
-      authData[offset] = 0x00;
-      authData[offset + 1] = credentialId.length;
+      authData[offset] = (credentialIdBytes.length >> 8) & 0xff;
+      authData[offset + 1] = credentialIdBytes.length & 0xff;
       offset += 2;
 
-      // Credential ID
-      authData.set(credentialId, offset);
-      offset += credentialId.length;
+      // CRITICAL: Embed the credential ID bytes in attestation object
+      // This is what the contract will extract and base64url-encode for storage
+      authData.set(credentialIdBytes, offset);
+      offset += credentialIdBytes.length;
 
       // Mock COSE Ed25519 public key (77 bytes total)
       const mockEd25519Pubkey = new Uint8Array(32);
@@ -358,8 +413,6 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
     /**
      * Creates mock PRF outputs for WebAuthn PRF extension testing
-     * IMPORTANT: PRF outputs must be deterministic for the same credential and account
-     * to ensure encryption/decryption consistency across operations
      */
     const createMockPRFOutput = (seed: string, accountHint: string = '', length: number = 32): ArrayBuffer => {
       const encoder = new TextEncoder();
@@ -390,14 +443,25 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         // Extract account ID from user info for deterministic PRF
         const accountId = options.publicKey.user?.name || 'default-account';
-        const credentialId = `test-credential-${accountId}-${Date.now()}`;
+        console.log('🔍 [REG PRF DEBUG] Registration account ID:', accountId);
+
+        // CRITICAL: Credential ID Format for Contract Compatibility
+        // ========================================================
+        // The contract stores credentials using: BASE64_URL_ENGINE.encode(&credential_id_bytes)
+        // During authentication, it looks up using: webauthn_authentication.id
+        // Therefore, we must ensure both registration and authentication use the same format
+
+        const credentialIdString = `test-credential-${accountId}-auth`; // Human-readable format
+        const credentialIdBytes = new TextEncoder().encode(credentialIdString); // Convert to bytes
+        const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         // Create proper CBOR-encoded attestation object that matches contract expectations
-        const attestationObjectBytes = createProperAttestationObject(rpIdHash);
+        const attestationObjectBytes = createProperAttestationObject(rpIdHash, credentialIdString);
 
         return {
-          id: credentialId,
-          rawId: new TextEncoder().encode(credentialId),
+          // CRITICAL: Use base64url-encoded format that matches contract storage key
+          id: credentialIdBase64Url,
+          rawId: credentialIdBytes, // Raw bytes for WebAuthn spec compliance
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
@@ -415,11 +479,17 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
+              console.log('🔍 [REG PRF DEBUG] Generating PRF outputs for account:', accountId);
+              const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
+              const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
+              console.log('🔍 [REG PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
+              console.log('🔍 [REG PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
+
               results.prf = {
                 enabled: true,
                 results: {
-                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
-                  second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
+                  first: firstPRF,
+                  second: secondPRF
                 }
               };
             }
@@ -437,17 +507,64 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         const prfRequested = options.publicKey.extensions?.prf;
 
-        // Extract account ID from allowCredentials or use default
+        // Extract account ID from allowCredentials or PRF salt
         const firstCredential = options.publicKey.allowCredentials?.[0];
-        const accountId = firstCredential ?
-          new TextDecoder().decode(firstCredential.id).match(/test-credential-([^-]+)/)?.[1] || 'default-account' :
-          'default-account';
 
-        const credentialId = `test-credential-${accountId}-auth`;
+        let accountId = 'default-account';
+
+        if (firstCredential) {
+          // CRITICAL: Account ID Extraction from Base64URL Credential ID
+          // ==========================================================
+          // During registration, we stored credential using base64url-encoded format
+          // The allowCredentials contains the base64url-encoded credential ID
+          // We need to decode it back to extract the account ID
+
+          console.log('🔍 [AUTH PRF DEBUG] Extracting account ID from credential...');
+          console.log('🔍 [AUTH PRF DEBUG] Credential ID:', firstCredential.id);
+
+          try {
+            // Decode the base64url credential ID back to bytes
+            const credIdBytes = (window as any).base64UrlDecode ?
+              (window as any).base64UrlDecode(firstCredential.id) :
+              new Uint8Array(firstCredential.id); // Fallback for direct bytes
+
+            // Convert bytes back to string to extract account ID
+            const credIdStr = new TextDecoder().decode(credIdBytes);
+            console.log('🔍 [AUTH PRF DEBUG] Decoded credential string:', credIdStr);
+
+            const match = credIdStr.match(/test-credential-(.+)-auth$/);
+            console.log('🔍 [AUTH PRF DEBUG] Regex match result:', match);
+
+            if (match && match[1]) {
+              accountId = match[1];
+              console.log('🔍 [AUTH PRF DEBUG] Extracted account ID:', accountId);
+            } else {
+              console.warn('🔍 [AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
+            }
+          } catch (e) {
+            console.warn('🔍 [AUTH PRF DEBUG] Failed to decode credential ID, using default account:', e);
+          }
+        } else if (prfRequested?.eval?.first) {
+          // Extract from PRF salt when no allowCredentials (recovery flow)
+          const aesSalt = new Uint8Array(prfRequested.eval.first);
+          const saltText = new TextDecoder().decode(aesSalt);
+          const saltMatch = saltText.match(/aes-gcm-salt:(.+)$/);
+          if (saltMatch && saltMatch[1]) {
+            accountId = saltMatch[1];
+          }
+        }
+
+        // CRITICAL: Credential ID Format for Contract Lookup Consistency
+        // ==============================================================
+        // Must return the same base64url-encoded format that the contract uses for storage
+        const credentialIdString = `test-credential-${accountId}-auth`; // Human-readable format
+        const credentialIdBytes = new TextEncoder().encode(credentialIdString); // Convert to bytes
+        const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         return {
-          id: credentialId,
-          rawId: new TextEncoder().encode(credentialId),
+          // CRITICAL: Use base64url-encoded format that matches contract storage key
+          id: credentialIdBase64Url,
+          rawId: credentialIdBytes, // Raw bytes for WebAuthn spec compliance
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
@@ -464,11 +581,17 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
+              console.log('🔍 [AUTH PRF DEBUG] Generating PRF outputs for account:', accountId);
+              const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
+              const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
+              console.log('🔍 [AUTH PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
+              console.log('🔍 [AUTH PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
+
               results.prf = {
                 enabled: true,
                 results: {
-                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
-                  second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
+                  first: firstPRF,
+                  second: secondPRF
                 }
               };
             }
@@ -632,5 +755,5 @@ export async function setupBasicPasskeyTest(
   await setupWebAuthnMocks(page);
   await setupTestUtilities(page, config);
 
-  console.log('🎯 Complete test environment ready!');
+  console.log('Complete test environment ready!');
 }

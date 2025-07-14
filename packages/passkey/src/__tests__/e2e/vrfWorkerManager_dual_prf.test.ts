@@ -126,7 +126,8 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
     expect(result.initialized).toBe(true);
     expect(result.statusBefore).toEqual({
       active: false,
-      nearAccountId: null
+      nearAccountId: null,
+      sessionDuration: 0
     });
 
     console.log('✅ VRF Worker Manager initialization test passed');
@@ -155,11 +156,11 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         );
 
         // Verify bootstrap keypair generation
-        const hasValidPublicKey = bootstrapResult.vrfPublicKey &&
-                                  bootstrapResult.vrfPublicKey.length > 0;
-        const hasValidChallenge = bootstrapResult.vrfChallenge &&
-                                  bootstrapResult.vrfChallenge.vrfOutput &&
-                                  bootstrapResult.vrfChallenge.vrfProof;
+        const hasValidPublicKey = !!(bootstrapResult.vrfPublicKey &&
+                                     bootstrapResult.vrfPublicKey.length > 0);
+        const hasValidChallenge = !!(bootstrapResult.vrfChallenge &&
+                                     bootstrapResult.vrfChallenge.vrfOutput &&
+                                     bootstrapResult.vrfChallenge.vrfProof);
 
         // Test that VRF challenge is deterministic for same input
         console.log('Testing deterministic VRF challenge generation...');
@@ -423,9 +424,9 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         const vrfChallenge3 = await vrfWorkerManager.generateVrfChallenge(differentInputData);
 
         // Verify challenge properties
-        const challenge1Valid = vrfChallenge1.vrfOutput && vrfChallenge1.vrfProof && vrfChallenge1.vrfPublicKey;
-        const challenge2Valid = vrfChallenge2.vrfOutput && vrfChallenge2.vrfProof && vrfChallenge2.vrfPublicKey;
-        const challenge3Valid = vrfChallenge3.vrfOutput && vrfChallenge3.vrfProof && vrfChallenge3.vrfPublicKey;
+        const challenge1Valid = !!(vrfChallenge1.vrfOutput && vrfChallenge1.vrfProof && vrfChallenge1.vrfPublicKey);
+        const challenge2Valid = !!(vrfChallenge2.vrfOutput && vrfChallenge2.vrfProof && vrfChallenge2.vrfPublicKey);
+        const challenge3Valid = !!(vrfChallenge3.vrfOutput && vrfChallenge3.vrfProof && vrfChallenge3.vrfPublicKey);
 
         // Same input should produce same output (deterministic)
         const sameVrfOutput = vrfChallenge1.vrfOutput === vrfChallenge2.vrfOutput;
@@ -557,6 +558,75 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
 
     console.log('✅ VRF error handling test passed');
     console.log(`   All error cases handled correctly`);
+  });
+
+  test('VRF Worker Manager - Response Structure Debug', async ({ page }) => {
+    const result = await page.evaluate(async (testConfig) => {
+      try {
+        // @ts-ignore - Runtime import path
+        const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
+
+        console.log('=== VRF RESPONSE STRUCTURE DEBUG ===');
+
+        const vrfWorkerManager = new VrfWorkerManager({
+          vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
+          workerTimeout: 15000,
+          debug: true
+        });
+        await vrfWorkerManager.initialize();
+
+        // Test 1: Check VRF status (simple response)
+        console.log('Testing checkVrfStatus response...');
+        const statusResponse = await vrfWorkerManager.checkVrfStatus();
+        console.log('Status response type:', typeof statusResponse);
+        console.log('Status response:', statusResponse);
+        console.log('Status response keys:', Object.keys(statusResponse));
+
+        // Test 2: Generate VRF keypair (complex response)
+        console.log('Testing generateVrfKeypair response...');
+        const keypairResult = await vrfWorkerManager.generateVrfKeypair(testConfig.VRF_INPUT_PARAMS, true);
+        console.log('Keypair result type:', typeof keypairResult);
+        console.log('Keypair result keys:', Object.keys(keypairResult));
+        console.log('vrfPublicKey type:', typeof keypairResult.vrfPublicKey);
+        console.log('vrfChallenge type:', typeof keypairResult.vrfChallenge);
+        console.log('vrfChallenge value:', keypairResult.vrfChallenge);
+        console.log('vrfChallenge keys:', keypairResult.vrfChallenge ? Object.keys(keypairResult.vrfChallenge) : 'null');
+
+        if (keypairResult.vrfChallenge && typeof keypairResult.vrfChallenge === 'object') {
+          console.log('vrfChallenge.vrfOutput type:', typeof keypairResult.vrfChallenge.vrfOutput);
+          console.log('vrfChallenge.vrfOutput value:', keypairResult.vrfChallenge.vrfOutput);
+          console.log('vrfChallenge.vrfProof type:', typeof keypairResult.vrfChallenge.vrfProof);
+          console.log('vrfChallenge.vrfProof value:', keypairResult.vrfChallenge.vrfProof);
+        }
+
+        return {
+          success: true,
+          statusResponse,
+          keypairResult: {
+            vrfPublicKeyType: typeof keypairResult.vrfPublicKey,
+            vrfChallengeType: typeof keypairResult.vrfChallenge,
+            vrfChallengeValue: keypairResult.vrfChallenge,
+            vrfChallengeKeys: keypairResult.vrfChallenge ? Object.keys(keypairResult.vrfChallenge) : null
+          }
+        };
+
+      } catch (error: any) {
+        console.error('VRF response structure debug error:', error);
+        return {
+          success: false,
+          error: error.message,
+          stack: error.stack
+        };
+      }
+    }, TEST_CONFIG);
+
+    // Just log the results, don't assert anything
+    console.log('=== VRF RESPONSE STRUCTURE DEBUG RESULTS ===');
+    console.log(JSON.stringify(result, null, 2));
+    console.log('=== END DEBUG RESULTS ===');
+
+    // Basic success check
+    expect(result.success).toBe(true);
   });
 
 });
