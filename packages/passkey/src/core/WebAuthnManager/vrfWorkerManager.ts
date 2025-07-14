@@ -14,7 +14,7 @@ import type {
 } from '../types/vrf-worker';
 import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
-import { base64UrlDecode, toWasmByteArray, base64UrlEncode } from '../../utils';
+import { base64UrlDecode, base64UrlEncode } from '../../utils';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;
@@ -203,6 +203,9 @@ export class VrfWorkerManager {
       throw new Error('VRF Web Worker not initialized');
     }
 
+    // Convert base64url blockHash to byte array for consistent Rust worker handling
+    const blockHashBytes = Array.from(base64UrlDecode(inputData.blockHash));
+
     const message: VRFWorkerMessage = {
       type: 'GENERATE_VRF_CHALLENGE',
       id: this.generateMessageId(),
@@ -210,7 +213,7 @@ export class VrfWorkerManager {
         user_id: inputData.userId,
         rp_id: inputData.rpId,
         block_height: inputData.blockHeight,
-        block_hash: toWasmByteArray(base64UrlDecode(inputData.blockHash)),
+        block_hash: blockHashBytes, // Send as byte array for Rust Vec<u8>
         timestamp: inputData.timestamp
       }
     };

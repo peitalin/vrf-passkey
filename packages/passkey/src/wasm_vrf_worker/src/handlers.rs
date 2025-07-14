@@ -36,7 +36,11 @@ pub fn handle_unlock_vrf_keypair(
 
             // Debug: Log the parsing result
             match &encrypted_vrf_keypair_result {
-                Ok(_) => debug!("Successfully parsed EncryptedVRFKeypair"),
+                Ok(keypair) => {
+                    debug!("Successfully parsed EncryptedVRFKeypair");
+                    debug!("  - encrypted_vrf_data_b64u length: {}", keypair.encrypted_vrf_data_b64u.len());
+                    debug!("  - aes_gcm_nonce_b64u length: {}", keypair.aes_gcm_nonce_b64u.len());
+                },
                 Err(e) => error!("Failed to parse EncryptedVRFKeypair: {}", e),
             }
 

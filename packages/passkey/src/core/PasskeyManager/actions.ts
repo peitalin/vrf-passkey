@@ -160,7 +160,7 @@ async function verifyVrfAuthAndSignTransaction(
 ): Promise<VerifyAndSignTransactionResult> {
 
   const { onEvent, onError, hooks } = options || {};
-  const { webAuthnManager, nearClient } = context;
+  const { webAuthnManager } = context;
 
   onEvent?.({
     step: 2,
@@ -170,12 +170,13 @@ async function verifyVrfAuthAndSignTransaction(
     message: 'Generating VRF challenge...'
   });
 
-  console.log('[Direct Action] Using VRF authentication flow with contract verification');
   // Check if VRF session is active by trying to generate a challenge
   // This will fail if VRF is not unlocked, providing implicit status check
-  console.log(`Using VRF authentication for ${nearAccountId}`);
+  const vrfStatus = await webAuthnManager.checkVrfStatus();
 
-  // const blockInfo = await nearClient.viewBlock({ finality: 'final' });
+  if (!vrfStatus.active || vrfStatus.nearAccountId !== nearAccountId) {
+    throw new Error(`VRF session not active for ${nearAccountId}. Please login first. VRF status: ${JSON.stringify(vrfStatus)}`);
+  }
 
   // Generate VRF challenge
   const vrfInputData = {
@@ -262,7 +263,6 @@ export async function broadcastTransaction(
   // The signingResult contains structured SignedTransaction with embedded raw bytes
   const signedTransaction = signingResult.signedTransaction;
 
-  console.log('Broadcasting transaction with waitUntil:', options?.waitUntil);
   // Send the transaction using NearClient
   const transactionResult = await nearClient.sendTransaction(
     signedTransaction,

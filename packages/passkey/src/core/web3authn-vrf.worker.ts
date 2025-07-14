@@ -73,7 +73,7 @@ async function handleMessage(event: MessageEvent): Promise<void> {
   }
 
   try {
-    // Call WASM handle_message directly with error handling
+    // Call WASM handle_message with JavaScript object - Rust function handles JSON stringification
     const response: VRFWorkerResponse = handle_message(data);
 
     // Send response back to main thread

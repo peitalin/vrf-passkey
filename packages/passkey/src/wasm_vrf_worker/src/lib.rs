@@ -1,6 +1,5 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
-use js_sys::JSON;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -22,6 +21,15 @@ pub use handlers::*;
 pub use manager::*;
 pub use types::*;
 pub use utils::*;
+
+// Import JSON functions for message serialization
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = JSON)]
+    fn stringify(obj: &JsValue) -> JsValue;
+    #[wasm_bindgen(js_namespace = JSON)]
+    fn parse(text: &str) -> JsValue;
+}
 
 // Set up panic hook for better error messages
 #[wasm_bindgen(start)]
@@ -46,10 +54,9 @@ thread_local! {
 #[wasm_bindgen]
 pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
     // Convert JsValue to JSON string first, then parse
-    let message_str = JSON::stringify(&message)
-        .map_err(|_e| JsValue::from_str("Failed to stringify message"))?;
-    let message_str = message_str.as_string()
-        .ok_or_else(|| JsValue::from_str("Message is not a string"))?;
+    let message_str = stringify(&message)
+        .as_string()
+        .ok_or_else(|| JsValue::from_str("Failed to stringify message"))?;
 
     let message: VRFWorkerMessage = serde_json::from_str(&message_str)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse message: {}", e)))?;
@@ -74,6 +81,5 @@ pub fn handle_message(message: JsValue) -> Result<JsValue, JsValue> {
     let response_json = serde_json::to_string(&response)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize response: {}", e)))?;
 
-    JSON::parse(&response_json)
-        .map_err(|_e| JsValue::from_str("Failed to parse response JSON"))
+    Ok(parse(&response_json))
 }

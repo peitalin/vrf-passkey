@@ -2,7 +2,7 @@ use crate::config::*;
 use crate::errors::{VrfWorkerError, VrfResult, HkdfError, SerializationError};
 use crate::types::*;
 use crate::utils::{base64_url_encode, base64_url_decode};
-use log::{info, debug};
+use log::{info, debug, error};
 use js_sys::Date;
 
 // VRF and crypto imports
