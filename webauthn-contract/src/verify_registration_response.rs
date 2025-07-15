@@ -121,9 +121,11 @@ impl WebAuthnContract {
             .add_full_access_key(new_public_key);
 
         // Second promise: call the verification contract on the current contract
+        // FIXED: Pass the new_account_id explicitly instead of relying on predecessor_account_id
         let verification_promise = Promise::new(env::current_account_id()).function_call(
-            "verify_and_register_user".to_string(),
+            "verify_and_register_user_for_account".to_string(),
             serde_json::to_vec(&serde_json::json!({
+                "account_id": new_account_id,
                 "vrf_data": vrf_data,
                 "webauthn_registration": webauthn_registration,
                 "deterministic_vrf_public_key": deterministic_vrf_public_key,
@@ -136,14 +138,15 @@ impl WebAuthnContract {
         setup_promise.then(verification_promise)
     }
 
-    pub fn verify_and_register_user(
+    pub fn verify_and_register_user_for_account(
         &mut self,
+        account_id: AccountId,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
         deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
 
-        log!("Verifying VRF proof and WebAuthn registration with dual VRF support");
+        log!("Verifying VRF proof and WebAuthn registration with dual VRF support for account: {}", account_id);
         log!("  - User ID: {}", vrf_data.user_id);
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
         log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
@@ -174,15 +177,16 @@ impl WebAuthnContract {
         // 3. If WebAuthn verification succeeded, store the authenticator and user data
         if webauthn_result.verified {
             if let Some(registration_info) = webauthn_result.registration_info {
-                // Store the authenticator and user data with dual VRF keys
-                let storage_result = self.store_authenticator_and_user(
+                // Store the authenticator and user data with dual VRF keys for the specific account
+                let storage_result = self.store_authenticator_and_user_for_account(
+                    account_id.clone(),
                     registration_info,
                     webauthn_registration,
                     vrf_data.public_key,
                     deterministic_vrf_public_key,
                 );
 
-                log!("VRF WebAuthn registration completed successfully");
+                log!("VRF WebAuthn registration completed successfully for account: {}", account_id);
                 return VerifyRegistrationResponse {
                     verified: storage_result.verified,
                     registration_info: storage_result.registration_info,
@@ -190,11 +194,40 @@ impl WebAuthnContract {
             }
         }
 
-        log!("VRF WebAuthn registration verification failed");
+        log!("VRF WebAuthn registration verification failed for account: {}", account_id);
         VerifyRegistrationResponse {
             verified: false,
             registration_info: None,
         }
+    }
+
+    pub fn verify_and_register_user(
+        &mut self,
+        vrf_data: VRFVerificationData,
+        webauthn_registration: WebAuthnRegistrationCredential,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
+    ) -> VerifyRegistrationResponse {
+
+        log!("Verifying VRF proof and WebAuthn registration with dual VRF support");
+        log!("  - User ID: {}", vrf_data.user_id);
+        log!("  - RP ID (domain): {}", vrf_data.rp_id);
+        log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
+        if let Some(ref det_key) = deterministic_vrf_public_key {
+            log!("  - Deterministic VRF key: {} bytes", det_key.len());
+        } else {
+            log!("  - Deterministic VRF key: None (single VRF registration)");
+        }
+
+        // Use predecessor account ID for backward compatibility
+        let account_id = env::predecessor_account_id();
+
+        // Delegate to the account-specific version
+        self.verify_and_register_user_for_account(
+            account_id,
+            vrf_data,
+            webauthn_registration,
+            deterministic_vrf_public_key,
+        )
     }
 
     /// VIEW VERSION: Check if user can register without modifying state
@@ -585,7 +618,51 @@ impl WebAuthnContract {
         bootstrap_vrf_public_key: Vec<u8>,
         deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
-        log!("Registration verification successful. Storing new authenticator with dual VRF support.");
+        // Use predecessor account ID for backward compatibility
+        let account_id = env::predecessor_account_id();
+
+        // Delegate to the account-specific version
+        self.store_authenticator_and_user_for_account(
+            account_id.clone(),
+            registration_info,
+            credential,
+            bootstrap_vrf_public_key,
+            deterministic_vrf_public_key,
+        )
+    }
+
+    /// Stores the authenticator and user data after successful registration verification for a specific account
+    ///
+    /// # Arguments
+    /// * `account_id` - The account ID to store the authenticator for
+    /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
+    /// * `credential` - The original registration credential containing transport info and attestation data
+    /// * `bootstrap_vrf_public_key` - Bootstrap VRF public key (WebAuthn-bound)
+    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
+    ///
+    /// # Returns
+    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
+    ///
+    /// # Params
+    /// * `self` - Mutable reference to contract state
+    /// * `account_id` - The account ID to store the authenticator for
+    /// * `registration_info` - RegistrationInfo struct containing credential data
+    /// * `credential` - RegistrationCredential struct with transport and attestation data
+    /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
+    /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
+    /// * for key recovery purposes
+    ///
+    /// # Private
+    /// This is a private non-view function that modifies contract state
+    fn store_authenticator_and_user_for_account(
+        &mut self,
+        account_id: AccountId,
+        registration_info: RegistrationInfo,
+        credential: WebAuthnRegistrationCredential,
+        bootstrap_vrf_public_key: Vec<u8>,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
+    ) -> VerifyRegistrationResponse {
+        log!("Registration verification successful for account: {}. Storing new authenticator with dual VRF support.", account_id);
 
         let credential_id_b64url = BASE64_URL_ENGINE.encode(&registration_info.credential_id);
 
@@ -608,21 +685,18 @@ impl WebAuthnContract {
         // Get current timestamp as ISO string
         let current_timestamp = env::block_timestamp_ms().to_string();
 
-        // use msg.sender as user account id
-        let user_account_id = env::predecessor_account_id();
-
         // Prepare VRF keys for storage
         let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
         if let Some(det_key) = deterministic_vrf_public_key {
             vrf_keys.push(det_key);
-            log!("Storing authenticator with dual VRF keys: bootstrap + deterministic");
+            log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
         } else {
-            log!("Storing authenticator with single VRF key: bootstrap only");
+            log!("Storing authenticator with single VRF key for account {}: bootstrap only", account_id);
         }
 
         // Store the authenticator with multiple VRF public keys
         self.store_authenticator(
-            user_account_id.clone(),
+            account_id.clone(),
             credential_id_b64url.clone(),
             registration_info.credential_public_key.clone(),
             transports,
@@ -631,16 +705,16 @@ impl WebAuthnContract {
         );
 
         // 2. Register user in user registry if not already registered
-        if !self.registered_users.contains(&user_account_id) {
-            log!("Registering new user in user registry: {}", user_account_id);
-            self.register_user(user_account_id.clone());
+        if !self.registered_users.contains(&account_id) {
+            log!("Registering new user in user registry: {}", account_id);
+            self.register_user(account_id.clone());
         } else {
-            log!("User already registered in user registry: {}", user_account_id);
+            log!("User already registered in user registry: {}", account_id);
         }
 
         log!(
             "Stored authenticator for user '{}' with credential ID '{}'",
-            user_account_id,
+            account_id,
             credential_id_b64url
         );
 
