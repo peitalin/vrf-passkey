@@ -5,6 +5,7 @@ import type { ProfileTriggerProps } from './types';
 
 export const ProfileTrigger: React.FC<ProfileTriggerProps> = ({
   username,
+  fullAccountId,
   isOpen,
   onClick,
   isHovered,
@@ -21,7 +22,7 @@ export const ProfileTrigger: React.FC<ProfileTriggerProps> = ({
       >
         <div className="web3authn-profile-dropdown-user-content">
           <AvatarGearIcon isOpen={isOpen} />
-          <UserDetails username={username} isOpen={isOpen} />
+          <UserDetails username={username} fullAccountId={fullAccountId} isOpen={isOpen} />
         </div>
       </div>
     </div>

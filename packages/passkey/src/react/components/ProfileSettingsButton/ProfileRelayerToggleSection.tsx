@@ -3,7 +3,7 @@ import { Toggle } from './Toggle';
 import type { ProfileRelayerToggleSectionProps } from './types';
 
 export const ProfileRelayerToggleSection = forwardRef<HTMLDivElement, ProfileRelayerToggleSectionProps>(
-  ({ useRelayer, onRelayerChange, toggleColors }, ref) => {
+  ({ useRelayer, onRelayerChange, toggleColors, className, style }, ref) => {
     const handleClick = (e: React.MouseEvent) => {
       e.stopPropagation();
     };
@@ -11,7 +11,8 @@ export const ProfileRelayerToggleSection = forwardRef<HTMLDivElement, ProfileRel
     return (
       <div
         ref={ref}
-        className="web3authn-profile-dropdown-toggle-section"
+        className={`web3authn-profile-dropdown-toggle-section ${className || ''}`}
+        style={style}
         onClick={handleClick}
       >
         <div className="web3authn-profile-dropdown-toggle-content">

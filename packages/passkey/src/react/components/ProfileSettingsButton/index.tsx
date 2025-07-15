@@ -42,7 +42,7 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
   } = usePasskeyContext();
 
   // Use props if provided, otherwise fall back to context
-  const accountName = nearAccountIdProp?.split('.')?.[0] || 'User';
+  const accountName = usernameProp || nearAccountIdProp?.split('.')?.[0] || loginState.nearAccountId?.split('.')?.[0] || 'User';
   const nearAccountId = nearAccountIdProp || loginState.nearAccountId;
   const onLogout = onLogoutProp || logout;
 
@@ -51,11 +51,10 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
     {
       icon: <KeyIcon />,
       label: 'Export Keys',
-      description: 'Export your NEAR private keys',
+      description: 'Export your NEAR keys',
       disabled: false,
       onClick: async () => {
         try {
-
           const {
             accountId,
             privateKey,
@@ -105,8 +104,8 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
 
   const { closedDimensions, openDimensions } = useProfileDimensions(calculationParams);
 
-  // Animations
-  useProfileAnimations({
+  // Animations - now returns React state and styles
+  const { animationState, animationStyles } = useProfileAnimations({
     isOpen,
     refs,
     openDimensions,
@@ -123,10 +122,12 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
     <div className="web3authn-profile-button-container">
       <div
         ref={refs.buttonRef}
-        className={`web3authn-profile-button-morphable ${isOpen ? 'open' : 'closed'}`}
+        className={`web3authn-profile-button-morphable ${isOpen ? 'open' : 'closed'} ${animationState.containerAnimationClass}`}
+        style={animationStyles.containerStyle}
       >
         <ProfileTrigger
           username={accountName}
+          fullAccountId={nearAccountId || undefined}
           isOpen={isOpen}
           onClick={handleToggle}
         />
@@ -142,6 +143,8 @@ export const ProfileButton: React.FC<ProfileButtonProps> = ({
           onClose={handleClose}
           menuItemsRef={refs.menuItemsRef}
           toggleColors={toggleColors}
+          animationState={animationState}
+          animationStyles={animationStyles}
         />
       </div>
     </div>

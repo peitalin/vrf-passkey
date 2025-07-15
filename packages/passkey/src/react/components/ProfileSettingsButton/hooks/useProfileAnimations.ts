@@ -1,20 +1,18 @@
-import { useEffect, useRef } from 'react';
-import { animate, stagger } from 'animejs';
-import type { ProfileStateRefs, ProfileDimensions, ProfileAnimationConfig } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import type { ProfileStateRefs, ProfileDimensions } from '../types';
 
 const ANIMATION_CONFIGS = {
   container: {
-    // Match .web3authn-profile-dropdown-avatar.shrunk CSS animiation timings
-    open: { duration: 100, easing: 'outElastic(0.5, .4)' },
-    close: { duration: 100, delay: 0, easing: 'inOutBack(0.8)' },
+    open: { duration: 100, easing: 'cubic-bezier(0.50, -0.45, 0.2, 1.2)' }, // outElastic approximation
+    close: { duration: 100, delay: 0, easing: 'cubic-bezier(0.50, -0.45, 0.2, 1.2)' }, // inOutBack approximation
   },
   dropdown: {
     show: { duration: 100, delay: 0 },
     hide: { duration: 100, delay: 0 },
   },
   menuItems: {
-    in: { duration: 150, easing: 'outBack(0.8)', staggerDelay: 0 },
-    out: { duration: 150, easing: 'inBack(0.8)', staggerDelay: 0 },
+    in: { duration: 150, easing: 'cubic-bezier(0.50, -0.45, 0.2, 1.2)', staggerDelay: 25 }, // outBack approximation
+    out: { duration: 150, easing: 'cubic-bezier(0.50, -0.45, 0.2, 1.2)', staggerDelay: 25 }, // inBack approximation
   },
 } as const;
 
@@ -23,6 +21,18 @@ interface UseProfileAnimationsProps {
   refs: ProfileStateRefs;
   openDimensions: ProfileDimensions;
   closedDimensions: ProfileDimensions;
+}
+
+interface AnimationState {
+  containerAnimationClass: string;
+  dropdownAnimationClass: string;
+  menuItemAnimationClass: string;
+}
+
+interface AnimationStyles {
+  containerStyle: React.CSSProperties;
+  dropdownStyle: React.CSSProperties;
+  getMenuItemStyle: (index: number, totalItems?: number) => React.CSSProperties;
 }
 
 export const useProfileAnimations = ({
@@ -38,7 +48,21 @@ export const useProfileAnimations = ({
   // Track the current animation state to prevent re-applying on re-renders
   const animationStateRef = useRef<boolean | null>(null);
 
-    useEffect(() => {
+  // Animation state for React components
+  const [animationState, setAnimationState] = useState<AnimationState>({
+    containerAnimationClass: '',
+    dropdownAnimationClass: '',
+    menuItemAnimationClass: '',
+  });
+
+  // Animation styles for React components
+  const [animationStyles, setAnimationStyles] = useState<AnimationStyles>({
+    containerStyle: {},
+    dropdownStyle: {},
+    getMenuItemStyle: () => ({}),
+  });
+
+  useEffect(() => {
     // Only animate if isOpen state has actually changed
     if (animationStateRef.current === isOpen) {
       return;
@@ -46,9 +70,8 @@ export const useProfileAnimations = ({
 
     animationStateRef.current = isOpen;
 
-    const { buttonRef, dropdownRef, menuItemsRef } = refs;
-
-    if (!buttonRef.current || !dropdownRef.current) return;
+    const { buttonRef } = refs;
+    if (!buttonRef.current) return;
 
     // Get current dimensions from ref to avoid stale closures
     const { openDimensions: currentOpenDimensions, closedDimensions: currentClosedDimensions } = dimensionsRef.current;
@@ -58,94 +81,83 @@ export const useProfileAnimations = ({
       requestAnimationFrame(() => {
         if (!buttonRef.current) return;
 
-        const currentWidth = buttonRef.current.offsetWidth;
-        const currentHeight = buttonRef.current.offsetHeight;
+        const containerStyle: React.CSSProperties = {
+          '--start-width': `${buttonRef.current.offsetWidth}px`,
+          '--start-height': `${buttonRef.current.offsetHeight}px`,
+          '--end-width': `${currentOpenDimensions.width}px`,
+          '--end-height': `${currentOpenDimensions.height}px`,
+          '--container-duration': `${ANIMATION_CONFIGS.container.open.duration}ms`,
+          '--container-easing': ANIMATION_CONFIGS.container.open.easing,
+        } as any;
 
-        // Morph container size with elastic bounce
-        animate(buttonRef.current, {
-          width: [currentWidth, currentOpenDimensions.width],
-          height: [currentHeight, currentOpenDimensions.height],
-          duration: ANIMATION_CONFIGS.container.open.duration,
-          easing: ANIMATION_CONFIGS.container.open.easing,
+        const dropdownStyle: React.CSSProperties = {
+          '--dropdown-duration': `${ANIMATION_CONFIGS.dropdown.show.duration}ms`,
+        } as any;
+
+        const getMenuItemStyle = (index: number, totalItems?: number): React.CSSProperties => {
+          const delay = index * ANIMATION_CONFIGS.menuItems.in.staggerDelay;
+          return {
+            '--menu-duration': `${ANIMATION_CONFIGS.menuItems.in.duration}ms`,
+            '--menu-delay': `${delay}ms`,
+            '--menu-easing': ANIMATION_CONFIGS.menuItems.in.easing,
+          } as any;
+        };
+
+        setAnimationStyles({
+          containerStyle,
+          dropdownStyle,
+          getMenuItemStyle,
         });
 
-        // Show dropdown content
-        if (dropdownRef.current) {
-          animate(dropdownRef.current, {
-            opacity: [0, 1],
-            visibility: 'visible',
-            duration: ANIMATION_CONFIGS.dropdown.show.duration,
-            delay: ANIMATION_CONFIGS.dropdown.show.delay,
-          });
-        }
-
-        // Staggered menu items animation with bounce
-        const menuItems = menuItemsRef.current.filter(item => item !== null);
-        if (menuItems.length > 0) {
-          // Reset initial state for all items
-          menuItems.forEach(item => {
-            if (item) {
-              animate(item, {
-                opacity: 0,
-                translateY: 20,
-                scale: 0.8,
-                duration: 0,
-              });
-            }
-              });
-
-              // Staggered slide-in animation
-          animate(menuItems, {
-                opacity: [0, 1],
-                translateY: [20, 0],
-            scale: [0.8, 1],
-                duration: ANIMATION_CONFIGS.menuItems.in.duration,
-            easing: ANIMATION_CONFIGS.menuItems.in.easing,
-            delay: stagger(ANIMATION_CONFIGS.menuItems.in.staggerDelay, { from: 'first' }),
-          });
-        }
+        setAnimationState({
+          containerAnimationClass: 'web3authn-profile-container-opening',
+          dropdownAnimationClass: 'web3authn-profile-dropdown-showing',
+          menuItemAnimationClass: 'web3authn-profile-menu-item-entering',
+        });
       });
     } else {
       // Closing animation sequence
-      const menuItems = menuItemsRef.current.filter(item => item !== null);
+      if (!buttonRef.current) return;
 
-      // Animate menu items out first with stagger
-      if (menuItems.length > 0) {
-        animate(menuItems, {
-          opacity: [1, 0],
-          translateY: [0, -20],
-          scale: [1, 0.8],
-              duration: ANIMATION_CONFIGS.menuItems.out.duration,
-          easing: ANIMATION_CONFIGS.menuItems.out.easing,
-          delay: stagger(ANIMATION_CONFIGS.menuItems.out.staggerDelay, { from: 'last' }),
-        });
-      }
+      const containerStyle: React.CSSProperties = {
+        '--start-width': `${buttonRef.current.offsetWidth}px`,
+        '--start-height': `${buttonRef.current.offsetHeight}px`,
+        '--end-width': `${currentClosedDimensions.width}px`,
+        '--end-height': `${currentClosedDimensions.height}px`,
+        '--container-duration': `${ANIMATION_CONFIGS.container.close.duration}ms`,
+        '--container-easing': ANIMATION_CONFIGS.container.close.easing,
+      } as any;
 
-      // Hide dropdown content
-      if (dropdownRef.current) {
-        animate(dropdownRef.current, {
-          opacity: [1, 0],
-          visibility: 'hidden',
-          duration: ANIMATION_CONFIGS.dropdown.hide.duration,
-          delay: ANIMATION_CONFIGS.dropdown.hide.delay,
-        });
-      }
+      const dropdownStyle: React.CSSProperties = {
+        '--dropdown-duration': `${ANIMATION_CONFIGS.dropdown.hide.duration}ms`,
+      } as any;
 
-      // Shrink container back to closed size
-      const currentWidth = buttonRef.current.offsetWidth;
-      const currentHeight = buttonRef.current.offsetHeight;
+      const getMenuItemStyle = (index: number, totalItems?: number): React.CSSProperties => {
+        const delay = totalItems ? (totalItems - 1 - index) * ANIMATION_CONFIGS.menuItems.out.staggerDelay : 0;
+        return {
+          '--menu-duration': `${ANIMATION_CONFIGS.menuItems.out.duration}ms`,
+          '--menu-delay': `${delay}ms`,
+          '--menu-easing': ANIMATION_CONFIGS.menuItems.out.easing,
+        } as any;
+      };
 
-      animate(buttonRef.current, {
-        width: [currentWidth, currentClosedDimensions.width],
-        height: [currentHeight, currentClosedDimensions.height],
-        duration: ANIMATION_CONFIGS.container.close.duration,
-        delay: ANIMATION_CONFIGS.container.close.delay,
-        easing: ANIMATION_CONFIGS.container.close.easing,
+      setAnimationStyles({
+        containerStyle,
+        dropdownStyle,
+        getMenuItemStyle,
+      });
+
+      setAnimationState({
+        containerAnimationClass: 'web3authn-profile-container-closing',
+        dropdownAnimationClass: 'web3authn-profile-dropdown-hiding',
+        menuItemAnimationClass: 'web3authn-profile-menu-item-exiting',
       });
     }
   }, [isOpen, refs]); // Only trigger on isOpen or refs changes, not dimensions
 
   return {
     animationConfigs: ANIMATION_CONFIGS,
+    animationState,
+    animationStyles,
   };
 };

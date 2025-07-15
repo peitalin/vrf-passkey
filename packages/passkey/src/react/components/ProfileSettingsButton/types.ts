@@ -28,6 +28,7 @@ export interface ProfileButtonProps {
 
 export interface ProfileTriggerProps {
   username: string;
+  fullAccountId?: string;
   isOpen: boolean;
   onClick: () => void;
   isHovered?: boolean;
@@ -49,16 +50,22 @@ export interface ProfileMenuItemProps {
   item: ProfileMenuItem;
   index: number;
   onClose: () => void;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 export interface ProfileLogoutSectionProps {
   onLogout: () => void;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 export interface ProfileRelayerToggleSectionProps {
   useRelayer: boolean;
   onRelayerChange: (value: boolean) => void;
   toggleColors?: ToggleColorProps;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 export interface ProfileStateRefs {

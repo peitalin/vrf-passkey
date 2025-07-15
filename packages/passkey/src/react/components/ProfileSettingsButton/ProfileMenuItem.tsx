@@ -2,7 +2,7 @@ import { forwardRef } from 'react';
 import type { ProfileMenuItemProps } from './types';
 
 export const ProfileMenuItem = forwardRef<HTMLButtonElement, ProfileMenuItemProps>(
-  ({ item, index, onClose }, ref) => {
+  ({ item, index, onClose, className, style }, ref) => {
     const handleClick = (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!item.disabled) {
@@ -18,7 +18,8 @@ export const ProfileMenuItem = forwardRef<HTMLButtonElement, ProfileMenuItemProp
       <button
         ref={ref}
         disabled={item.disabled}
-        className={`web3authn-profile-dropdown-menu-item ${item.disabled ? 'disabled' : ''}`}
+        className={`web3authn-profile-dropdown-menu-item ${item.disabled ? 'disabled' : ''} ${className || ''}`}
+        style={style}
         onClick={handleClick}
       >
         <div className="web3authn-profile-dropdown-menu-item-icon">

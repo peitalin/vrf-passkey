@@ -1,6 +1,100 @@
 /* Web3authUserProfile Component Styles */
 /* All CSS classes used by the Web3authUserProfile component and its sub-components */
 
+/* Container Animation Keyframes */
+@keyframes web3authn-profile-container-open {
+  from {
+    width: var(--start-width);
+    height: var(--start-height);
+  }
+  to {
+    width: var(--end-width);
+    height: var(--end-height);
+  }
+}
+
+@keyframes web3authn-profile-container-close {
+  from {
+    width: var(--start-width);
+    height: var(--start-height);
+  }
+  to {
+    width: var(--end-width);
+    height: var(--end-height);
+  }
+}
+
+/* Dropdown Animation Keyframes */
+@keyframes web3authn-profile-dropdown-show {
+  from {
+    opacity: 0;
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+@keyframes web3authn-profile-dropdown-hide {
+  from {
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Menu Item Animation Keyframes */
+@keyframes web3authn-profile-menu-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes web3authn-profile-menu-item-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.8);
+  }
+}
+
+/* Animation Classes */
+.web3authn-profile-container-opening {
+  animation: web3authn-profile-container-open var(--container-duration, 100ms) var(--container-easing, ease) forwards;
+}
+
+.web3authn-profile-container-closing {
+  animation: web3authn-profile-container-close var(--container-duration, 100ms) var(--container-easing, ease) forwards;
+}
+
+.web3authn-profile-dropdown-showing {
+  animation: web3authn-profile-dropdown-show var(--dropdown-duration, 100ms) ease forwards;
+}
+
+.web3authn-profile-dropdown-hiding {
+  animation: web3authn-profile-dropdown-hide var(--dropdown-duration, 100ms) ease forwards;
+}
+
+.web3authn-profile-menu-item-entering {
+  animation: web3authn-profile-menu-item-enter var(--menu-duration, 150ms) var(--menu-easing, ease) var(--menu-delay, 0ms) forwards;
+}
+
+.web3authn-profile-menu-item-exiting {
+  animation: web3authn-profile-menu-item-exit var(--menu-duration, 150ms) var(--menu-easing, ease) var(--menu-delay, 0ms) forwards;
+}
+
 /* ProfileButton Component Styles */
 .web3authn-profile-button-container {
   position: fixed;

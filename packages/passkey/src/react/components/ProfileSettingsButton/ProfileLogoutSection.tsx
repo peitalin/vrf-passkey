@@ -2,14 +2,14 @@ import { forwardRef } from 'react';
 import type { ProfileLogoutSectionProps } from './types';
 
 export const ProfileLogoutSection = forwardRef<HTMLDivElement, ProfileLogoutSectionProps>(
-  ({ onLogout }, ref) => {
+  ({ onLogout, className, style }, ref) => {
     const handleLogout = (e: React.MouseEvent) => {
       e.stopPropagation();
       onLogout();
     };
 
     return (
-      <div ref={ref}>
+      <div ref={ref} className={className} style={style}>
         <div className="web3authn-profile-dropdown-logout-section">
           <button
             className="web3authn-profile-dropdown-logout-button"
