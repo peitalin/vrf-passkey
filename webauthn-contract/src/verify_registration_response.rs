@@ -1,4 +1,4 @@
-use near_sdk::{env, log, near, AccountId, Promise, NearToken, Gas, serde_json::{self, json}, PublicKey};
+use near_sdk::{env, log, near, AccountId, Promise, NearToken, Gas, serde_json, PublicKey};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use serde_cbor::Value as CborValue;
@@ -82,8 +82,21 @@ pub struct RegistrationInfo {
 #[near]
 impl WebAuthnContract {
 
+    /// Create account and verify registration in a single transaction
+    /// This function combines account creation with WebAuthn registration verification
+    /// to make the registration process more robust and atomic.
+    ///
+    /// # Arguments
+    /// * `new_account_id` - The account ID to create
+    /// * `new_public_key` - The public key to add as full access key
+    /// * `vrf_data` - VRF verification data
+    /// * `webauthn_registration` - WebAuthn registration credential
+    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key
+    ///
+    /// # Returns
+    /// * `Promise` - Chained promise that creates account and verifies registration
     // pub fn create_account_and_verify(
-    //     &self,
+    //     &mut self,
     //     new_account_id: AccountId,
     //     new_public_key: PublicKey,
     //     vrf_data: VRFVerificationData,
@@ -91,26 +104,34 @@ impl WebAuthnContract {
     //     deterministic_vrf_public_key: Option<Vec<u8>>,
     // ) -> Promise {
 
+    //     // Check if account creation is enabled
+    //     if !self.account_creation_settings.enabled {
+    //         env::panic_str("Account creation is currently disabled");
+    //     }
+
+    //     log!("Creating account and verifying registration for: {}", new_account_id);
+    //     log!("  - Initial balance: {} NEAR", self.account_creation_settings.initial_balance_near);
+
     //     // First promise: setup the new account
-    //     let setup_promise = Promise::new(new_account_id)
+    //     let initial_balance_yoctonear = (self.account_creation_settings.initial_balance_near * 1_000_000_000_000_000_000_000_000.0) as u128;
+    //     let setup_promise = Promise::new(new_account_id.clone())
     //         .create_account()
-    //         .transfer(NearToken::from_near(1))
+    //         .transfer(NearToken::from_yoctonear(initial_balance_yoctonear))
     //         .add_full_access_key(new_public_key);
 
-    //     // Second promise: call the verification contract
-    //     let verification_promise = Promise::new(new_account_id.clone()).function_call(
-    //         self.contract_name.clone(),
-    //         "verify_and_register_user",
-    //         serde_json::json!({
+    //     // Second promise: call the verification contract on the current contract
+    //     let verification_promise = Promise::new(env::current_account_id()).function_call(
+    //         "verify_and_register_user".to_string(),
+    //         serde_json::to_vec(&serde_json::json!({
     //             "vrf_data": vrf_data,
     //             "webauthn_registration": webauthn_registration,
     //             "deterministic_vrf_public_key": deterministic_vrf_public_key,
-    //         }),
-    //         NearToken::from_near(1),
-    //         Gas::from(100_000_000_000_000),
+    //         })).unwrap(),
+    //         NearToken::from_yoctonear(0), // No payment needed for verification
+    //         Gas::from_tgas(100), // 100 TGas should be sufficient
     //     );
 
-    //     // Chain them together
+    //     // Chain them together - both must succeed for the transaction to succeed
     //     setup_promise.then(verification_promise)
     // }
 
@@ -638,6 +659,7 @@ mod tests {
     use super::*;
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::testing_env;
+    use near_sdk::serde_json::json;
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE};
     use std::collections::BTreeMap;
     use sha2::{Sha256, Digest};
@@ -917,7 +939,7 @@ mod tests {
     // fn test_create_account_and_verify() {
     //     let context = get_context_with_seed(42);
     //     testing_env!(context.build());
-    //     let contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
 
     //     let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
     //     let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
@@ -939,7 +961,7 @@ mod tests {
     //         block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
     //     };
 
-    //     contract.create_account_and_verify(
+    //     let _promise = contract.create_account_and_verify(
     //         new_account_id,
     //         new_public_key,
     //         vrf_data,
@@ -947,8 +969,72 @@ mod tests {
     //         None,
     //     );
 
-    //     let receipts = env::promise_results_count();
-    //     assert_eq!(receipts, 2, "Expected two promise results");
+    //     // In test environment, promises are not actually executed
+    //     // This test verifies the function compiles and creates the promise structure
+    //     println!("✅ create_account_and_verify function executed successfully");
+    // }
+
+    //     #[test]
+    // fn test_create_account_and_verify_enabled_check() {
+    //     // Test that create_account_and_verify function exists and can be called
+    //     // Note: This test verifies the function compiles and has correct signature
+    //     let context = get_context_with_seed(42);
+    //     testing_env!(context.build());
+    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+
+    //     // Verify account creation is enabled by default
+    //     assert!(contract.account_creation_settings.enabled);
+    //     assert_eq!(contract.account_creation_settings.initial_balance_near, 0.1);
+
+    //     println!("✅ create_account_and_verify enabled check test passed");
+    // }
+
+    // #[test]
+    // fn test_account_creation_settings_default() {
+    //     // Test that account creation settings have reasonable defaults
+    //     let settings = crate::AccountCreationSettings::default();
+
+    //     assert_eq!(settings.initial_balance_near, 0.1);
+    //     assert_eq!(settings.enabled, true);
+    //     assert_eq!(settings.max_accounts_per_day, 1000);
+
+    //     println!("✅ Account creation settings default test passed");
+    // }
+
+    // #[test]
+    // fn test_account_creation_settings_configuration() {
+    //     // Test that account creation settings can be configured
+    //     let context = get_context_with_seed(42);
+    //     testing_env!(context.build());
+    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+
+    //     // Set up the context so the predecessor is the same as the current account (contract owner)
+    //     let mut context_builder = get_context_with_seed(42);
+    //     context_builder.current_account_id(accounts(0));
+    //     context_builder.predecessor_account_id(accounts(0)); // Same as current account
+    //     testing_env!(context_builder.build());
+
+    //     // Test initial settings
+    //     let initial_settings = contract.get_account_creation_settings();
+    //     assert_eq!(initial_settings.initial_balance_near, 0.1);
+    //     assert_eq!(initial_settings.enabled, true);
+
+    //     // Update settings
+    //     let new_settings = crate::AccountCreationSettings {
+    //         initial_balance_near: 0.5,
+    //         enabled: false,
+    //         max_accounts_per_day: 500,
+    //     };
+
+    //     contract.update_account_creation_settings(new_settings.clone());
+
+    //     // Verify settings were updated
+    //     let updated_settings = contract.get_account_creation_settings();
+    //     assert_eq!(updated_settings.initial_balance_near, 0.5);
+    //     assert_eq!(updated_settings.enabled, false);
+    //     assert_eq!(updated_settings.max_accounts_per_day, 500);
+
+    //     println!("✅ Account creation settings configuration test passed");
     // }
 
 }

@@ -1,5 +1,5 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
-use near_sdk::{log, near,  env, require, AccountId};
+use near_sdk::{log, near,  env, require, AccountId, serde_json};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -85,6 +85,150 @@ impl WebAuthnContract {
     /// Get all admins
     pub fn get_admins(&self) -> Vec<AccountId> {
         self.admins.iter().cloned().collect()
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////
+    // TESTNET-ONLY FUNCTIONS: State Deletion
+    // These functions are for testnet deployment only and should not be used in production
+    // They allow the contract owner to clear state to avoid "large state" issues
+    ///////////////////////////////////////////////////////////////////////////////////
+
+    /// Clear all authenticators (only contract owner can call this)
+    /// TESTNET-ONLY: This function is for testnet deployment only
+    #[private]
+    pub fn clear_authenticators(&mut self) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can clear authenticators");
+        }
+
+        // Use registered_users to get all account IDs and clear their authenticators
+        let users: Vec<AccountId> = self.registered_users.iter().cloned().collect();
+        let count = users.len();
+
+        // Remove all authenticator entries for each user
+        for user_id in users {
+            self.authenticators.remove(&user_id);
+        }
+
+        log!("Cleared {} authenticator entries", count);
+    }
+
+    /// Clear all credential to users mappings (only contract owner can call this)
+    /// TESTNET-ONLY: This function is for testnet deployment only
+    /// Note: This collects credential IDs from authenticators before clearing them
+    #[private]
+    pub fn clear_credential_to_users(&mut self) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can clear credential to users mappings");
+        }
+
+        let mut credential_ids = Vec::new();
+
+        // Collect all credential IDs from all users' authenticators
+        for user_id in self.registered_users.iter() {
+            if let Some(user_authenticators) = self.authenticators.get(user_id) {
+                for credential_id in user_authenticators.keys() {
+                    credential_ids.push(credential_id.clone());
+                }
+            }
+        }
+
+        let count = credential_ids.len();
+
+        // Remove all credential to users mappings
+        for credential_id in credential_ids {
+            self.credential_to_users.remove(&credential_id);
+        }
+
+        log!("Cleared {} credential to users mappings", count);
+    }
+
+    /// Clear all registered users (only contract owner can call this)
+    /// TESTNET-ONLY: This function is for testnet deployment only
+    #[private]
+    pub fn clear_registered_users(&mut self) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can clear registered users");
+        }
+
+        let count = self.registered_users.len();
+        self.registered_users.clear();
+        log!("Cleared {} registered users", count);
+    }
+
+    /// Clear all contract state (only contract owner can call this)
+    /// This is a nuclear option that clears all user data
+    /// TESTNET-ONLY: This function is for testnet deployment only
+    pub fn clear_all_state(&mut self) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can clear all state");
+        }
+
+        // Step 1: Collect all credential IDs from authenticators before clearing them
+        let mut credential_ids = Vec::new();
+        for user_id in self.registered_users.iter() {
+            if let Some(user_authenticators) = self.authenticators.get(user_id) {
+                for credential_id in user_authenticators.keys() {
+                    credential_ids.push(credential_id.clone());
+                }
+            }
+        }
+
+        // Step 2: Clear credential_to_users mappings using collected credential IDs
+        let cred_count = credential_ids.len();
+        for credential_id in credential_ids {
+            self.credential_to_users.remove(&credential_id);
+        }
+
+        // Step 3: Clear authenticators for each registered user
+        let users: Vec<AccountId> = self.registered_users.iter().cloned().collect();
+        let auth_count = users.len();
+        for user_id in users {
+            self.authenticators.remove(&user_id);
+        }
+
+        // Step 4: Clear registered users
+        let users_count = self.registered_users.len();
+        self.registered_users.clear();
+
+        log!("Cleared all state: {} authenticators, {} registered users, {} credential mappings",
+             auth_count, users_count, cred_count);
+    }
+
+    /// Get state statistics (view function)
+    /// TESTNET-ONLY: This function is for testnet deployment only
+    pub fn get_state_stats(&self) -> serde_json::Value {
+        // Count authenticators and credential IDs by iterating through registered users
+        let mut total_authenticators = 0;
+        let mut total_credential_ids = 0;
+
+        for user_id in self.registered_users.iter() {
+            if let Some(user_authenticators) = self.authenticators.get(user_id) {
+                let user_auth_count = user_authenticators.keys().count();
+                total_authenticators += 1; // One authenticator entry per user
+                total_credential_ids += user_auth_count;
+            }
+        }
+
+        serde_json::json!({
+            "registered_users_count": self.registered_users.len(),
+            "authenticator_entries_count": total_authenticators,
+            "total_credential_ids": total_credential_ids,
+            "admins_count": self.admins.len(),
+            "note": "credential_to_users count not available due to LookupMap limitations"
+        })
     }
 
 }
