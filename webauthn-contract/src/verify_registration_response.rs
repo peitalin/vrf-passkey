@@ -95,45 +95,45 @@ impl WebAuthnContract {
     ///
     /// # Returns
     /// * `Promise` - Chained promise that creates account and verifies registration
-    // pub fn create_account_and_verify(
-    //     &mut self,
-    //     new_account_id: AccountId,
-    //     new_public_key: PublicKey,
-    //     vrf_data: VRFVerificationData,
-    //     webauthn_registration: WebAuthnRegistrationCredential,
-    //     deterministic_vrf_public_key: Option<Vec<u8>>,
-    // ) -> Promise {
+    pub fn create_account_and_verify(
+        &mut self,
+        new_account_id: AccountId,
+        new_public_key: PublicKey,
+        vrf_data: VRFVerificationData,
+        webauthn_registration: WebAuthnRegistrationCredential,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
+    ) -> Promise {
 
-    //     // Check if account creation is enabled
-    //     if !self.account_creation_settings.enabled {
-    //         env::panic_str("Account creation is currently disabled");
-    //     }
+        // Check if account creation is enabled
+        if !self.account_creation_settings.enabled {
+            env::panic_str("Account creation is currently disabled");
+        }
 
-    //     log!("Creating account and verifying registration for: {}", new_account_id);
-    //     log!("  - Initial balance: {} NEAR", self.account_creation_settings.initial_balance_near);
+        log!("Creating account and verifying registration for: {}", new_account_id);
+        log!("  - Initial balance: {} NEAR", self.account_creation_settings.initial_balance_near);
 
-    //     // First promise: setup the new account
-    //     let initial_balance_yoctonear = (self.account_creation_settings.initial_balance_near * 1_000_000_000_000_000_000_000_000.0) as u128;
-    //     let setup_promise = Promise::new(new_account_id.clone())
-    //         .create_account()
-    //         .transfer(NearToken::from_yoctonear(initial_balance_yoctonear))
-    //         .add_full_access_key(new_public_key);
+        // First promise: setup the new account
+        let initial_balance_yoctonear = (self.account_creation_settings.initial_balance_near * 1_000_000_000_000_000_000_000_000.0) as u128;
+        let setup_promise = Promise::new(new_account_id.clone())
+            .create_account()
+            .transfer(NearToken::from_yoctonear(initial_balance_yoctonear))
+            .add_full_access_key(new_public_key);
 
-    //     // Second promise: call the verification contract on the current contract
-    //     let verification_promise = Promise::new(env::current_account_id()).function_call(
-    //         "verify_and_register_user".to_string(),
-    //         serde_json::to_vec(&serde_json::json!({
-    //             "vrf_data": vrf_data,
-    //             "webauthn_registration": webauthn_registration,
-    //             "deterministic_vrf_public_key": deterministic_vrf_public_key,
-    //         })).unwrap(),
-    //         NearToken::from_yoctonear(0), // No payment needed for verification
-    //         Gas::from_tgas(100), // 100 TGas should be sufficient
-    //     );
+        // Second promise: call the verification contract on the current contract
+        let verification_promise = Promise::new(env::current_account_id()).function_call(
+            "verify_and_register_user".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "vrf_data": vrf_data,
+                "webauthn_registration": webauthn_registration,
+                "deterministic_vrf_public_key": deterministic_vrf_public_key,
+            })).unwrap(),
+            NearToken::from_yoctonear(0), // No payment needed for verification
+            Gas::from_tgas(100), // 100 TGas should be sufficient
+        );
 
-    //     // Chain them together - both must succeed for the transaction to succeed
-    //     setup_promise.then(verification_promise)
-    // }
+        // Chain them together - both must succeed for the transaction to succeed
+        setup_promise.then(verification_promise)
+    }
 
     pub fn verify_and_register_user(
         &mut self,
@@ -935,106 +935,106 @@ mod tests {
         println!("✅ VRF challenge construction format verified");
     }
 
-    // #[test]
-    // fn test_create_account_and_verify() {
-    //     let context = get_context_with_seed(42);
-    //     testing_env!(context.build());
-    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+    #[test]
+    fn test_create_account_and_verify() {
+        let context = get_context_with_seed(42);
+        testing_env!(context.build());
+        let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
 
-    //     let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
-    //     let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
-    //     let user_id = "test_user_123".to_string();
-    //     let args = json!({
-    //         "some_key": "some_value"
-    //     });
+        let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
+        let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
+        let user_id = "test_user_123".to_string();
+        let args = json!({
+            "some_key": "some_value"
+        });
 
-    //     let mock_vrf = MockVRFData::create_mock();
-    //     let webauthn_registration = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
-    //     let vrf_data = VRFVerificationData {
-    //         vrf_input_data: mock_vrf.input_data,
-    //         vrf_output: mock_vrf.output,
-    //         vrf_proof: mock_vrf.proof,
-    //         public_key: mock_vrf.public_key,
-    //         user_id: "test_user_123".to_string(),
-    //         rp_id: "example.com".to_string(),
-    //         block_height: 1234567890u64,
-    //         block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
-    //     };
+        let mock_vrf = MockVRFData::create_mock();
+        let webauthn_registration = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
+        let vrf_data = VRFVerificationData {
+            vrf_input_data: mock_vrf.input_data,
+            vrf_output: mock_vrf.output,
+            vrf_proof: mock_vrf.proof,
+            public_key: mock_vrf.public_key,
+            user_id: "test_user_123".to_string(),
+            rp_id: "example.com".to_string(),
+            block_height: 1234567890u64,
+            block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
+        };
 
-    //     let _promise = contract.create_account_and_verify(
-    //         new_account_id,
-    //         new_public_key,
-    //         vrf_data,
-    //         webauthn_registration,
-    //         None,
-    //     );
+        let _promise = contract.create_account_and_verify(
+            new_account_id,
+            new_public_key,
+            vrf_data,
+            webauthn_registration,
+            None,
+        );
 
-    //     // In test environment, promises are not actually executed
-    //     // This test verifies the function compiles and creates the promise structure
-    //     println!("✅ create_account_and_verify function executed successfully");
-    // }
+        // In test environment, promises are not actually executed
+        // This test verifies the function compiles and creates the promise structure
+        println!("✅ create_account_and_verify function executed successfully");
+    }
 
-    //     #[test]
-    // fn test_create_account_and_verify_enabled_check() {
-    //     // Test that create_account_and_verify function exists and can be called
-    //     // Note: This test verifies the function compiles and has correct signature
-    //     let context = get_context_with_seed(42);
-    //     testing_env!(context.build());
-    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+        #[test]
+    fn test_create_account_and_verify_enabled_check() {
+        // Test that create_account_and_verify function exists and can be called
+        // Note: This test verifies the function compiles and has correct signature
+        let context = get_context_with_seed(42);
+        testing_env!(context.build());
+        let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
 
-    //     // Verify account creation is enabled by default
-    //     assert!(contract.account_creation_settings.enabled);
-    //     assert_eq!(contract.account_creation_settings.initial_balance_near, 0.1);
+        // Verify account creation is enabled by default
+        assert!(contract.account_creation_settings.enabled);
+        assert_eq!(contract.account_creation_settings.initial_balance_near, 0.1);
 
-    //     println!("✅ create_account_and_verify enabled check test passed");
-    // }
+        println!("✅ create_account_and_verify enabled check test passed");
+    }
 
-    // #[test]
-    // fn test_account_creation_settings_default() {
-    //     // Test that account creation settings have reasonable defaults
-    //     let settings = crate::AccountCreationSettings::default();
+    #[test]
+    fn test_account_creation_settings_default() {
+        // Test that account creation settings have reasonable defaults
+        let settings = crate::AccountCreationSettings::default();
 
-    //     assert_eq!(settings.initial_balance_near, 0.1);
-    //     assert_eq!(settings.enabled, true);
-    //     assert_eq!(settings.max_accounts_per_day, 1000);
+        assert_eq!(settings.initial_balance_near, 0.1);
+        assert_eq!(settings.enabled, true);
+        assert_eq!(settings.max_accounts_per_day, 1000);
 
-    //     println!("✅ Account creation settings default test passed");
-    // }
+        println!("✅ Account creation settings default test passed");
+    }
 
-    // #[test]
-    // fn test_account_creation_settings_configuration() {
-    //     // Test that account creation settings can be configured
-    //     let context = get_context_with_seed(42);
-    //     testing_env!(context.build());
-    //     let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+    #[test]
+    fn test_account_creation_settings_configuration() {
+        // Test that account creation settings can be configured
+        let context = get_context_with_seed(42);
+        testing_env!(context.build());
+        let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
 
-    //     // Set up the context so the predecessor is the same as the current account (contract owner)
-    //     let mut context_builder = get_context_with_seed(42);
-    //     context_builder.current_account_id(accounts(0));
-    //     context_builder.predecessor_account_id(accounts(0)); // Same as current account
-    //     testing_env!(context_builder.build());
+        // Set up the context so the predecessor is the same as the current account (contract owner)
+        let mut context_builder = get_context_with_seed(42);
+        context_builder.current_account_id(accounts(0));
+        context_builder.predecessor_account_id(accounts(0)); // Same as current account
+        testing_env!(context_builder.build());
 
-    //     // Test initial settings
-    //     let initial_settings = contract.get_account_creation_settings();
-    //     assert_eq!(initial_settings.initial_balance_near, 0.1);
-    //     assert_eq!(initial_settings.enabled, true);
+        // Test initial settings
+        let initial_settings = contract.get_account_creation_settings();
+        assert_eq!(initial_settings.initial_balance_near, 0.1);
+        assert_eq!(initial_settings.enabled, true);
 
-    //     // Update settings
-    //     let new_settings = crate::AccountCreationSettings {
-    //         initial_balance_near: 0.5,
-    //         enabled: false,
-    //         max_accounts_per_day: 500,
-    //     };
+        // Update settings
+        let new_settings = crate::AccountCreationSettings {
+            initial_balance_near: 0.5,
+            enabled: false,
+            max_accounts_per_day: 500,
+        };
 
-    //     contract.update_account_creation_settings(new_settings.clone());
+        contract.update_account_creation_settings(new_settings.clone());
 
-    //     // Verify settings were updated
-    //     let updated_settings = contract.get_account_creation_settings();
-    //     assert_eq!(updated_settings.initial_balance_near, 0.5);
-    //     assert_eq!(updated_settings.enabled, false);
-    //     assert_eq!(updated_settings.max_accounts_per_day, 500);
+        // Verify settings were updated
+        let updated_settings = contract.get_account_creation_settings();
+        assert_eq!(updated_settings.initial_balance_near, 0.5);
+        assert_eq!(updated_settings.enabled, false);
+        assert_eq!(updated_settings.max_accounts_per_day, 500);
 
-    //     println!("✅ Account creation settings configuration test passed");
-    // }
+        println!("✅ Account creation settings configuration test passed");
+    }
 
 }

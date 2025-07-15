@@ -95,7 +95,7 @@ pub struct WebAuthnContract {
     // Global VRF configuration
     pub vrf_settings: VRFSettings,
     // // Account creation configuration - Comment out for now to maintain consistency with existing deployed state
-    // pub account_creation_settings: AccountCreationSettings,
+    pub account_creation_settings: AccountCreationSettings,
     // 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users
@@ -122,7 +122,7 @@ impl WebAuthnContract {
             contract_name,
             greeting: "Hello".to_string(),
             vrf_settings: VRFSettings::default(),
-            // account_creation_settings: AccountCreationSettings::default(),
+            account_creation_settings: AccountCreationSettings::default(),
             admins: IterableSet::new(StorageKey::Admins),
             authenticators: LookupMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
@@ -200,25 +200,23 @@ impl WebAuthnContract {
         self.vrf_settings.clone()
     }
 
-    // /// Update account creation settings (only contract owner can call this)
-    // pub fn update_account_creation_settings(&mut self, settings: AccountCreationSettings) {
-    //     let predecessor = env::predecessor_account_id();
-    //     let contract_account = env::current_account_id();
+    /// Update account creation settings (only contract owner can call this)
+    pub fn update_account_creation_settings(&mut self, settings: AccountCreationSettings) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
 
-    //     if predecessor != contract_account {
-    //         env::panic_str("Only the contract owner can update account creation settings");
-    //     }
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can update account creation settings");
+        }
 
-    //     self.account_creation_settings = settings;
-    //     log!("Account creation settings updated");
-    // }
+        self.account_creation_settings = settings;
+        log!("Account creation settings updated");
+    }
 
-    // /// Get current account creation settings
-    // pub fn get_account_creation_settings(&self) -> AccountCreationSettings {
-    //     self.account_creation_settings.clone()
-    // }
-
-
+    /// Get current account creation settings
+    pub fn get_account_creation_settings(&self) -> AccountCreationSettings {
+        self.account_creation_settings.clone()
+    }
 
 }
 
