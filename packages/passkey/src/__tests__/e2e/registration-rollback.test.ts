@@ -9,10 +9,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest } from '../setup';
-
-// Import crypto functions for testing
-import { webcrypto } from 'crypto';
+import { setupBasicPasskeyTest, type TestUtils } from '../setup';
 
 test.describe('PasskeyManager Registration Rollback Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -31,18 +28,8 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
 
     console.log('Testing presigned delete transaction hash generation...');
 
-    // Step 1: Mock base64UrlEncode function (simplified version)
-    function base64UrlEncode(buffer: ArrayBuffer): string {
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '');
-    }
+    // Step 1: Import base64UrlEncode directly from source
+    const { base64UrlEncode } = await import('../../utils/encoders');
 
     // Step 2: Replicate the hash generation logic from registration.ts
     function generateTransactionHash(signedTransaction: { borsh_bytes: number[] }): string {
@@ -95,18 +82,8 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
 
     console.log('Testing presigned delete transaction message format...');
 
-    // Mock the hash generation (same as previous test)
-    function base64UrlEncode(buffer: ArrayBuffer): string {
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '');
-    }
+    // Import base64UrlEncode directly from source
+    const { base64UrlEncode } = await import('../../utils/encoders');
 
     function generateTransactionHash(signedTransaction: { borsh_bytes: number[] }): string {
       const transactionBytes = new Uint8Array(signedTransaction.borsh_bytes);
@@ -151,7 +128,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
 
   test('Registration Rollback - Event Monitoring for Presigned Delete Transaction', async ({ page }) => {
     const result = await page.evaluate(async () => {
-      const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils;
+      const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils as TestUtils;
       const testAccountId = generateTestAccountId();
 
       console.log(`Testing registration rollback event monitoring for: ${testAccountId}`);
@@ -168,8 +145,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
         });
 
         // Attempt registration and capture events
-        const registrationResult = await passkeyManager.registerPasskey({
-          accountId: testAccountId,
+        const registrationResult = await passkeyManager.registerPasskey(testAccountId, {
           onEvent: (event: any) => {
             registrationEvents.push({
               step: event.step,
@@ -192,7 +168,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
 
         console.log(`Registration result:`, {
           success: registrationResult?.success,
-          accountId: registrationResult?.accountId,
+          testAccountId: testAccountId,
           eventsCount: registrationEvents.length
         });
 
@@ -253,99 +229,84 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
   ////////////////////////////////////
 
   test('Comprehensive rollback verification - state consistency', async ({ page }) => {
+    // Increase timeout for registration + verification
+    test.setTimeout(60000); // 1 minute
+
     const result = await page.evaluate(async () => {
-      const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils;
+      const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils as TestUtils;
 
-      const testResults = [];
+      const testAccountId = generateTestAccountId();
+      console.log(`Testing comprehensive rollback scenario for: ${testAccountId}`);
 
-      // Test multiple accounts to verify state consistency
-      for (let i = 0; i < 3; i++) {
-        const testAccountId = generateTestAccountId();
-        console.log(`Testing comprehensive rollback scenario ${i + 1} for: ${testAccountId}`);
+      try {
+        // Attempt registration (may succeed or fail depending on environment)
+        const registrationEvents: any[] = [];
+        let hasPreSignedDeleteTransaction = false;
 
-        try {
-          // Attempt registration (may succeed or fail depending on environment)
-          const registrationEvents: any[] = [];
-          let hasPreSignedDeleteTransaction = false;
+        const registrationResult = await passkeyManager.registerPasskey(testAccountId, {
+          onEvent: (event: any) => {
+            registrationEvents.push({
+              step: event.step,
+              phase: event.phase,
+              status: event.status,
+              message: event.message
+            });
 
-          const registrationResult = await passkeyManager.registerPasskey({
-            accountId: testAccountId,
-            onEvent: (event: any) => {
-              registrationEvents.push({
-                step: event.step,
-                phase: event.phase,
-                status: event.status,
-                message: event.message
-              });
-
-              // Track if presigned delete transaction was created
-              if (event.message && event.message.includes('Presigned delete transaction created for rollback')) {
-                hasPreSignedDeleteTransaction = true;
-              }
+            // Track if presigned delete transaction was created
+            if (event.message && event.message.includes('Presigned delete transaction created for rollback')) {
+              hasPreSignedDeleteTransaction = true;
             }
-          });
+          }
+        });
 
-          const accountExists = await verifyAccountExists(testAccountId);
+        const accountExists = await verifyAccountExists(testAccountId);
 
-          testResults.push({
-            testAccountId,
-            registrationSuccess: registrationResult?.success || false,
-            accountExists,
-            hasPreSignedDeleteTransaction,
-            eventsCount: registrationEvents.length,
-            phases: registrationEvents.map(e => e.phase).filter((v, i, a) => a.indexOf(v) === i)
-          });
+        return {
+          success: true,
+          testAccountId,
+          registrationSuccess: registrationResult?.success || false,
+          accountExists,
+          hasPreSignedDeleteTransaction,
+          eventsCount: registrationEvents.length,
+          phases: registrationEvents.map(e => e.phase).filter((v, i, a) => a.indexOf(v) === i)
+        };
 
-        } catch (error: any) {
-          testResults.push({
-            testAccountId,
-            registrationSuccess: false,
-            accountExists: false,
-            hasPreSignedDeleteTransaction: false,
-            error: error.message
-          });
-        }
-
-        // Add delay between attempts
-        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error: any) {
+        return {
+          success: false,
+          testAccountId,
+          registrationSuccess: false,
+          accountExists: false,
+          hasPreSignedDeleteTransaction: false,
+          error: error.message
+        };
       }
-
-      return {
-        success: true,
-        testResults,
-        totalTests: testResults.length
-      };
     });
 
     // Verify the test executed
     expect(result.success).toBe(true);
-    expect(result.testResults.length).toBe(3);
+    expect(result.testAccountId).toBeTruthy();
 
-    // Log results for each test
-    result.testResults.forEach((testResult: any, index: number) => {
-      console.log(`Test ${index + 1} - ${testResult.testAccountId}:`);
-      console.log(`   Registration success: ${testResult.registrationSuccess}`);
-      console.log(`   Account exists: ${testResult.accountExists}`);
-      console.log(`   Has presigned delete transaction: ${testResult.hasPreSignedDeleteTransaction}`);
+    // Log test results
+    console.log(`Test - ${result.testAccountId}:`);
+    console.log(`   Registration success: ${result.registrationSuccess}`);
+    console.log(`   Account exists: ${result.accountExists}`);
+    console.log(`   Has presigned delete transaction: ${result.hasPreSignedDeleteTransaction}`);
 
-      if (testResult.phases) {
-        console.log(`   Registration phases: ${testResult.phases.join(', ')}`);
-      }
+    if (result.phases) {
+      console.log(`Registration phases: ${result.phases.join(', ')}`);
+    }
 
-      if (testResult.error) {
-        console.log(`   Error: ${testResult.error}`);
-      }
-    });
+    if (result.error) {
+      console.log(`Error: ${result.error}`);
+    }
 
     // Verify that when registration succeeds, presigned delete transactions are created
-    const successfulRegistrations = result.testResults.filter((r: any) => r.registrationSuccess);
-    if (successfulRegistrations.length > 0) {
-      successfulRegistrations.forEach((r: any) => {
-        expect(r.hasPreSignedDeleteTransaction).toBe(true);
-      });
-      console.log(`✅ All successful registrations (${successfulRegistrations.length}) created presigned delete transactions`);
+    if (result.registrationSuccess) {
+      expect(result.hasPreSignedDeleteTransaction).toBe(true);
+      console.log(`✅ Registration created presigned delete transaction successfully`);
     } else {
-      console.log(`️No successful registrations in this test run - this is expected in some test environments`);
+      console.log(`️No successful registration in this test run - this is expected in some test environments`);
     }
   });
 

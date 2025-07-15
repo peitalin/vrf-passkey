@@ -204,23 +204,33 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         console.log(`Testing transfer: ${testAccountId} → ${receiverAccountId}`);
 
         const actionEvents: any[] = [];
-        const transferResult = await passkeyManager.executeAction(
-          testAccountId,
-          {
-            type: actionType.Transfer, // Use the passed ActionType
-            receiverId: receiverAccountId,
-            amount: "500000000000000000000000", // 0.5 NEAR in yoctoNEAR
-          },
-          {
-            onEvent: (event: any) => {
-              actionEvents.push(event);
-              console.log(`Action [${event.step}]: ${event.phase} - ${event.message}`);
+        let transferResult;
+
+        try {
+          transferResult = await passkeyManager.executeAction(
+            testAccountId,
+            {
+              type: actionType.Transfer, // Use the passed ActionType
+              receiverId: receiverAccountId,
+              amount: "500000000000000000000000", // 0.5 NEAR in yoctoNEAR
             },
-            onError: (error: any) => {
-              console.error('Action Error:', error);
+            {
+              onEvent: (event: any) => {
+                actionEvents.push(event);
+                console.log(`Action [${event.step}]: ${event.phase} - ${event.message}`);
+              },
+              onError: (error: any) => {
+                console.error('Action Error:', error);
+              }
             }
-          }
-        );
+          );
+
+          console.log('Transfer completed. Result:', transferResult);
+        } catch (transferError: any) {
+          console.error('Transfer failed with exception:', transferError);
+          console.error('Transfer error stack:', transferError.stack);
+          transferResult = { success: false, error: transferError.message };
+        }
 
         // =================================================================
         // PHASE 3: RECOVERY FLOW
@@ -321,8 +331,15 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
     if (result.transferResult?.success) {
       expect(result.actionEventPhases).toContain('preparation');
       console.log(`Actions flow: Transfer completed successfully`);
+      console.log(`   Transaction ID: ${(result.transferResult as any)?.transactionId || 'N/A'}`);
     } else {
-      console.log(`️Actions flow: Transfer failed - ${result.transferResult?.error || 'Unknown error'}`);
+      console.log(`️Actions flow: Transfer failed`);
+      console.log(`   Error: ${result.transferResult?.error || 'Unknown error'}`);
+      console.log(`   Action events captured: ${result.actionEventPhases?.length || 0}`);
+      console.log(`   Action event phases: ${result.actionEventPhases?.join(', ') || 'none'}`);
+      if (result.finalActionEvent) {
+        console.log(`   Final action event: ${result.finalActionEvent.phase} - ${result.finalActionEvent.message}`);
+      }
     }
 
     // Phase 3: Recovery

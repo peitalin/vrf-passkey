@@ -378,13 +378,39 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
     const originalCredentialsCreate = navigator.credentials?.create;
     const originalCredentialsGet = navigator.credentials?.get;
 
-    const createProperAttestationObject = (rpIdHash: Uint8Array, credentialIdString: string): Uint8Array => {
-      // CRITICAL: Convert string credential ID to bytes for embedding in attestation object
+    const createProperAttestationObject = async (rpIdHash: Uint8Array, credentialIdString: string): Promise<Uint8Array> => {
+      // Convert string credential ID to bytes for embedding in attestation object
       // This ensures the contract will store and lookup the credential using the same format
       const credentialIdBytes = new TextEncoder().encode(credentialIdString);
 
-      // Create valid authenticator data following contract format
-      const authData = new Uint8Array(37 + 16 + 2 + credentialIdBytes.length + 77); // Dynamic size based on credential ID
+      // Generate real Ed25519 keypair using @near-js/crypto
+      const { KeyPair } = await import('@near-js/crypto');
+      const keyPair = KeyPair.fromRandom('ed25519');
+      const publicKeyBytes = keyPair.getPublicKey().data;
+
+      // Store the private key for later signature generation
+      (window as any).__testKeyPairs = (window as any).__testKeyPairs || {};
+      (window as any).__testKeyPairs[credentialIdString] = keyPair;
+
+      console.log('Generated real Ed25519 keypair for credential:', credentialIdString);
+      console.log('Public key bytes:', Array.from(publicKeyBytes));
+
+      // Create COSE key using the real Ed25519 public key
+      // This replicates the exact CBOR structure the contract expects and can parse
+      const coseKeyBytes = new Uint8Array([
+        0xa4,                           // map(4) - 4 key-value pairs
+        0x01, 0x01,                     // 1: 1 (kty: OKP)
+        0x03, 0x27,                     // 3: -8 (alg: EdDSA)
+        0x20, 0x06,                     // -1: 6 (crv: Ed25519)
+        0x21, 0x58, 0x20,               // -2: bytes(32) (x coordinate)
+        ...publicKeyBytes               // Real Ed25519 public key
+      ]);
+
+      // Create valid authenticator data following contract format in:
+      // webauthn-contract/src/utils/verifiers.rs
+      // Size: rpIdHash(32) + flags(1) + counter(4) + aaguid(16) + credIdLen(2) + credId + coseKey
+      const coseKeySize = coseKeyBytes.length; // Use actual COSE key size from contract test
+      const authData = new Uint8Array(37 + 16 + 2 + credentialIdBytes.length + coseKeySize);
       let offset = 0;
 
       // RP ID hash (32 bytes)
@@ -413,26 +439,10 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
       authData[offset + 1] = credentialIdBytes.length & 0xff;
       offset += 2;
 
-      // CRITICAL: Embed the credential ID bytes in attestation object
+      // Embed the credential ID bytes in attestation object
       // This is what the contract will extract and base64url-encode for storage
       authData.set(credentialIdBytes, offset);
       offset += credentialIdBytes.length;
-
-      // Mock COSE Ed25519 public key (77 bytes total)
-      const mockEd25519Pubkey = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) {
-        mockEd25519Pubkey[i] = 0x42;
-      }
-
-      // Simple CBOR encoding for the COSE key (simplified for mock)
-      const coseKeyBytes = new Uint8Array([
-        0xa4, // map with 4 items
-        0x01, 0x01, // kty: OKP
-        0x03, 0x27, // alg: EdDSA (-8)
-        0x20, 0x06, // crv: Ed25519
-        0x21, 0x58, 0x20, // x: bytes(32)
-        ...mockEd25519Pubkey
-      ]);
 
       authData.set(coseKeyBytes, offset);
 
@@ -476,14 +486,14 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, 200));
 
         const prfRequested = options.publicKey.extensions?.prf;
-        const rpId = window.location.hostname;
+        // Use hardcoded RP ID for test consistency (browser context doesn't have access to DEFAULT_TEST_CONFIG)
+        const rpId = 'example.localhost';
         const rpIdBytes = new TextEncoder().encode(rpId);
         const rpIdHashBuffer = await crypto.subtle.digest('SHA-256', rpIdBytes);
         const rpIdHash = new Uint8Array(rpIdHashBuffer);
 
         // Extract account ID from user info for deterministic PRF
         const accountId = options.publicKey.user?.name || 'default-account';
-        console.log('[REG PRF DEBUG] Registration account ID:', accountId);
 
         // CRITICAL: Credential ID Format for Contract Compatibility
         // ========================================================
@@ -496,7 +506,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         // Create proper CBOR-encoded attestation object that matches contract expectations
-        const attestationObjectBytes = createProperAttestationObject(rpIdHash, credentialIdString);
+        const attestationObjectBytes = await createProperAttestationObject(rpIdHash, credentialIdString);
 
         return {
           // CRITICAL: Use base64url-encoded format that matches contract storage key
@@ -508,7 +518,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
             clientDataJSON: new TextEncoder().encode(JSON.stringify({
               type: 'webauthn.create',
               challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
-              origin: window.location.origin,
+              origin: 'https://example.localhost', // Must match contract expectations
               crossOrigin: false
             })),
             attestationObject: attestationObjectBytes,
@@ -519,17 +529,12 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
-              console.log('[REG PRF DEBUG] Generating PRF outputs for account:', accountId);
-              const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
-              const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
-              console.log('[REG PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
-              console.log('[REG PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
-
+              console.log('[PRF DEBUG] Generating PRF outputs for account:', accountId);
               results.prf = {
                 enabled: true,
                 results: {
-                  first: firstPRF,
-                  second: secondPRF
+                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
+                  second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
                 }
               };
             }
@@ -618,11 +623,78 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
             clientDataJSON: new TextEncoder().encode(JSON.stringify({
               type: 'webauthn.get',
               challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
-              origin: window.location.origin,
+              origin: 'https://example.localhost', // Must match contract expectations
               crossOrigin: false
             })),
-            authenticatorData: new Uint8Array(37).fill(0x05),
-            signature: new Uint8Array(64).fill(0).map((_, i) => i + 100),
+            authenticatorData: await (async () => {
+              // Create proper authenticatorData with correct RP ID hash (same as registration)
+              const rpId = 'example.localhost'; // Must match registration mock
+              const rpIdBytes = new TextEncoder().encode(rpId);
+              const rpIdHashBuffer = await crypto.subtle.digest('SHA-256', rpIdBytes);
+              const rpIdHash = new Uint8Array(rpIdHashBuffer);
+
+              // AuthenticatorData structure: rpIdHash(32) + flags(1) + counter(4)
+              const authData = new Uint8Array(37);
+              authData.set(rpIdHash, 0);       // RP ID hash
+              authData[32] = 0x05;             // Flags (user present + user verified)
+              authData.set([0, 0, 0, 1], 33);  // Counter (4 bytes)
+              return authData;
+            })(),
+            signature: await (async () => {
+              // Generate proper WebAuthn signature using the stored Ed25519 keypair
+              try {
+                const keyPair = (window as any).__testKeyPairs?.[credentialIdString];
+                if (!keyPair) {
+                  console.warn('No stored keypair for credential:', credentialIdString);
+                  return new Uint8Array(64).fill(0x99); // Fallback signature
+                }
+
+                // Create proper WebAuthn authenticatorData structure (must match response)
+                const rpId = 'example.localhost';
+                const rpIdBytes = new TextEncoder().encode(rpId);
+                const rpIdHashBuffer = await crypto.subtle.digest('SHA-256', rpIdBytes);
+                const rpIdHash = new Uint8Array(rpIdHashBuffer);
+
+                const flags = 0x05; // UP (0x01) + UV (0x04)
+                const counter = new Uint8Array([0x00, 0x00, 0x00, 0x01]); // Counter = 1 (must match response)
+
+                // Build authenticatorData: rpIdHash(32) + flags(1) + counter(4)
+                const authenticatorData = new Uint8Array(37);
+                authenticatorData.set(rpIdHash, 0);
+                authenticatorData[32] = flags;
+                authenticatorData.set(counter, 33);
+
+                // Create clientDataJSON
+                const clientDataJSON = JSON.stringify({
+                  type: 'webauthn.get',
+                  challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
+                  origin: 'https://example.localhost',
+                  crossOrigin: false
+                });
+                const clientDataJSONBytes = new TextEncoder().encode(clientDataJSON);
+
+                // Hash clientDataJSON using SHA-256 (proper WebAuthn way)
+                const clientDataHashBuffer = await crypto.subtle.digest('SHA-256', clientDataJSONBytes);
+                const clientDataHash = new Uint8Array(clientDataHashBuffer);
+
+                // Create the data to sign: authenticatorData + clientDataHash
+                const dataToSign = new Uint8Array(authenticatorData.length + clientDataHash.length);
+                dataToSign.set(authenticatorData, 0);
+                dataToSign.set(clientDataHash, authenticatorData.length);
+
+                // Sign with the Ed25519 keypair
+                const signatureResult = keyPair.sign(dataToSign);
+                const signatureBytes = signatureResult.signature || signatureResult;
+
+                console.log('Generated proper WebAuthn signature for credential:', credentialIdString);
+                console.log('Signature bytes length:', signatureBytes.length);
+                console.log('Data signed length:', dataToSign.length);
+                return signatureBytes;
+              } catch (error) {
+                console.error('Error generating WebAuthn signature:', error);
+                return new Uint8Array(64).fill(0x99); // Fallback signature
+              }
+            })(),
             userHandle: new Uint8Array([1, 2, 3, 4])
           },
           getClientExtensionResults: () => {
