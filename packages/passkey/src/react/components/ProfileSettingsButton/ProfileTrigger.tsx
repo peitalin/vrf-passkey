@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { AvatarGearIcon } from '../icons/AvatarGearIcon';
 import { UserDetails } from '../icons/UserDetails';
 import type { ProfileTriggerProps } from './types';

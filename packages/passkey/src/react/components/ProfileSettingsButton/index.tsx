@@ -1,4 +1,3 @@
-import React from 'react';
 import { KeyIcon } from '../icons/KeyIcon';
 import { PaymentMethodsIcon } from '../icons/PaymentMethodsIcon';
 import { ProfileTrigger } from './ProfileTrigger';

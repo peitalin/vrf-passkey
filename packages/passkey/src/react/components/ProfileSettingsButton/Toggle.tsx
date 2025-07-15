@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 // Color constants for easy customization
 const TOGGLE_COLORS = {

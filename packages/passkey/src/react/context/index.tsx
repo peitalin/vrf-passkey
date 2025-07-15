@@ -1,5 +1,12 @@
-import React, { createContext, useState, useContext, useEffect, useCallback, useMemo, useRef } from 'react';
-import { PasskeyManager, PasskeyOption, PasskeyOptionWithoutCredential, PasskeySelection, RecoveryResult, AccountRecoveryFlow } from '../../core/PasskeyManager';
+import {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
+import { PasskeyManager, AccountRecoveryFlow } from '../../core/PasskeyManager';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';

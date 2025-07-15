@@ -54,6 +54,7 @@ import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
 import { jsonTryParse } from '../../utils';
+import { BUILD_PATHS } from '../../../build-paths.js';
 
 // === CONFIGURATION ===
 const CONFIG = {
@@ -63,7 +64,7 @@ const CONFIG = {
     REGISTRATION: 60_000, // 60s for registration operations
   },
   WORKER: {
-    URL: '/sdk/workers/web3authn-signer.worker.js',
+    URL: BUILD_PATHS.RUNTIME.SIGNER_WORKER,
     TYPE: 'module' as const,
     NAME: 'Web3AuthnSignerWorker',
   },

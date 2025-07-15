@@ -3,13 +3,24 @@
  * This Web Worker loads the VRF WASM module and provides VRF keypair management.
  */
 
+import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker';
+import { resolveWasmUrl } from './wasm/wasmLoader';
 import type { VRFWorkerMessage, VRFWorkerResponse } from './types/vrf-worker';
 
-// Import VRF WASM module directly
-import init, * as vrfWasmModule from '../wasm_vrf_worker/wasm_vrf_worker';
-import { initializeWasm } from './wasm/wasmLoader';
-// Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('../wasm_vrf_worker/wasm_vrf_worker_bg.wasm', import.meta.url);
+/**
+ * WASM Asset Path Resolution for VRF Worker
+ *
+ * Uses centralized path resolution strategy from wasmLoader.ts
+ * See wasmLoader.ts for detailed documentation on how paths work across:
+ * - SDK building (Rolldown)
+ * - Playwright E2E tests
+ * - Frontend dev installing from npm
+ */
+
+// Resolve WASM URL using the centralized resolution strategy
+const wasmUrl = resolveWasmUrl('wasm_vrf_worker_bg.wasm', 'VRF Worker');
+console.log(`[VRF Worker] WASM URL resolved to: ${wasmUrl.href}`);
+
 const { handle_message } = vrfWasmModule;
 
 // === SIMPLIFIED STATE ===
@@ -25,21 +36,7 @@ let messageQueue: MessageEvent[] = [];
 async function initializeWasmModule(): Promise<void> {
   try {
     console.log('[vrf-worker] Starting WASM module initialization...');
-
-    await initializeWasm({
-      workerName: 'vrf-worker',
-      wasmUrl,
-      initFunction: async (wasmModule?: any) => {
-        await init(wasmModule ? { module: wasmModule } : undefined);
-      },
-      validateFunction: () => {
-        if (typeof handle_message !== 'function') {
-          throw new Error('handle_message function not available after WASM initialization');
-        }
-      },
-      timeoutMs: 20000
-    });
-
+    await init(); // init function now handles loading WASM
     console.log('[vrf-worker] WASM module initialized successfully');
 
     // Mark WASM as ready and process any queued messages

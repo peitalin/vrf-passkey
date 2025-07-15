@@ -1,0 +1,4 @@
+/* React Component Styles for @web3authn/passkey */
+
+/* Import ProfileSettingsButton styles */
+@import './components/ProfileSettingsButton/Web3AuthProfileButton.css';

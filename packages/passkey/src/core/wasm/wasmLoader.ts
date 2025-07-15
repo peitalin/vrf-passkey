@@ -1,8 +1,5 @@
 /**
  * Shared WASM Loading Utility for Web Workers
- *
- * Provides a robust, reusable WASM initialization strategy that prioritizes
- * bundled WASM over network loading for SDK reliability
  */
 
 export interface WasmLoaderOptions {
@@ -29,25 +26,63 @@ export interface WasmLoaderOptions {
 }
 
 /**
- * Environment-aware WASM Loading Utility
+ * WASM Asset Path Resolution Strategy
  *
- * Handles WASM loading differences between development/test and production environments
+ * Resolves WASM file URLs with configurable base path support for different deployment scenarios:
+ *
+ * 1. SDK BUILDING (Rolldown):
+ *    - Rolldown bundles worker + WASM into dist/workers/
+ *    - Both worker.js and wasm files in same directory
+ *    - Relative path works: './filename.wasm'
+ *
+ * 2. PLAYWRIGHT E2E TESTS:
+ *    - Loads from https://example.localhost/sdk/workers/
+ *    - copy-sdk-assets.sh ensures co-location
+ *    - Relative path works: './filename.wasm'
+ *
+ * 3. FRONTEND DEV INSTALLING FROM NPM:
+ *    - Source: node_modules/@web3authn/passkey/dist/workers/
+ *    - Potential Issues: bundler separation, custom paths, CDN hosting
+ *    - Configuration options available
+ *
+ * @param wasmFilename - Name of the WASM file (e.g., 'wasm_vrf_worker_bg.wasm')
+ * @param workerName - Worker name for logging (e.g., 'VRF Worker', 'Signer Worker')
+ * @param customBaseUrl - Optional custom base URL for WASM assets
+ * @returns URL object pointing to the WASM binary
  */
-export async function loadWasm(
-  initFunction: (input?: any) => Promise<any>,
-  wasmFileName: string,
-  devMode: boolean = false
-): Promise<any> {
-  if (devMode || (import.meta as any).env?.MODE === 'test') {
-    // Dev/Test mode: Load WASM directly from source
-    console.log('[wasm-loader]: Development/test mode - loading WASM from source');
-    const wasmUrl = new URL(`../wasm_signer_worker/${wasmFileName}`, import.meta.url);
-    return await initFunction(wasmUrl);
-  } else {
-    // Production mode: Use bundled WASM (Rollup handles this)
-    console.log('[wasm-loader]: Production mode - using bundled WASM');
-    return await initFunction();
+export function resolveWasmUrl(wasmFilename: string, workerName: string, customBaseUrl?: string): URL {
+  // Priority 1: Custom base URL (for npm consumers with complex setups)
+  if (customBaseUrl) {
+    console.log(`[${workerName}] Using custom WASM base URL: ${customBaseUrl}`);
+    return new URL(wasmFilename, customBaseUrl);
   }
+
+  // Priority 2: Environment variable (for build-time configuration)
+  if (typeof process !== 'undefined' && process.env?.WASM_BASE_URL) {
+    console.log(`[${workerName}] Using environment WASM base URL: ${process.env.WASM_BASE_URL}`);
+    return new URL(wasmFilename, process.env.WASM_BASE_URL);
+  }
+
+  // Priority 3: Worker-specific environment variables
+  const workerEnvVar = workerName.toUpperCase().replace(/[^A-Z]/g, '_') + '_WASM_BASE_URL';
+  if (typeof process !== 'undefined' && process.env?.[workerEnvVar]) {
+    console.log(`[${workerName}] Using worker-specific environment WASM base URL: ${process.env[workerEnvVar]}`);
+    return new URL(wasmFilename, process.env[workerEnvVar]);
+  }
+
+  // Priority 4: Worker global configuration (set by consuming application)
+  if (typeof self !== 'undefined' && (self as any).WASM_BASE_URL) {
+    console.log(`[${workerName}] Using global WASM base URL: ${(self as any).WASM_BASE_URL}`);
+    return new URL(wasmFilename, (self as any).WASM_BASE_URL);
+  }
+
+  // Priority 5: Relative path fallback (default - works for most cases)
+  // This handles:
+  // - SDK building: rolldown puts worker + WASM in same dist/workers/ directory
+  // - E2E tests: copy-sdk-assets.sh ensures they're co-located
+  // - Simple npm usage: bundlers typically preserve relative relationships
+  console.log(`[${workerName}] Using default relative WASM path`);
+  return new URL(`./${wasmFilename}`, import.meta.url);
 }
 
 /**

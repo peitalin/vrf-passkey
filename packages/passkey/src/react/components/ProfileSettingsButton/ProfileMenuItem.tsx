@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import type { ProfileMenuItemProps } from './types';
 
 export const ProfileMenuItem = forwardRef<HTMLButtonElement, ProfileMenuItemProps>(

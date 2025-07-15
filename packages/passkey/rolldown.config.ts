@@ -6,6 +6,7 @@ const external = [
   // React dependencies
   'react',
   'react-dom',
+  'react/jsx-runtime',
 
   // All @near-js packages
   /@near-js\/.*/,
@@ -90,6 +91,16 @@ export default defineConfig([
     external,
     resolve: {
       alias: aliasConfig
+    },
+    plugins: []
+  },
+  // React CSS build - output to separate styles directory to avoid JS conflicts
+  {
+    input: 'src/react/styles.css',
+    output: {
+      dir: `${BUILD_PATHS.BUILD.ESM}/react/styles`,
+      format: 'esm',
+      assetFileNames: 'styles.css'
     },
     plugins: []
   }

@@ -13,7 +13,7 @@ import { createAccountTestnetFaucet } from './faucets/createAccountTestnetFaucet
 import { WebAuthnManager } from '../WebAuthnManager';
 import { VRFChallenge } from '../types/webauthn';
 import type { PasskeyManagerContext } from './index';
-import { base64UrlEncode } from '../../utils/encoders';
+import { base64UrlEncode, base64Decode } from '../../utils/encoders';
 
 /**
  * Core registration function that handles passkey registration
@@ -461,7 +461,7 @@ export async function generateBootstrapVrfChallenge(
   } = await nearClient.viewBlock({ finality: 'final' }).then(blockInfo => {
     return {
       blockHeight: blockInfo.header.height,
-      blockHashBytes: new Uint8Array(Buffer.from(blockInfo.header.hash, 'base64'))
+      blockHashBytes: base64Decode(blockInfo.header.hash)
     };
   });
 

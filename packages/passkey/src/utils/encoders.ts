@@ -9,7 +9,24 @@ import bs58 from 'bs58';
  * @returns Standard base64-encoded string with padding
  */
 export const base64Encode = (value: ArrayBuffer): string => {
-  return btoa(String.fromCharCode(...new Uint8Array(value)));
+  return btoa(String.fromCharCode(...Array.from(new Uint8Array(value))));
+}
+
+/**
+ * Decodes a standard base64-encoded string into a Uint8Array.
+ * Handles standard base64 format with +, /, and = characters.
+ *
+ * @param base64 - The base64-encoded string to decode
+ * @returns Uint8Array containing the decoded bytes
+ * @throws Error if decoding fails due to invalid base64 input
+ */
+export function base64Decode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import { ProfileMenuItem } from './ProfileMenuItem';
 import { ProfileRelayerToggleSection } from './ProfileRelayerToggleSection';
 import { ProfileLogoutSection } from './ProfileLogoutSection';

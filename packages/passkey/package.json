@@ -17,7 +17,7 @@
       "require": "./dist/cjs/react/index.js",
       "types": "./dist/types/react/index.d.ts"
     },
-    "./react/styles": "./dist/esm/react/index.css",
+    "./react/styles": "./dist/esm/react/styles/styles.css",
     "./worker": "./dist/web3authn-signer.worker.js",
     "./wasm": "./dist/wasm_signer_worker_bg.wasm",
     "./wasm-js": "./dist/wasm_signer_worker.js"

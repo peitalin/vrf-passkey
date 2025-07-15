@@ -1,9 +1,5 @@
-// Centralized build configuration (TypeScript version)
+// Centralized build configuration
 // This file defines all paths used across the build system
-// Update paths here and they'll be reflected everywhere
-
-// Rollup build paths are defined in rollup.config.js, they must be kept in sync
-// with this file (Rollup only uses CommonJS, cannot use Typescript imports)
 
 export const BUILD_PATHS = {
   // Build output directories

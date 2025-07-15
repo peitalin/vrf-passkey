@@ -7,15 +7,22 @@
 import { WorkerMessage, WorkerRequestType, ProgressStep, ProgressMessageType } from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
-// Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker
-const wasmUrl = new URL('./wasm_signer_worker_bg.wasm', import.meta.url);
-const { handle_signer_message } = wasmModule;
+import { resolveWasmUrl } from './wasm/wasmLoader';
 
-// Buffer polyfill for Web Workers
-// Workers don't inherit main thread polyfills, they run in an isolated environment
-// Manual polyfill is required for NEAR crypto operations that depend on Buffer.
-import { Buffer } from 'buffer';
-globalThis.Buffer = Buffer;
+/**
+ * WASM Asset Path Resolution for Signer Worker
+ *
+ * Uses centralized path resolution strategy from wasmLoader.ts
+ * See wasmLoader.ts for detailed documentation on how paths work across:
+ * - SDK building (Rolldown)
+ * - Playwright E2E tests
+ * - Frontend dev installing from npm
+ */
+
+// Resolve WASM URL using the centralized resolution strategy
+const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
+console.log(`[Signer Worker] WASM URL resolved to: ${wasmUrl.href}`);
+const { handle_signer_message } = wasmModule;
 
 let messageProcessed = false;
 

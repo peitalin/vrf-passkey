@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import { Toggle } from './Toggle';
 import type { ProfileRelayerToggleSectionProps } from './types';
 

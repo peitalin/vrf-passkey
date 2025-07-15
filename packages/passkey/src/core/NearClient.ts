@@ -285,7 +285,8 @@ export class MinimalNearClient implements NearClient {
         finality,
         account_id: params.account,
         method_name: params.method,
-        args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
+        // args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
+        args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(params.args)))
       }),
       'View Function'
     );
