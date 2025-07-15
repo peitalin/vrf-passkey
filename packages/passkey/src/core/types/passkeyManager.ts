@@ -59,15 +59,15 @@ export interface AccountVerificationSSEEvent extends BaseSSERegistrationEvent {
   error?: string;
 }
 
-export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
+export interface ContractRegistrationSSEEvent extends BaseSSERegistrationEvent {
   step: 5;
-  phase: 'database-storage';
+  phase: 'contract-registration';
   error?: string;
 }
 
-export interface ContractRegistrationSSEEvent extends BaseSSERegistrationEvent {
+export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
   step: 6;
-  phase: 'contract-registration';
+  phase: 'database-storage';
   error?: string;
 }
 

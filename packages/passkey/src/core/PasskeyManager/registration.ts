@@ -8,8 +8,8 @@ import type {
   RegistrationSSEEvent,
   OperationHooks,
 } from '../types/passkeyManager';
-import { createAccountRelayServer } from './faucets/createAccountRelayServer';
-import { createAccountTestnetFaucet } from './faucets/createAccountTestnetFaucet';
+import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
+import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccountTestnetFaucet';
 import { WebAuthnManager } from '../WebAuthnManager';
 import { VRFChallenge } from '../types/webauthn';
 import type { PasskeyManagerContext } from './index';
@@ -176,156 +176,70 @@ export async function registerPasskey(
       clientNearPublicKey: keyGenResult.publicKey,
     });
 
-    // Step 7: Create account using faucet service (before storing data)
-    console.log('Registration Step 7: Creating NEAR account via faucet service');
-    onEvent?.({
-      step: 3,
-      phase: 'access-key-addition',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Creating NEAR account...'
-    });
+    // Step 3-5: Create account and register with contract using appropriate flow
+    console.log('Registration Steps 3-5: Account creation and contract registration');
 
+    let accountAndRegistrationResult;
     if (useRelayer) {
-      if (!configs.relayServerUrl) {
-        throw new Error('Relay server URL is required when useRelayer is true');
-      }
-      // Create account using relay server
-      await createAccountRelayServer(
+      console.log('Using atomic relay-server registration flow');
+      accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
+        context,
         nearAccountId,
         keyGenResult.publicKey,
-        configs.relayServerUrl,
+        credential,
+        vrfChallenge,
+        deterministicVrfResult.vrfPublicKey,
         onEvent
-      ).then((accountCreationResult) => {
-        console.log(`DEBUG: Relay server used public key: ${keyGenResult.publicKey}`);
-        if (!accountCreationResult.success) {
-          throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
-        }
-        // Mark account as created for rollback tracking
-        registrationState.accountCreated = true;
-      });
+      );
     } else {
-      // Create account using faucet service
-      await createAccountTestnetFaucet(
+      console.log('Using sequential testnet faucet registration flow');
+      accountAndRegistrationResult = await createAccountAndRegisterWithTestnetFaucet(
+        context,
         nearAccountId,
         keyGenResult.publicKey,
+        credential,
+        vrfChallenge,
+        deterministicVrfResult.vrfPublicKey,
         onEvent
-      ).then((accountCreationResult) => {
-        console.log(`DEBUG: Testnet Faucet used public key: ${keyGenResult.publicKey}`);
-        if (!accountCreationResult.success) {
-          throw new Error(`Account creation failed: ${accountCreationResult.error || 'Unknown error'}`);
-        }
-        // Mark account as created for rollback tracking
-        registrationState.accountCreated = true;
-      });
+      );
     }
 
-    console.log('DEBUG: Faucet public key:', keyGenResult.publicKey);
-    console.log('DEBUG: About to check access key for:', nearAccountId);
+    if (!accountAndRegistrationResult.success) {
+      throw new Error(accountAndRegistrationResult.error || 'Account creation and registration failed');
+    }
 
-    onEvent?.({
-      step: 3,
-      phase: 'access-key-addition',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'NEAR account created successfully'
-    });
+    // Update registration state based on results
+    registrationState.accountCreated = true;
+    registrationState.contractRegistered = true;
+    registrationState.contractTransactionId = accountAndRegistrationResult.transactionId || null;
 
-    // Check for access key to be available
-    const accessKeyInfo = await waitForAccessKey(
-      nearClient,
-      nearAccountId,
-      keyGenResult.publicKey,
-      10, // max retries
-      1000 // 1 second delay
-    );
+    // Handle preSignedDeleteTransaction based on flow type
+    if (useRelayer) {
+      // For atomic transactions, no delete transaction is needed (rollback is automatic)
+      registrationState.preSignedDeleteTransaction = null;
+      console.log('✅ Atomic registration completed - no delete transaction needed');
+    } else {
+      // For sequential flow, store the delete transaction for rollback
+      registrationState.preSignedDeleteTransaction = accountAndRegistrationResult.preSignedDeleteTransaction;
+      console.log('✅ Pre-signed delete transaction captured for rollback');
 
-    onEvent?.({
-      step: 4,
-      phase: 'account-verification',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'Account creation verified successfully'
-    });
-
-    // Step 8: Contract verification and registration transaction
-    console.log('Registration Step 8: Contract verification and registration transaction');
-
-    const contractRegistrationResult = await webAuthnManager.signVerifyAndRegisterUser({
-      contractId: webAuthnManager.configs.contractId,
-      credential: credential,
-      vrfChallenge: vrfChallenge,
-      deterministicVrfPublicKey: deterministicVrfResult.vrfPublicKey,
-      signerAccountId: nearAccountId,
-      nearAccountId: nearAccountId,
-      publicKeyStr: keyGenResult.publicKey,
-      nearClient: nearClient,
-      onEvent: (progress) => {
-        console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
+      // Generate hash for verification/testing
+      if (registrationState.preSignedDeleteTransaction) {
+        const preSignedDeleteTransactionHash = generateTransactionHash(registrationState.preSignedDeleteTransaction);
         onEvent?.({
-          step: 6,
+          step: 5,
           phase: 'contract-registration',
           status: 'progress',
           timestamp: Date.now(),
-          message: `VRF registration: ${progress.message}`
+          message: `Presigned delete transaction created for rollback (hash: ${preSignedDeleteTransactionHash})`
         });
-      },
-    });
-
-    const contractVerified = contractRegistrationResult.verified;
-    const signedTransaction = contractRegistrationResult.signedTransaction;
-    const preSignedDeleteTransaction = contractRegistrationResult.preSignedDeleteTransaction;
-    console.log('>>> contractRegistrationResult', contractRegistrationResult);
-
-    // Store pre-signed delete transaction for rollback (always present when WASM worker succeeds)
-    registrationState.preSignedDeleteTransaction = preSignedDeleteTransaction;
-    console.log('✅ Pre-signed delete transaction captured for rollback');
-
-    // Generate hash of the presigned delete transaction for verification
-    const preSignedDeleteTransactionHash = generateTransactionHash(preSignedDeleteTransaction);
-
-    // Emit event with presigned delete transaction hash for testing/verification
-    onEvent?.({
-      step: 6,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: `Presigned delete transaction created for rollback (hash: ${preSignedDeleteTransactionHash})`
-    });
-
-    if (contractVerified && signedTransaction) {
-      // Broadcast the signed transaction
-      console.log('Broadcasting registration transaction...');
-
-      onEvent?.({
-        step: 6,
-        phase: 'contract-registration',
-        status: 'progress',
-        timestamp: Date.now(),
-        message: 'Broadcasting registration transaction...'
-      });
-
-      const transactionResult = await nearClient.sendTransaction(signedTransaction!);
-      const transactionId = transactionResult?.transaction_outcome?.id;
-      registrationState.contractTransactionId = transactionId;
-      registrationState.contractRegistered = true;
-
-      onEvent?.({
-        step: 6,
-        phase: 'contract-registration',
-        status: 'success',
-        timestamp: Date.now(),
-        message: `VRF registration successful, transaction ID: ${registrationState.contractTransactionId}`
-      });
-    } else {
-      console.warn('Contract verification failed: Registration transaction not verified');
-      throw new Error('Registration verification failed');
+      }
     }
 
-    // Step 9: Store user data with VRF credentials atomically
-    console.log('Registration Step 9: Storing VRF registration data atomically');
+    // Step 6: Store user data with VRF credentials atomically
+    console.log('Registration Step 6: Storing VRF registration data atomically');
     onEvent?.({
-      step: 5,
+      step: 6,
       phase: 'database-storage',
       status: 'progress',
       timestamp: Date.now(),
@@ -345,15 +259,15 @@ export async function registerPasskey(
     registrationState.databaseStored = true;
 
     onEvent?.({
-      step: 5,
+      step: 6,
       phase: 'database-storage',
       status: 'success',
       timestamp: Date.now(),
       message: 'VRF registration data stored successfully'
     });
 
-    // Step 10: Unlock VRF keypair in memory for immediate login state (non-fatal)
-    console.log('Registration Step 10: Unlocking VRF keypair for immediate login');
+    // Step 7: Unlock VRF keypair in memory for immediate login state (non-fatal)
+    console.log('Registration Step 7: Unlocking VRF keypair for immediate login');
 
     const unlockResult = await webAuthnManager.unlockVRFKeypair({
       nearAccountId: nearAccountId,
@@ -386,7 +300,7 @@ export async function registerPasskey(
         success: true,
         vrfPublicKey: vrfChallenge.vrfPublicKey,
         encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
-        contractVerified: contractVerified,
+        contractVerified: accountAndRegistrationResult.success,
       }
     };
 
@@ -525,45 +439,6 @@ const validateRegistrationInputs = async (
     throw error;
   }
 
-}
-
-/**
- * Wait for access key to be available with retry logic
- * Account creation via faucet may have propagation delays
- */
-async function waitForAccessKey(
-  nearClient: NearClient,
-  nearAccountId: string,
-  nearPublicKey: string,
-  maxRetries: number = 10,
-  delayMs: number = 1000
-): Promise<AccessKeyView> {
-  console.log(`Waiting for access key to be available for ${nearAccountId}...`);
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const accessKeyInfo = await nearClient.viewAccessKey(
-        nearAccountId,
-        nearPublicKey,
-      ) as AccessKeyView;
-
-      console.log(`Access key found on attempt ${attempt}`);
-      console.log(`DEBUG: Access key response:`, JSON.stringify(accessKeyInfo, null, 2));
-      return accessKeyInfo;
-    } catch (error: any) {
-      console.log(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
-
-      if (attempt === maxRetries) {
-        console.error(`Access key still not available after ${maxRetries} attempts`);
-        throw new Error(`Access key not available after ${maxRetries * delayMs}ms. Account creation may have failed.`);
-      }
-
-      // Wait before next attempt with exponential backoff
-      const delay = delayMs * Math.pow(1.5, attempt - 1);
-      console.debug(`   Waiting ${delay}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('Unexpected error in waitForAccessKey');
 }
 
 /**

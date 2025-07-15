@@ -1,5 +1,5 @@
 import { ClientAuthenticatorData } from '../IndexedDBManager';
-import { base64Decode } from '../../utils/encoders';
+import { base64Decode, base64UrlDecode } from '../../utils/encoders';
 
 export interface RegisterCredentialsArgs {
   nearAccountId: string,
@@ -91,7 +91,7 @@ export class TouchIdPrompt {
         challenge,
         rpId: window.location.hostname,
         allowCredentials: authenticators.map(auth => ({
-          id: base64Decode(auth.credentialId),
+          id: base64UrlDecode(auth.credentialId),
           type: 'public-key' as const,
           transports: auth.transports as AuthenticatorTransport[]
         })),
@@ -137,7 +137,7 @@ export class TouchIdPrompt {
         challenge,
         rpId: window.location.hostname,
         allowCredentials: credentialIds.map(credentialId => ({
-          id: base64Decode(credentialId),
+          id: base64UrlDecode(credentialId),
           type: 'public-key' as const,
           transports: ['internal', 'hybrid', 'usb', 'ble'] as AuthenticatorTransport[]
           // Include all common transports

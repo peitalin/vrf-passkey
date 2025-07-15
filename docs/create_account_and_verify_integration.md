@@ -1,186 +1,215 @@
-# create_account_and_verify() Integration Plan
+# create_account_and_register_user() Integration Plan
 
 ## Overview
 
-The `create_account_and_verify()` function in the WebAuthn contract provides atomic account creation with WebAuthn registration. This needs to be integrated into the passkey SDK, but only when using the relay-server (not the testnet faucet).
+The `create_account_and_register_user()` function in the WebAuthn contract provides atomic account creation with WebAuthn registration. This needs to be integrated through a new relay-server endpoint and function abstraction in the passkey SDK.
 
 ## Current State
 
-- ✅ Contract function `create_account_and_verify()` is implemented
+- ✅ Contract function `create_account_and_register_user()` is implemented
 - ✅ Atomic transaction combines VRF proof + WebAuthn verification + account creation + NEAR transfer
-- ❌ SDK integration is missing
-- ❌ Relay-server detection logic is missing
+- ❌ Relay-server endpoint is missing
+- ❌ Registration flow abstraction is missing
 
 ## Implementation Requirements
 
-### 1. Relay-Server Detection Logic
+### 1. Relay-Server Endpoint Implementation
 
-The SDK needs to detect when it's configured to use the relay-server vs direct testnet faucet:
+Add a new `/create_account_and_register_user` endpoint to the relay-server:
 
 ```typescript
-// In PasskeyManager configuration
-interface PasskeyConfig {
-  relayServerUrl?: string;
-  initialUseRelayer: boolean;
-  // ... other config
-}
+// In relay-server/src/routes/accounts.ts
+app.post('/create_account_and_register_user', async (req, res) => {
+  const {
+    new_account_id,
+    new_public_key,
+    vrf_data,
+    webauthn_registration,
+    deterministic_vrf_public_key
+  } = req.body;
 
-// Detection logic
-const shouldUseAtomicRegistration = config.initialUseRelayer && config.relayServerUrl;
+  // Call contract function with server-controlled initial balance
+  const result = await contractCalls.create_account_and_register_user({
+    new_account_id,
+    new_public_key,
+    vrf_data,
+    webauthn_registration,
+    deterministic_vrf_public_key,
+    initialBalance: "0.1" // Server decides this parameter
+  });
+
+  res.json(result);
+});
 ```
 
-### 2. Registration Flow Modification
+**Key Points:**
+- Frontend sends all contract parameters except `initialBalance`
+- Server controls the `initialBalance` (set to 0.1 NEAR)
+- Endpoint makes single atomic contract call
 
-**Current Flow (Testnet Faucet):**
-1. Generate WebAuthn credentials
-2. Call testnet faucet directly
-3. Register credentials with contract
+### 2. Registration Flow Abstraction
 
-**New Flow (Relay-Server with Atomic Registration):**
-1. Generate WebAuthn credentials
-2. Call `create_account_and_verify()` directly
-3. Handle atomic transaction response
+Abstract both registration flows into separate functions for easier testing and maintenance:
 
-### 3. SDK Integration Points
-
-#### 3.1 Registration Function Updates
-
-Update `packages/passkey/src/core/PasskeyManager/registration.ts`:
+#### 2.1 Relay-Server Flow Function
 
 ```typescript
-export async function registerWithAtomic(
+// In packages/passkey/src/core/PasskeyManager/registration.ts
+async function create_account_and_register_with_relay_server(
   accountId: string,
-  credential: WebAuthnCredential,
-  vrfProof: VRFProof,
-  contractId: string
+  publicKey: string,
+  vrfData: VRFData,
+  webauthnRegistration: WebAuthnRegistration,
+  deterministicVrfPublicKey?: Uint8Array
 ): Promise<RegistrationResult> {
-  // Call create_account_and_verify() instead of separate registration
-  const result = await contractCalls.createAccountAndVerify({
-    accountId,
-    credential,
-    vrfProof,
-    initialBalance: "0.1" // or from config
+  // Single call to relay-server endpoint
+  const response = await fetch(`${relayServerUrl}/create_account_and_register_user`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      new_account_id: accountId,
+      new_public_key: publicKey,
+      vrf_data: vrfData,
+      webauthn_registration: webauthnRegistration,
+      deterministic_vrf_public_key: deterministicVrfPublicKey
+    })
+  });
+
+  return await response.json();
+}
+```
+
+#### 2.2 Testnet Faucet Flow Function
+
+```typescript
+// In packages/passkey/src/core/PasskeyManager/registration.ts
+async function create_account_and_register_with_testnet_faucet(
+  accountId: string,
+  publicKey: string,
+  vrfData: VRFData,
+  webauthnRegistration: WebAuthnRegistration,
+  deterministicVrfPublicKey?: Uint8Array
+): Promise<RegistrationResult> {
+  // Sequential calls (existing logic)
+  // 1. Create account via testnet faucet
+  await createAccountTestnetFaucet(accountId, publicKey);
+
+  // 2. Register user with contract
+  const result = await signVerifyAndRegisterUser({
+    vrfData,
+    webauthnRegistration,
+    deterministicVrfPublicKey
   });
 
   return result;
 }
 ```
 
-#### 3.2 Contract Calls Integration
-
-Update `packages/passkey/src/core/WebAuthnManager/contract-calls.ts`:
+#### 2.3 Updated Main Registration Logic
 
 ```typescript
-class WebAuthnContractCalls {
-  async createAccountAndVerify(params: {
-    accountId: string;
-    credential: WebAuthnCredential;
-    vrfProof: VRFProof;
-    initialBalance?: string;
-  }): Promise<AtomicRegistrationResult> {
-    // Implementation for atomic registration
+// In packages/passkey/src/core/PasskeyManager/registration.ts
+export async function registerUser(params: RegistrationParams): Promise<RegistrationResult> {
+  // ... existing VRF and WebAuthn generation logic ...
+
+  // Choose registration flow based on configuration
+  if (config.useRelayer && config.relayServerUrl) {
+    return await create_account_and_register_with_relay_server(
+      accountId,
+      publicKey,
+      vrfData,
+      webauthnRegistration,
+      deterministicVrfPublicKey
+    );
+  } else {
+    return await create_account_and_register_with_testnet_faucet(
+      accountId,
+      publicKey,
+      vrfData,
+      webauthnRegistration,
+      deterministicVrfPublicKey
+    );
   }
 }
 ```
 
-#### 3.3 Configuration Updates
+### 3. Registration Rollback Logic Updates
 
-Update configuration types in `packages/passkey/src/core/types/passkeyManager.ts`:
+#### Current Rollback (useRelayer == false)
+- Creates preSignedDeleteAccount transaction
+- Requires manual cleanup if registration fails
 
-```typescript
-interface PasskeyManagerConfig {
-  // ... existing config
-  useAtomicRegistration?: boolean; // Auto-detect based on relay-server usage
-}
-```
+#### New Rollback (useRelayer == true)
+- **No preSignedDeleteAccount needed** - atomic transaction handles rollback
+- If `create_account_and_register_user()` fails, nothing is created
+- Simpler error handling and cleanup
+- preSignedDeleteAccount transaction is returned from the wasm-signer-worker anyway, but can be ignored safely.
+
+### 4. Testing Updates Required
+
+#### 4.1 E2E Test Updates
+
+**File: `packages/passkey/src/__tests__/e2e/complete_ux_flow.test.ts`**
+- Update test to handle both registration flows
+- Test atomic registration when useRelayer is true
+- Test sequential registration when useRelayer is false
+
+#### 4.2 Setup Updates
+
+**File: `packages/passkey/src/__tests__/setup.ts`**
+- Add configuration for testing both flows
+- Mock relay-server endpoint for testing
+- Configure test environment switching
+
+#### 4.3 Rollback Test Updates
+
+**File: `packages/passkey/src/__tests__/e2e/registration-rollback.test.ts`**
+- Test rollback behavior for both flows
+- Test atomic transaction rollback scenarios
 
 ## Implementation Flow
 
-### Phase 1: Detection Logic
-- Add relay-server detection in configuration
-- Create feature flag for atomic registration
-- Update config validation
+### Phase 1: Relay-Server Endpoint
+- Add `/create_account_and_register_user` endpoint to relay-server
+- Implement server-side contract calling logic
+- Test endpoint with mock data
 
-### Phase 2: Contract Integration
-- Implement `createAccountAndVerify()` contract call
-- Add proper error handling for atomic transactions
-- Test atomic transaction flow
+### Phase 2: Function Abstraction
+- Create `create_account_and_register_with_relay_server()` function
+- Create `create_account_and_register_with_testnet_faucet()` function
+- Update main registration logic to use appropriate function
 
-### Phase 3: Registration Flow Update
-- Modify registration logic to use atomic flow when appropriate
-- Implement fallback to traditional flow
-- Update error handling and user feedback
+### Phase 3: Rollback Logic Updates
+- update preSignedDeleteAccount logic for relay-server flow (simply ignore it)
+- Update rollback test scenarios
+- Simplify error handling for atomic transactions
 
-### Phase 4: Testing & Documentation
-- Add E2E tests for atomic registration
-- Update registration flow documentation
-- Test both relay-server and faucet flows
-
-## Error Handling Strategy
-
-### Atomic Transaction Failures
-- **VRF Verification Fails**: Show VRF error, retry with new challenge
-- **WebAuthn Verification Fails**: Show WebAuthn error, retry registration
-- **Account Creation Fails**: Show account creation error, suggest different username
-- **NEAR Transfer Fails**: Show balance error, retry with lower amount
-
-### Fallback Mechanism
-If atomic registration fails unexpectedly:
-1. Log the error for debugging
-2. Fall back to traditional registration flow
-3. Show user appropriate error message
-
-## Testing Considerations
-
-### Unit Tests
-- Test relay-server detection logic
-- Test atomic transaction handling
-- Test error scenarios and fallbacks
-
-### E2E Tests
-- Test full atomic registration flow
-- Test fallback to traditional flow
-- Test both relay-server and faucet configurations
 
 ## Configuration Examples
 
-### Relay-Server Configuration (Uses Atomic Registration)
+### Relay-Server Configuration (Atomic Registration)
 ```typescript
 const config: PasskeyManagerConfig = {
-  relayServerUrl: 'https://relay.example.com',
-  initialUseRelayer: true,
-  // useAtomicRegistration: true (auto-detected)
+  relayServerUrl: 'https://accounts.example.com',
+  useRelayer: true,
+  // Uses create_account_and_register_with_relay_server()
 };
 ```
 
-### Testnet Faucet Configuration (Uses Traditional Registration)
+### Testnet Faucet Configuration (Sequential Registration)
 ```typescript
 const config: PasskeyManagerConfig = {
   relayServerUrl: undefined,
-  initialUseRelayer: false,
-  // useAtomicRegistration: false (auto-detected)
+  useRelayer: false,
+  // Uses create_account_and_register_with_testnet_faucet()
 };
 ```
 
-## Migration Strategy
-
-1. **Backward Compatibility**: Keep existing registration flow as default
-2. **Feature Flag**: Use configuration-based detection for atomic registration
-3. **Gradual Rollout**: Test with relay-server first, then expand usage
-4. **Monitoring**: Add logging to track atomic vs traditional registration success rates
-
-## Benefits of Atomic Registration
-
-1. **Reduced Complexity**: Single transaction instead of multiple steps
-2. **Better UX**: Faster registration with fewer potential failure points
-3. **Atomicity**: Either complete success or complete failure (no partial states)
-4. **Cost Efficiency**: Single transaction reduces gas costs
-
 ## Next Steps
 
-1. Implement relay-server detection logic
-2. Add atomic registration contract calls
-3. Update registration flow switching
-4. Add comprehensive error handling
-5. Test both flows thoroughly
-6. Update documentation
+1. Implement relay-server `/create_account_and_register_user` endpoint
+2. Create function abstractions for both registration flows
+3. Update rollback logic
+4. Update E2E tests for both flows
+5. Test function swapping functionality
+6. Update documentation and examples

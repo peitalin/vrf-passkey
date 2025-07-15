@@ -26,6 +26,22 @@ export interface AccountCreationRequest {
   publicKey: string;
 }
 
+// Interface for atomic account creation and registration
+export interface CreateAccountAndRegisterRequest {
+  new_account_id: string;
+  new_public_key: string;
+  vrf_data: any; // VRFVerificationData from contract
+  webauthn_registration: any; // WebAuthnRegistrationCredential from contract
+  deterministic_vrf_public_key?: Uint8Array;
+}
+
+export interface CreateAccountAndRegisterResult {
+  success: boolean;
+  transactionHash?: string;
+  error?: string;
+  message?: string;
+}
+
 class AccountService {
   private config: AppConfig;
   private keyStore: KeyStore;
@@ -84,41 +100,14 @@ class AccountService {
   async createAccount(
     request: AccountCreationRequest,
     onEvent?: SSEEventEmitter,
-    sessionId?: string
   ): Promise<AccountCreationResult> {
     await this._ensureSignerAndRelayerAccount();
 
-    const currentSessionId = sessionId || `relay_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-
     return this.queueTransaction(async () => {
       try {
-        // Emit user ready event
-        onEvent?.({
-          step: 2,
-          sessionId: currentSessionId,
-          phase: 'user-ready',
-          status: 'success',
-          timestamp: Date.now(),
-          message: 'Relay server ready to create account',
-          verified: true,
-          nearAccountId: request.accountId,
-          clientNearPublicKey: request.publicKey,
-          mode: 'relay-server'
-        });
-
         if (!this.isValidAccountId(request.accountId)) {
           throw new Error(`Invalid account ID format: ${request.accountId}`);
         }
-
-        // Emit access key addition start event
-        onEvent?.({
-          step: 3,
-          sessionId: currentSessionId,
-          phase: 'access-key-addition',
-          status: 'progress',
-          timestamp: Date.now(),
-          message: 'Starting account creation with access key...'
-        });
 
         // Parse initial balance or use default
         const initialBalance = this.config.defaultInitialBalance;
@@ -140,36 +129,6 @@ class AccountService {
           ]
         });
 
-        // Emit access key addition success event
-        onEvent?.({
-          step: 3,
-          sessionId: currentSessionId,
-          phase: 'access-key-addition',
-          status: 'success',
-          timestamp: Date.now(),
-          message: `Account ${request.accountId} created successfully with access key`
-        });
-
-        // Emit account verification event
-        onEvent?.({
-          step: 4,
-          sessionId: currentSessionId,
-          phase: 'account-verification',
-          status: 'success',
-          timestamp: Date.now(),
-          message: 'Account creation verified on NEAR blockchain'
-        });
-
-        // Emit registration complete event
-        onEvent?.({
-          step: 7,
-          sessionId: currentSessionId,
-          phase: 'registration-complete',
-          status: 'success',
-          timestamp: Date.now(),
-          message: 'Account creation completed successfully!'
-        });
-
         console.log(`Account created successfully: ${result.transaction.hash}`);
         const nearAmount = (Number(initialBalance) / 1e24).toFixed(4);
         return {
@@ -181,18 +140,6 @@ class AccountService {
 
       } catch (error: any) {
         console.error(`Account creation failed for ${request.accountId}:`, error);
-
-        // Emit error event
-        onEvent?.({
-          step: 0,
-          sessionId: currentSessionId,
-          phase: 'registration-error',
-          status: 'error',
-          timestamp: Date.now(),
-          message: `Account creation failed: ${error.message}`,
-          error: error.message || 'Unknown account creation error'
-        });
-
         return {
           success: false,
           error: error.message || 'Unknown account creation error',
@@ -200,6 +147,68 @@ class AccountService {
         };
       }
     }, `create account ${request.accountId}`);
+  }
+
+  /**
+   * Create account and register user with WebAuthn in a single atomic transaction
+   * Calls the contract's create_account_and_register_user function
+   * @param request - Account creation and registration parameters
+   * @param onEvent - Optional SSE event emitter callback for progress updates
+   * @param sessionId - Optional session ID for SSE tracking
+   * @returns Promise resolving to atomic operation result
+   */
+  async createAccountAndRegisterUser(
+    request: CreateAccountAndRegisterRequest,
+    onEvent?: SSEEventEmitter,
+  ): Promise<CreateAccountAndRegisterResult> {
+    await this._ensureSignerAndRelayerAccount();
+
+    return this.queueTransaction(async () => {
+      try {
+        if (!this.isValidAccountId(request.new_account_id)) {
+          throw new Error(`Invalid account ID format: ${request.new_account_id}`);
+        }
+
+        // Parse the public key
+        const publicKey = PublicKey.fromString(request.new_public_key);
+        console.log(`Atomic registration for account: ${request.new_account_id}`);
+        console.log(`Public key: ${publicKey.toString()}`);
+        console.log(`Contract: ${this.config.webAuthnContractId}`);
+
+        // Prepare the contract arguments
+        const contractArgs = {
+          new_account_id: request.new_account_id,
+          new_public_key: request.new_public_key,
+          vrf_data: request.vrf_data,
+          webauthn_registration: request.webauthn_registration,
+          deterministic_vrf_public_key: request.deterministic_vrf_public_key || null,
+        };
+
+        // Call the contract's atomic function
+        const result: FinalExecutionOutcome = await this.relayerAccount.functionCall({
+          contractId: this.config.webAuthnContractId,
+          methodName: 'create_account_and_register_user',
+          args: contractArgs,
+          gas: BigInt('300000000000000'), // 300 TGas for account creation + verification
+          attachedDeposit: this.config.defaultInitialBalance, // 0.05 NEAR for account creation
+        });
+
+        console.log(`Atomic registration completed successfully: ${result.transaction.hash}`);
+        return {
+          success: true,
+          transactionHash: result.transaction.hash,
+          message: `Account ${request.new_account_id} created and registered successfully`
+        };
+
+      } catch (error: any) {
+        console.error(`Atomic registration failed for ${request.new_account_id}:`, error);
+        return {
+          success: false,
+          error: error.message || 'Unknown atomic registration error',
+          message: `Failed to create and register account ${request.new_account_id}: ${error.message}`
+        };
+      }
+    }, `atomic create and register ${request.new_account_id}`);
   }
 
   private isValidAccountId(accountId: string): boolean {

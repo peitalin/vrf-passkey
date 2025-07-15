@@ -69,7 +69,10 @@ const DEFAULT_TEST_CONFIG = {
   nearNetwork: 'testnet' as const,
   relayerAccount: 'web3-authn-v1.testnet',
   contractId: 'web3-authn-v1.testnet',
-  nearRpcUrl: 'https://rpc.testnet.near.org'
+  nearRpcUrl: 'https://rpc.testnet.near.org',
+  // Registration flow testing options
+  useRelayer: false, // Default to testnet faucet flow
+  relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
 };
 
 /**
@@ -92,6 +95,8 @@ export async function setupBasicPasskeyTest(
     relayerAccount?: string;
     contractId?: string;
     nearRpcUrl?: string;
+    useRelayer?: boolean;
+    relayServerUrl?: string;
   } = {}
 ): Promise<void> {
   const config = { ...DEFAULT_TEST_CONFIG, ...options };
@@ -109,6 +114,45 @@ export async function setupBasicPasskeyTest(
   console.log('Playwright test environment ready!');
 }
 
+/**
+ * Setup test environment with relay-server (atomic) registration flow
+ * This configures the test to use the atomic create_account_and_register_user endpoint
+ */
+export async function setupRelayServerTest(
+  page: Page,
+  options: {
+    frontendUrl?: string;
+    relayServerUrl?: string;
+    contractId?: string;
+    nearRpcUrl?: string;
+  } = {}
+): Promise<void> {
+  await setupBasicPasskeyTest(page, {
+    ...options,
+    useRelayer: true,
+    relayServerUrl: options.relayServerUrl || 'http://localhost:3000'
+  });
+}
+
+/**
+ * Setup test environment with testnet faucet (sequential) registration flow
+ * This configures the test to use the traditional sequential registration flow
+ */
+export async function setupTestnetFaucetTest(
+  page: Page,
+  options: {
+    frontendUrl?: string;
+    contractId?: string;
+    nearRpcUrl?: string;
+  } = {}
+): Promise<void> {
+  await setupBasicPasskeyTest(page, {
+    ...options,
+    useRelayer: false,
+    relayServerUrl: undefined
+  });
+}
+
 // =============================================================================
 // TEST UTILITY INTERFACE - available in browser context
 // =============================================================================
@@ -121,6 +165,8 @@ export interface TestUtils {
     relayerAccount: string;
     contractId: string;
     nearRpcUrl: string;
+    useRelayer: boolean;
+    relayServerUrl?: string;
   };
   generateTestAccountId: () => string;
   verifyAccountExists: (accountId: string) => Promise<boolean>;
@@ -138,6 +184,7 @@ export interface TestUtils {
     nearKeypairGeneration: () => void;
     contractVerification: () => void;
     faucetService: () => void;
+    relayServer: () => void;
     contractRegistration: () => void;
     databaseStorage: () => void;
     vrfUnlock: () => void;
@@ -147,6 +194,12 @@ export interface TestUtils {
     verifyDatabaseClean: (accountId: string) => Promise<boolean>;
     verifyAccountDeleted: (accountId: string) => Promise<boolean>;
     getRollbackEvents: (events: any[]) => any[];
+  };
+  // Registration flow utilities
+  registrationFlowUtils: {
+    setupRelayServerMock: (successResponse?: boolean) => void;
+    setupTestnetFaucetMock: (successResponse?: boolean) => void;
+    restoreFetch: () => void;
   };
 }
 
@@ -253,7 +306,9 @@ async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<
       nearNetwork: setupOptions.nearNetwork as 'testnet',
       relayerAccount: setupOptions.relayerAccount,
       contractId: setupOptions.contractId,
-      nearRpcUrl: setupOptions.nearRpcUrl
+      nearRpcUrl: setupOptions.nearRpcUrl,
+      useRelayer: setupOptions.useRelayer || false,
+      relayServerUrl: setupOptions.relayServerUrl
     };
 
     // Validate required configs
@@ -567,19 +622,15 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           try {
             let credentialIdString = firstCredential.id;
 
-            // Handle different credential ID formats to prevent TypeError
-            if (credentialIdString instanceof Uint8Array) {
-              // If it's already bytes, convert to string first
-              credentialIdString = new TextDecoder().decode(credentialIdString);
-              console.log('[AUTH PRF DEBUG] Converted Uint8Array to string:', credentialIdString);
-            } else if (typeof credentialIdString === 'string') {
-              // If it's a base64url string, decode it to bytes first, then to string
-              const credIdBytes = (window as any).base64UrlDecode ?
-                (window as any).base64UrlDecode(credentialIdString) :
-                new TextEncoder().encode(credentialIdString); // Fallback
-
+            // Credential ID should always be a base64URL-encoded string from our mock
+            if (typeof credentialIdString === 'string') {
+              // Decode base64URL string to get the original credential string
+              const credIdBytes = (window as any).base64UrlDecode(credentialIdString);
               credentialIdString = new TextDecoder().decode(credIdBytes);
-              console.log('[AUTH PRF DEBUG] Decoded base64url string:', credentialIdString);
+              console.log('[AUTH PRF DEBUG] Decoded credential ID:', credentialIdString);
+            } else {
+              console.warn('[AUTH PRF DEBUG] Unexpected credential ID format:', typeof credentialIdString);
+              throw new Error('Credential ID should be base64URL string');
             }
 
             console.log('[AUTH PRF DEBUG] Final credential string:', credentialIdString);
@@ -804,6 +855,17 @@ async function setupTestUtilities(page: Page, config: any): Promise<void> {
             return originalFetch(url, options);
           };
         },
+        relayServer: () => {
+          window.fetch = async (url: any, options: any) => {
+            if (typeof url === 'string' && url.includes('/create_account_and_register_user')) {
+              return new Response(JSON.stringify({
+                success: false,
+                error: 'Relay server failure injected for testing'
+              }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+            }
+            return originalFetch(url, options);
+          };
+        },
         contractRegistration: () => {},
         databaseStorage: () => {},
         vrfUnlock: () => {},
@@ -821,6 +883,48 @@ async function setupTestUtilities(page: Page, config: any): Promise<void> {
         verifyDatabaseClean: async (accountId: string) => true,
         verifyAccountDeleted: async (accountId: string) => true,
         getRollbackEvents: (events: any[]) => events.filter(e => e.type === 'rollback')
+      },
+      // Registration flow utilities
+      registrationFlowUtils: {
+        setupRelayServerMock: (successResponse = true) => {
+          window.fetch = async (url: any, options: any) => {
+            if (typeof url === 'string' && url.includes('/create_account_and_register_user')) {
+              if (successResponse) {
+                return new Response(JSON.stringify({
+                  success: true,
+                  transactionHash: 'mock_atomic_transaction_hash_' + Date.now(),
+                  message: 'Account created and registered successfully via relay-server'
+                }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+              } else {
+                return new Response(JSON.stringify({
+                  success: false,
+                  error: 'Mock atomic registration failure'
+                }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+              }
+            }
+            return originalFetch(url, options);
+          };
+        },
+        setupTestnetFaucetMock: (successResponse = true) => {
+          window.fetch = async (url: any, options: any) => {
+            if (typeof url === 'string' && url.includes('helper.testnet.near.org')) {
+              if (successResponse) {
+                return new Response(JSON.stringify({
+                  ok: true,
+                  account_id: options.body ? JSON.parse(options.body).account_id : 'test.testnet'
+                }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+              } else {
+                return new Response(JSON.stringify({
+                  error: 'Mock testnet faucet failure'
+                }), { status: 429, headers: { 'Content-Type': 'application/json' } });
+              }
+            }
+            return originalFetch(url, options);
+          };
+        },
+        restoreFetch: () => {
+          window.fetch = originalFetch;
+        }
       }
     };
 

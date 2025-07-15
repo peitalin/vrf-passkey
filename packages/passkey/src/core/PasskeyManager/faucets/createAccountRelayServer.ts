@@ -1,4 +1,123 @@
+import { VRFChallenge } from '../../../core/types/webauthn';
 import { RegistrationSSEEvent } from '../../types/passkeyManager';
+import { PasskeyManagerContext } from '..';
+import { base64UrlDecode } from '../../../utils/encoders';
+import { serializeCredentialWithPRF, WebAuthnRegistrationCredential } from '../../types/signer-worker';
+
+/**
+ * Create account and register user using relay-server atomic endpoint
+ * Makes a single call to the relay-server's /create_account_and_register_user endpoint
+ * which calls the contract's atomic create_account_and_register_user function
+ */
+export async function createAccountAndRegisterWithRelayServer(
+  context: PasskeyManagerContext,
+  nearAccountId: string,
+  publicKey: string,
+  credential: PublicKeyCredential,
+  vrfChallenge: VRFChallenge,
+  deterministicVrfPublicKey: string,
+  onEvent?: (event: RegistrationSSEEvent) => void
+): Promise<{
+  success: boolean;
+  transactionId?: string;
+  error?: string;
+  preSignedDeleteTransaction?: any;
+}> {
+  const { configs } = context;
+
+  if (!configs.relayServerUrl) {
+    throw new Error('Relay server URL is required for atomic registration');
+  }
+
+  try {
+    onEvent?.({
+      step: 3,
+      phase: 'access-key-addition',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Creating account and registering with atomic transaction...'
+    });
+
+    // Serialize the WebAuthn credential properly for the contract
+    const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
+
+    // Prepare data for atomic endpoint
+    const requestData = {
+      new_account_id: nearAccountId,
+      new_public_key: publicKey,
+      vrf_data: {
+        vrf_input_data: Array.from(base64UrlDecode(vrfChallenge.vrfInput)),
+        vrf_output: Array.from(base64UrlDecode(vrfChallenge.vrfOutput)),
+        vrf_proof: Array.from(base64UrlDecode(vrfChallenge.vrfProof)),
+        public_key: Array.from(base64UrlDecode(vrfChallenge.vrfPublicKey)),
+        user_id: vrfChallenge.userId,
+        rp_id: vrfChallenge.rpId,
+        block_height: vrfChallenge.blockHeight,
+        block_hash: Array.from(base64UrlDecode(vrfChallenge.blockHash)),
+      },
+      webauthn_registration: serializedCredential,
+      deterministic_vrf_public_key: Array.from(base64UrlDecode(deterministicVrfPublicKey))
+    };
+
+    onEvent?.({
+      step: 5,
+      phase: 'contract-registration',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Calling atomic registration endpoint...'
+    });
+
+    // Call the atomic endpoint
+    const response = await fetch(`${configs.relayServerUrl}/create_account_and_register_user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Atomic registration failed: HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error(result.error || 'Atomic registration failed');
+    }
+
+    onEvent?.({
+      step: 5,
+      phase: 'contract-registration',
+      status: 'success',
+      timestamp: Date.now(),
+      message: `Atomic registration successful, transaction ID: ${result.transactionHash}`
+    });
+
+    return {
+      success: true,
+      transactionId: result.transactionHash,
+      // No preSignedDeleteTransaction needed for atomic transactions
+      preSignedDeleteTransaction: null
+    };
+
+  } catch (error: any) {
+    console.error('Atomic registration failed:', error);
+
+    onEvent?.({
+      step: 0,
+      phase: 'registration-error',
+      status: 'error',
+      timestamp: Date.now(),
+      message: `Atomic registration failed: ${error.message}`,
+      error: error.message
+    });
+
+    return {
+      success: false,
+      error: error.message,
+      preSignedDeleteTransaction: null
+    };
+  }
+}
 
 /**
  * Create NEAR account using relayer server
@@ -16,118 +135,63 @@ export async function createAccountRelayServer(
   onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; transactionId?: string; error?: string }> {
   try {
-    console.log('Creating NEAR account via relay server SSE');
+    console.log('Creating NEAR account via relay server');
 
-    // Create promise to handle SSE response from fetch stream
-    const accountCreationPromise = new Promise<{
-      success: boolean;
-      message: string;
-      transactionId?: string;
-      error?: string
-    }>((resolve, reject) => {
+    // Emit access key addition start event
+    onEvent?.({
+      step: 3,
+      phase: 'access-key-addition',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Starting account creation with access key...'
+    } as RegistrationSSEEvent);
 
-      // Make POST request and handle SSE response stream
-      fetch(`${serverUrl}/relay/create-account-sse`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
-        },
-        body: JSON.stringify({
-          accountId: nearAccountId,
-          publicKey: publicKey, // Remove ed25519: prefix - server handles format
-        })
+    // Make simple POST request to create account
+    const response = await fetch(`${serverUrl}/accounts/create-account`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        accountId: nearAccountId,
+        publicKey: publicKey, // Server handles ed25519: prefix
       })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        if (!response.body) {
-          throw new Error('No response body for SSE stream');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Process complete SSE messages
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const eventData = line.slice(6); // Remove 'data: ' prefix
-
-                if (eventData === '[DONE]') {
-                  // End of stream
-                  return;
-                }
-
-                try {
-                  const data = JSON.parse(eventData);
-                  console.log('SSE event received:', data);
-
-                  // Handle different event types
-                  if (data.type === 'final-result') {
-                    // Final result from server
-                    if (data.success) {
-                      resolve({
-                        success: true,
-                        message: data.message || `Account ${nearAccountId} created successfully`,
-                        transactionId: data.transactionHash
-                      });
-                    } else {
-                      reject(new Error(data.error || 'Account creation failed'));
-                    }
-                    return;
-                  } else if (data.type === 'error') {
-                    reject(new Error(data.error || 'SSE stream error'));
-                    return;
-                  } else if (data.step !== undefined) {
-                    // Forward registration SSE events with proper structure
-                    onEvent?.({
-                      step: data.step,
-                      phase: data.phase,
-                      status: data.status,
-                      timestamp: data.timestamp || Date.now(),
-                      message: data.message,
-                      error: data.error,
-                      // Include additional fields for specific event types
-                      ...(data.verified !== undefined && { verified: data.verified }),
-                      ...(data.nearAccountId && { nearAccountId: data.nearAccountId }),
-                      ...(data.clientNearPublicKey && { clientNearPublicKey: data.clientNearPublicKey }),
-                      ...(data.mode && { mode: data.mode })
-                    } as RegistrationSSEEvent);
-                  }
-                } catch (parseErr) {
-                  console.warn('Failed to parse SSE event data:', eventData, parseErr);
-                }
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      })
-      .catch(error => {
-        console.error('Fetch request failed:', error);
-        reject(error);
-      });
     });
 
-    // Wait for account creation to complete
-    const result = await accountCreationPromise;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error(result.error || 'Account creation failed');
+    }
+
+    // Emit access key addition success event
+    onEvent?.({
+      step: 3,
+      phase: 'access-key-addition',
+      status: 'success',
+      timestamp: Date.now(),
+      message: `Account ${nearAccountId} created successfully with access key`
+    } as RegistrationSSEEvent);
+
+    // Emit account verification event
+    onEvent?.({
+      step: 4,
+      phase: 'account-verification',
+      status: 'success',
+      timestamp: Date.now(),
+      message: 'Account creation verified on NEAR blockchain'
+    } as RegistrationSSEEvent);
+
     console.log('Account creation completed:', result);
-    return result;
+    return {
+      success: true,
+      message: result.message || `Account ${nearAccountId} created successfully`,
+      transactionId: result.transactionHash
+    };
 
   } catch (error: any) {
     console.error('Account creation error:', error);
@@ -148,3 +212,4 @@ export async function createAccountRelayServer(
     };
   }
 }
+

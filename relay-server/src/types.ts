@@ -11,6 +11,15 @@ export interface CreateAccountResult {
   details?: string;
 }
 
+// Interface for atomic account creation and registration
+export interface CreateAccountAndRegisterRequest {
+  new_account_id: string;
+  new_public_key: string;
+  vrf_data: any; // VRFVerificationData from contract
+  webauthn_registration: any; // WebAuthnRegistrationCredential from contract
+  deterministic_vrf_public_key?: Uint8Array;
+}
+
 // SSE Registration Event Types
 export interface BaseSSERegistrationEvent {
   step: number;
