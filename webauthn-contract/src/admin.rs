@@ -221,13 +221,14 @@ impl WebAuthnContract {
                 total_credential_ids += user_auth_count;
             }
         }
+        let storage_usage = env::storage_usage();
 
         serde_json::json!({
             "registered_users_count": self.registered_users.len(),
             "authenticator_entries_count": total_authenticators,
             "total_credential_ids": total_credential_ids,
             "admins_count": self.admins.len(),
-            "note": "credential_to_users count not available due to LookupMap limitations"
+            "storage_usage": storage_usage,
         })
     }
 
