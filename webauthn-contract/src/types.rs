@@ -1,3 +1,5 @@
+use crate::contract_state::AuthenticatorTransport;
+
 // WebAuthn Authentication credential (equivalent to @simplewebauthn/server types)
 // Differs from WebAuthnRegistrationCredential in the "response" field
 #[near_sdk::near(serializers = [json, borsh])]
@@ -66,21 +68,6 @@ pub struct AuthenticatorAttestationResponse {
     #[serde(rename = "attestationObject")]
     pub attestation_object: String,
     pub transports: Option<Vec<String>>,
-}
-
-#[near_sdk::near(serializers = [borsh, json])]
-#[derive(Debug, Clone, PartialEq)]
-pub enum AuthenticatorTransport {
-    #[serde(rename = "usb")]
-    Usb,
-    #[serde(rename = "nfc")]
-    Nfc,
-    #[serde(rename = "ble")]
-    Ble,
-    #[serde(rename = "internal")]
-    Internal,
-    #[serde(rename = "hybrid")]
-    Hybrid,
 }
 
 #[near_sdk::near(serializers = [borsh, json])]

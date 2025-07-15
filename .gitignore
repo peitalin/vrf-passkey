@@ -47,6 +47,7 @@ frontend/dist-ssr
 server/dist
 relay-server/dist
 webauthn-contract/target
+empty-contract/target
 contract/target
 target
 

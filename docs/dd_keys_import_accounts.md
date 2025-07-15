@@ -139,7 +139,7 @@ async function addDeviceToAccount(
 await webauthnManager.signVerifyAndRegisterUser({
   vrfChallenge,
   credential,
-  contractId: 'web3-authn.testnet',
+  contractId: 'web3-authn-v1.testnet',
   signerAccountId: accountId, // The multi-device account
   nearAccountId: accountId,
   publicKeyStr: currentDeviceKeypair.publicKey(),

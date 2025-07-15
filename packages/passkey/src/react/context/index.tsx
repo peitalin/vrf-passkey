@@ -61,8 +61,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const passkeyManager = useMemo(() => {
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
-      relayerAccount: 'web3-authn.testnet',
-      contractId: 'web3-authn.testnet',
+      relayerAccount: 'web3-authn-v1.testnet',
+      contractId: 'web3-authn-v1.testnet',
       nearRpcUrl: 'https://rpc.testnet.near.org'
     };
 

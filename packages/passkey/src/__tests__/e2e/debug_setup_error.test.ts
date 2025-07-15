@@ -47,8 +47,10 @@ test.describe('Debug Setup Errors', () => {
 
           const configs = {
             nearRpcUrl: 'https://rpc.testnet.near.org',
-            contractId: 'web3-authn.testnet',
-            relayerAccount: 'web3-authn.testnet'
+            contractId: 'web3-authn-v1.testnet',
+            relayerAccount: 'web3-authn-v1.testnet',
+            relayServerUrl: 'http://localhost:3000',
+            initialUseRelayer: false
           };
           console.log('Configs prepared:', configs);
 

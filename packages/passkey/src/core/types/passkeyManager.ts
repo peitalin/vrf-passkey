@@ -281,7 +281,7 @@ export interface ActionResult {
 export interface PasskeyManagerConfigs {
   nearRpcUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
-  contractId: 'web3-authn.testnet' | 'web3-authn.near' | string;
+  contractId: 'web3-authn-v1.testnet' | 'web3-authn.near' | string;
   relayerAccount: string;
   // Relay Server is used to create new NEAR accounts
   // Optional: defaults to testnet faucet

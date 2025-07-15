@@ -3,12 +3,14 @@ pub mod utils;
 mod authenticators;
 mod admin;
 mod types;
+mod contract_state;
 
 mod verify_authentication_response;
 mod verify_registration_response;
 
 // Choose one of the VRF verification methods
 use crate::utils::vrf_verifier;
+use crate::contract_state::WebAuthnContractExt;
 
 pub use types::{
     WebAuthnRegistrationCredential,
@@ -16,8 +18,12 @@ pub use types::{
     AuthenticatorAssertionResponse,
     AuthenticatorAttestationResponse,
 };
-pub use authenticators::{
+pub use contract_state::{
+    WebAuthnContract,
+    VRFSettings,
+    AccountCreationSettings,
     StoredAuthenticator,
+    StorageKey,
 };
 pub use verify_registration_response::{
     VerifyRegistrationResponse,
@@ -27,9 +33,8 @@ pub use verify_registration_response::{
 pub use verify_authentication_response::{
     VerifiedAuthenticationResponse,
 };
-use near_sdk::{env, log, near, AccountId, PanicOnDefault, BorshStorageKey};
+use near_sdk::{env, log, near, AccountId};
 use near_sdk::store::{LookupMap, IterableSet, IterableMap};
-use near_sdk::borsh::BorshSerialize;
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -44,75 +49,6 @@ pub struct VerifiedVRFAuthenticationResponse {
     pub authentication_info: Option<String>,
 }
 
-#[near_sdk::near(serializers=[borsh, json])]
-#[derive(Debug, Clone)]
-pub struct VRFSettings {
-    pub max_input_age_ms: u64, // Maximum age for VRF input components (default: 5 minutes)
-    pub max_block_age: u64,    // Maximum block age for block hash validation
-    pub enabled: bool,         // Feature flag for VRF functionality
-    pub max_authenticators_per_account: usize, // Maximum number of authenticators per account
-}
-
-impl Default for VRFSettings {
-    fn default() -> Self {
-        Self {
-            max_input_age_ms: 300_000, // 5 minutes
-            max_block_age: 100,        // 100 blocks (~60 seconds, accommodates TouchID delays)
-            enabled: true,
-            max_authenticators_per_account: 5,
-        }
-    }
-}
-
-#[near_sdk::near(serializers=[borsh, json])]
-#[derive(Debug, Clone)]
-pub struct AccountCreationSettings {
-    pub initial_balance_near: f64,  // Initial balance to transfer to new accounts (in NEAR tokens)
-    pub enabled: bool,              // Feature flag for account creation functionality
-    pub max_accounts_per_day: u32,  // Rate limiting for account creation
-}
-
-impl Default for AccountCreationSettings {
-    fn default() -> Self {
-        Self {
-            initial_balance_near: 0.1,  // 0.1 NEAR default
-            enabled: true,
-            max_accounts_per_day: 1000, // Reasonable default limit
-        }
-    }
-}
-
-//////////////////////
-/// Contract State
-//////////////////////
-
-#[near(contract_state)]
-#[derive(PanicOnDefault)]
-pub struct WebAuthnContract {
-    greeting: String,
-    pub contract_name: String,
-    pub admins: IterableSet<AccountId>,
-    // Global VRF configuration
-    pub vrf_settings: VRFSettings,
-    // // // Account creation configuration - Comment out for now to maintain consistency with existing deployed state
-    // pub account_creation_settings: AccountCreationSettings,
-    // 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
-    pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
-    // Registered users
-    pub registered_users: IterableSet<AccountId>,
-    // Lookup accounts associated with a WebAuthn (TouchId) credential_id
-    pub credential_to_users: LookupMap<String, Vec<AccountId>>,
-}
-
-#[derive(BorshSerialize, BorshStorageKey)]
-#[borsh(crate = "near_sdk::borsh")]
-pub enum StorageKey {
-    Authenticators,
-    RegisteredUsers,
-    Admins,
-    CredentialToUsers,
-}
-
 #[near]
 impl WebAuthnContract {
 
@@ -122,7 +58,7 @@ impl WebAuthnContract {
             contract_name,
             greeting: "Hello".to_string(),
             vrf_settings: VRFSettings::default(),
-            // account_creation_settings: AccountCreationSettings::default(),
+            account_creation_settings: AccountCreationSettings::default(),
             admins: IterableSet::new(StorageKey::Admins),
             authenticators: LookupMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
@@ -199,24 +135,6 @@ impl WebAuthnContract {
     pub fn get_vrf_settings(&self) -> VRFSettings {
         self.vrf_settings.clone()
     }
-
-    // /// Update account creation settings (only contract owner can call this)
-    // pub fn update_account_creation_settings(&mut self, settings: AccountCreationSettings) {
-    //     let predecessor = env::predecessor_account_id();
-    //     let contract_account = env::current_account_id();
-
-    //     if predecessor != contract_account {
-    //         env::panic_str("Only the contract owner can update account creation settings");
-    //     }
-
-    //     self.account_creation_settings = settings;
-    //     log!("Account creation settings updated");
-    // }
-
-    // /// Get current account creation settings
-    // pub fn get_account_creation_settings(&self) -> AccountCreationSettings {
-    //     self.account_creation_settings.clone()
-    // }
 
 }
 

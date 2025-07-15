@@ -1,9 +1,10 @@
-use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{env, log, near};
 use near_sdk::store::IterableMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 
+use crate::WebAuthnContract;
+use crate::contract_state::WebAuthnContractExt;
 use crate::utils::{
     parsers::parse_authenticator_data,
     verifiers::verify_authentication_signature,
@@ -378,7 +379,7 @@ mod tests {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE};
     use std::collections::BTreeMap;
     use sha2::{Sha256, Digest};
-    use crate::authenticators::StoredAuthenticator;
+    use crate::contract_state::StoredAuthenticator;
     use crate::types::AuthenticatorAssertionResponse;
 
     // Mock VRF dependencies for testing
@@ -493,7 +494,7 @@ mod tests {
 
         StoredAuthenticator {
             credential_public_key,
-            transports: Some(vec![crate::types::AuthenticatorTransport::Internal]),
+            transports: Some(vec![crate::contract_state::AuthenticatorTransport::Internal]),
             registered: "1234567890".to_string(),
             vrf_public_keys: vec![vrf_public_key], // Store VRF public key for stateless auth
         }
@@ -539,7 +540,7 @@ mod tests {
         // Create WebAuthn authentication data using VRF output as challenge
         let webauthn_authentication = create_mock_webauthn_authentication_with_vrf_challenge(&mock_vrf.output);
 
-        println!("🧪 Testing VRF Authentication with mock data:");
+        println!("Testing VRF Authentication with mock data:");
         println!("  - VRF input: {} bytes", vrf_data.vrf_input_data.len());
         println!("  - VRF output: {} bytes", vrf_data.vrf_output.len());
         println!("  - VRF proof: {} bytes", vrf_data.vrf_proof.len());
@@ -562,7 +563,7 @@ mod tests {
         assert!(!result.verified, "Mock VRF data should fail verification (expected)");
         assert!(result.authentication_info.is_none(), "No authentication info should be returned on VRF failure");
 
-        println!("✅ VRF Authentication test completed - structure and flow verified");
+        println!("VRF Authentication test completed - structure and flow verified");
         println!("   (VRF verification failed as expected with mock data)");
     }
 
@@ -587,7 +588,7 @@ mod tests {
         assert_eq!(vrf_data.vrf_proof.len(), 80, "VRF proof should be 80 bytes");
         assert_eq!(vrf_data.public_key.len(), 32, "VRF public key should be 32 bytes (ed25519)");
 
-        println!("✅ VRFVerificationData structure test passed");
+        println!("VRFVerificationData structure test passed");
     }
 
     #[test]
@@ -608,7 +609,7 @@ mod tests {
         assert!(client_data_str.contains("webauthn.get"), "Should be authentication type");
         assert!(client_data_str.contains("test-contract.testnet"), "Should contain correct origin");
 
-        println!("✅ WebAuthnAuthenticationData creation test passed");
+        println!("WebAuthnAuthenticationData creation test passed");
     }
 
     #[test]
@@ -633,7 +634,7 @@ mod tests {
 
         let vrf_input = Sha256::digest(&input_data);
 
-        println!("🔧 VRF Authentication Input Construction Test:");
+        println!("VRF Authentication Input Construction Test:");
         println!("  - Domain: {:?}", std::str::from_utf8(domain).unwrap());
         println!("  - User ID: {:?}", std::str::from_utf8(user_id).unwrap());
         println!("  - RP ID: {:?}", std::str::from_utf8(rp_id).unwrap());
@@ -648,7 +649,7 @@ mod tests {
         assert_eq!(vrf_input.len(), 32, "VRF input hash should be 32 bytes");
         assert!(input_data.len() > 50, "Combined input should have substantial length");
 
-        println!("✅ VRF authentication challenge construction format verified");
+        println!("VRF authentication challenge construction format verified");
     }
 
     #[test]
@@ -668,7 +669,7 @@ mod tests {
         // Verify other authenticator properties
         assert!(stored_auth.transports.is_some(), "Transports should be specified");
 
-        println!("✅ Stored authenticator VRF public key storage test passed");
+        println!("Stored authenticator VRF public key storage test passed");
     }
 
     #[test]
@@ -692,7 +693,7 @@ mod tests {
         assert!(!auth_response.response.signature.is_empty(), "Should have signature");
         assert!(auth_response.response.user_handle.is_none(), "User handle typically None");
 
-        println!("✅ Authentication vs registration differences verified");
+        println!("Authentication vs registration differences verified");
         println!("   - Uses webauthn.get type ✓");
         println!("   - Has signature field ✓");
         println!("   - No attestation object ✓");
@@ -712,7 +713,7 @@ mod tests {
         assert_ne!(legitimate_vrf_input, malicious_vrf_input,
                    "Different RP IDs should produce different VRF inputs");
 
-        println!("🔐 RP ID Security Test:");
+        println!("RP ID Security Test:");
         println!("  - Legitimate domain ({}): VRF input length = {} bytes",
                  domain1, legitimate_vrf_input.len());
         println!("  - Malicious domain ({}): VRF input length = {} bytes",
@@ -735,7 +736,7 @@ mod tests {
         // Note: RP ID is now extracted from WebAuthn client data instead of VRF data (more secure)
         assert_eq!(vrf_auth_data.user_id, "alice.testnet", "User ID should be preserved in VRF data");
 
-        println!("✅ RP ID binding and security test passed");
+        println!("RP ID binding and security test passed");
         println!("   - VRF input includes domain ✓");
         println!("   - Cross-domain attack prevention ✓");
         println!("   - RP ID preserved through data structures ✓");

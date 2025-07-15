@@ -94,7 +94,6 @@ impl WebAuthnContract {
     ///////////////////////////////////////////////////////////////////////////////////
 
     /// Clear all authenticators (only contract owner can call this)
-    /// TESTNET-ONLY: This function is for testnet deployment only
     #[private]
     pub fn clear_authenticators(&mut self) {
         let predecessor = env::predecessor_account_id();
@@ -117,7 +116,6 @@ impl WebAuthnContract {
     }
 
     /// Clear all credential to users mappings (only contract owner can call this)
-    /// TESTNET-ONLY: This function is for testnet deployment only
     /// Note: This collects credential IDs from authenticators before clearing them
     #[private]
     pub fn clear_credential_to_users(&mut self) {
@@ -150,7 +148,6 @@ impl WebAuthnContract {
     }
 
     /// Clear all registered users (only contract owner can call this)
-    /// TESTNET-ONLY: This function is for testnet deployment only
     #[private]
     pub fn clear_registered_users(&mut self) {
         let predecessor = env::predecessor_account_id();
@@ -167,7 +164,6 @@ impl WebAuthnContract {
 
     /// Clear all contract state (only contract owner can call this)
     /// This is a nuclear option that clears all user data
-    /// TESTNET-ONLY: This function is for testnet deployment only
     pub fn clear_all_state(&mut self) {
         let predecessor = env::predecessor_account_id();
         let contract_account = env::current_account_id();
@@ -208,7 +204,6 @@ impl WebAuthnContract {
     }
 
     /// Get state statistics (view function)
-    /// TESTNET-ONLY: This function is for testnet deployment only
     pub fn get_state_stats(&self) -> serde_json::Value {
         // Count authenticators and credential IDs by iterating through registered users
         let mut total_authenticators = 0;

@@ -9,7 +9,8 @@
     "build-wasm": "(cd frontend/wasm-worker && wasm-pack build --target web --out-dir pkg)",
     "link-sdk": "sh ./npm_link_sdk.sh",
     "deploy-contract": "(cd webauthn-contract && sh ./deploy.sh)",
-    "upgrade-contract": "(cd webauthn-contract && sh ./upgrade.sh)"
+    "upgrade-contract": "(cd webauthn-contract && sh ./upgrade.sh)",
+    "upgrade-contract-dev": "(cd webauthn-contract && sh ./upgrade-dev.sh)"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

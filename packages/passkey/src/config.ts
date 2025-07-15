@@ -1,6 +1,6 @@
 export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
-export const WEBAUTHN_CONTRACT_ID = 'web3-authn.testnet';
-export const RELAYER_ACCOUNT_ID = 'web3-authn.testnet';
+export const WEBAUTHN_CONTRACT_ID = 'web3-authn-v1.testnet';
+export const RELAYER_ACCOUNT_ID = 'web3-authn-v1.testnet';
 export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
 
 // Gas constants as strings

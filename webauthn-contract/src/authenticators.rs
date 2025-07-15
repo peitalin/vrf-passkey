@@ -2,18 +2,11 @@ use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{log, near, require, env, AccountId, NearToken};
 use near_sdk::store::IterableMap;
 use std::str::FromStr;
-
-use crate::types::AuthenticatorTransport;
-
-
-#[near_sdk::near(serializers=[borsh, json])]
-#[derive(Debug, Clone)]
-pub struct StoredAuthenticator {
-    pub credential_public_key: Vec<u8>,
-    pub transports: Option<Vec<AuthenticatorTransport>>,
-    pub registered: String, // ISO timestamp of registration
-    pub vrf_public_keys: Vec<Vec<u8>>, // VRF public keys for stateless authentication (max 5, FIFO)
-}
+use crate::contract_state::{
+    AccountCreationSettings,
+    AuthenticatorTransport,
+    StoredAuthenticator
+};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -202,6 +195,23 @@ impl WebAuthnContract {
         // The promise will execute and we return true to indicate the call was made
         // The actual success/failure will be determined by the promise execution
         true
+    }
+    /// Update account creation settings (only contract owner can call this)
+    pub fn update_account_creation_settings(&mut self, settings: AccountCreationSettings) {
+        let predecessor = env::predecessor_account_id();
+        let contract_account = env::current_account_id();
+
+        if predecessor != contract_account {
+            env::panic_str("Only the contract owner can update account creation settings");
+        }
+
+        self.account_creation_settings = settings;
+        log!("Account creation settings updated");
+    }
+
+    /// Get current account creation settings
+    pub fn get_account_creation_settings(&self) -> AccountCreationSettings {
+        self.account_creation_settings.clone()
     }
 
     /////////////////////////////////
