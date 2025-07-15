@@ -121,7 +121,6 @@ impl WebAuthnContract {
             .add_full_access_key(new_public_key);
 
         // Second promise: call the verification contract on the current contract
-        // FIXED: Pass the new_account_id explicitly instead of relying on predecessor_account_id
         let verification_promise = Promise::new(env::current_account_id()).function_call(
             "verify_and_register_user_for_account".to_string(),
             serde_json::to_vec(&serde_json::json!({
