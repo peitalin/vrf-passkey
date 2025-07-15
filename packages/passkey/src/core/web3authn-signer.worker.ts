@@ -4,8 +4,7 @@
  * Similar to the VRF worker architecture
  */
 
-import type { WorkerMessage, WorkerRequestType } from './types/signer-worker';
-import { ProgressStep, ProgressMessageType } from './types/signer-worker';
+import { WorkerMessage, WorkerRequestType, ProgressStep, ProgressMessageType } from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 // Use a relative URL to the WASM file that will be copied by rollup to the same directory as the worker

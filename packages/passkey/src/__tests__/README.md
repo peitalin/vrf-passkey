@@ -1,459 +1,261 @@
-# E2E Tests - Playwright
+# PasskeyManager E2E Test Suite
 
-## Overview
+Comprehensive Playwright-based end-to-end testing for the PasskeyManager SDK with WebAuthn virtual authenticator support.
 
-This directory contains Playwright end-to-end tests for the passkey SDK. We use Playwright for comprehensive browser testing of:
+## Table of Contents
 
-- **WASM worker functionality** (VRF and Signer workers)
-- **WebAuthn interactions** (TouchID, PRF operations)
-- **Complete registration flows** (coming soon)
+- [Test Architecture](#test-architecture)
+- [Build & Asset Management](#build--asset-management)
+- [Test Environment Setup](#test-environment-setup)
+- [Running Tests](#running-tests)
+- [Test Files Overview](#test-files-overview)
+- [Troubleshooting](#troubleshooting)
 
-## Test Strategy
+## Test Architecture
 
-- **Rust Cargo**: Unit testing WASM worker functions
-- **Playwright**: E2E testing of browser APIs, workers, and integration flows
-- **Rollup**: Build system for production bundles
+The test suite uses **Playwright** with a **Chromium** browser to test real WebAuthn functionality using virtual authenticators. Tests run against a local development server and import the built SDK from copied assets.
 
+### Key Components
 
-### Testing Approach for RegisterPasskey
+- **Virtual WebAuthn Authenticator**: Simulates hardware security keys
+- **Import Map**: Provides NEAR.js dependencies in browser context
+- **Built SDK Assets**: Tests run against production-like built files
+- **Dynamic Module Loading**: SDK modules loaded at runtime in browser
 
-The `registerPasskey` function uses a **mock-based testing approach** that focuses on:
+## Build & Asset Management
 
-1. **Event-Driven Architecture**: Tests the complete event flow that UI components depend on
-2. **Method Signature Validation**: Ensures the function accepts correct parameters and returns promises
-3. **Error Boundary Testing**: Validates error handling and callback mechanisms
-4. **Phase Verification**: Confirms all required registration phases are properly sequenced
+### Automatic Build Process
 
-#### Key Test Patterns:
+When you run `npm test`, the following happens in order:
 
-```typescript
-// Event flow validation
-expect(result.actualPhases).toContain('webauthn-verification');
-expect(result.actualPhases).toContain('user-ready');
-expect(result.actualPhases).toContain('access-key-addition');
-expect(result.actualPhases).toContain('database-storage');
-expect(result.actualPhases).toContain('registration-complete');
+1. **Build Freshness Check**: `npm run build:check:fresh`
+   - Compares timestamps of source files vs built files
+   - Checks entire directories: `src/core/`, `src/wasm_signer_worker/`, `src/wasm_vrf_worker/`
+   - If build is fresh, skips to step 4
 
-// Callback mechanism testing
-const capturedEvents: any[] = [];
-await passkeyManager.registerPasskey('testuser.testnet', {
-  onEvent: (event: any) => capturedEvents.push(event),
-  onError: (error: any) => capturedErrors.push(error)
-});
-```
-
-This approach allows testing the **integration contract** and **event architecture** without requiring real WebAuthn ceremonies or blockchain transactions.
-
-## Running Tests
-
-```bash
-# List available tests
-npm run test:show -- --list
-
-# Run all tests (requires frontend to be running at localhost:5173)
-npm run test:show
-
-# Run specific test file
-npm run test:show wasm-workers
-
-# Run with headed browser (for debugging)
-npm run test:show -- --headed
-
-# Run specific browser project
-npm run test:show -- --project=chromium-web3-authn
-npm run test:show -- --project=webkit-touchid
-```
-
-## Browser Projects
-
-### `chromium-web3-authn`
-- Chrome with WebAuth Testing API enabled
-- Experimental web platform features
-- Virtual authenticator support
-- Used for WebAuthn PRF testing
-
-### `webkit-touchid`
-- Safari-based testing
-- TouchID simulation capabilities
-- Platform authenticator testing
-
-## Next Steps
-
-Planned additional test suites:
-
-1. **Registration Flow E2E**: Complete passkey registration with:
-   - Testnet account creation (mocked RPC)
-   - VRF keypair generation and encryption
-   - NEAR keypair derivation
-   - IndexedDB storage operations
-   - Contract verification workflow
-
-2. **Login Flow E2E**: Complete authentication testing
-3. **Transaction Signing E2E**: End-to-end transaction workflows
-4. **Error Handling**: Network failures, browser compatibility, etc.
-
-## Development Notes
-
-- Tests use `page.evaluate()` to run SDK code in browser context
-- NEAR RPC calls are mocked using `page.route()`
-- Worker files must be available at `/workers/` path
-- All tests require the frontend dev server running
-
-## PasskeyManager E2E Testing Strategy
-
-### Overview
-Comprehensive end-to-end testing using **real NEAR network integration** instead of mocked services. Tests validate the complete system against actual NEAR testnet conditions.
-
-### Testing Philosophy
-- **Real Browser APIs**: IndexedDB, Web Crypto, WebAuthn (with virtual authenticators)
-- **Real NEAR Network**: Testnet RPC calls, block data, account operations
-- **Real Account Creation**: Faucet service integration with rollback testing
-- **Comprehensive Rollback**: Both IndexedDB cleanup AND onchain account deletion
-
-### Current Test Coverage
-
-#### 1. Real IndexedDB Operations
-- **Atomic transactions** with proper rollback behavior
-- **Data storage and retrieval** for passkey credentials
-
-#### 2. Real NEAR RPC Integration
-- **Block data retrieval** from testnet (`rpc.testnet.near.org`)
-- **Account existence checks** (both existing and non-existent accounts)
-- **Access key queries** and permission validation
-- **Error handling** for network failures and invalid requests
-
-#### 3. Real Account Creation with Rollback
-- **Testnet faucet integration** (`helper.nearprotocol.com/account`)
-- **Account verification** after creation
-- **Rollback simulation** using `deleteAccount` transactions
-
-### Browser Projects
-
-#### `chromium-web3-authn`
-- Chrome with Web Authentication testing API enabled
-- Virtual authenticator support for WebAuthn operations
-- Real IndexedDB and crypto operations
-
-#### `webkit-touchid`
-- Safari/WebKit with TouchID simulation
-- Real biometric authentication testing
-- SSL certificate handling for `https://example.localhost`
-
-### Running Tests
-
-```bash
-# All tests (real NEAR network integration)
-pnpm test
-
-# Specific browser project
-npx playwright test --project=chromium-web3-authn
-
-# Single test scenario
-npx playwright test --grep "rollback scenarios"
-```
-### Next Steps for Full WebAuthn Testing
-
-1. **Virtual Authenticator Setup**
-   ```typescript
-   // Add to test setup
-   await context.addInitScript(() => {
-     if (window.PublicKeyCredential) {
-       // Configure virtual authenticator for WebAuthn testing
-     }
-   });
+2. **Conditional Rebuild**: If build is stale:
+   ```bash
+   npm run build
    ```
 
-2. **Real PasskeyManager Integration**
-   ```typescript
-   // Import real SDK (requires build system setup)
-   import { PasskeyManager } from '@web3authn/passkey';
-
-   // Test with real WebAuthn flows
-   await passkeyManager.registerPasskey('test.testnet', {
-     onEvent: (event) => console.log(event)
-   });
+3. **Asset Copying**: Copy built files to frontend directory:
+   ```bash
+   # Copy complete SDK (including workers) to frontend
+   mkdir -p ../../frontend/public/sdk
+   cp -r dist/* ../../frontend/public/sdk/
    ```
 
-# PasskeyManager Testing Suite
+4. **Run Tests**: `playwright test`
 
-## Overview
+### Asset Locations
 
-This testing suite provides comprehensive coverage for the PasskeyManager SDK, including success flows, failure scenarios, and rollback verification.
+**All SDK Files** (`dist/` → `frontend/public/sdk/`):
+- `esm/` - ES modules (main SDK)
+- `cjs/` - CommonJS modules
+- `types/` - TypeScript definitions
+- `workers/` - Worker files directory
+  - `web3authn-signer.worker.js` - Transaction signing worker
+  - `web3authn-vrf.worker.js` - VRF operations worker
+  - `wasm_signer_worker.js` - WASM signer bindings
+  - `wasm_signer_worker_bg.wasm` - WASM signer binary
+  - `wasm_vrf_worker.js` - WASM VRF bindings
+  - `wasm_vrf_worker_bg.wasm` - WASM VRF binary
 
-## Test Structure
+> **Note**: All files are copied to a single location (`frontend/public/sdk/`) for simple organization. Worker files are in the `workers/` subdirectory for better separation.
 
-### E2E Tests
-- `wasm-workers.test.ts` - Core functionality tests with real WASM workers
-- `registration-rollback.test.ts` - Comprehensive failure scenario testing
-- `example-template.test.ts` - Template for new test files
+> **Important**: If the frontend moves from `frontend/public/` to another directory, update the copy commands in the `test` script and `copy-wasm-assets.sh`.
 
-### Test Utilities
-- `utils/setup.ts` - Reusable setup functions for PasskeyManager testing
+## Test Environment Setup
 
-## Registration Failure Testing Strategy
+### 5-Step Sequential Setup Process
 
-### Failure Categories
+Every test runs through `setupBasicPasskeyTest()` which performs:
 
-The `registerPasskey` function has multiple failure points that require different rollback strategies:
-
-#### 1. **Early Failures (No Rollback Needed)**
-These failures occur before any persistent state is created:
-
+#### Step 1: WebAuthn Virtual Authenticator
 ```typescript
-// Input validation failures
-- Invalid NEAR account ID format
-- Insecure context (non-HTTPS)
-
-// WebAuthn setup failures
-- VRF keypair generation failure
-- WebAuthn ceremony failure (user cancelled TouchID)
-- NEAR keypair derivation failure
-- Contract verification failure (checkCanRegisterUser)
-```
-
-**Testing Approach:**
-- Mock the specific component to throw errors
-- Verify failure occurs quickly without rollback events
-- No cleanup verification needed
-
-**Example:**
-```typescript
-test('should handle VRF generation failure', async ({ page }) => {
-  const result = await page.evaluate(async () => {
-    const { passkeyManager } = (window as any).testUtils;
-
-    // Mock VRF failure
-    passkeyManager.webAuthnManager.generateVrfKeypair = async () => {
-      throw new Error('VRF worker unavailable');
-    };
-
-    const events: any[] = [];
-    const result = await passkeyManager.registerPasskey(testAccountId, {
-      onEvent: (event: any) => events.push(event)
-    });
-
-    return {
-      success: result.success,
-      error: result.error,
-      rollbackEvents: events.filter(e => e.message?.includes('Rolling back'))
-    };
+// Set up virtual authenticator for WebAuthn testing
+const authenticatorId = await page.evaluate(() => {
+  return navigator.credentials.create({
+    publicKey: {
+      // Virtual authenticator configuration
+    }
   });
-
-  expect(result.success).toBe(false);
-  expect(result.rollbackEvents.length).toBe(0); // No rollback needed
 });
 ```
 
-#### 2. **Account Creation Failures (No Rollback Needed)**
-Account creation through faucet service fails before any persistent state:
-
+#### Step 2: Import Map Injection
 ```typescript
-// Faucet service failures
-- Rate limiting (HTTP 429)
-- Service unavailable (HTTP 5xx)
-- Network timeouts
+// Inject import map for NEAR.js dependencies
+await page.addInitScript(() => {
+  const importMap = {
+    "imports": {
+      "near-api-js": "https://cdn.jsdelivr.net/npm/near-api-js@latest/dist/near-api-js.min.js",
+      // ... other dependencies
+    }
+  };
+  document.head.appendChild(importMapScript);
+});
 ```
 
-**Testing Approach:**
-- Mock `fetch` to simulate faucet failures
-- Verify no account was created (no rollback needed)
-
-**Example:**
+#### Step 3: Environment Stabilization
 ```typescript
-// Mock faucet service failure
-window.fetch = async (url: any, options: any) => {
-  if (url.includes('helper.testnet.near.org')) {
-    return new Response('Rate limit exceeded', { status: 429 });
-  }
-  return originalFetch(url, options);
+// Wait for environment to be ready
+await page.waitForFunction(() => {
+  return window.navigator && window.crypto && window.indexedDB;
+});
+```
+
+#### Step 4: PasskeyManager Loading
+```typescript
+// Dynamically load PasskeyManager from copied SDK
+const { PasskeyManager } = await import('/sdk/esm/index.js');
+const passkeyManager = new PasskeyManager(config);
+```
+
+#### Step 5: Global Fallbacks
+```typescript
+// Ensure required globals are available
+window.testUtils = {
+  passkeyManager,
+  generateTestAccountId,
+  // ... other utilities
 };
 ```
 
-#### 3. **Account Rollback Failures**
-These occur after account creation but before database storage:
+### Virtual Authenticator Configuration
 
-```typescript
-// Post-account-creation failures
-- Contract registration failure (signVerifyAndRegisterUser)
-- Transaction broadcast failure
-- Access key propagation timeout
-```
+The virtual authenticator is configured with:
+- **Protocol**: CTAP2
+- **Transport**: USB
+- **Resident Key**: Supported
+- **User Verification**: Supported
+- **PRF Extension**: Enabled (for dual PRF functionality)
 
-**Rollback Strategy:**
-- Account deletion using pre-signed `deleteAccount` transaction
-- Database cleanup not needed (nothing stored yet)
+## Running Tests
 
-**Testing Approach:**
-```typescript
-test('should handle contract registration failure with account rollback', async ({ page }) => {
-  // Mock contract registration failure
-  passkeyManager.webAuthnManager.signVerifyAndRegisterUser = async () => {
-    throw new Error('Contract registration failed');
-  };
-
-  // Verify account rollback occurs
-  expect(rollbackEvents.some(e => e.message?.includes('Rolling back NEAR account'))).toBe(true);
-});
-```
-
-#### 4. **Full Rollback Failures**
-These occur after both account creation and database storage:
-
-```typescript
-// Late-stage failures
-- VRF unlock failure (final step)
-- Post-storage validation failures
-```
-
-**Rollback Strategy:**
-- Database cleanup (`rollbackUserRegistration`)
-- Account deletion using pre-signed transaction
-- Contract state remains (immutable)
-
-**Testing Approach:**
-```typescript
-test('should handle VRF unlock failure with full rollback', async ({ page }) => {
-  // Mock VRF unlock failure after everything is complete
-  passkeyManager.webAuthnManager.unlockVRFKeypair = async () => {
-    throw new Error('VRF decryption failed');
-  };
-
-  // Verify both database and account rollback
-  expect(rollbackEvents.some(e => e.message?.includes('Rolling back database'))).toBe(true);
-  expect(rollbackEvents.some(e => e.message?.includes('Rolling back NEAR account'))).toBe(true);
-});
-```
-
-### Rollback Verification
-
-#### Database Rollback Verification
-```typescript
-async function verifyDatabaseClean(accountId: string) {
-  const hasUserData = await passkeyManager.webAuthnManager.indexdbCalls.hasUserData(accountId);
-  const hasKeyData = await passkeyManager.webAuthnManager.indexdbCalls.hasEncryptedKey(accountId);
-  return !hasUserData && !hasKeyData;
-}
-```
-
-#### Account Rollback Verification
-```typescript
-async function verifyAccountDeleted(accountId: string) {
-  try {
-    await nearRpcProvider.viewAccount(accountId);
-    return false; // Account still exists
-  } catch (error) {
-    return error.message.includes('does not exist'); // Account deleted
-  }
-}
-```
-
-#### Contract Rollback Verification
-```typescript
-// Note: Contract state is immutable on blockchain
-// Rollback is not possible for contract registrations
-// Users can re-register to overwrite existing entries
-```
-
-### Advanced Failure Scenarios
-
-#### 5. **Partial Rollback Failures**
-Test cases where rollback itself fails:
-
-```typescript
-test('should handle rollback failures gracefully', async ({ page }) => {
-  // Force registration failure
-  passkeyManager.webAuthnManager.unlockVRFKeypair = async () => {
-    throw new Error('Final step failure');
-  };
-
-  // Also mock rollback failure
-  passkeyManager.webAuthnManager.rollbackUserRegistration = async () => {
-    throw new Error('Database rollback failed');
-  };
-
-  // Should handle rollback failures gracefully
-  expect(rollbackErrorEvents.length).toBeGreaterThan(0);
-});
-```
-
-#### 6. **Concurrent Registration Failures**
-Test multiple registrations failing independently:
-
-```typescript
-test('should handle concurrent registration failures', async ({ page }) => {
-  const testAccounts = [account1, account2, account3];
-
-  // Make only first account fail
-  passkeyManager.webAuthnManager.signVerifyAndRegisterUser = async (options: any) => {
-    if (options.nearAccountId === testAccounts[0]) {
-      throw new Error('Concurrent test failure');
-    }
-    return originalFunction(options);
-  };
-
-  // Verify no cross-contamination between accounts
-  const results = await Promise.allSettled(registrationPromises);
-  expect(results[0].success).toBe(false); // First fails
-  // Others might succeed
-});
-```
-
-### Running Failure Tests
-
+### Run All Tests
 ```bash
-# Run all failure tests
-npx playwright test registration-failure-rollback.test.ts
-
-# Run specific failure category
-npx playwright test registration-failure-rollback.test.ts -g "Input validation"
-
-# Run with debug output
-npx playwright test registration-failure-rollback.test.ts --headed --debug
+npm test
 ```
 
-### Adding New Failure Tests
+### Run Specific Test File
+```bash
+# Run VRF worker tests
+npm test -- src/__tests__/e2e/vrfWorkerManager_dual_prf.test.ts
 
-1. **Identify the failure point** in the registration flow
-2. **Determine rollback requirements** (none, account, database, full)
-3. **Create targeted mock** for the specific failure
-4. **Verify failure behavior** and rollback completion
-5. **Add cleanup verification** as appropriate
+# Run complete UX flow test
+npm test -- src/__tests__/e2e/complete_ux_flow.test.ts
 
-```typescript
-test('should handle [NEW_FAILURE_TYPE]', async ({ page }) => {
-  const result = await page.evaluate(async () => {
-    const { passkeyManager, generateTestAccountId } = (window as any).testUtils;
-    const testAccountId = generateTestAccountId();
-
-    // 1. Mock the specific failure
-    const original = passkeyManager.component.method;
-    passkeyManager.component.method = async () => {
-      throw new Error('Specific failure message');
-    };
-
-    const events: any[] = [];
-
-    try {
-      // 2. Execute registration
-      const result = await passkeyManager.registerPasskey(testAccountId, {
-        onEvent: (event: any) => events.push(event)
-      });
-
-      return { success: result.success, error: result.error, events };
-    } finally {
-      // 3. Restore original
-      passkeyManager.component.method = original;
-    }
-  });
-
-  // 4. Verify failure and rollback
-  expect(result.success).toBe(false);
-  expect(result.error).toContain('Specific failure message');
-
-  // 5. Verify appropriate rollback level
-  const rollbackEvents = result.events.filter(e => e.message?.includes('Rolling back'));
-  // Adjust expectation based on failure point
-});
+# Run registration rollback tests
+npm test -- src/__tests__/e2e/registration-rollback.test.ts
 ```
 
-This comprehensive testing strategy ensures that all failure scenarios are covered and rollback behavior is properly verified.
+### Run Specific Test Case
+```bash
+# Run specific test by name
+npm test -- --grep "VRF Worker Manager - Initialization"
+
+# Run tests matching pattern
+npm test -- --grep "Error Handling"
+```
+
+### Development Mode
+```bash
+# Run tests in headed mode (see browser)
+npm test -- --headed
+
+# Run tests with debug output
+npm test -- --reporter=line
+
+# Run tests with video recording
+npm test -- --video=on
+```
+
+### Manual Build & Copy (without tests)
+```bash
+# Just build and copy assets
+npm run build:check:fresh || (npm run build && mkdir -p ../../frontend/public/sdk && cp -r dist/* ../../frontend/public/sdk/)
+```
+
+## Test Files Overview
+
+### Core Test Files
+
+#### `complete_ux_flow.test.ts`
+- **Purpose**: End-to-end user journey testing
+- **Flow**: Registration → Login → Actions → Recovery
+- **Features**: Complete PasskeyManager lifecycle
+- **Duration**: ~30-45 seconds
+
+#### `vrfWorkerManager_dual_prf.test.ts`
+- **Purpose**: VRF worker functionality testing
+- **Tests**: Keypair generation, deterministic derivation, session management
+- **Features**: Dual PRF support, error handling, WASM worker communication
+- **Duration**: ~15-20 seconds
+
+#### `registration-rollback.test.ts`
+- **Purpose**: Registration rollback and cleanup testing
+- **Tests**: Presigned delete transactions, account cleanup
+- **Features**: NEAR testnet account management
+- **Duration**: ~10-15 seconds
+
+### Debug Test Files
+
+#### `debug_import_map.test.ts`
+- **Purpose**: Verify import map setup
+- **Tests**: Module resolution, dependency loading
+- **Usage**: Troubleshoot import issues
+
+#### `debug_setup_error.test.ts`
+- **Purpose**: Verify test environment setup
+- **Tests**: PasskeyManager instantiation, method availability
+- **Usage**: Troubleshoot setup failures
+
+
+## Troubleshooting
+
+### Common Issues
+
+#### Build Errors
+```bash
+# Clean build
+npm run build:clean && npm run build
+
+# Check build freshness
+npm run build:check:fresh
+```
+
+#### Import Errors
+```bash
+# Verify assets are copied
+ls -la ../../frontend/public/sdk/
+
+# Run debug import test
+npm test -- debug_import_map.test.ts
+```
+
+#### WebAuthn Issues
+```bash
+# Check virtual authenticator setup
+npm test -- debug_setup_error.test.ts
+
+# Run with headed mode to see browser
+npm test -- --headed
+```
+
+#### Worker Communication Issues
+```bash
+# Check worker files exist in SDK workers directory
+ls -la ../../frontend/public/sdk/workers/web3authn-*.worker.js
+ls -la ../../frontend/public/sdk/workers/wasm_*worker*.*
+
+# Run VRF worker tests specifically
+npm test -- vrfWorkerManager_dual_prf.test.ts
+```
+
+#### Test Reports
+HTML reports generated at: `test-results/`
+```bash
+# View report
+npx playwright show-report
+```

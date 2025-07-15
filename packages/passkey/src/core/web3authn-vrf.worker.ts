@@ -12,75 +12,100 @@ import { initializeWasm } from './wasm/wasmLoader';
 const wasmUrl = new URL('../wasm_vrf_worker/wasm_vrf_worker_bg.wasm', import.meta.url);
 const { handle_message } = vrfWasmModule;
 
+// === SIMPLIFIED STATE ===
+
+let wasmReady = false;
+let messageQueue: MessageEvent[] = [];
+
 // === WASM INITIALIZATION ===
 
 /**
  * Initialize WASM module once at startup
  */
 async function initializeWasmModule(): Promise<void> {
-  await initializeWasm({
-    workerName: 'vrf-worker',
-    wasmUrl,
-    initFunction: async (wasmModule?: any) => {
-      await init(wasmModule ? { module: wasmModule } : undefined);
-    },
-    validateFunction: () => {
-      if (typeof handle_message !== 'function') {
-        throw new Error('handle_message function not available after WASM initialization');
-      }
-    },
-    timeoutMs: 20000
-  });
+  try {
+    console.log('[vrf-worker] Starting WASM module initialization...');
 
-  console.log('✅ [vrf-worker]: WASM module loaded and initialized successfully');
+    await initializeWasm({
+      workerName: 'vrf-worker',
+      wasmUrl,
+      initFunction: async (wasmModule?: any) => {
+        await init(wasmModule ? { module: wasmModule } : undefined);
+      },
+      validateFunction: () => {
+        if (typeof handle_message !== 'function') {
+          throw new Error('handle_message function not available after WASM initialization');
+        }
+      },
+      timeoutMs: 20000
+    });
 
-  // Mark WASM as ready and process any queued messages
-  wasmReady = true;
-  processQueuedMessages();
+    console.log('[vrf-worker] WASM module initialized successfully');
+
+    // Mark WASM as ready and process any queued messages
+    wasmReady = true;
+    await processQueuedMessages();
+
+  } catch (error: any) {
+    console.error('[vrf-worker] WASM initialization failed:', error);
+    // Send error responses to all queued messages
+    for (const event of messageQueue) {
+      const errorResponse = createErrorResponse(event.data?.id, error);
+      self.postMessage(errorResponse);
+    }
+    messageQueue = [];
+    throw error; // Re-throw so failures are visible
+  }
 }
 
 // === MESSAGE HANDLING ===
-
-let wasmReady = false;
-let messageQueue: MessageEvent[] = [];
 
 self.onmessage = async (event: MessageEvent) => {
   await handleMessage(event);
 };
 
 // Process queued messages once WASM is ready
-function processQueuedMessages(): void {
-  console.log(`[vrf-worker]: Processing ${messageQueue.length} queued messages`);
+async function processQueuedMessages(): Promise<void> {
+  console.log(`[vrf-worker] Processing ${messageQueue.length} queued messages`);
   const queuedMessages = [...messageQueue];
   messageQueue = [];
 
   for (const event of queuedMessages) {
-    // Process each queued message by calling the handler directly
-    handleMessage(event);
+    try {
+      await handleMessage(event);
+    } catch (error: any) {
+      console.error('[vrf-worker] Error processing queued message:', error);
+      // Send error response for this specific message
+      const errorResponse = createErrorResponse(event.data?.id, error);
+      self.postMessage(errorResponse);
+    }
   }
 }
 
-// Message handler function that can be called directly
+// Main message handler
 async function handleMessage(event: MessageEvent): Promise<void> {
   const data: VRFWorkerMessage = event.data;
-  console.log('[vrf-worker]: Received message:', data.type);
 
   // If WASM is not ready, queue the message
   if (!wasmReady) {
-    console.log('[vrf-worker]: WASM not ready, queueing message:', data.type);
+    console.log(`[vrf-worker] WASM not ready, queueing message: ${data.type}`);
     messageQueue.push(event);
     return;
   }
 
   try {
+    console.log(`[vrf-worker] Processing message: ${data.type}`);
+
     // Call WASM handle_message with JavaScript object - Rust function handles JSON stringification
     const response: VRFWorkerResponse = handle_message(data);
+
+    console.log(`[vrf-worker] WASM response: success=${response.success}`);
 
     // Send response back to main thread
     self.postMessage(response);
 
   } catch (error: unknown) {
-    console.error('[vrf-worker]: Message handling error:', error);
+    console.error(`[vrf-worker] Message handling error for ${data.type}:`, error);
 
     // Send error response
     const errorResponse = createErrorResponse(data?.id, error);
@@ -94,7 +119,21 @@ function createErrorResponse(
   messageId: string | undefined,
   error: unknown
 ): VRFWorkerResponse {
-  const errorMessage = error instanceof Error ? error.message : 'Unknown error in Web Worker';
+  let errorMessage = 'Unknown error in VRF Web Worker';
+
+  if (error instanceof Error) {
+    errorMessage = error.message;
+    console.error('[vrf-worker] Full error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+  } else if (typeof error === 'string') {
+    errorMessage = error;
+  } else {
+    console.error('[vrf-worker] Non-Error object thrown:', error);
+    errorMessage = String(error);
+  }
 
   return {
     id: messageId,
@@ -103,27 +142,21 @@ function createErrorResponse(
   };
 }
 
+// === GLOBAL ERROR MONITORING ===
+
 self.onerror = (error) => {
-  console.error('[vrf-worker]: Global error:', error);
+  console.error('[vrf-worker] Global error:', error);
 };
 
 self.onunhandledrejection = (event) => {
-  console.error('[vrf-worker]: Unhandled promise rejection:', event.reason);
+  console.error('[vrf-worker] Unhandled promise rejection:', event.reason);
   event.preventDefault();
 };
 
 // === INITIALIZATION ===
 
-// Initialize WASM module at startup
+// Initialize WASM module on worker startup
 initializeWasmModule().catch(error => {
-  console.error('[vrf-worker]: Startup initialization failed:', error);
-
-  // Send error responses to all queued messages
-  for (const event of messageQueue) {
-    const errorResponse = createErrorResponse(event.data?.id, error);
-    self.postMessage(errorResponse);
-  }
-  messageQueue = [];
-
+  console.error('[vrf-worker] Startup initialization failed:', error);
   // Worker will throw errors for all future messages if WASM fails to initialize
 });

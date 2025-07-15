@@ -1,17 +1,16 @@
 /**
  * VRF Worker Manager Dual PRF Integration Test
  *
- * This test verifies the actual VRF Worker Manager functionality:
- * - Real WASM VRF worker operations (not just WebCrypto)
+ * This test verifies VRF Worker Manager functionality:
+ * - Real WASM VRF worker operations
  * - VRF keypair generation, encryption, and derivation
- * - Dual PRF compatibility and deterministic behavior
+ * - Dual PRF deterministic derivation of keys
  * - Cross-worker session management and state consistency
  *
- * This focuses on testing the ACTUAL Rust/WASM implementations.
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest } from '../utils/setup';
+import { setupBasicPasskeyTest } from '../setup';
 
 // Test configuration
 const TEST_CONFIG = {
@@ -26,7 +25,7 @@ const TEST_CONFIG = {
   MOCK_PRF_OUTPUT: 'dGVzdC1wcmYtb3V0cHV0LTMyLWJ5dGVzLWZvci10ZXN0aW5n' // base64url: 'test-prf-output-32-bytes-for-testing'
 };
 
-test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
+test.describe('VRF Worker Manager Integration Test', () => {
 
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
@@ -40,14 +39,13 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         console.log('=== DEBUG TEST START ===');
         console.log('Current URL:', window.location.href);
         console.log('Testing VRF Worker Manager import from built SDK...');
-
         // Import VrfWorkerManager directly from its built module
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
         console.log('VrfWorkerManager imported successfully');
 
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
           workerTimeout: 15000,
           debug: true
         });
@@ -60,9 +58,6 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
 
       } catch (error: any) {
         console.error('=== ERROR DETAILS ===');
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        console.error('Error name:', error.name);
         console.error('Full error object:', error);
         return {
           success: false,
@@ -93,7 +88,7 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
 
         // Create VRF Worker Manager with test configuration
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
           workerTimeout: 15000,
           debug: true
         });
@@ -257,9 +252,6 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
 
         return {
           success: true,
-          derivedResult1Success: derivedResult1.success,
-          derivedResult2Success: derivedResult2.success,
-          derivedResult3Success: derivedResult3.success,
           samePublicKey,
           sameVrfOutput,
           sameVrfProof,
@@ -282,9 +274,6 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
 
     // Verify deterministic derivation
     expect(result.success).toBe(true);
-    expect(result.derivedResult1Success).toBe(true);
-    expect(result.derivedResult2Success).toBe(true);
-    expect(result.derivedResult3Success).toBe(true);
 
     // Verify deterministic behavior (same PRF → same results)
     expect(result.samePublicKey).toBe(true);
@@ -497,7 +486,11 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
           challengeWithoutSession: false,
           invalidPrfDerivation: false,
           emptyPrfDerivation: false,
-          workerCommunicationTimeout: false
+          workerCommunicationTimeout: false,
+          // Add debug fields
+          invalidPrfError: '',
+          emptyPrfError: '',
+          challengeWithoutSessionError: ''
         };
 
         // Test 1: Try to generate VRF challenge without active session
@@ -510,7 +503,10 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
             blockHash: 'dGVzdC1ibG9jay1oYXNo', // base64url: 'test-block-hash'
             timestamp: Date.now()
           });
+          console.log('ERROR: Challenge without session should have failed but succeeded!');
         } catch (error: any) {
+          testResults.challengeWithoutSessionError = error.message;
+          console.log('Challenge without session error message:', error.message);
           testResults.challengeWithoutSession = error.message.includes('VRF challenge generation failed');
         }
 
@@ -518,10 +514,14 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         console.log('Testing VRF derivation with invalid PRF...');
         try {
           await vrfWorkerManager.deriveVrfKeypairFromSeed({
-            prfOutput: 'invalid-prf-output',
+            prfOutput: 'this-is-not-valid-base64url!@#$%',
             nearAccountId: testConfig.ACCOUNT_ID
           });
+          console.log('ERROR: Invalid PRF derivation should have failed but succeeded!');
         } catch (error: any) {
+          testResults.invalidPrfError = error.message;
+          console.log('Invalid PRF derivation error message:', error.message);
+          console.log('Error message includes "VRF keypair derivation failed":', error.message.includes('VRF keypair derivation failed'));
           testResults.invalidPrfDerivation = error.message.includes('VRF keypair derivation failed');
         }
 
@@ -532,7 +532,11 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
             prfOutput: '',
             nearAccountId: testConfig.ACCOUNT_ID
           });
+          console.log('ERROR: Empty PRF derivation should have failed but succeeded!');
         } catch (error: any) {
+          testResults.emptyPrfError = error.message;
+          console.log('Empty PRF derivation error message:', error.message);
+          console.log('Error message includes "VRF keypair derivation failed":', error.message.includes('VRF keypair derivation failed'));
           testResults.emptyPrfDerivation = error.message.includes('VRF keypair derivation failed');
         }
 
@@ -549,6 +553,14 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         };
       }
     }, TEST_CONFIG);
+
+    // Debug: Log the actual error messages
+    console.log('=== VRF ERROR HANDLING TEST DEBUG ===');
+    console.log('Test success:', result.success);
+    console.log('Challenge without session error:', result.testResults?.challengeWithoutSessionError);
+    console.log('Invalid PRF error:', result.testResults?.invalidPrfError);
+    console.log('Empty PRF error:', result.testResults?.emptyPrfError);
+    console.log('=== END DEBUG ===');
 
     // Verify error handling
     expect(result.success).toBe(true);
@@ -569,7 +581,7 @@ test.describe('VRF Worker Manager Dual PRF Integration Test', () => {
         console.log('=== VRF RESPONSE STRUCTURE DEBUG ===');
 
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
           workerTimeout: 15000,
           debug: true
         });

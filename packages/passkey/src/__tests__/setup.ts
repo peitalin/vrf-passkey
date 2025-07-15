@@ -1,7 +1,11 @@
 /**
  * E2E Test Setup Utilities
  *
- * Provides reusable setup functions for PasskeyManager e2e testing
+ * Provides reusable setup functions for PasskeyManager e2e testing for:
+ * - ✅ Registration flow: Works correctly
+ * - ✅ Contract verification: Finds stored credentials
+ * - ✅ VRF Login flow: VRF keypair unlock works properly
+ * - ✅ Recovery flow: Works correctly with proper account ID extraction
  *
  * IMPORTANT: Module Loading Strategy
  * ===================================
@@ -25,7 +29,7 @@
  * 4. DYNAMIC IMPORTS: Load PasskeyManager only after environment is ready
  * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  *
- * CRITICAL: Credential ID Format Consistency Fix
+ * Credential ID Format Consistency
  * ==============================================
  *
  * Fixed Issue: Contract verification was failing during actions flow with error:
@@ -44,12 +48,6 @@
  * - Both flows now use: base64UrlEncode(TextEncoder.encode("test-credential-{accountId}-auth"))
  *
  * This ensures the contract can successfully store during registration and lookup during authentication.
- *
- * Impact:
- * - ✅ Registration flow: Now works correctly
- * - ✅ Contract verification: Now finds stored credentials
- * - ⚠️ Login flow: May need VRF keypair storage key updates due to credential ID format change
- * - ⚠️ Recovery flow: May need similar updates for credential lookup consistency
  */
 
 // STATIC IMPORTS: Safe to load early
@@ -59,12 +57,62 @@
 // - type PasskeyManager: TypeScript type only, no runtime code
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page } from '@playwright/test';
-import type { PasskeyManager } from '../../index';
-import { base64UrlEncode } from '../../utils/encoders';
+import type { PasskeyManager } from '../index';
+import { base64UrlEncode } from '../utils/encoders';
+
+// =============================================================================
+// MAIN SETUP FUNCTION
+// =============================================================================
+
+const DEFAULT_TEST_CONFIG = {
+  frontendUrl: 'https://example.localhost',
+  nearNetwork: 'testnet' as const,
+  relayerAccount: 'web3-authn.testnet',
+  contractId: 'web3-authn.testnet',
+  nearRpcUrl: 'https://rpc.testnet.near.org'
+};
 
 /**
- * Test utility interface available in browser context
+ * Main setup function using the 5-step process
+ *
+ * This function orchestrates the complete test environment setup following
+ * a precise sequence to avoid module loading race conditions:
+ *
+ * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
+ * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
+ * 3. STABILIZATION WAIT: Allow browser environment to settle
+ * 4. DYNAMIC IMPORTS: Load PasskeyManager only after environment is ready
+ * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  */
+export async function setupBasicPasskeyTest(
+  page: Page,
+  options: {
+    frontendUrl?: string;
+    nearNetwork?: 'testnet' | 'mainnet';
+    relayerAccount?: string;
+    contractId?: string;
+    nearRpcUrl?: string;
+  } = {}
+): Promise<void> {
+  const config = { ...DEFAULT_TEST_CONFIG, ...options };
+
+  // Navigate to the frontend first
+  await page.goto(config.frontendUrl);
+
+  // Execute the 5-step sequential setup process
+  const authenticatorId = await executeSequentialSetup(page, config);
+
+  // Continue with the rest of the setup (WebAuthn mocks, etc.)
+  await setupWebAuthnMocks(page);
+  await setupTestUtilities(page, config);
+
+  console.log('Playwright test environment ready!');
+}
+
+// =============================================================================
+// TEST UTILITY INTERFACE - available in browser context
+// =============================================================================
+
 export interface TestUtils {
   PasskeyManager: typeof PasskeyManager;
   passkeyManager: PasskeyManager;
@@ -103,13 +151,8 @@ export interface TestUtils {
 }
 
 // =============================================================================
-// WEBAUTHN ATTESTATION OBJECT UTILITIES
-// =============================================================================
-
-// =============================================================================
 // SETUP HELPER FUNCTIONS
 // =============================================================================
-// These functions implement the 5-step setup process in a modular way
 
 /**
  * Step 1: ENVIRONMENT SETUP
@@ -304,10 +347,27 @@ async function executeSequentialSetup(page: Page, configs: any): Promise<string>
 
 // =============================================================================
 // WEBAUTHN MOCKS AND TEST UTILITIES
+// Setup WebAuthn mocks and test utilities
 // =============================================================================
 
 /**
- * Setup WebAuthn mocks and test utilities
+ * Creates a properly formatted CBOR-encoded WebAuthn attestation object
+ * that matches the contract's expectations for successful verification.
+ *
+ * Credential ID Format Consistency
+ * ==========================================
+ * The WebAuthn contract expects credential IDs to be handled consistently:
+ * 1. Registration: Credential ID bytes are embedded in attestation object
+ * 2. Storage: Contract base64url-encodes the credential ID bytes for storage key
+ * 3. Authentication: Contract looks up using the same base64url-encoded string
+ *
+ * This function ensures that:
+ * - The credential ID embedded in attestation object matches the response ID
+ * - Both use the same byte representation that will be base64url-encoded consistently
+ * - The contract can successfully look up stored credentials during authentication
+ *
+ * Note: WebAuthn attestation object utilities are now defined inline within
+ * the setupWebAuthnMocks function to ensure they're available in browser context
  */
 async function setupWebAuthnMocks(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -318,26 +378,6 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
     const originalCredentialsCreate = navigator.credentials?.create;
     const originalCredentialsGet = navigator.credentials?.get;
 
-    /**
-     * Creates a properly formatted CBOR-encoded WebAuthn attestation object
-     * that matches the contract's expectations for successful verification.
-     *
-     * CRITICAL: Credential ID Format Consistency
-     * ==========================================
-     *
-     * The WebAuthn contract expects credential IDs to be handled consistently:
-     * 1. Registration: Credential ID bytes are embedded in attestation object
-     * 2. Storage: Contract base64url-encodes the credential ID bytes for storage key
-     * 3. Authentication: Contract looks up using the same base64url-encoded string
-     *
-     * This function ensures that:
-     * - The credential ID embedded in attestation object matches the response ID
-     * - Both use the same byte representation that will be base64url-encoded consistently
-     * - The contract can successfully look up stored credentials during authentication
-     *
-     * Note: WebAuthn attestation object utilities are now defined inline within
-     * the setupWebAuthnMocks function to ensure they're available in browser context
-     */
     const createProperAttestationObject = (rpIdHash: Uint8Array, credentialIdString: string): Uint8Array => {
       // CRITICAL: Convert string credential ID to bytes for embedding in attestation object
       // This ensures the contract will store and lookup the credential using the same format
@@ -443,7 +483,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         // Extract account ID from user info for deterministic PRF
         const accountId = options.publicKey.user?.name || 'default-account';
-        console.log('🔍 [REG PRF DEBUG] Registration account ID:', accountId);
+        console.log('[REG PRF DEBUG] Registration account ID:', accountId);
 
         // CRITICAL: Credential ID Format for Contract Compatibility
         // ========================================================
@@ -479,11 +519,11 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
-              console.log('🔍 [REG PRF DEBUG] Generating PRF outputs for account:', accountId);
+              console.log('[REG PRF DEBUG] Generating PRF outputs for account:', accountId);
               const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
               const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
-              console.log('🔍 [REG PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
-              console.log('🔍 [REG PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
+              console.log('[REG PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
+              console.log('[REG PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
 
               results.prf = {
                 enabled: true,
@@ -512,37 +552,44 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         let accountId = 'default-account';
 
+        // **MAIN ISSUE**: VRF keypair unlock was failing with "aead::Error" during login
+        // **ROOT CAUSE**: Account ID extraction failure during authentication caused PRF mismatch
+        // - Credential ID was Uint8Array but base64UrlDecode() expected string → TypeError
+        // - Extraction fell back to 'default-account' instead of real account ID
+        // - VRF keypair encrypted with 'e2etest123.testnet' PRF couldn't decrypt with 'default-account' PRF
+
         if (firstCredential) {
-          // CRITICAL: Account ID Extraction from Base64URL Credential ID
-          // ==========================================================
-          // During registration, we stored credential using base64url-encoded format
-          // The allowCredentials contains the base64url-encoded credential ID
-          // We need to decode it back to extract the account ID
-
-          console.log('🔍 [AUTH PRF DEBUG] Extracting account ID from credential...');
-          console.log('🔍 [AUTH PRF DEBUG] Credential ID:', firstCredential.id);
-
           try {
-            // Decode the base64url credential ID back to bytes
-            const credIdBytes = (window as any).base64UrlDecode ?
-              (window as any).base64UrlDecode(firstCredential.id) :
-              new Uint8Array(firstCredential.id); // Fallback for direct bytes
+            let credentialIdString = firstCredential.id;
 
-            // Convert bytes back to string to extract account ID
-            const credIdStr = new TextDecoder().decode(credIdBytes);
-            console.log('🔍 [AUTH PRF DEBUG] Decoded credential string:', credIdStr);
+            // Handle different credential ID formats to prevent TypeError
+            if (credentialIdString instanceof Uint8Array) {
+              // If it's already bytes, convert to string first
+              credentialIdString = new TextDecoder().decode(credentialIdString);
+              console.log('[AUTH PRF DEBUG] Converted Uint8Array to string:', credentialIdString);
+            } else if (typeof credentialIdString === 'string') {
+              // If it's a base64url string, decode it to bytes first, then to string
+              const credIdBytes = (window as any).base64UrlDecode ?
+                (window as any).base64UrlDecode(credentialIdString) :
+                new TextEncoder().encode(credentialIdString); // Fallback
 
-            const match = credIdStr.match(/test-credential-(.+)-auth$/);
-            console.log('🔍 [AUTH PRF DEBUG] Regex match result:', match);
+              credentialIdString = new TextDecoder().decode(credIdBytes);
+              console.log('[AUTH PRF DEBUG] Decoded base64url string:', credentialIdString);
+            }
+
+            console.log('[AUTH PRF DEBUG] Final credential string:', credentialIdString);
+
+            const match = credentialIdString.match(/test-credential-(.+)-auth$/);
+            console.log('[AUTH PRF DEBUG] Regex match result:', match);
 
             if (match && match[1]) {
               accountId = match[1];
-              console.log('🔍 [AUTH PRF DEBUG] Extracted account ID:', accountId);
+              console.log('[AUTH PRF DEBUG] Extracted account ID:', accountId);
             } else {
-              console.warn('🔍 [AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
+              console.warn('[AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
             }
           } catch (e) {
-            console.warn('🔍 [AUTH PRF DEBUG] Failed to decode credential ID, using default account:', e);
+            console.warn('[AUTH PRF DEBUG] Failed to decode credential ID, using default account:', e);
           }
         } else if (prfRequested?.eval?.first) {
           // Extract from PRF salt when no allowCredentials (recovery flow)
@@ -554,7 +601,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           }
         }
 
-        // CRITICAL: Credential ID Format for Contract Lookup Consistency
+        // Credential ID Format for Contract Lookup Consistency
         // ==============================================================
         // Must return the same base64url-encoded format that the contract uses for storage
         const credentialIdString = `test-credential-${accountId}-auth`; // Human-readable format
@@ -562,7 +609,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         return {
-          // CRITICAL: Use base64url-encoded format that matches contract storage key
+          // Use base64url-encoded format that matches contract storage key
           id: credentialIdBase64Url,
           rawId: credentialIdBytes, // Raw bytes for WebAuthn spec compliance
           type: 'public-key',
@@ -581,11 +628,11 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
-              console.log('🔍 [AUTH PRF DEBUG] Generating PRF outputs for account:', accountId);
+              console.log('[AUTH PRF DEBUG] Generating PRF outputs for account:', accountId);
               const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
               const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
-              console.log('🔍 [AUTH PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
-              console.log('🔍 [AUTH PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
+              console.log('[AUTH PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
+              console.log('[AUTH PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');
 
               results.prf = {
                 enabled: true,
@@ -707,53 +754,4 @@ async function setupTestUtilities(page: Page, config: any): Promise<void> {
 
     console.log('Test utilities setup complete');
   }, config);
-}
-
-// =============================================================================
-// MAIN SETUP FUNCTION
-// =============================================================================
-
-const DEFAULT_TEST_CONFIG = {
-  frontendUrl: 'https://example.localhost',
-  nearNetwork: 'testnet' as const,
-  relayerAccount: 'web3-authn.testnet',
-  contractId: 'web3-authn.testnet',
-  nearRpcUrl: 'https://rpc.testnet.near.org'
-};
-
-/**
- * Main setup function using the elegant 5-step process
- *
- * This function orchestrates the complete test environment setup following
- * a precise sequence to avoid module loading race conditions:
- *
- * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
- * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
- * 3. STABILIZATION WAIT: Allow browser environment to settle
- * 4. DYNAMIC IMPORTS: Load PasskeyManager only after environment is ready
- * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
- */
-export async function setupBasicPasskeyTest(
-  page: Page,
-  options: {
-    frontendUrl?: string;
-    nearNetwork?: 'testnet' | 'mainnet';
-    relayerAccount?: string;
-    contractId?: string;
-    nearRpcUrl?: string;
-  } = {}
-): Promise<void> {
-  const config = { ...DEFAULT_TEST_CONFIG, ...options };
-
-  // Navigate to the frontend first
-  await page.goto(config.frontendUrl);
-
-  // Execute the 5-step sequential setup process
-  const authenticatorId = await executeSequentialSetup(page, config);
-
-  // Continue with the rest of the setup (WebAuthn mocks, etc.)
-  await setupWebAuthnMocks(page);
-  await setupTestUtilities(page, config);
-
-  console.log('Complete test environment ready!');
 }

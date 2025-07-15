@@ -9,7 +9,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest } from '../utils/setup';
+import { setupBasicPasskeyTest } from '../setup';
 
 // Import crypto functions for testing
 import { webcrypto } from 'crypto';

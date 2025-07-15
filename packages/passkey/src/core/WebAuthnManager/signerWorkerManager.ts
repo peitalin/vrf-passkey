@@ -63,7 +63,7 @@ const CONFIG = {
     REGISTRATION: 60_000, // 60s for registration operations
   },
   WORKER: {
-    URL: '/workers/web3authn-signer.worker.js',
+    URL: '/sdk/workers/web3authn-signer.worker.js',
     TYPE: 'module' as const,
     NAME: 'Web3AuthnSignerWorker',
   },

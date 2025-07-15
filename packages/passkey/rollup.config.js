@@ -6,6 +6,7 @@ import copy from 'rollup-plugin-copy';
 import postcss from 'rollup-plugin-postcss';
 import json from '@rollup/plugin-json';
 import alias from '@rollup/plugin-alias';
+import { createRequire } from 'module';
 
 const external = [
   // React dependencies
@@ -116,71 +117,72 @@ export default [
     external,
     plugins
   },
-  // Worker build
-  {
-    input: 'src/core/web3authn-signer.worker.ts',
-    output: {
-      file: 'dist/web3authn-signer.worker.js',
-      format: 'esm',
-      sourcemap: true
-    },
-    external: [], // Don't externalize dependencies for worker
-    plugins: [
-      alias({
-        entries: [
-          { find: 'buffer', replacement: 'buffer' }
-        ]
-      }),
-      resolve({
-        preferBuiltins: false,
-        browser: true
-      }),
-      commonjs({
-        // Transform buffer to browser-compatible version
-        transformMixedEsModules: true,
-      }),
-      json(),
-      typescript({
-        tsconfig: './tsconfig.json',
-        declaration: false,
-        declarationMap: false
-      }),
-      // Copy WASM files to the same directory as the worker
-      copy({
-        targets: [
-          { src: 'src/wasm_signer_worker/*.wasm', dest: 'dist' },
-          { src: 'src/wasm_signer_worker/*.js', dest: 'dist' }
-        ]
-      })
-    ]
-  },
-  // VRF Worker build (module mode)
-  {
-    input: 'src/core/web3authn-vrf.worker.ts',
-    output: {
-      file: 'dist/web3authn-vrf.worker.js',
-      format: 'esm',
-      sourcemap: true
-    },
-    external: [], // Don't externalize dependencies for service worker
-    plugins: [
-      resolve({
-        preferBuiltins: false,
-        browser: true
-      }),
-      commonjs(),
-      typescript({
-        tsconfig: './tsconfig.json',
-        declaration: false,
-        declarationMap: false
-      }),
-      // Copy VRF WASM files to the same directory as the service worker
-      copy({
-        targets: [
-          { src: 'src/wasm_vrf_worker/*.wasm', dest: 'dist' },
-          { src: 'src/wasm_vrf_worker/*.js', dest: 'dist' }
-        ]
-      })
-    ]
-  }
+  /**
+   * Worker build is handled by Bun which handles TypeScript better than Rollup
+   */
+  // {
+  //   input: 'src/core/web3authn-signer.worker.ts',
+  //   output: {
+  //     file: CONFIG.getWorkerPath(CONFIG.WORKERS.SIGNER),
+  //     format: 'esm',
+  //     sourcemap: true
+  //   },
+  //   external: [], // Don't externalize dependencies for worker
+  //   plugins: [
+  //     alias({
+  //       entries: [
+  //         { find: 'buffer', replacement: 'buffer' }
+  //       ]
+  //     }),
+  //     resolve({
+  //       preferBuiltins: false,
+  //       browser: true
+  //     }),
+  //     commonjs({
+  //       // Transform buffer to browser-compatible version
+  //       transformMixedEsModules: true,
+  //     }),
+  //     json(),
+  //     typescript({
+  //       tsconfig: './tsconfig.json',
+  //       declaration: false,
+  //       declarationMap: false
+  //     }),
+  //     // Copy WASM files to the workers directory
+  //     copy({
+  //       targets: [
+  //         { src: `${CONFIG.SOURCE.WASM_SIGNER}/*.wasm`, dest: CONFIG.BUILD.WORKERS },
+  //         { src: `${CONFIG.SOURCE.WASM_SIGNER}/*.js`, dest: CONFIG.BUILD.WORKERS }
+  //       ]
+  //     })
+  //   ]
+  // },
+  // {
+  //   input: 'src/core/web3authn-vrf.worker.ts',
+  //   output: {
+  //     file: CONFIG.getWorkerPath(CONFIG.WORKERS.VRF),
+  //     format: 'esm',
+  //     sourcemap: true
+  //   },
+  //   external: [], // Don't externalize dependencies for service worker
+  //   plugins: [
+  //     resolve({
+  //       preferBuiltins: false,
+  //       browser: true
+  //     }),
+  //     commonjs(),
+  //     typescript({
+  //       tsconfig: './tsconfig.json',
+  //       declaration: false,
+  //       declarationMap: false
+  //     }),
+  //     // Copy VRF WASM files to the workers directory
+  //     copy({
+  //       targets: [
+  //         { src: `${CONFIG.SOURCE.WASM_VRF}/*.wasm`, dest: CONFIG.BUILD.WORKERS },
+  //         { src: `${CONFIG.SOURCE.WASM_VRF}/*.js`, dest: CONFIG.BUILD.WORKERS }
+  //       ]
+  //     })
+  //   ]
+  // }
 ];

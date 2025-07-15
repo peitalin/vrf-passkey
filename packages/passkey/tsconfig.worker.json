@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noImplicitAny": false,
+    "strict": false,
+    "skipLibCheck": true,
+    "noImplicitReturns": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": [
+    "src/core/web3authn-signer.worker.ts",
+    "src/core/web3authn-vrf.worker.ts",
+    "src/core/types/signer-worker.ts",
+    "src/core/types/vrf-worker.ts"
+  ]
+}

@@ -19,7 +19,7 @@ import {
 import { SignerWorkerManager } from './signerWorkerManager';
 import { VrfWorkerManager } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
-import { base64UrlEncode, base64UrlDecode, base58Decode, toWasmByteArray} from '../../utils/encoders';
+import { base64UrlEncode, base64UrlDecode, base58Decode, toWasmByteArray } from '../../utils/encoders';
 import {
   type UserData,
   type ActionParams,
@@ -55,9 +55,8 @@ export class WebAuthnManager {
     this.touchIdPrompt = new TouchIdPrompt();
     this.configs = configs;
 
-    this.vrfWorkerManager.initialize().catch(error => {
-      console.warn('WebAuthnManager: VRF worker initialization failed:', error);
-    });
+    // VRF worker initializes on-demand with proper error propagation
+    console.log('WebAuthnManager: Constructor complete, VRF worker will initialize on-demand');
   }
 
   ///////////////////////////////////////
@@ -192,10 +191,6 @@ export class WebAuthnManager {
         vrfInputParams
       });
 
-      if (!vrfResult.success) {
-        throw new Error('VRF keypair derivation from PRF failed');
-      }
-
       console.log(`Derived VRF public key: ${vrfResult.vrfPublicKey}`);
       if (vrfResult.vrfChallenge) {
         console.log(`Generated VRF challenge with output: ${vrfResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
@@ -227,10 +222,7 @@ export class WebAuthnManager {
 
     } catch (error: any) {
       console.error('WebAuthnManager: VRF keypair derivation from PRF error:', error);
-      return {
-        success: false,
-        vrfPublicKey: ''
-      };
+      throw new Error(`VRF keypair derivation from PRF failed ${error.message}`);
     }
   }
 

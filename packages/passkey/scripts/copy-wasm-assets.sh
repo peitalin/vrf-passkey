@@ -5,35 +5,20 @@
 
 set -e  # Exit on any error
 
-FRONTEND_WORKERS_DIR="../../frontend/public/workers"
+# Source centralized build configuration
+source "$(dirname "$0")/../build-paths.sh"
 
 echo "Copying worker files to frontend..."
 
 # Ensure the target directory exists
-mkdir -p "$FRONTEND_WORKERS_DIR"
+mkdir -p "$FRONTEND_SDK"
 
-# Copy main passkey worker files
-echo "Copying passkey signerworker files..."
-# worker wrapper
-cp dist/web3authn-signer.worker.js "$FRONTEND_WORKERS_DIR/"
-# worker wasm files
-cp dist/wasm_signer_worker.js "$FRONTEND_WORKERS_DIR/"
-cp dist/wasm_signer_worker_bg.wasm "$FRONTEND_WORKERS_DIR/"
+# Copy the entire workers directory
+echo "Copying workers directory..."
+cp -r "$BUILD_WORKERS" "$FRONTEND_SDK/"
 
-# Copy VRF worker files
-echo "Copying VRF worker files..."
-# worker wrapper
-cp dist/web3authn-vrf.worker.js "$FRONTEND_WORKERS_DIR/"
-# worker wasm files
-cp dist/wasm_vrf_worker.js "$FRONTEND_WORKERS_DIR/"
-cp dist/wasm_vrf_worker_bg.wasm "$FRONTEND_WORKERS_DIR/"
-
-echo "Worker files copied to frontend/public/workers/"
-echo "Signer Worker Files copied:"
-echo "   - web3authn-signer.worker.js"
-echo "   - wasm_signer_worker.js"
-echo "   - wasm_signer_worker_bg.wasm"
-echo "VRF Worker Files copied:"
-echo "   - web3authn-vrf.worker.js"
-echo "   - wasm_vrf_worker.js"
-echo "   - wasm_vrf_worker_bg.wasm"
+echo "✅ Worker files copied successfully!"
+echo "Files copied to: $FRONTEND_WORKERS"
+echo ""
+echo "Worker files available:"
+ls -la "$FRONTEND_WORKERS"

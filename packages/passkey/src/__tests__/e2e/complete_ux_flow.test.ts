@@ -11,8 +11,9 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest, type TestUtils } from '../utils/setup';
+import { setupBasicPasskeyTest, type TestUtils } from '../setup';
 import { ActionType } from '../../core/types/actions';
+import { BUILD_PATHS } from '@build-paths';
 
 test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
@@ -28,16 +29,14 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
     page.on('console', msg => {
       const message = `[${msg.type()}] ${msg.text()}`;
       consoleMessages.push(message);
-      // Also log to test output immediately for debugging
-      if (message.includes('RUST:') || message.includes('signer-worker') || message.includes('Contract') || message.includes('verification')) {
-        console.log(`${message}`);
-      }
+      // Log everything - no filtering to avoid missing important debug info
+      console.log(`${message}`);
     });
 
     // Also capture page errors
     page.on('pageerror', error => {
       consoleMessages.push(`[pageerror] ${error.message}`);
-      console.log(`❌ Page Error: ${error.message}`);
+      console.log(`Page Error: ${error.message}`);
     });
 
     // Clear IndexedDB to ensure clean state after credential ID format changes
@@ -59,7 +58,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
       }
     });
 
-    const result = await page.evaluate(async (actionType) => {
+    const result = await page.evaluate(async ({ actionType, buildPaths }) => {
       try {
         const {
           passkeyManager,
@@ -101,16 +100,16 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         console.log('=== PHASE 2: LOGIN FLOW ===');
 
         // Debug before login attempt
-        console.log('🔍 Starting login attempt for account:', testAccountId);
+        console.log('Starting login attempt for account:', testAccountId);
 
         // Test VRF worker initialization
-        console.log('🔍 Testing VRF worker initialization...');
+        console.log('Testing VRF worker initialization...');
         try {
           // Check current URL and base path
           const currentUrl = await page.url();
-          console.log('🔍 Current test URL:', currentUrl);
+          console.log('Current test URL:', currentUrl);
 
-          // Check if VRF worker files are accessible
+          // Check if worker files exist
           const workerFileResults = await page.evaluate(async () => {
             const results: any[] = [];
 
@@ -118,9 +117,9 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
             // Check if worker files exist
             const workerPaths = [
-              '/workers/web3authn-vrf.worker.js',
-              '/workers/wasm_vrf_worker.js',
-              '/workers/wasm_vrf_worker_bg.wasm'
+              buildPaths.TEST_WORKERS.VRF,
+              buildPaths.TEST_WORKERS.WASM_VRF_JS,
+              buildPaths.TEST_WORKERS.WASM_VRF_WASM
             ];
 
             for (const path of workerPaths) {
@@ -144,32 +143,32 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
             return results;
           });
 
-          console.log('🔍 VRF Worker file accessibility results:');
+          console.log('VRF Worker file accessibility results:');
           workerFileResults.forEach(result => {
             if (result.success) {
-              console.log(`✅ ${result.path}: ${result.status} ${result.statusText}`);
+              console.log(`${result.path}: ${result.status} ${result.statusText}`);
             } else {
-              console.log(`❌ ${result.path}: ${result.error || 'Failed'}`);
+              console.log(`${result.path}: ${result.error || 'Failed'}`);
             }
           });
 
           // Try to get login state which should initialize VRF worker
           const loginState = await passkeyManager.getLoginState();
-          console.log('🔍 Login state retrieved:', loginState);
+          console.log('Login state retrieved:', loginState);
 
           // Add explicit VRF worker initialization test
-          console.log('🔍 Testing explicit VRF worker initialization...');
+          console.log('Testing explicit VRF worker initialization...');
           try {
             // Try to get login state which will trigger VRF worker initialization
             const loginStateResult = await passkeyManager.getLoginState();
-            console.log('🔍 Login state check result:', loginStateResult);
+            console.log('Login state check result:', loginStateResult);
           } catch (vrfError: any) {
-            console.log('❌ Login state check failed:', vrfError);
-            console.log('❌ Login state error stack:', vrfError?.stack);
+            console.log('Login state check failed:', vrfError);
+            console.log('Login state error stack:', vrfError?.stack);
           }
 
         } catch (vrfTestError) {
-          console.log('❌ VRF worker test failed:', vrfTestError);
+          console.log('VRF worker test failed:', vrfTestError);
         }
 
         const loginEvents: any[] = [];
@@ -184,10 +183,10 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         });
 
         // Debug login result
-        console.log('🔍 Login completed. Success:', loginResult.success);
+        console.log('Login completed. Success:', loginResult.success);
         if (!loginResult.success) {
-          console.log('🔍 Login error:', loginResult.error);
-          console.log('🔍 Login events:', loginEvents.map(e => `${e.phase}: ${e.message}`));
+          console.log('Login error:', loginResult.error);
+          console.log('Login events:', loginEvents.map(e => `${e.phase}: ${e.message}`));
           throw new Error(`Login failed: ${loginResult.error}`);
         }
 
@@ -286,7 +285,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
           stack: error.stack
         };
       }
-    }, ActionType); // Pass ActionType as parameter
+    }, { actionType: ActionType, buildPaths: BUILD_PATHS }); // Pass both ActionType and BUILD_PATHS
 
     // =================================================================
     // ASSERTIONS
@@ -339,26 +338,12 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
     expect(result.finalLoginState?.vrfActive).toBe(true);
     expect(result.recentLogins?.accountIds).toContain(result.testAccountId);
 
-    // Output captured console messages for debugging
-    console.log('=== BROWSER CONSOLE MESSAGES (last 50) ===');
-    consoleMessages.slice(-50).forEach((msg, index) => {
+    // Output captured console messages for debugging (no filtering)
+    console.log('=== BROWSER CONSOLE MESSAGES (last 100) ===');
+    consoleMessages.slice(-100).forEach((msg, index) => {
       console.log(`${index + 1}: ${msg}`);
     });
     console.log('=== END BROWSER CONSOLE ===');
-
-    // Also show any RUST/signer worker messages specifically
-    const rustMessages = consoleMessages.filter(msg =>
-      msg.includes('RUST:') || msg.includes('signer-worker') || msg.includes('Contract') || msg.includes('verification')
-    );
-    if (rustMessages.length > 0) {
-      console.log('=== RUST/SIGNER WORKER MESSAGES ===');
-      rustMessages.forEach((msg, index) => {
-        console.log(`${index + 1}: ${msg}`);
-      });
-      console.log('=== END RUST/SIGNER WORKER MESSAGES ===');
-    } else {
-      console.log('️No RUST/signer worker messages found in console logs');
-    }
 
     console.log(`Complete PasskeyManager lifecycle test completed successfully!`);
     console.log(`   Account: ${result.testAccountId}`);

@@ -3,7 +3,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest } from '../utils/setup';
+import { setupBasicPasskeyTest } from '../setup';
 
 test.describe('Example PasskeyManager Usage', () => {
 

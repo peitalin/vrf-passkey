@@ -15,6 +15,7 @@ import type {
 import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlDecode, base64UrlEncode } from '../../utils';
+import { BUILD_PATHS } from '@build-paths';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;
@@ -46,24 +47,86 @@ export class VrfWorkerManager {
 
   constructor(config: VrfWorkerManagerConfig = {}) {
     this.config = {
-      // Default to client-hosted worker file
-      vrfWorkerUrl: '/workers/web3authn-vrf.worker.js',
+      // Default to client-hosted worker file using centralized config
+      vrfWorkerUrl: BUILD_PATHS.RUNTIME.VRF_WORKER,
       workerTimeout: 10000,
       debug: false,
       ...config
     };
-    console.log('VRF Manager: Initializing with client-hosted Web Worker...');
+    console.log('🛡VRF Manager: Initializing with enhanced health monitoring...');
   }
 
-    /**
+  /**
+   * Ensure VRF worker is initialized and ready
+   */
+
+
+  /**
+   * Ensure VRF worker is ready for operations
+   * @param requireHealthCheck - Whether to perform health check after initialization
+   */
+  private async ensureWorkerReady(requireHealthCheck = false): Promise<void> {
+    // Initialize if needed
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    } else if (!this.vrfWorker) {
+      await this.initialize();
+    }
+
+    if (!this.vrfWorker) {
+      throw new Error('VRF Worker failed to initialize');
+    }
+
+    // Optional health check for critical operations
+    if (requireHealthCheck) {
+      try {
+        const healthResponse = await this.sendMessage({
+          type: 'PING',
+          id: this.generateMessageId(),
+          data: {}
+        }, 3000);
+
+        if (!healthResponse.success) {
+          throw new Error('VRF Worker failed health check');
+        }
+      } catch (error) {
+        console.error('🛡️ VRF Manager: Health check failed:', error);
+        throw new Error('VRF Worker failed health check');
+      }
+    }
+  }
+
+  /**
    * Initialize VRF functionality using Web Workers
    */
   async initialize(): Promise<void> {
     if (this.initializationPromise) {
+      console.log('VRF Manager: Returning existing initialization promise');
       return this.initializationPromise;
     }
-    this.initializationPromise = this.createVrfWorker();
-    return this.initializationPromise;
+
+    console.log('VRF Manager: Starting fresh initialization...');
+    // =============================================================
+    // This improved error handling ensures that:
+    // 1. Initialization failures are properly logged with full details
+    // 2. Errors are re-thrown to callers (no silent swallowing)
+    // 3. Failed initialization promise is reset for retry
+    // 4. Debug logs actually appear in test output
+    this.initializationPromise = this.createVrfWorker().catch(error => {
+      console.error('VRF Manager: Initialization failed:', error);
+      console.error('VRF Manager: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      // Reset promise so initialization can be retried
+      this.initializationPromise = null;
+      throw error; // Re-throw so callers know it failed
+    });
+
+    const result = await this.initializationPromise;
+    console.log('VRF Manager: Initialization completed successfully');
+    return result;
   }
 
   /**
@@ -145,16 +208,7 @@ export class VrfWorkerManager {
     onEvent?: (event: { type: string, data: { step: string, message: string } }) => void,
   }): Promise<VRFWorkerResponse> {
 
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
+    await this.ensureWorkerReady(true);
 
     if (!prfOutput) {
       let challenge = crypto.getRandomValues(new Uint8Array(32));
@@ -194,6 +248,8 @@ export class VrfWorkerManager {
       console.log(`VRF Manager: VRF keypair unlocked for ${nearAccountId}`);
     } else {
       console.error('VRF Manager: Failed to unlock VRF keypair:', response.error);
+      console.error('VRF Manager: Full response:', JSON.stringify(response, null, 2));
+      console.error('VRF Manager: Message that was sent:', JSON.stringify(message, null, 2));
     }
 
     return response;
@@ -205,17 +261,7 @@ export class VrfWorkerManager {
    */
   async generateVrfChallenge(inputData: VRFInputData): Promise<VRFChallenge> {
     console.log('VRF Manager: Generating VRF challenge...');
-
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
+    await this.ensureWorkerReady(true);
 
     // Convert base64url blockHash to byte array for consistent Rust worker handling
     const blockHashBytes = Array.from(base64UrlDecode(inputData.blockHash));
@@ -247,15 +293,10 @@ export class VrfWorkerManager {
    * Get current VRF session status
    */
   async checkVrfStatus(): Promise<VRFWorkerStatus> {
-
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
+    try {
+      await this.ensureWorkerReady();
+    } catch (error) {
+      // If initialization fails, return inactive status
       return { active: false, nearAccountId: null };
     }
 
@@ -289,16 +330,7 @@ export class VrfWorkerManager {
   async clearVrfSession(): Promise<void> {
     console.log('VRF Manager: Logging out...');
 
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      return;
-    }
+    await this.ensureWorkerReady();
 
     try {
       const message: VRFWorkerMessage = {
@@ -348,15 +380,7 @@ export class VrfWorkerManager {
       withChallenge: !!vrfInputParams
     });
 
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
+    await this.ensureWorkerReady();
     console.log("GENERATE_VRF_KEYPAIR_BOOTSTRAP vrfInputParams: ", vrfInputParams)
 
     try {
@@ -425,18 +449,9 @@ export class VrfWorkerManager {
     vrfPublicKey: string;
     encryptedVrfKeypair: EncryptedVRFKeypair;
   }> {
-    console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
+        console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
 
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
+    await this.ensureWorkerReady();
 
     const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
     if (!prfOutput) {
@@ -497,25 +512,14 @@ export class VrfWorkerManager {
       timestamp: number;
     };
   }): Promise<{
-    success: boolean;
     vrfPublicKey: string;
     vrfChallenge?: VRFChallenge;
     encryptedVrfKeypair?: EncryptedVRFKeypair;
   }> {
     console.log('VRF Manager: Deriving deterministic VRF keypair from PRF output');
-
-    // Wait for any existing initialization to complete before proceeding
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    } else if (!this.vrfWorker) {
-      await this.initialize();
-    }
-
-    if (!this.vrfWorker) {
-      throw new Error('VRF Web Worker not initialized after initialization attempt');
-    }
-
     try {
+      await this.ensureWorkerReady();
+
       // Pass base64url string directly - VRF worker handles conversion internally
       const messageData: any = {
         prfOutput: prfOutput, // Base64url string → VRF worker handles conversion
@@ -548,12 +552,10 @@ export class VrfWorkerManager {
       console.log('VRF Manager: Deterministic VRF keypair derivation successful');
 
       const result: {
-        success: boolean;
         vrfPublicKey: string;
         vrfChallenge?: VRFChallenge;
         encryptedVrfKeypair?: EncryptedVRFKeypair;
       } = {
-        success: response.data.success,
         vrfPublicKey: response.data.vrf_public_key
       };
 
@@ -580,10 +582,7 @@ export class VrfWorkerManager {
 
     } catch (error: any) {
       console.error('VRF Manager: VRF keypair derivation failed:', error);
-      return {
-        success: false,
-        vrfPublicKey: ''
-      };
+      throw new Error(`VRF keypair derivation failed: ${error.message}`);
     }
   }
 
