@@ -16,6 +16,12 @@ export default defineConfig({
         // Allow serving from the linked passkey package
         '../packages/passkey/dist'
       ]
+    },
+    // Configure MIME types for WASM files
+    middlewareMode: false,
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
     }
   },
   plugins: [
@@ -28,6 +34,18 @@ export default defineConfig({
       },
       protocolImports: true,
     }),
+    // Custom plugin to serve WASM files with correct MIME type
+    {
+      name: 'wasm-mime-type',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url?.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+          }
+          next();
+        });
+      },
+    },
   ],
   resolve: {
     alias: {

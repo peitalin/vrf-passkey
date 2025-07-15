@@ -5,6 +5,9 @@
 
 set -e
 
+# Source build paths
+source ./build-paths.sh
+
 echo "Starting passkey package build..."
 
 # Colors for output
@@ -33,7 +36,7 @@ print_error() {
 
 # Step 1: Clean previous build
 print_step "Cleaning previous build artifacts..."
-rm -rf dist/
+rm -rf "$BUILD_ROOT/"
 print_success "Build directory cleaned"
 
 # Step 2: Generate TypeScript types from Rust
@@ -47,7 +50,7 @@ fi
 
 # Step 3: Build WASM signer worker
 print_step "Building WASM signer worker..."
-cd src/wasm_signer_worker
+cd "$SOURCE_WASM_SIGNER"
 if wasm-pack build --target web --out-dir .; then
     print_success "WASM signer worker built successfully"
 else
@@ -58,7 +61,7 @@ cd ../..
 
 # Step 4: Build WASM VRF worker
 print_step "Building WASM VRF worker..."
-cd src/wasm_vrf_worker
+cd "$SOURCE_WASM_VRF"
 if wasm-pack build --target web --out-dir .; then
     print_success "WASM VRF worker built successfully"
 else
@@ -69,7 +72,7 @@ cd ../..
 
 # Step 5: Build TypeScript
 print_step "Building TypeScript..."
-if tsc -p tsconfig.build.json; then
+if npx tsc -p tsconfig.build.json; then
     print_success "TypeScript compilation completed"
 else
     print_error "TypeScript compilation failed"
@@ -78,7 +81,7 @@ fi
 
     # Step 6: Bundle with Rolldown
   print_step "Bundling with Rolldown..."
-  if rolldown -c rolldown.config.ts; then
+  if npx rolldown -c rolldown.config.ts; then
       print_success "Rolldown bundling completed"
   else
       print_error "Rolldown bundling failed"
@@ -87,20 +90,20 @@ fi
 
 # Step 7: Bundle workers with Bun (handles TypeScript better)
 print_step "Bundling workers with Bun..."
-if ~/.bun/bin/bun build src/core/web3authn-signer.worker.ts --outdir dist/workers --format esm --target browser && \
-    ~/.bun/bin/bun build src/core/web3authn-vrf.worker.ts --outdir dist/workers --format esm --target browser; then
+if ~/.bun/bin/bun build "$SOURCE_CORE/web3authn-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser && \
+    ~/.bun/bin/bun build "$SOURCE_CORE/web3authn-vrf.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser; then
     print_success "Bun worker bundling completed"
 else
     print_error "Bun worker bundling failed"
     exit 1
 fi
 
-# Step 7: Copy WASM assets
-print_step "Copying WASM assets..."
-if ./scripts/copy-wasm-assets.sh; then
-    print_success "WASM assets copied successfully"
+# Step 7: Copy SDK assets
+print_step "Copying SDK assets..."
+if ./scripts/copy-sdk-assets.sh; then
+    print_success "SDK assets copied successfully"
 else
-    print_warning "WASM asset copying completed with warnings"
+    print_warning "SDK asset copying completed with warnings"
 fi
 
 print_success "Build completed successfully!"
@@ -112,7 +115,7 @@ echo "  - Type generation: ✅"
 echo "  - WASM signer worker: ✅"
 echo "  - WASM VRF worker: ✅"
 echo "  - TypeScript compilation: ✅"
-echo "  - Rollup bundling: ✅"
-echo "  - WASM assets: ✅"
+echo "  - Rolldown bundling: ✅"
+echo "  - SDK and WASM assets: ✅"
 echo ""
-echo "Output directory: dist/"
+echo "Output directory: $BUILD_ROOT/"

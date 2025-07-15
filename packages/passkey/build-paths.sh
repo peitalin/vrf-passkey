@@ -2,7 +2,6 @@
 
 # Centralized build configuration (bash version)
 # This file defines all paths used across the build system
-# Update paths here and they'll be reflected everywhere
 
 # Build output directories
 BUILD_ROOT="dist"
@@ -53,7 +52,7 @@ CRITICAL_FILES=(
     "src/core/PasskeyManager/login.ts"
     "src/core/PasskeyManager/registration.ts"
     "src/index.ts"
-    "rollup.config.js"
+    "rolldown.config.ts"
     "tsconfig.json"
 )
 

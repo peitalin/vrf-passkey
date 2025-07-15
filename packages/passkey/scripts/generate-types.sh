@@ -4,6 +4,9 @@
 
 set -e
 
+# Source build paths
+source ./build-paths.sh
+
 echo "Generating TypeScript types from Rust using wasm-bindgen..."
 
 # Function to handle errors with more detail
@@ -34,7 +37,7 @@ exec 2> >(tee -a "$LOG_FILE" >&2)
 
 # 1. Build WASM signer worker and generate TypeScript definitions
 echo "Building WASM signer worker..."
-cd src/wasm_signer_worker
+cd "$SOURCE_WASM_SIGNER"
 
 echo "Running cargo check first..."
 cargo check
@@ -46,7 +49,7 @@ cd ../..
 
 # 2. Build WASM VRF worker and generate TypeScript definitions
 echo "Building WASM VRF worker..."
-cd src/wasm_vrf_worker
+cd "$SOURCE_WASM_VRF"
 
 echo "Running cargo check first..."
 cargo check
@@ -57,8 +60,8 @@ wasm-pack build --target web --out-dir ../wasm_vrf_worker --out-name wasm_vrf_wo
 cd ../..
 
 # 3. Check if wasm-bindgen generated types exist
-SIGNER_TYPES="src/wasm_signer_worker/wasm_signer_worker.d.ts"
-VRF_TYPES="src/wasm_vrf_worker/wasm_vrf_worker.d.ts"
+SIGNER_TYPES="$SOURCE_WASM_SIGNER/wasm_signer_worker.d.ts"
+VRF_TYPES="$SOURCE_WASM_VRF/wasm_vrf_worker.d.ts"
 
 if [ ! -f "$SIGNER_TYPES" ]; then
     echo "❌ Signer worker TypeScript definitions not found at $SIGNER_TYPES"
