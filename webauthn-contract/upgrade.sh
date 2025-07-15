@@ -1,6 +1,9 @@
 #!/bin/bash
 source .env
 
+echo "Upgrading contract: $WEBAUTHN_CONTRACT_ID"
+echo "Building contract with reproducible WASM..."
+
 # Deploy contract without initialization call
 cargo near deploy build-reproducible-wasm $WEBAUTHN_CONTRACT_ID \
 	without-init-call \

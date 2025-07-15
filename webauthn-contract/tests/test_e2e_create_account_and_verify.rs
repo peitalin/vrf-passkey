@@ -1,6 +1,6 @@
 //! End-to-End Create Account and Verify Test
 //!
-//! Single comprehensive test for the new `create_account_and_verify` method that combines
+//! Single comprehensive test for the new `create_account_and_register_user` method that combines
 //! account creation with VRF-based WebAuthn registration in a single atomic transaction.
 
 use near_workspaces::types::Gas;
@@ -133,7 +133,7 @@ async fn generate_vrf_account_creation_data(
     // Verify the proof works locally
     assert!(proof.verify(&vrf_input, &keypair.pk).is_ok(), "Generated VRF proof should be valid");
 
-    println!("✅ Generated VRF data for account creation:");
+    println!("Generated VRF data for account creation:");
     println!("  - VRF input: {} bytes", vrf_input.len());
     println!("  - VRF output: {} bytes", vrf_output.len());
     println!("  - User ID: {}", user_id);
@@ -153,7 +153,7 @@ async fn generate_vrf_account_creation_data(
 }
 
 #[tokio::test]
-async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Create Account and Verify E2E Test...");
 
     // Deploy contract
@@ -172,7 +172,7 @@ async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::
     assert_eq!(settings["enabled"].as_bool().unwrap(), true);
     assert_eq!(settings["max_accounts_per_day"].as_u64().unwrap(), 1000);
 
-    println!("✅ Default settings verified:");
+    println!("Default settings verified:");
     println!("  - Initial balance: {} NEAR", settings["initial_balance_near"]);
     println!("  - Enabled: {}", settings["enabled"]);
     println!("  - Max accounts per day: {}", settings["max_accounts_per_day"]);
@@ -201,9 +201,9 @@ async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::
 
     println!("Testing atomic account creation and verification...");
 
-    // Call create_account_and_verify method
+    // Call create_account_and_register_user method
     let result = contract
-        .call("create_account_and_verify")
+        .call("create_account_and_register_user")
         .args_json(json!({
             "new_account_id": user_id,
             "new_public_key": new_public_key,
@@ -215,7 +215,7 @@ async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::
         .transact()
         .await?;
 
-    println!("✅ Account creation and verification transaction completed");
+    println!("Account creation and verification transaction completed");
     println!("  - Transaction successful: {}", result.is_success());
     println!("  - Gas used: {:?}", result.total_gas_burnt);
 
@@ -247,12 +247,12 @@ async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::
     assert_eq!(new_settings["initial_balance_near"].as_f64().unwrap(), 0.25);
     assert_eq!(new_settings["max_accounts_per_day"].as_u64().unwrap(), 2000);
 
-    println!("✅ Configuration updates verified:");
+    println!("Configuration updates verified:");
     println!("  - Updated initial balance: {} NEAR", new_settings["initial_balance_near"]);
     println!("  - Updated max accounts per day: {}", new_settings["max_accounts_per_day"]);
 
     // Test disabled account creation
-    println!("🚫 Testing disabled account creation...");
+    println!("Testing disabled account creation...");
     let disable_result = contract
         .call("update_account_creation_settings")
         .args_json(json!({
@@ -278,7 +278,7 @@ async fn test_create_account_and_verify_e2e() -> Result<(), Box<dyn std::error::
     );
 
     let disabled_result = contract
-        .call("create_account_and_verify")
+        .call("create_account_and_register_user")
         .args_json(json!({
             "new_account_id": disabled_user_id,
             "new_public_key": new_public_key,

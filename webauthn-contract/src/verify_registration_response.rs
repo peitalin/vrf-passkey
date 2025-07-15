@@ -95,7 +95,8 @@ impl WebAuthnContract {
     ///
     /// # Returns
     /// * `Promise` - Chained promise that creates account and verifies registration
-    pub fn create_account_and_verify(
+    #[payable]
+    pub fn create_account_and_register_user(
         &mut self,
         new_account_id: AccountId,
         new_public_key: PublicKey,
@@ -936,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_account_and_verify() {
+    fn test_create_account_and_register_user() {
         let context = get_context_with_seed(42);
         testing_env!(context.build());
         let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
@@ -961,7 +962,7 @@ mod tests {
             block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
         };
 
-        let _promise = contract.create_account_and_verify(
+        let _promise = contract.create_account_and_register_user(
             new_account_id,
             new_public_key,
             vrf_data,
@@ -971,12 +972,12 @@ mod tests {
 
         // In test environment, promises are not actually executed
         // This test verifies the function compiles and creates the promise structure
-        println!("create_account_and_verify function executed successfully");
+        println!("create_account_and_register_user function executed successfully");
     }
 
         #[test]
-    fn test_create_account_and_verify_enabled_check() {
-        // Test that create_account_and_verify function exists and can be called
+    fn test_create_account_and_register_user_enabled_check() {
+        // Test that create_account_and_register_user function exists and can be called
         // Note: This test verifies the function compiles and has correct signature
         let context = get_context_with_seed(42);
         testing_env!(context.build());
@@ -986,7 +987,7 @@ mod tests {
         assert!(contract.account_creation_settings.enabled);
         assert_eq!(contract.account_creation_settings.initial_balance_near, 0.1);
 
-        println!("create_account_and_verify enabled check test passed");
+        println!("create_account_and_register_user enabled check test passed");
     }
 
     #[test]
