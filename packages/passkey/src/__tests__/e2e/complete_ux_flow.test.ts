@@ -13,7 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
 import { ActionType } from '../../core/types/actions';
-import { BUILD_PATHS } from '@build-paths';
+import { BUILD_PATHS } from '../../../build-paths.js';
 
 test.describe('PasskeyManager Complete E2E Test Suite', () => {
 

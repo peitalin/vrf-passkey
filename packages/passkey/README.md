@@ -58,7 +58,7 @@ pnpm run dev
 #### Build System
 
 The SDK uses a hybrid build system:
-- **Rollup** for main library bundling (ESM/CJS)
+- **Rolldown** for main library bundling (ESM/CJS)
 - **Bun** for TypeScript worker compilation (better TypeScript support)
 - **wasm-pack** for Rust WASM modules
 
@@ -109,7 +109,7 @@ The build system uses centralized configuration files:
 ```
 build-paths.ts        # SDK filepath configs (source of truth)
 build-paths.sh        # Build scripts filepaths
-rollup.config.js       # Rollup bundler configuration
+rolldown.config.mjs   # Rolldown bundler configuration
 tsconfig.worker.json   # TypeScript config for workers
 ```
 

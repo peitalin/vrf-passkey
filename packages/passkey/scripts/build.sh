@@ -76,14 +76,14 @@ else
     exit 1
 fi
 
-  # Step 6: Bundle with Rollup
-print_step "Bundling with Rollup..."
-if rollup -c rollup.config.js; then
-    print_success "Rollup bundling completed"
-else
-    print_error "Rollup bundling failed"
-    exit 1
-fi
+    # Step 6: Bundle with Rolldown
+  print_step "Bundling with Rolldown..."
+  if rolldown -c rolldown.config.mjs; then
+      print_success "Rolldown bundling completed"
+  else
+      print_error "Rolldown bundling failed"
+      exit 1
+  fi
 
 # Step 7: Bundle workers with Bun (handles TypeScript better)
 print_step "Bundling workers with Bun..."

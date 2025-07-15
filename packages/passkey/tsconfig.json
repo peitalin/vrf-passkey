@@ -23,7 +23,7 @@
     "types": ["@playwright/test", "node"],
     "paths": {
       "@/*": ["./src/*"],
-      "@build-paths": ["./build-paths"]
+      "@build-paths": ["./build-paths.js"]
     }
   },
   "include": [
