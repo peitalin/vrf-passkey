@@ -78,7 +78,7 @@ fi
 
     # Step 6: Bundle with Rolldown
   print_step "Bundling with Rolldown..."
-  if rolldown -c rolldown.config.mjs; then
+  if rolldown -c rolldown.config.ts; then
       print_success "Rolldown bundling completed"
   else
       print_error "Rolldown bundling failed"

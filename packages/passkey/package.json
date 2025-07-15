@@ -28,8 +28,8 @@
   ],
   "scripts": {
     "build": "./scripts/build.sh",
-    "build:rolldown": "rolldown -c rolldown.config.mjs",
-    "dev": "rolldown -c rolldown.config.mjs -w",
+    "build:rolldown": "rolldown -c rolldown.config.ts",
+    "dev": "rolldown -c rolldown.config.ts -w",
     "test": "npm run build:check:fresh || (npm run build && mkdir -p ../../frontend/public/sdk && cp -r dist/* ../../frontend/public/sdk/ && echo 'SDK built and copied to frontend for testing') && playwright test",
     "build:check:fresh": "./scripts/check-build-freshness.sh",
     "lint": "eslint . --ext .ts,.tsx",

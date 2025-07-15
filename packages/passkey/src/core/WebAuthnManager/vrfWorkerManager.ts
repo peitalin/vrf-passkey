@@ -15,7 +15,7 @@ import type {
 import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlDecode, base64UrlEncode } from '../../utils';
-import { BUILD_PATHS } from '../../../build-paths.js';
+import { BUILD_PATHS } from '@build-paths';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;

@@ -1,5 +1,6 @@
 import { defineConfig } from 'rolldown';
-import { BUILD_PATHS } from './build-paths.js';  // Direct JavaScript import!
+import { BUILD_PATHS } from './build-paths.ts';
+import * as path from 'path';
 
 const external = [
   // React dependencies
@@ -20,6 +21,11 @@ const external = [
   'tslib'
 ];
 
+const aliasConfig = {
+  '@build-paths': path.resolve(process.cwd(), 'build-paths.ts'),
+  '@/*': path.resolve(process.cwd(), 'src/*')
+};
+
 export default defineConfig([
   // ESM build
   {
@@ -33,9 +39,7 @@ export default defineConfig([
     },
     external,
     resolve: {
-      alias: {
-        '@build-paths': './build-paths.js'
-      }
+      alias: aliasConfig
     },
     plugins: []
   },
@@ -52,9 +56,7 @@ export default defineConfig([
     },
     external,
     resolve: {
-      alias: {
-        '@build-paths': './build-paths.js'
-      }
+      alias: aliasConfig
     },
     plugins: []
   },
@@ -70,9 +72,7 @@ export default defineConfig([
     },
     external,
     resolve: {
-      alias: {
-        '@build-paths': './build-paths.js'
-      }
+      alias: aliasConfig
     },
     plugins: []
   },
@@ -89,9 +89,7 @@ export default defineConfig([
     },
     external,
     resolve: {
-      alias: {
-        '@build-paths': './build-paths.js'
-      }
+      alias: aliasConfig
     },
     plugins: []
   }
