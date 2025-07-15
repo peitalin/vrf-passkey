@@ -23,25 +23,6 @@ impl Default for VRFSettings {
     }
 }
 
-/// Account creation configuration settings
-#[near_sdk::near(serializers=[borsh, json])]
-#[derive(Debug, Clone)]
-pub struct AccountCreationSettings {
-    pub initial_balance_near: f64,  // Initial balance to transfer to new accounts (in NEAR tokens)
-    pub enabled: bool,              // Feature flag for account creation functionality
-    pub max_accounts_per_day: u32,  // Rate limiting for account creation
-}
-
-impl Default for AccountCreationSettings {
-    fn default() -> Self {
-        Self {
-            initial_balance_near: 0.1,  // 0.1 NEAR default
-            enabled: true,
-            max_accounts_per_day: 1000, // Reasonable default limit
-        }
-    }
-}
-
 /// Stored authenticator data (part of contract state)
 #[near_sdk::near(serializers=[borsh, json])]
 #[derive(Debug, Clone)]
@@ -86,8 +67,6 @@ pub struct WebAuthnContract {
     pub admins: IterableSet<AccountId>,
     // Global VRF configuration
     pub vrf_settings: VRFSettings,
-    // Account creation configuration - Comment out for now to maintain consistency with existing deployed state
-    pub account_creation_settings: AccountCreationSettings,
     // Authenticators: 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users

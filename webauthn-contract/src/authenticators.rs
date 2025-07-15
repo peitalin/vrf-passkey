@@ -1,12 +1,18 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{log, near, require, env, AccountId, NearToken};
 use near_sdk::store::IterableMap;
-use std::str::FromStr;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
+use base64::Engine;
+
 use crate::contract_state::{
-    AccountCreationSettings,
     AuthenticatorTransport,
-    StoredAuthenticator
+    StoredAuthenticator,
 };
+use crate::verify_registration_response::{
+    RegistrationInfo,
+    VerifyRegistrationResponse,
+};
+use crate::types::WebAuthnRegistrationCredential;
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -72,6 +78,7 @@ impl WebAuthnContract {
     }
 
     /// Store a new authenticator with VRF public keys (supports single or multiple keys)
+    #[private]
     pub fn store_authenticator(
         &mut self,
         user_id: AccountId,
@@ -111,6 +118,94 @@ impl WebAuthnContract {
         true
     }
 
+    /// Stores the authenticator and user data after successful registration verification for a specific account
+    ///
+    /// # Arguments
+    /// * `account_id` - The account ID to store the authenticator for
+    /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
+    /// * `credential` - The original registration credential containing transport info and attestation data
+    /// * `bootstrap_vrf_public_key` - Bootstrap VRF public key (WebAuthn-bound)
+    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
+    ///
+    /// # Returns
+    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
+    ///
+    /// # Params
+    /// * `self` - Mutable reference to contract state
+    /// * `account_id` - The account ID to store the authenticator for
+    /// * `registration_info` - RegistrationInfo struct containing credential data
+    /// * `credential` - RegistrationCredential struct with transport and attestation data
+    /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
+    /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
+    /// * for key recovery purposes
+    ///
+    /// # Private
+    /// This is a private non-view function that modifies contract state
+    #[private]
+    pub fn store_authenticator_and_user_for_account(
+        &mut self,
+        account_id: AccountId,
+        registration_info: RegistrationInfo,
+        credential: WebAuthnRegistrationCredential,
+        bootstrap_vrf_public_key: Vec<u8>,
+        deterministic_vrf_public_key: Option<Vec<u8>>,
+    ) -> VerifyRegistrationResponse {
+
+        log!("Storing new authenticator for account {}", account_id);
+        let credential_id_b64url = BASE64_URL_ENGINE.encode(&registration_info.credential_id);
+
+        // Parse transports from the response if available
+        let transports = if let Some(transport_strings) = &credential.response.transports {
+            Some(transport_strings.iter().filter_map(|t| {
+                match t.as_str() {
+                    "usb" => Some(AuthenticatorTransport::Usb),
+                    "nfc" => Some(AuthenticatorTransport::Nfc),
+                    "ble" => Some(AuthenticatorTransport::Ble),
+                    "internal" => Some(AuthenticatorTransport::Internal),
+                    "hybrid" => Some(AuthenticatorTransport::Hybrid),
+                    _ => None,
+                }
+            }).collect())
+        } else {
+            None
+        };
+
+        // Get current timestamp as ISO string
+        let current_timestamp = env::block_timestamp_ms().to_string();
+
+        // Prepare VRF keys for storage
+        let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
+        if let Some(det_key) = deterministic_vrf_public_key {
+            vrf_keys.push(det_key);
+            log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
+        } else {
+            log!("Storing authenticator with single VRF key for account {}: bootstrap only", account_id);
+        }
+
+        // Store the authenticator with multiple VRF public keys
+        self.store_authenticator(
+            account_id.clone(),
+            credential_id_b64url.clone(),
+            registration_info.credential_public_key.clone(),
+            transports,
+            current_timestamp,
+            vrf_keys,
+        );
+
+        // 2. Register user in user registry if not already registered
+        if !self.registered_users.contains(&account_id) {
+            log!("Registering new user in user registry: {}", account_id);
+            self.register_user(account_id.clone());
+        } else {
+            log!("User already registered in user registry: {}", account_id);
+        }
+
+        VerifyRegistrationResponse {
+            verified: true,
+            registration_info: Some(registration_info),
+        }
+    }
+
     /// Add a new VRF public key to an existing authenticator (FIFO queue with max 5 keys)
     pub fn add_vrf_key_to_authenticator(
         &mut self,
@@ -147,71 +242,6 @@ impl WebAuthnContract {
             log!("No authenticators found for user {}", user_id);
             false
         }
-    }
-
-    /// Create a user account as a subaccount of this contract
-    /// This allows for serverless registration by using the contract's funds
-    #[payable]
-    pub fn create_user_account(
-        &mut self,
-        username: String,
-        public_key: String,
-        initial_balance: Option<String>
-    ) -> bool {
-
-        // Sanitize username
-        let sanitized_username = username.to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-            .take(32)
-            .collect::<String>();
-
-        if sanitized_username.is_empty() {
-            return false;
-        }
-
-        // Create account ID as subaccount of this contract
-        let account_id = format!("{}.{}", sanitized_username, env::current_account_id());
-
-        // Parse the initial balance (default to 0.02 NEAR)
-        let balance = if let Some(balance_str) = initial_balance {
-            balance_str.parse::<u128>().unwrap_or(20_000_000_000_000_000_000_000) // 0.02 NEAR
-        } else {
-            20_000_000_000_000_000_000_000 // 0.02 NEAR
-        };
-
-        // Parse the public key
-        let public_key_parsed = match near_sdk::PublicKey::from_str(&public_key) {
-            Ok(pk) => pk,
-            Err(_) => return false,
-        };
-
-        // Create the account using a promise
-        near_sdk::Promise::new(account_id.parse().unwrap())
-            .create_account()
-            .add_full_access_key(public_key_parsed)
-            .transfer(NearToken::from_yoctonear(balance));
-
-        // The promise will execute and we return true to indicate the call was made
-        // The actual success/failure will be determined by the promise execution
-        true
-    }
-    /// Update account creation settings (only contract owner can call this)
-    pub fn update_account_creation_settings(&mut self, settings: AccountCreationSettings) {
-        let predecessor = env::predecessor_account_id();
-        let contract_account = env::current_account_id();
-
-        if predecessor != contract_account {
-            env::panic_str("Only the contract owner can update account creation settings");
-        }
-
-        self.account_creation_settings = settings;
-        log!("Account creation settings updated");
-    }
-
-    /// Get current account creation settings
-    pub fn get_account_creation_settings(&self) -> AccountCreationSettings {
-        self.account_creation_settings.clone()
     }
 
     /////////////////////////////////

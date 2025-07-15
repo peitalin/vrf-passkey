@@ -4,11 +4,8 @@ use base64::Engine;
 use serde_cbor::Value as CborValue;
 
 use crate::WebAuthnContract;
-use crate::contract_state::{WebAuthnContractExt, AuthenticatorTransport};
-use crate::types::{
-    WebAuthnRegistrationCredential,
-    AuthenticatorAttestationResponse
-};
+use crate::contract_state::WebAuthnContractExt;
+use crate::types::WebAuthnRegistrationCredential;
 use crate::utils::parsers::{
     parse_attestation_object,
     parse_authenticator_data
@@ -105,22 +102,19 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> Promise {
 
-        // Check if account creation is enabled
-        if !self.account_creation_settings.enabled {
-            env::panic_str("Account creation is currently disabled");
-        }
-
         log!("Creating account and verifying registration for: {}", new_account_id);
-        log!("  - Initial balance: {} NEAR", self.account_creation_settings.initial_balance_near);
 
         // First promise: setup the new account
-        let initial_balance_yoctonear = (self.account_creation_settings.initial_balance_near * 1_000_000_000_000_000_000_000_000.0) as u128;
+        // Use the attached deposit as the initial balance for the new account
+        let initial_balance_yoctonear = env::attached_deposit().as_yoctonear();
+        log!("  - Initial balance: {} yoctoNEAR (from attached deposit)", initial_balance_yoctonear);
+
         let setup_promise = Promise::new(new_account_id.clone())
             .create_account()
             .transfer(NearToken::from_yoctonear(initial_balance_yoctonear))
             .add_full_access_key(new_public_key);
 
-        // Second promise: call the verification contract on the current contract
+        // Second promise: call the verify_and_register_user_for_account method on the current contract
         let verification_promise = Promise::new(env::current_account_id()).function_call(
             "verify_and_register_user_for_account".to_string(),
             serde_json::to_vec(&serde_json::json!({
@@ -137,6 +131,7 @@ impl WebAuthnContract {
         setup_promise.then(verification_promise)
     }
 
+    #[private]
     pub fn verify_and_register_user_for_account(
         &mut self,
         account_id: AccountId,
@@ -207,17 +202,7 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Option<Vec<u8>>,
     ) -> VerifyRegistrationResponse {
 
-        log!("Verifying VRF proof and WebAuthn registration with dual VRF support");
-        log!("  - User ID: {}", vrf_data.user_id);
-        log!("  - RP ID (domain): {}", vrf_data.rp_id);
-        log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
-        if let Some(ref det_key) = deterministic_vrf_public_key {
-            log!("  - Deterministic VRF key: {} bytes", det_key.len());
-        } else {
-            log!("  - Deterministic VRF key: None (single VRF registration)");
-        }
-
-        // Use predecessor account ID for backward compatibility
+        // Use predecessor account ID
         let account_id = env::predecessor_account_id();
 
         // Delegate to the account-specific version
@@ -589,139 +574,7 @@ impl WebAuthnContract {
         }
     }
 
-    /// Stores the authenticator and user data after successful registration verification
-    ///
-    /// # Arguments
-    /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
-    /// * `credential` - The original registration credential containing transport info and attestation data
-    /// * `bootstrap_vrf_public_key` - Bootstrap VRF public key (WebAuthn-bound)
-    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
-    ///
-    /// # Returns
-    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
-    ///
-    /// # Params
-    /// * `self` - Mutable reference to contract state
-    /// * `registration_info` - RegistrationInfo struct containing credential data
-    /// * `credential` - RegistrationCredential struct with transport and attestation data
-    /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
-    /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
-    /// * for key recovery purposes
-    ///
-    /// # Private
-    /// This is a private non-view function that modifies contract state
-    fn store_authenticator_and_user(
-        &mut self,
-        registration_info: RegistrationInfo,
-        credential: WebAuthnRegistrationCredential,
-        bootstrap_vrf_public_key: Vec<u8>,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
-    ) -> VerifyRegistrationResponse {
-        // Use predecessor account ID for backward compatibility
-        let account_id = env::predecessor_account_id();
 
-        // Delegate to the account-specific version
-        self.store_authenticator_and_user_for_account(
-            account_id.clone(),
-            registration_info,
-            credential,
-            bootstrap_vrf_public_key,
-            deterministic_vrf_public_key,
-        )
-    }
-
-    /// Stores the authenticator and user data after successful registration verification for a specific account
-    ///
-    /// # Arguments
-    /// * `account_id` - The account ID to store the authenticator for
-    /// * `registration_info` - Contains the verified credential ID, public key and optional VRF public key
-    /// * `credential` - The original registration credential containing transport info and attestation data
-    /// * `bootstrap_vrf_public_key` - Bootstrap VRF public key (WebAuthn-bound)
-    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
-    ///
-    /// # Returns
-    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
-    ///
-    /// # Params
-    /// * `self` - Mutable reference to contract state
-    /// * `account_id` - The account ID to store the authenticator for
-    /// * `registration_info` - RegistrationInfo struct containing credential data
-    /// * `credential` - RegistrationCredential struct with transport and attestation data
-    /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
-    /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
-    /// * for key recovery purposes
-    ///
-    /// # Private
-    /// This is a private non-view function that modifies contract state
-    fn store_authenticator_and_user_for_account(
-        &mut self,
-        account_id: AccountId,
-        registration_info: RegistrationInfo,
-        credential: WebAuthnRegistrationCredential,
-        bootstrap_vrf_public_key: Vec<u8>,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
-    ) -> VerifyRegistrationResponse {
-        log!("Registration verification successful for account: {}. Storing new authenticator with dual VRF support.", account_id);
-
-        let credential_id_b64url = BASE64_URL_ENGINE.encode(&registration_info.credential_id);
-
-        // Parse transports from the response if available
-        let transports = if let Some(transport_strings) = &credential.response.transports {
-            Some(transport_strings.iter().filter_map(|t| {
-                match t.as_str() {
-                    "usb" => Some(AuthenticatorTransport::Usb),
-                    "nfc" => Some(AuthenticatorTransport::Nfc),
-                    "ble" => Some(AuthenticatorTransport::Ble),
-                    "internal" => Some(AuthenticatorTransport::Internal),
-                    "hybrid" => Some(AuthenticatorTransport::Hybrid),
-                    _ => None,
-                }
-            }).collect())
-        } else {
-            None
-        };
-
-        // Get current timestamp as ISO string
-        let current_timestamp = env::block_timestamp_ms().to_string();
-
-        // Prepare VRF keys for storage
-        let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
-        if let Some(det_key) = deterministic_vrf_public_key {
-            vrf_keys.push(det_key);
-            log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
-        } else {
-            log!("Storing authenticator with single VRF key for account {}: bootstrap only", account_id);
-        }
-
-        // Store the authenticator with multiple VRF public keys
-        self.store_authenticator(
-            account_id.clone(),
-            credential_id_b64url.clone(),
-            registration_info.credential_public_key.clone(),
-            transports,
-            current_timestamp,
-            vrf_keys,
-        );
-
-        // 2. Register user in user registry if not already registered
-        if !self.registered_users.contains(&account_id) {
-            log!("Registering new user in user registry: {}", account_id);
-            self.register_user(account_id.clone());
-        } else {
-            log!("User already registered in user registry: {}", account_id);
-        }
-
-        log!(
-            "Stored authenticator for user '{}' with credential ID '{}'",
-            account_id,
-            credential_id_b64url
-        );
-
-        VerifyRegistrationResponse {
-            verified: true,
-            registration_info: Some(registration_info),
-        }
-    }
 }
 
 /////////////////////////////////
@@ -737,6 +590,7 @@ mod tests {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as TEST_BASE64_URL_ENGINE};
     use std::collections::BTreeMap;
     use sha2::{Sha256, Digest};
+    use crate::types::AuthenticatorAttestationResponse;
 
     // Mock VRF dependencies for testing
     struct MockVRFData {
@@ -1046,69 +900,6 @@ mod tests {
         // In test environment, promises are not actually executed
         // This test verifies the function compiles and creates the promise structure
         println!("create_account_and_register_user function executed successfully");
-    }
-
-        #[test]
-    fn test_create_account_and_register_user_enabled_check() {
-        // Test that create_account_and_register_user function exists and can be called
-        // Note: This test verifies the function compiles and has correct signature
-        let context = get_context_with_seed(42);
-        testing_env!(context.build());
-        let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
-
-        // Verify account creation is enabled by default
-        assert!(contract.account_creation_settings.enabled);
-        assert_eq!(contract.account_creation_settings.initial_balance_near, 0.1);
-
-        println!("create_account_and_register_user enabled check test passed");
-    }
-
-    #[test]
-    fn test_account_creation_settings_default() {
-        // Test that account creation settings have reasonable defaults
-        let settings = crate::AccountCreationSettings::default();
-
-        assert_eq!(settings.initial_balance_near, 0.1);
-        assert_eq!(settings.enabled, true);
-        assert_eq!(settings.max_accounts_per_day, 1000);
-
-        println!("Account creation settings default test passed");
-    }
-
-    #[test]
-    fn test_account_creation_settings_configuration() {
-        // Test that account creation settings can be configured
-        let context = get_context_with_seed(42);
-        testing_env!(context.build());
-        let mut contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
-
-        // Set up the context so the predecessor is the same as the current account (contract owner)
-        let mut context_builder = get_context_with_seed(42);
-        context_builder.current_account_id(accounts(0));
-        context_builder.predecessor_account_id(accounts(0)); // Same as current account
-        testing_env!(context_builder.build());
-
-        // Test initial settings
-        let initial_settings = contract.get_account_creation_settings();
-        assert_eq!(initial_settings.initial_balance_near, 0.1);
-        assert_eq!(initial_settings.enabled, true);
-
-        // Update settings
-        let new_settings = crate::AccountCreationSettings {
-            initial_balance_near: 0.5,
-            enabled: false,
-            max_accounts_per_day: 500,
-        };
-
-        contract.update_account_creation_settings(new_settings.clone());
-
-        // Verify settings were updated
-        let updated_settings = contract.get_account_creation_settings();
-        assert_eq!(updated_settings.initial_balance_near, 0.5);
-        assert_eq!(updated_settings.enabled, false);
-        assert_eq!(updated_settings.max_accounts_per_day, 500);
-
-        println!("Account creation settings configuration test passed");
     }
 
 }

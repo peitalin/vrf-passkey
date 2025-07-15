@@ -21,7 +21,6 @@ pub use types::{
 pub use contract_state::{
     WebAuthnContract,
     VRFSettings,
-    AccountCreationSettings,
     StoredAuthenticator,
     StorageKey,
 };
@@ -58,7 +57,6 @@ impl WebAuthnContract {
             contract_name,
             greeting: "Hello".to_string(),
             vrf_settings: VRFSettings::default(),
-            account_creation_settings: AccountCreationSettings::default(),
             admins: IterableSet::new(StorageKey::Admins),
             authenticators: LookupMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
