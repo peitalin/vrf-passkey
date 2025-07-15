@@ -1,4 +1,4 @@
-use near_sdk::{env, log, near, AccountId};
+use near_sdk::{env, log, near, AccountId, Promise, NearToken, Gas, serde_json::{self, json}, PublicKey};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 use serde_cbor::Value as CborValue;
@@ -82,19 +82,38 @@ pub struct RegistrationInfo {
 #[near]
 impl WebAuthnContract {
 
-    /// VRF Registration - First time users (one-time setup)
-    /// Verifies VRF proof + WebAuthn registration, stores credentials on-chain
-    ///
-    /// # Arguments
-    /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
-    /// * `webauthn_registration` - WebAuthn registration credential from authenticator
-    /// * `deterministic_vrf_public_key` - Optional deterministic VRF public key for account recovery
-    ///
-    /// # Returns
-    /// * `VerifyRegistrationResponse` - Contains verification status and registration info
-    ///
-    /// # Public
-    /// This is a public non-view function that modifies contract state
+    // pub fn create_account_and_verify(
+    //     &self,
+    //     new_account_id: AccountId,
+    //     new_public_key: PublicKey,
+    //     vrf_data: VRFVerificationData,
+    //     webauthn_registration: WebAuthnRegistrationCredential,
+    //     deterministic_vrf_public_key: Option<Vec<u8>>,
+    // ) -> Promise {
+
+    //     // First promise: setup the new account
+    //     let setup_promise = Promise::new(new_account_id)
+    //         .create_account()
+    //         .transfer(NearToken::from_near(1))
+    //         .add_full_access_key(new_public_key);
+
+    //     // Second promise: call the verification contract
+    //     let verification_promise = Promise::new(new_account_id.clone()).function_call(
+    //         self.contract_name.clone(),
+    //         "verify_and_register_user",
+    //         serde_json::json!({
+    //             "vrf_data": vrf_data,
+    //             "webauthn_registration": webauthn_registration,
+    //             "deterministic_vrf_public_key": deterministic_vrf_public_key,
+    //         }),
+    //         NearToken::from_near(1),
+    //         Gas::from(100_000_000_000_000),
+    //     );
+
+    //     // Chain them together
+    //     setup_promise.then(verification_promise)
+    // }
+
     pub fn verify_and_register_user(
         &mut self,
         vrf_data: VRFVerificationData,
@@ -893,4 +912,43 @@ mod tests {
 
         println!("✅ VRF challenge construction format verified");
     }
+
+    // #[test]
+    // fn test_create_account_and_verify() {
+    //     let context = get_context_with_seed(42);
+    //     testing_env!(context.build());
+    //     let contract = crate::WebAuthnContract::init("test-contract.testnet".to_string());
+
+    //     let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
+    //     let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
+    //     let user_id = "test_user_123".to_string();
+    //     let args = json!({
+    //         "some_key": "some_value"
+    //     });
+
+    //     let mock_vrf = MockVRFData::create_mock();
+    //     let webauthn_registration = create_mock_webauthn_registration_with_vrf_challenge(&mock_vrf.output);
+    //     let vrf_data = VRFVerificationData {
+    //         vrf_input_data: mock_vrf.input_data,
+    //         vrf_output: mock_vrf.output,
+    //         vrf_proof: mock_vrf.proof,
+    //         public_key: mock_vrf.public_key,
+    //         user_id: "test_user_123".to_string(),
+    //         rp_id: "example.com".to_string(),
+    //         block_height: 1234567890u64,
+    //         block_hash: b"mock_block_hash_32_bytes_long_abc".to_vec(),
+    //     };
+
+    //     contract.create_account_and_verify(
+    //         new_account_id,
+    //         new_public_key,
+    //         vrf_data,
+    //         webauthn_registration,
+    //         None,
+    //     );
+
+    //     let receipts = env::promise_results_count();
+    //     assert_eq!(receipts, 2, "Expected two promise results");
+    // }
+
 }
