@@ -27,10 +27,10 @@ impl WebAuthnContract {
 
     /// Register a new user in the contract
     /// @payable - This function can be called with attached NEAR tokens
+    #[payable]
     pub fn register_user(&mut self, user_id: AccountId) -> bool {
 
-        require!(self.only_sender_or_admin(&user_id),
-            "Must be called by the user, owner, or admins");
+        require!(self.only_sender_or_admin(&user_id), "Must be called by the user, owner, or admins");
 
         if self.registered_users.contains(&user_id) {
             log!("User {} already registered", user_id);
@@ -88,7 +88,7 @@ impl WebAuthnContract {
         registered: String,
         vrf_public_keys: Vec<Vec<u8>>, // Changed from single key to vector of keys
     ) -> bool {
-        require!(env::predecessor_account_id() == user_id, "Only the user can call this function");
+        require!(self.only_sender_or_admin(&user_id), "Must be called by the msg.sender, owner, or admins");
 
         let vrf_count = vrf_public_keys.len();
         let authenticator = StoredAuthenticator {

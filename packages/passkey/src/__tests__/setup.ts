@@ -564,9 +564,9 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const attestationObjectBytes = await createProperAttestationObject(rpIdHash, credentialIdString);
 
         return {
-          // CRITICAL: Use base64url-encoded format that matches contract storage key
-          id: credentialIdBase64Url,
-          rawId: credentialIdBytes, // Raw bytes for WebAuthn spec compliance
+          // CRITICAL: Follow WebAuthn spec - id is base64URL string, rawId is bytes
+          id: credentialIdBase64Url, // Base64URL string for JSON serialization
+          rawId: credentialIdBytes.buffer, // ArrayBuffer for WebAuthn spec compliance
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
@@ -620,29 +620,27 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
 
         if (firstCredential) {
           try {
-            let credentialIdString = firstCredential.id;
+            const credentialId = firstCredential.id;
 
-            // Credential ID should always be a base64URL-encoded string from our mock
-            if (typeof credentialIdString === 'string') {
-              // Decode base64URL string to get the original credential string
-              const credIdBytes = (window as any).base64UrlDecode(credentialIdString);
-              credentialIdString = new TextDecoder().decode(credIdBytes);
-              console.log('[AUTH PRF DEBUG] Decoded credential ID:', credentialIdString);
+            // Handle the actual format that touchIdPrompt.ts passes via allowCredentials
+            // touchIdPrompt.ts calls base64UrlDecode(auth.credentialId) which returns raw bytes
+            if (credentialId instanceof Uint8Array || credentialId instanceof ArrayBuffer) {
+              // Convert raw bytes back to credential string for account ID extraction
+              const bytes = credentialId instanceof ArrayBuffer
+                ? new Uint8Array(credentialId)
+                : credentialId;
+              const credentialIdString = new TextDecoder().decode(bytes);
+
+              const match = credentialIdString.match(/test-credential-(.+)-auth$/);
+              if (match && match[1]) {
+                accountId = match[1];
+              } else {
+                console.warn('[AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
+              }
             } else {
-              console.warn('[AUTH PRF DEBUG] Unexpected credential ID format:', typeof credentialIdString);
-              throw new Error('Credential ID should be base64URL string');
-            }
-
-            console.log('[AUTH PRF DEBUG] Final credential string:', credentialIdString);
-
-            const match = credentialIdString.match(/test-credential-(.+)-auth$/);
-            console.log('[AUTH PRF DEBUG] Regex match result:', match);
-
-            if (match && match[1]) {
-              accountId = match[1];
-              console.log('[AUTH PRF DEBUG] Extracted account ID:', accountId);
-            } else {
-              console.warn('[AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
+              console.warn('[AUTH PRF DEBUG] Unexpected credential ID format:', typeof credentialId);
+              console.warn('[AUTH PRF DEBUG] Expected Uint8Array or ArrayBuffer from touchIdPrompt.ts, got:', credentialId);
+              throw new Error(`Expected raw bytes from touchIdPrompt.ts, got ${typeof credentialId}`);
             }
           } catch (e) {
             console.warn('[AUTH PRF DEBUG] Failed to decode credential ID, using default account:', e);
@@ -665,9 +663,9 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         return {
-          // Use base64url-encoded format that matches contract storage key
-          id: credentialIdBase64Url,
-          rawId: credentialIdBytes, // Raw bytes for WebAuthn spec compliance
+          // Follow WebAuthn spec - id is base64URL string, rawId is bytes
+          id: credentialIdBase64Url, // Base64URL string for JSON serialization
+          rawId: credentialIdBytes.buffer, // ArrayBuffer for WebAuthn spec compliance
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
