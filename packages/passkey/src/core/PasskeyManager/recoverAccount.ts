@@ -86,7 +86,7 @@ export class AccountRecoveryFlow {
   async discover(accountId: string): Promise<PasskeyOptionWithoutCredential[]> {
     try {
       this.phase = 'discovering';
-      console.log('AccountRecoveryFlow: Discovering available accounts...');
+      console.debug('AccountRecoveryFlow: Discovering available accounts...');
 
       // Get full options with credentials, requires TouchID prompt
       this.availableAccounts = await getRecoverableAccounts(this.context, accountId);
@@ -96,7 +96,7 @@ export class AccountRecoveryFlow {
         console.warn('No recoverable accounts found for this passkey');
         console.warn(`Continuing with account recovery for ${accountId}`);
       } else {
-        console.log(`AccountRecoveryFlow: Found ${this.availableAccounts.length} recoverable accounts`);
+        console.debug(`AccountRecoveryFlow: Found ${this.availableAccounts.length} recoverable accounts`);
       }
 
       this.phase = 'ready';
@@ -132,7 +132,7 @@ export class AccountRecoveryFlow {
 
     try {
       this.phase = 'recovering';
-      console.log(`AccountRecoveryFlow: Recovering account: ${selection.accountId}`);
+      console.debug(`AccountRecoveryFlow: Recovering account: ${selection.accountId}`);
 
       // Securely lookup the full option with credential
       const selectedOption = this.availableAccounts.find(
@@ -156,7 +156,7 @@ export class AccountRecoveryFlow {
       );
 
       this.phase = 'complete';
-      console.log('AccountRecoveryFlow: Recovery completed successfully');
+      console.debug('AccountRecoveryFlow: Recovery completed successfully');
       return recoveryResult;
 
     } catch (error: any) {
@@ -505,7 +505,7 @@ async function performAccountRecovery({
   const { webAuthnManager, nearClient, configs } = context;
 
   try {
-    console.log(`Performing recovery for account: ${accountId}`);
+    console.debug(`Performing recovery for account: ${accountId}`);
 
     // 1. Sync on-chain authenticator data
     const contractAuthenticators = await syncContractAuthenticators(nearClient, configs.contractId, accountId);
@@ -531,7 +531,7 @@ async function performAccountRecovery({
     await webAuthnManager.updateLastLogin(accountId);
     const loginState = await getRecoveryLoginState(webAuthnManager, accountId);
 
-    console.log(`Account recovery completed for ${accountId}`, {
+    console.debug(`Account recovery completed for ${accountId}`, {
       vrfActive: loginState.vrfActive,
       isLoggedIn: loginState.isLoggedIn
     });

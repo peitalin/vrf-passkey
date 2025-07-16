@@ -21,7 +21,7 @@ import { resolveWasmUrl } from './wasm/wasmLoader';
 
 // Resolve WASM URL using the centralized resolution strategy
 const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
-console.log(`[Signer Worker] WASM URL resolved to: ${wasmUrl.href}`);
+console.debug(`[Signer Worker] WASM URL resolved to: ${wasmUrl.href}`);
 const { handle_signer_message } = wasmModule;
 
 let messageProcessed = false;
@@ -127,7 +127,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): 
   }
 
   messageProcessed = true;
-  console.log('[signer-worker]: Received message:', { type: event.data.type });
+  console.debug('[signer-worker]: Received message:', { type: event.data.type });
 
   try {
     // Initialize WASM

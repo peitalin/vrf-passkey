@@ -53,26 +53,26 @@ export interface WasmLoaderOptions {
 export function resolveWasmUrl(wasmFilename: string, workerName: string, customBaseUrl?: string): URL {
   // Priority 1: Custom base URL (for npm consumers with complex setups)
   if (customBaseUrl) {
-    console.log(`[${workerName}] Using custom WASM base URL: ${customBaseUrl}`);
+    console.debug(`[${workerName}] Using custom WASM base URL: ${customBaseUrl}`);
     return new URL(wasmFilename, customBaseUrl);
   }
 
   // Priority 2: Environment variable (for build-time configuration)
   if (typeof process !== 'undefined' && process.env?.WASM_BASE_URL) {
-    console.log(`[${workerName}] Using environment WASM base URL: ${process.env.WASM_BASE_URL}`);
+    console.debug(`[${workerName}] Using environment WASM base URL: ${process.env.WASM_BASE_URL}`);
     return new URL(wasmFilename, process.env.WASM_BASE_URL);
   }
 
   // Priority 3: Worker-specific environment variables
   const workerEnvVar = workerName.toUpperCase().replace(/[^A-Z]/g, '_') + '_WASM_BASE_URL';
   if (typeof process !== 'undefined' && process.env?.[workerEnvVar]) {
-    console.log(`[${workerName}] Using worker-specific environment WASM base URL: ${process.env[workerEnvVar]}`);
+    console.debug(`[${workerName}] Using worker-specific environment WASM base URL: ${process.env[workerEnvVar]}`);
     return new URL(wasmFilename, process.env[workerEnvVar]);
   }
 
   // Priority 4: Worker global configuration (set by consuming application)
   if (typeof self !== 'undefined' && (self as any).WASM_BASE_URL) {
-    console.log(`[${workerName}] Using global WASM base URL: ${(self as any).WASM_BASE_URL}`);
+    console.debug(`[${workerName}] Using global WASM base URL: ${(self as any).WASM_BASE_URL}`);
     return new URL(wasmFilename, (self as any).WASM_BASE_URL);
   }
 
@@ -81,7 +81,7 @@ export function resolveWasmUrl(wasmFilename: string, workerName: string, customB
   // - SDK building: rolldown puts worker + WASM in same dist/workers/ directory
   // - E2E tests: copy-sdk-assets.sh ensures they're co-located
   // - Simple npm usage: bundlers typically preserve relative relationships
-  console.log(`[${workerName}] Using default relative WASM path`);
+  console.debug(`[${workerName}] Using default relative WASM path`);
   return new URL(`./${wasmFilename}`, import.meta.url);
 }
 
@@ -101,7 +101,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
     timeoutMs = 20000
   } = options;
 
-  console.log(`[${workerName}]: Starting WASM initialization...`, {
+  console.debug(`[${workerName}]: Starting WASM initialization...`, {
     wasmUrl: wasmUrl.href,
     userAgent: navigator.userAgent,
     currentUrl: self.location.href
@@ -111,7 +111,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
   const initWithTimeout = async (): Promise<any> => {
     // PRIMARY: Use bundled WASM (most reliable for SDK distribution)
     try {
-      console.log(`[${workerName}]: Using bundled WASM (SDK-optimized approach)`);
+      console.debug(`[${workerName}]: Using bundled WASM (SDK-optimized approach)`);
       await initFunction();
 
       // Run optional validation
@@ -124,7 +124,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
         await testFunction();
       }
 
-      console.log(`[${workerName}]: ✅ WASM initialized successfully`);
+      console.debug(`[${workerName}]: ✅ WASM initialized successfully`);
       return true; // Success indicator
     } catch (bundledError: any) {
       console.warn(`[${workerName}]: Bundled WASM unavailable, attempting network fallback:`, bundledError.message);
@@ -132,7 +132,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
 
     // FALLBACK: Network loading with robust error handling (only if bundled fails)
     try {
-      console.log(`[${workerName}]: Fetching WASM from network:`, wasmUrl.href);
+      console.debug(`[${workerName}]: Fetching WASM from network:`, wasmUrl.href);
       const response = await fetch(wasmUrl.href);
 
       if (!response.ok) {
@@ -140,7 +140,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
       }
 
       const contentType = response.headers.get('content-type');
-      console.log(`[${workerName}]: WASM fetch successful, content-type:`, contentType);
+      console.debug(`[${workerName}]: WASM fetch successful, content-type:`, contentType);
 
       // Use ArrayBuffer approach (works regardless of MIME type)
       const arrayBuffer = await response.arrayBuffer();
@@ -157,7 +157,7 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
         await testFunction();
       }
 
-      console.log(`[${workerName}]: ✅ WASM initialized via network fallback`);
+      console.debug(`[${workerName}]: ✅ WASM initialized via network fallback`);
       return true; // Success indicator
 
     } catch (networkError: any) {

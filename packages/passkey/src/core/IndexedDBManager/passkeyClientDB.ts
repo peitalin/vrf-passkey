@@ -422,7 +422,7 @@ export class PasskeyClientDBManager {
     const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
 
     if (authenticators.length === 0) {
-      console.log(`No authenticators found for user ${nearAccountId}`);
+      console.debug(`No authenticators found for user ${nearAccountId}`);
       return;
     }
 
@@ -434,7 +434,7 @@ export class PasskeyClientDBManager {
       await store.delete([nearAccountId, auth.credentialId]);
     }
 
-    console.log(`Deleted ${authenticators.length} authenticators for user ${nearAccountId}`);
+    console.debug(`Deleted ${authenticators.length} authenticators for user ${nearAccountId}`);
   }
 
   /**
@@ -457,7 +457,7 @@ export class PasskeyClientDBManager {
    * Deletes user, authenticators, and WebAuthn data atomically
    */
   async rollbackUserRegistration(nearAccountId: string): Promise<void> {
-    console.log(`Rolling back registration data for ${nearAccountId}`);
+    console.debug(`Rolling back registration data for ${nearAccountId}`);
 
     await this.atomicOperation(async (db) => {
       // Delete all authenticators for this user
@@ -472,7 +472,7 @@ export class PasskeyClientDBManager {
         await this.setAppState('lastUserAccountId', null);
       }
 
-      console.log(`✅ Rolled back all registration data for ${nearAccountId}`);
+      console.debug(`Rolled back all registration data for ${nearAccountId}`);
       return true;
     });
   }

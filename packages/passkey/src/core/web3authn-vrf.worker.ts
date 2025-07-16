@@ -19,7 +19,7 @@ import type { VRFWorkerMessage, VRFWorkerResponse } from './types/vrf-worker';
 
 // Resolve WASM URL using the centralized resolution strategy
 const wasmUrl = resolveWasmUrl('wasm_vrf_worker_bg.wasm', 'VRF Worker');
-console.log(`[VRF Worker] WASM URL resolved to: ${wasmUrl.href}`);
+console.debug(`[VRF Worker] WASM URL resolved to: ${wasmUrl.href}`);
 
 const { handle_message } = vrfWasmModule;
 
@@ -35,9 +35,9 @@ let messageQueue: MessageEvent[] = [];
  */
 async function initializeWasmModule(): Promise<void> {
   try {
-    console.log('[vrf-worker] Starting WASM module initialization...');
+    console.debug('[vrf-worker] Starting WASM module initialization...');
     await init(); // init function now handles loading WASM
-    console.log('[vrf-worker] WASM module initialized successfully');
+    console.debug('[vrf-worker] WASM module initialized successfully');
 
     // Mark WASM as ready and process any queued messages
     wasmReady = true;
@@ -63,7 +63,7 @@ self.onmessage = async (event: MessageEvent) => {
 
 // Process queued messages once WASM is ready
 async function processQueuedMessages(): Promise<void> {
-  console.log(`[vrf-worker] Processing ${messageQueue.length} queued messages`);
+  console.debug(`[vrf-worker] Processing ${messageQueue.length} queued messages`);
   const queuedMessages = [...messageQueue];
   messageQueue = [];
 
@@ -85,18 +85,18 @@ async function handleMessage(event: MessageEvent): Promise<void> {
 
   // If WASM is not ready, queue the message
   if (!wasmReady) {
-    console.log(`[vrf-worker] WASM not ready, queueing message: ${data.type}`);
+    console.debug(`[vrf-worker] WASM not ready, queueing message: ${data.type}`);
     messageQueue.push(event);
     return;
   }
 
   try {
-    console.log(`[vrf-worker] Processing message: ${data.type}`);
+    console.debug(`[vrf-worker] Processing message: ${data.type}`);
 
     // Call WASM handle_message with JavaScript object - Rust function handles JSON stringification
     const response: VRFWorkerResponse = handle_message(data);
 
-    console.log(`[vrf-worker] WASM response: success=${response.success}`);
+    console.debug(`[vrf-worker] WASM response: success=${response.success}`);
 
     // Send response back to main thread
     self.postMessage(response);

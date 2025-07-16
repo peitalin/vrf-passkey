@@ -276,7 +276,7 @@ export async function getDeviceKeys(
   try {
     // Fetch access keys from NEAR network
     const accessKeyList = await nearClient.viewAccessKeyList(accountId);
-    console.log('Access keys for', accountId, ':', accessKeyList);
+    console.debug('Access keys for', accountId, ':', accessKeyList);
 
     // Get current device's public key for comparison
     const currentDeviceKey = await getCurrentDevicePublicKey(webAuthnManager);

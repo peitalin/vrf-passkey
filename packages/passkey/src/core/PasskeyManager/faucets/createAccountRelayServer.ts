@@ -135,7 +135,7 @@ export async function createAccountRelayServer(
   onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; transactionId?: string; error?: string }> {
   try {
-    console.log('Creating NEAR account via relay server');
+    console.debug('Creating NEAR account via relay server');
 
     // Emit access key addition start event
     onEvent?.({
@@ -186,7 +186,7 @@ export async function createAccountRelayServer(
       message: 'Account creation verified on NEAR blockchain'
     } as RegistrationSSEEvent);
 
-    console.log('Account creation completed:', result);
+    console.debug('Account creation completed:', result);
     return {
       success: true,
       message: result.message || `Account ${nearAccountId} created successfully`,

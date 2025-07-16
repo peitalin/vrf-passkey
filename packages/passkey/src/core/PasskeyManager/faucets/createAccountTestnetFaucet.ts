@@ -15,7 +15,7 @@ export async function createAccountTestnetFaucet(
   onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    console.log('Creating NEAR account via testnet faucet service');
+    console.debug('Creating NEAR account via testnet faucet service');
 
     onEvent?.({
       step: 3,
@@ -43,10 +43,9 @@ export async function createAccountTestnetFaucet(
     }
 
     const faucetResult = await faucetResponse.json();
-    console.log('Faucet service response:', faucetResult);
-    console.log('DEBUG: Faucet response status:', faucetResult.status);
-    console.log('DEBUG: Faucet final_execution_status:', faucetResult.final_execution_status);
-    console.log('DEBUG: Faucet transaction_outcome:', faucetResult.transaction_outcome);
+    console.debug('Faucet service response:', faucetResult);
+    console.debug('Faucet response status:', faucetResult.status);
+    console.debug('Faucet final_execution_status:', faucetResult.final_execution_status);
 
     // Check if the transaction actually succeeded on-chain
     if (faucetResult.status?.Failure) {
@@ -235,7 +234,7 @@ async function waitForAccessKey(
   maxRetries: number = 10,
   delayMs: number = 1000
 ): Promise<AccessKeyView> {
-  console.log(`Waiting for access key to be available for ${nearAccountId}...`);
+  console.debug(`Waiting for access key to be available for ${nearAccountId}...`);
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const accessKeyInfo = await nearClient.viewAccessKey(
@@ -243,11 +242,10 @@ async function waitForAccessKey(
         nearPublicKey,
       ) as AccessKeyView;
 
-      console.log(`Access key found on attempt ${attempt}`);
-      console.log(`DEBUG: Access key response:`, JSON.stringify(accessKeyInfo, null, 2));
+      console.debug(`Access key found on attempt ${attempt}`);
       return accessKeyInfo;
     } catch (error: any) {
-      console.log(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
+      console.debug(`Access key not available yet (attempt ${attempt}/${maxRetries}):`, error.message);
 
       if (attempt === maxRetries) {
         console.error(`Access key still not available after ${maxRetries} attempts`);

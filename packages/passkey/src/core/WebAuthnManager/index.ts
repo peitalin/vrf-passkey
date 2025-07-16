@@ -56,7 +56,7 @@ export class WebAuthnManager {
     this.configs = configs;
 
     // VRF worker initializes on-demand with proper error propagation
-    console.log('WebAuthnManager: Constructor complete, VRF worker will initialize on-demand');
+    console.debug('WebAuthnManager: Constructor complete, VRF worker will initialize on-demand');
   }
 
   ///////////////////////////////////////
@@ -140,48 +140,9 @@ export class WebAuthnManager {
     encryptedVrfKeypair?: EncryptedVRFKeypair;
   }> {
     try {
-      console.log('WebAuthnManager: Deriving deterministic VRF keypair from PRF output');
-
+      console.debug('WebAuthnManager: Deriving deterministic VRF keypair from PRF output');
       // Extract PRF outputs from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
-
-      // *** COMPREHENSIVE PRF OUTPUT LOGGING ***
-      console.log('=== VRF DERIVATION PRF ANALYSIS ===');
-      console.log('Account ID:', nearAccountId);
-      console.log('AES PRF output (for VRF derivation):');
-      console.log('  - Length:', dualPrfOutputs.aesPrfOutput.length);
-      console.log('  - >>>>>>>>> Full base64url:', dualPrfOutputs.aesPrfOutput);
-      console.log('  - First 20 chars:', dualPrfOutputs.aesPrfOutput.substring(0, 20));
-      console.log('  - Last 20 chars:', dualPrfOutputs.aesPrfOutput.substring(dualPrfOutputs.aesPrfOutput.length - 20));
-
-      console.log('Ed25519 PRF output:');
-      console.log('  - Length:', dualPrfOutputs.ed25519PrfOutput.length);
-      console.log('  - Full base64url:', dualPrfOutputs.ed25519PrfOutput);
-      console.log('  - First 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(0, 20));
-      console.log('  - Last 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(dualPrfOutputs.ed25519PrfOutput.length - 20));
-
-      // Convert to bytes for detailed analysis
-      try {
-        const aesBytes = base64UrlDecode(dualPrfOutputs.aesPrfOutput);
-        const ed25519Bytes = base64UrlDecode(dualPrfOutputs.ed25519PrfOutput);
-
-        console.log('AES PRF bytes:');
-        console.log('  - Byte length:', aesBytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
-
-        console.log('Ed25519 PRF bytes:');
-        console.log('  - Byte length:', ed25519Bytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
-      } catch (decodeError) {
-        console.error('Failed to decode PRF outputs for byte analysis:', decodeError);
-      }
-
-      console.log('PRF Salt Analysis (for comparison):');
-      console.log('  - AES salt would be: aes-gcm-salt:' + nearAccountId);
-      console.log('  - Ed25519 salt would be: ed25519-salt:' + nearAccountId);
-      console.log('=== END VRF DERIVATION PRF ANALYSIS ===');
 
       // Use the first PRF output for VRF keypair derivation (AES PRF output)
       // This ensures deterministic derivation: same PRF + same account = same VRF keypair
@@ -191,14 +152,14 @@ export class WebAuthnManager {
         vrfInputParams
       });
 
-      console.log(`Derived VRF public key: ${vrfResult.vrfPublicKey}`);
+      console.debug(`Derived VRF public key: ${vrfResult.vrfPublicKey}`);
       if (vrfResult.vrfChallenge) {
-        console.log(`Generated VRF challenge with output: ${vrfResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
+        console.debug(`Generated VRF challenge with output: ${vrfResult.vrfChallenge.vrfOutput.substring(0, 20)}...`);
       }
       if (vrfResult.encryptedVrfKeypair) {
-        console.log(`Generated encrypted VRF keypair for storage`);
+        console.debug(`Generated encrypted VRF keypair for storage`);
       }
-      console.log('WebAuthnManager: Deterministic VRF keypair derived successfully');
+      console.debug('WebAuthnManager: Deterministic VRF keypair derived successfully');
 
       const result: {
         success: boolean;
@@ -261,36 +222,12 @@ export class WebAuthnManager {
     credential: PublicKeyCredential;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log('WebAuthnManager: Unlocking VRF keypair');
+      console.debug('WebAuthnManager: Unlocking VRF keypair');
 
       const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
       if (!prfOutput) {
         throw new Error('PRF output not found in WebAuthn credentials');
       }
-
-      // DEBUG: Add comprehensive logging to trace PRF processing differences
-      console.log('=== VRF UNLOCK DEBUGGING ===');
-      console.log('Account ID:', nearAccountId);
-      console.log('PRF Output (ArrayBuffer):', {
-        byteLength: prfOutput.byteLength,
-        preview: Array.from(new Uint8Array(prfOutput.slice(0, 10))),
-        base64Preview: base64UrlEncode(prfOutput).substring(0, 20) + '...'
-      });
-
-      // Convert ArrayBuffer to base64url string for consistent processing
-      const prfOutputBase64 = base64UrlEncode(prfOutput);
-      console.log('PRF output as base64url:', {
-        length: prfOutputBase64.length,
-        preview: prfOutputBase64.substring(0, 20) + '...',
-        type: 'string'
-      });
-
-      console.log('Encrypted VRF keypair:', {
-        nonce: encryptedVrfKeypair.aes_gcm_nonce_b64u,
-        encryptedDataPreview: encryptedVrfKeypair.encrypted_vrf_data_b64u.substring(0, 20) + '...',
-        encryptedDataLength: encryptedVrfKeypair.encrypted_vrf_data_b64u.length
-      });
-      console.log('=== END VRF UNLOCK DEBUGGING ===');
 
       const unlockResult = await this.vrfWorkerManager.unlockVrfKeypair({
         touchIdPrompt: this.touchIdPrompt,
@@ -305,13 +242,17 @@ export class WebAuthnManager {
         return { success: false, error: 'VRF keypair unlock failed' };
       }
 
-      console.log('WebAuthnManager: VRF keypair unlocked successfully');
+      console.debug('WebAuthnManager: VRF keypair unlocked successfully');
       return { success: true };
 
     } catch (error: any) {
       console.error('WebAuthnManager: VRF keypair unlock failed:', error.message);
       return { success: false, error: error.message };
     }
+  }
+
+  async clearVrfSession(): Promise<void> {
+    return await this.vrfWorkerManager.clearVrfSession();
   }
 
   ///////////////////////////////////////
@@ -425,7 +366,7 @@ export class WebAuthnManager {
     publicKey: string,
     privateKey: string
   }> {
-    console.log(`🔐 Exporting private key for account: ${nearAccountId}`);
+    console.debug(`🔐 Exporting private key for account: ${nearAccountId}`);
     // Get user data to verify user exists
     const userData = await this.getUser(nearAccountId);
     if (!userData) {
@@ -496,7 +437,7 @@ export class WebAuthnManager {
       authenticators,
     });
 
-    console.log('✅ VRF WebAuthn authentication completed');
+    console.debug('✅ VRF WebAuthn authentication completed');
     onEvent?.({
       step: 3,
       phase: 'contract-verification',
@@ -574,7 +515,7 @@ export class WebAuthnManager {
       authenticators,
     });
 
-    console.log('VRF WebAuthn authentication completed');
+    console.debug('VRF WebAuthn authentication completed');
     onEvent?.({
       step: 3,
       phase: 'contract-verification',
@@ -683,7 +624,7 @@ export class WebAuthnManager {
     };
   }> {
     try {
-      console.log('WebAuthnManager: Starting dual VRF registration flow');
+      console.debug('WebAuthnManager: Starting dual VRF registration flow');
 
       onEvent?.({
         step: 1,
@@ -693,13 +634,13 @@ export class WebAuthnManager {
       });
 
       // Step 1: Generate bootstrap VRF keypair (random) and VRF challenge
-      console.log('Step 1: Generating bootstrap VRF keypair + challenge');
+      console.debug('Step 1: Generating bootstrap VRF keypair + challenge');
       const bootstrapResult = await this.generateVrfKeypair(true, vrfInputParams);
       const bootstrapVrfPublicKey = bootstrapResult.vrfPublicKey;
       const vrfChallenge = bootstrapResult.vrfChallenge;
 
-      console.log(`Bootstrap VRF public key: ${bootstrapVrfPublicKey.substring(0, 20)}...`);
-      console.log(`VRF challenge generated with bootstrap keypair`);
+      console.debug(`Bootstrap VRF public key: ${bootstrapVrfPublicKey.substring(0, 20)}...`);
+      console.debug(`VRF challenge generated with bootstrap keypair`);
 
       onEvent?.({
         step: 2,
@@ -709,7 +650,7 @@ export class WebAuthnManager {
       });
 
       // Step 2: Single TouchID ceremony with VRF challenge → get dual PRF outputs
-      console.log('Step 2: TouchID ceremony with VRF challenge');
+      console.debug('Step 2: TouchID ceremony with VRF challenge');
       const registrationCredential = await this.touchIdPrompt.generateRegistrationCredentials({
         nearAccountId,
         challenge: vrfChallenge.outputAs32Bytes(),
@@ -717,46 +658,6 @@ export class WebAuthnManager {
 
       // Extract dual PRF outputs from the registration credential
       const dualPrfOutputs = extractDualPrfOutputs(registrationCredential);
-
-      // *** COMPREHENSIVE REGISTRATION PRF OUTPUT LOGGING ***
-      console.log('=== REGISTRATION PRF ANALYSIS ===');
-      console.log('Account ID:', nearAccountId);
-      console.log('AES PRF output (from registration):');
-      console.log('  - Length:', dualPrfOutputs.aesPrfOutput.length);
-      console.log('  - Full base64url:', dualPrfOutputs.aesPrfOutput);
-      console.log('  - First 20 chars:', dualPrfOutputs.aesPrfOutput.substring(0, 20));
-      console.log('  - Last 20 chars:', dualPrfOutputs.aesPrfOutput.substring(dualPrfOutputs.aesPrfOutput.length - 20));
-
-      console.log('Ed25519 PRF output (from registration):');
-      console.log('  - Length:', dualPrfOutputs.ed25519PrfOutput.length);
-      console.log('  - Full base64url:', dualPrfOutputs.ed25519PrfOutput);
-      console.log('  - First 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(0, 20));
-      console.log('  - Last 20 chars:', dualPrfOutputs.ed25519PrfOutput.substring(dualPrfOutputs.ed25519PrfOutput.length - 20));
-
-      // Convert to bytes for detailed analysis
-      try {
-        const aesBytes = base64UrlDecode(dualPrfOutputs.aesPrfOutput);
-        const ed25519Bytes = base64UrlDecode(dualPrfOutputs.ed25519PrfOutput);
-
-        console.log('AES PRF bytes (from registration):');
-        console.log('  - Byte length:', aesBytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
-
-        console.log('Ed25519 PRF bytes (from registration):');
-        console.log('  - Byte length:', ed25519Bytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
-      } catch (decodeError) {
-        console.error('Failed to decode registration PRF outputs for byte analysis:', decodeError);
-      }
-
-      console.log('PRF Salt Analysis (registration context):');
-      console.log('  - AES salt used: aes-gcm-salt:' + nearAccountId);
-      console.log('  - Ed25519 salt used: ed25519-salt:' + nearAccountId);
-      console.log('=== END REGISTRATION PRF ANALYSIS ===');
-
-      console.log('Dual PRF outputs extracted from registration credential');
 
       onEvent?.({
         step: 3,
@@ -766,7 +667,7 @@ export class WebAuthnManager {
       });
 
       // Step 3: Derive deterministic VRF keypair from PRF output #1 (AES PRF)
-      console.log('Step 3: Deriving deterministic VRF keypair from PRF output');
+      console.debug('Step 3: Deriving deterministic VRF keypair from PRF output');
       const deterministicResult = await this.deriveVrfKeypairFromPrf({
         credential: registrationCredential,
         nearAccountId
@@ -777,7 +678,7 @@ export class WebAuthnManager {
       }
 
       const deterministicVrfPublicKey = deterministicResult.vrfPublicKey;
-      console.log(`Deterministic VRF public key: ${deterministicVrfPublicKey.substring(0, 20)}...`);
+      console.debug(`Deterministic VRF public key: ${deterministicVrfPublicKey.substring(0, 20)}...`);
 
       onEvent?.({
         step: 4,
@@ -787,13 +688,13 @@ export class WebAuthnManager {
       });
 
       // Step 4: Encrypt bootstrap VRF keypair with PRF output for storage
-      console.log('Step 4: Encrypting bootstrap VRF keypair with PRF output');
+      console.debug('Step 4: Encrypting bootstrap VRF keypair with PRF output');
       const encryptionResult = await this.encryptVrfKeypairWithCredentials({
         credential: registrationCredential,
         vrfPublicKey: bootstrapVrfPublicKey,
       });
 
-      console.log('Bootstrap VRF keypair encrypted and ready for storage');
+      console.debug('Bootstrap VRF keypair encrypted and ready for storage');
 
       onEvent?.({
         step: 5,
@@ -802,9 +703,9 @@ export class WebAuthnManager {
         message: 'Dual VRF registration flow completed successfully'
       });
 
-      console.log('✅ Dual VRF registration flow completed successfully');
-      console.log(`Bootstrap VRF key (cryptographically bound): ${bootstrapVrfPublicKey.substring(0, 20)}...`);
-      console.log(`Deterministic VRF key (for recovery): ${deterministicVrfPublicKey.substring(0, 20)}...`);
+      console.debug('Dual VRF registration flow completed successfully');
+      console.debug(`Bootstrap VRF key (cryptographically bound): ${bootstrapVrfPublicKey.substring(0, 20)}...`);
+      console.debug(`Deterministic VRF key (for recovery): ${deterministicVrfPublicKey.substring(0, 20)}...`);
 
       return {
         bootstrapVrfPublicKey,
@@ -879,7 +780,7 @@ export class WebAuthnManager {
       console.debug("On-chain registration completed:", registrationResult);
 
       if (registrationResult.verified) {
-        console.debug('✅ On-chain user registration successful');
+        console.debug('On-chain user registration successful');
         return {
           success: true,
           verified: registrationResult.verified,
@@ -889,7 +790,7 @@ export class WebAuthnManager {
           preSignedDeleteTransaction: registrationResult.preSignedDeleteTransaction,
         };
       } else {
-        console.warn('❌ On-chain user registration failed - WASM worker returned unverified result');
+        console.warn('On-chain user registration failed - WASM worker returned unverified result');
         // Note: This should never happen since WASM worker throws on failure
         // But if it does, we don't have access to preSignedDeleteTransaction
         throw new Error('On-chain registration transaction failed');
@@ -954,7 +855,7 @@ export class WebAuthnManager {
         encryptedVrfKeypair
       });
 
-      console.log('✅ registration data stored atomically');
+      console.debug('✅ registration data stored atomically');
       return true;
     });
 
@@ -991,7 +892,7 @@ export class WebAuthnManager {
     stored?: boolean;
   }> {
     try {
-      console.log('WebAuthnManager: recovering keypair from authentication credential with dual PRF outputs');
+      console.debug('WebAuthnManager: recovering keypair from authentication credential with dual PRF outputs');
 
       // Verify we have an authentication credential (not registration)
       if (!authenticationCredential) {
@@ -1014,7 +915,7 @@ export class WebAuthnManager {
         accountIdHint
       );
 
-       console.log('WebAuthnManager: Deterministic keypair derivation successful');
+       console.debug('WebAuthnManager: Deterministic keypair derivation successful');
        return result;
 
     } catch (error: any) {
@@ -1049,7 +950,7 @@ export class WebAuthnManager {
   }): Promise<VerifyAndSignTransactionResult> {
     const { nearClient } = context;
     try {
-      console.log('WebAuthnManager: Starting add device key operation');
+      console.debug('WebAuthnManager: Starting add device key operation');
 
       // Step 1: Create KeyPair from imported private key
       const keyPair = new KeyPairEd25519(importedPrivateKey);
@@ -1090,7 +991,7 @@ export class WebAuthnManager {
       const serializedTx = transaction.encode();
       const signature: Signature = keyPair.sign(serializedTx) as any;
 
-      console.log('WebAuthnManager: Add device key operation completed successfully');
+      console.debug('WebAuthnManager: Add device key operation completed successfully');
 
       return {
         signedTransaction: new SignedTransaction({
@@ -1139,7 +1040,7 @@ export class WebAuthnManager {
     nearAccountId: string;
     logs?: string[]
   }> {
-    console.log('WebAuthnManager: Starting VRF key addition to authenticator');
+    console.debug('WebAuthnManager: Starting VRF key addition to authenticator');
 
     onEvent?.({
       step: 1,
@@ -1174,7 +1075,7 @@ export class WebAuthnManager {
         nearRpcUrl: nearRpcUrl
       }, onEvent);
 
-      console.log('WebAuthnManager: VRF key addition completed successfully');
+      console.debug('WebAuthnManager: VRF key addition completed successfully');
 
       onEvent?.({
         step: 2,

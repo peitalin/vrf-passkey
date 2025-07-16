@@ -53,7 +53,6 @@ export class VrfWorkerManager {
       debug: false,
       ...config
     };
-    console.log('🛡VRF Manager: Initializing with enhanced health monitoring...');
   }
 
   /**
@@ -101,11 +100,9 @@ export class VrfWorkerManager {
    */
   async initialize(): Promise<void> {
     if (this.initializationPromise) {
-      console.log('VRF Manager: Returning existing initialization promise');
       return this.initializationPromise;
     }
 
-    console.log('VRF Manager: Starting fresh initialization...');
     // =============================================================
     // This improved error handling ensures that:
     // 1. Initialization failures are properly logged with full details
@@ -125,7 +122,7 @@ export class VrfWorkerManager {
     });
 
     const result = await this.initializationPromise;
-    console.log('VRF Manager: Initialization completed successfully');
+    console.debug('VRF Manager: Initialization completed successfully');
     return result;
   }
 
@@ -134,7 +131,7 @@ export class VrfWorkerManager {
    */
   private async createVrfWorker(): Promise<void> {
     try {
-      console.log('VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
+      console.debug('VRF Manager: Worker URL:', this.config.vrfWorkerUrl);
       // Create Web Worker from client-hosted file
       this.vrfWorker = new Worker(this.config.vrfWorkerUrl!, {
         type: 'module',
@@ -245,7 +242,7 @@ export class VrfWorkerManager {
     if (response.success) {
       // Track the current VRF session account at TypeScript level
       this.currentVrfAccountId = nearAccountId;
-      console.log(`VRF Manager: VRF keypair unlocked for ${nearAccountId}`);
+      console.debug(`VRF Manager: VRF keypair unlocked for ${nearAccountId}`);
     } else {
       console.error('VRF Manager: Failed to unlock VRF keypair:', response.error);
       console.error('VRF Manager: Full response:', JSON.stringify(response, null, 2));
@@ -260,7 +257,7 @@ export class VrfWorkerManager {
    * This is called during authentication to create WebAuthn challenges
    */
   async generateVrfChallenge(inputData: VRFInputData): Promise<VRFChallenge> {
-    console.log('VRF Manager: Generating VRF challenge...');
+    console.debug('VRF Manager: Generating VRF challenge...');
     await this.ensureWorkerReady(true);
 
     // Convert base64url blockHash to byte array for consistent Rust worker handling
@@ -279,13 +276,12 @@ export class VrfWorkerManager {
     };
 
     const response = await this.sendMessage(message);
-    console.log("RESPONSE:", response);
 
     if (!response.success || !response.data) {
       throw new Error(`VRF challenge generation failed: ${response.error}`);
     }
 
-    console.log('VRF Manager: VRF challenge generated successfully');
+    console.debug('VRF Manager: VRF challenge generated successfully');
     return new VRFChallenge(response.data as VRFChallengeData);
   }
 
@@ -328,7 +324,7 @@ export class VrfWorkerManager {
    * Logout and clear VRF session
    */
   async clearVrfSession(): Promise<void> {
-    console.log('VRF Manager: Logging out...');
+    console.debug('VRF Manager: Logging out...');
 
     await this.ensureWorkerReady();
 
@@ -344,7 +340,7 @@ export class VrfWorkerManager {
       if (response.success) {
         // Clear the TypeScript-tracked account ID
         this.currentVrfAccountId = null;
-        console.log('VRF Manager: Logged out: VRF keypair securely zeroized');
+        console.debug('VRF Manager: Logged out: VRF keypair securely zeroized');
       } else {
         console.warn('️VRF Manager: Logout failed:', response.error);
       }
@@ -375,13 +371,12 @@ export class VrfWorkerManager {
     vrfPublicKey: string;
     vrfChallenge: VRFChallenge;
   }> {
-    console.log('VRF Manager: Generating bootstrap VRF keypair', {
+    console.debug('VRF Manager: Generating bootstrap VRF keypair', {
       saveInMemory,
       withChallenge: !!vrfInputParams
     });
 
     await this.ensureWorkerReady();
-    console.log("GENERATE_VRF_KEYPAIR_BOOTSTRAP vrfInputParams: ", vrfInputParams)
 
     try {
       const message: VRFWorkerMessage = {
@@ -400,7 +395,6 @@ export class VrfWorkerManager {
       };
 
       const response = await this.sendMessage(message);
-      console.log("GENERATE_VRF_KEYPAIR_BOOTSTRAP response: ", response)
 
       if (!response.success || !response.data) {
         throw new Error(`VRF bootstrap keypair generation failed: ${response.error}`);
@@ -449,8 +443,6 @@ export class VrfWorkerManager {
     vrfPublicKey: string;
     encryptedVrfKeypair: EncryptedVRFKeypair;
   }> {
-        console.log('VRF Manager: Encrypting in-memory VRF keypair with PRF output');
-
     await this.ensureWorkerReady();
 
     const prfOutput = credential.getClientExtensionResults()?.prf?.results?.first as ArrayBuffer;
@@ -479,7 +471,7 @@ export class VrfWorkerManager {
         encryptedVrfKeypair: response.data.encrypted_vrf_keypair
       };
 
-      console.log('VRF Manager: VRF keypair encryption successful');
+      console.debug('VRF Manager: VRF keypair encryption successful');
       return result;
     } catch (error: any) {
       console.error('VRF Manager: VRF keypair encryption failed:', error);
@@ -516,7 +508,7 @@ export class VrfWorkerManager {
     vrfChallenge?: VRFChallenge;
     encryptedVrfKeypair?: EncryptedVRFKeypair;
   }> {
-    console.log('VRF Manager: Deriving deterministic VRF keypair from PRF output');
+    console.debug('VRF Manager: Deriving deterministic VRF keypair from PRF output');
     try {
       await this.ensureWorkerReady();
 
@@ -549,7 +541,7 @@ export class VrfWorkerManager {
         throw new Error(`VRF keypair derivation failed: ${response.error}`);
       }
 
-      console.log('VRF Manager: Deterministic VRF keypair derivation successful');
+      console.debug('VRF Manager: Deterministic VRF keypair derivation successful');
 
       const result: {
         vrfPublicKey: string;
@@ -595,7 +587,7 @@ export class VrfWorkerManager {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        console.log(`VRF Manager: Communication test attempt ${attempt}/${maxAttempts}`);
+        console.debug(`VRF Manager: Communication test attempt ${attempt}/${maxAttempts}`);
         const timeoutMs = attempt === 1 ? 8000 : 5000;
 
         const pingResponse = await this.sendMessage({
@@ -608,7 +600,7 @@ export class VrfWorkerManager {
           throw new Error(`VRF Web Worker PING failed: ${pingResponse.error}`);
         }
 
-        console.log('VRF Manager: Web Worker communication verified');
+        console.debug('VRF Manager: Web Worker communication verified');
         return;
       } catch (error: any) {
         console.warn(`️ VRF Manager: Communication test attempt ${attempt} failed:`, error.message);
@@ -618,7 +610,7 @@ export class VrfWorkerManager {
         }
 
         const delay = baseDelay * attempt;
-        console.log(`   Waiting ${delay}ms before retry...`);
+        console.debug(`   Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }

@@ -73,12 +73,12 @@ export class PasskeyNearKeysDBManager {
    * Retrieve encrypted key data
    */
   async getEncryptedKey(nearAccountId: string): Promise<EncryptedKeyData | null> {
-    console.log('PasskeyNearKeysDB: getEncryptedKey - Retrieving for account:', nearAccountId);
+    console.debug('PasskeyNearKeysDB: getEncryptedKey - Retrieving for account:', nearAccountId);
 
     const db = await this.getDB();
     const result = await db.get(this.config.storeName, nearAccountId);
 
-    if (!result?.encryptedData) {
+    if (!result?.encryptedData && nearAccountId !== '_init_check') {
       console.warn('PasskeyNearKeysDB: getEncryptedKey - No result found');
     }
 
@@ -102,12 +102,12 @@ export class PasskeyNearKeysDBManager {
    * Delete encrypted key data for a specific account
    */
   async deleteEncryptedKey(nearAccountId: string): Promise<void> {
-    console.log('PasskeyNearKeysDB: deleteEncryptedKey - Deleting for account:', nearAccountId);
+    console.debug('PasskeyNearKeysDB: deleteEncryptedKey - Deleting for account:', nearAccountId);
 
     const db = await this.getDB();
     await db.delete(this.config.storeName, nearAccountId);
 
-    console.log('PasskeyNearKeysDB: deleteEncryptedKey - Successfully deleted');
+    console.debug('PasskeyNearKeysDB: deleteEncryptedKey - Successfully deleted');
   }
 
   /**

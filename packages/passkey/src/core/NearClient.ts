@@ -123,12 +123,12 @@ export class MinimalNearClient implements NearClient {
         const result = await attempts[i]();
         return result;
       } catch (error: any) {
-        console.log(`DEBUG: ${operationName} - Attempt ${i + 1} failed: ${error.message}`);
+        console.debug(`${operationName} - Attempt ${i + 1} failed: ${error.message}`);
         lastError = error;
 
         if (i < attempts.length - 1) {
           const delay = baseDelay;
-          console.log(`DEBUG: Waiting ${delay}ms before next attempt...`);
+          console.debug(`Waiting ${delay}ms before next attempt...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }

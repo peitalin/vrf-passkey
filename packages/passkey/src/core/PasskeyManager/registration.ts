@@ -48,7 +48,7 @@ export async function registerPasskey(
     preSignedDeleteTransaction: null as SignedTransaction | null,
   };
 
-  console.log('⚡ Registration: Optimized VRF registration with single WebAuthn ceremony');
+  console.log('⚡ Registration: Passkey registration with VRF WebAuthn ceremony');
   // Emit started event
   onEvent?.({
     step: 1,
@@ -80,12 +80,10 @@ export async function registerPasskey(
       generateBootstrapVrfChallenge(context, nearAccountId),
     ]).then(([_, vrfChallenge]) => ({ vrfChallenge }));
 
-    // Step 2: Use VRF output as WebAuthn challenge
-    console.log('Registration Step 2: Use VRF output as WebAuthn challenge');
     const vrfChallengeBytes = vrfChallenge.outputAs32Bytes();
 
-    // Step 3: WebAuthn registration ceremony with PRF (TouchID)
-    console.log('Registration Step 3: WebAuthn registration ceremony with VRF challenge');
+    // Step 2: WebAuthn registration ceremony with PRF (TouchID)
+    console.log('Registration Step 2: WebAuthn registration ceremony with VRF challenge');
 
     onEvent?.({
       step: 1,
@@ -108,17 +106,22 @@ export async function registerPasskey(
       message: 'WebAuthn ceremony successful, PRF output obtained'
     });
 
-    // Steps 4-6: Encrypt VRF keypair, generate NEAR keypair, and check registration in parallel
-    console.log('Registration Steps 4-6: Encrypting VRF keypair, generating NEAR keypair with PRF, and checking registration');
+    // Steps 3-4: Encrypt VRF keypair, derive NEAR keypair, and check registration in parallel
+    console.log('Registration Steps 3-4: Encrypt VRF keypair, derive NEAR keypair, and check registration');
     const {
       encryptedVrfResult,
-      keyGenResult,
+      deterministicVrfKeyResult,
+      nearKeyResult,
       canRegisterUserResult,
-      deterministicVrfResult
     } = await Promise.all([
       webAuthnManager.encryptVrfKeypairWithCredentials({
         credential,
         vrfPublicKey: vrfChallenge.vrfPublicKey
+      }),
+      // Generate deterministic VRF keypair from PRF output for recovery
+      webAuthnManager.deriveVrfKeypairFromPrf({
+        credential,
+        nearAccountId
       }),
       webAuthnManager.deriveNearKeypairAndEncrypt({
         credential,
@@ -139,31 +142,31 @@ export async function registerPasskey(
           });
         },
       }),
-      // Generate deterministic VRF keypair from PRF output for recovery
-      webAuthnManager.deriveVrfKeypairFromPrf({
-        credential,
-        nearAccountId
-      })
-    ]).then(([encryptedVrfResult, keyGenResult, canRegisterUserResult, deterministicVrfResult]) => {
+    ]).then(([encryptedVrfResult, deterministicVrfKeyResult, nearKeyResult, canRegisterUserResult]) => {
       if (!encryptedVrfResult.encryptedVrfKeypair || !encryptedVrfResult.vrfPublicKey) {
         throw new Error('Failed to encrypt VRF keypair');
       }
-      if (!keyGenResult.success || !keyGenResult.publicKey) {
+      if (!deterministicVrfKeyResult.success || !deterministicVrfKeyResult.vrfPublicKey) {
+        throw new Error('Failed to derive deterministic VRF keypair from PRF');
+      }
+      if (!nearKeyResult.success || !nearKeyResult.publicKey) {
         throw new Error('Failed to generate NEAR keypair with PRF');
       }
       if (!canRegisterUserResult.verified) {
         throw new Error(`Web3Authn contract registration check failed: ${canRegisterUserResult.error}`);
       }
-      if (!deterministicVrfResult.success || !deterministicVrfResult.vrfPublicKey) {
-        throw new Error('Failed to derive deterministic VRF keypair from PRF');
-      }
-      return { encryptedVrfResult, keyGenResult, canRegisterUserResult, deterministicVrfResult };
+      return {
+        encryptedVrfResult,
+        deterministicVrfKeyResult,
+        nearKeyResult,
+        canRegisterUserResult
+      };
     });
 
-    console.log('✅ Dual VRF registration strategy:');
-    console.log(`  Bootstrap VRF key: ${vrfChallenge.vrfPublicKey.substring(0, 20)}... (WebAuthn-bound)`);
-    console.log(`  Deterministic VRF key: ${deterministicVrfResult.vrfPublicKey.substring(0, 20)}... (recovery-compatible)`);
-    console.log('Both keys will be stored on the contract for comprehensive VRF support');
+    console.debug('Dual VRF registration strategy:');
+    console.debug(`  Bootstrap VRF key: ${vrfChallenge.vrfPublicKey.substring(0, 20)}... (WebAuthn-bound)`);
+    console.debug(`  Deterministic VRF key: ${deterministicVrfKeyResult.vrfPublicKey.substring(0, 20)}... (recovery-compatible)`);
+    console.debug('Both keys will be stored on the contract for comprehensive VRF support');
 
     onEvent?.({
       step: 2,
@@ -173,33 +176,33 @@ export async function registerPasskey(
       message: 'Registration completed with challenge consistency!',
       verified: true,
       nearAccountId: nearAccountId,
-      clientNearPublicKey: keyGenResult.publicKey,
+      clientNearPublicKey: nearKeyResult.publicKey,
     });
 
-    // Step 3-5: Create account and register with contract using appropriate flow
-    console.log('Registration Steps 3-5: Account creation and contract registration');
+    // Step 5: Create account and register with contract using appropriate flow
+    console.log('Registration Step 5: Account creation and contract registration');
 
     let accountAndRegistrationResult;
     if (useRelayer) {
-      console.log('Using atomic relay-server registration flow');
+      console.debug('Using relay-server registration flow');
       accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
         context,
         nearAccountId,
-        keyGenResult.publicKey,
+        nearKeyResult.publicKey,
         credential,
         vrfChallenge,
-        deterministicVrfResult.vrfPublicKey,
+        deterministicVrfKeyResult.vrfPublicKey,
         onEvent
       );
     } else {
-      console.log('Using sequential testnet faucet registration flow');
+      console.debug('Using testnet faucet registration flow');
       accountAndRegistrationResult = await createAccountAndRegisterWithTestnetFaucet(
         context,
         nearAccountId,
-        keyGenResult.publicKey,
+        nearKeyResult.publicKey,
         credential,
         vrfChallenge,
-        deterministicVrfResult.vrfPublicKey,
+        deterministicVrfKeyResult.vrfPublicKey,
         onEvent
       );
     }
@@ -217,11 +220,11 @@ export async function registerPasskey(
     if (useRelayer) {
       // For atomic transactions, no delete transaction is needed (rollback is automatic)
       registrationState.preSignedDeleteTransaction = null;
-      console.log('✅ Atomic registration completed - no delete transaction needed');
+      console.debug('registration completed - no delete transaction needed');
     } else {
       // For sequential flow, store the delete transaction for rollback
       registrationState.preSignedDeleteTransaction = accountAndRegistrationResult.preSignedDeleteTransaction;
-      console.log('✅ Pre-signed delete transaction captured for rollback');
+      console.debug('Pre-signed delete transaction captured for rollback');
 
       // Generate hash for verification/testing
       if (registrationState.preSignedDeleteTransaction) {
@@ -237,19 +240,19 @@ export async function registerPasskey(
     }
 
     // Step 6: Store user data with VRF credentials atomically
-    console.log('Registration Step 6: Storing VRF registration data atomically');
+    console.log('Registration Step 6: Storing VRF registration data');
     onEvent?.({
       step: 6,
       phase: 'database-storage',
       status: 'progress',
       timestamp: Date.now(),
-      message: 'Storing VRF registration data atomically...'
+      message: 'Storing VRF registration data'
     });
 
     await webAuthnManager.atomicStoreRegistrationData({
       nearAccountId,
       credential,
-      publicKey: keyGenResult.publicKey,
+      publicKey: nearKeyResult.publicKey,
       encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
       vrfPublicKey: encryptedVrfResult.vrfPublicKey,
       onEvent
@@ -266,8 +269,8 @@ export async function registerPasskey(
       message: 'VRF registration data stored successfully'
     });
 
-    // Step 7: Unlock VRF keypair in memory for immediate login state (non-fatal)
-    console.log('Registration Step 7: Unlocking VRF keypair for immediate login');
+    // Step 7: Unlock VRF keypair in memory for login
+    console.log('Registration Step 7: Unlocking VRF keypair for login');
 
     const unlockResult = await webAuthnManager.unlockVRFKeypair({
       nearAccountId: nearAccountId,
@@ -294,7 +297,7 @@ export async function registerPasskey(
     const successResult = {
       success: true,
       nearAccountId: nearAccountId,
-      clientNearPublicKey: keyGenResult.publicKey,
+      clientNearPublicKey: nearKeyResult.publicKey,
       transactionId: registrationState.contractTransactionId,
       vrfRegistration: {
         success: true,
@@ -457,13 +460,13 @@ async function performRegistrationRollback(
   rpcNodeUrl: string,
   onEvent?: (event: RegistrationSSEEvent) => void
 ): Promise<void> {
-  console.log('Starting registration rollback...', registrationState);
+  console.debug('Starting registration rollback...', registrationState);
 
   // Rollback in reverse order
   try {
     // 3. Rollback database storage
     if (registrationState.databaseStored) {
-      console.log('Rolling back database storage...');
+      console.debug('Rolling back database storage...');
       onEvent?.({
         step: 0,
         phase: 'registration-error',
@@ -474,12 +477,12 @@ async function performRegistrationRollback(
       } as RegistrationSSEEvent);
 
       await webAuthnManager.rollbackUserRegistration(nearAccountId);
-      console.log('Database rollback completed');
+      console.debug('Database rollback completed');
     }
 
      // 2. Rollback NEAR account (if created)
     if (registrationState.accountCreated) {
-      console.log('Rolling back NEAR account...');
+      console.debug('Rolling back NEAR account...');
       onEvent?.({
         step: 0,
         phase: 'registration-error',
@@ -490,14 +493,14 @@ async function performRegistrationRollback(
       } as RegistrationSSEEvent);
 
       if (registrationState.preSignedDeleteTransaction) {
-        console.log('Broadcasting pre-signed delete transaction for account rollback...');
+        console.debug('Broadcasting pre-signed delete transaction for account rollback...');
         try {
           // Note: We need to create a new NearClient here since we only have rpcNodeUrl
           const tempNearClient = new MinimalNearClient(rpcNodeUrl);
           const deletionResult = await tempNearClient.sendTransaction(registrationState.preSignedDeleteTransaction);
           const deleteTransactionId = deletionResult?.transaction_outcome?.id;
-          console.log(`NEAR account ${nearAccountId} deleted successfully via pre-signed transaction`);
-          console.log(`   Delete transaction ID: ${deleteTransactionId}`);
+          console.debug(`NEAR account ${nearAccountId} deleted successfully via pre-signed transaction`);
+          console.debug(`   Delete transaction ID: ${deleteTransactionId}`);
 
           onEvent?.({
             step: 0,
@@ -508,7 +511,7 @@ async function performRegistrationRollback(
             error: 'Registration failed but account rollback completed'
           } as RegistrationSSEEvent);
         } catch (deleteError: any) {
-          console.error(`❌ NEAR account deletion failed:`, deleteError);
+          console.error(`NEAR account deletion failed:`, deleteError);
           onEvent?.({
             step: 0,
             phase: 'registration-error',
@@ -519,7 +522,7 @@ async function performRegistrationRollback(
           } as RegistrationSSEEvent);
         }
       } else {
-        console.log(`️No pre-signed delete transaction available for ${nearAccountId}. Account will remain on testnet.`);
+        console.debug(`No pre-signed delete transaction available for ${nearAccountId}. Account will remain on testnet.`);
         onEvent?.({
           step: 0,
           phase: 'registration-error',
@@ -534,7 +537,7 @@ async function performRegistrationRollback(
     // 1. Contract rollback on the Web3Authn contract is not possible at the moment. No authenticator deletion functions exposed yet.
     // However if a user retries with the same accountID, they can overwrite the old authenticator entry linked to the accountID
     if (registrationState.contractRegistered) {
-      console.log('Contract registration cannot be rolled back (immutable blockchain state)');
+      console.debug('Contract registration cannot be rolled back (immutable blockchain state)');
       onEvent?.({
         step: 0,
         phase: 'registration-error',
@@ -545,10 +548,10 @@ async function performRegistrationRollback(
       } as RegistrationSSEEvent);
     }
 
-    console.log('Registration rollback completed');
+    console.debug('Registration rollback completed');
 
   } catch (rollbackError: any) {
-    console.error('❌ Rollback failed:', rollbackError);
+    console.error('Rollback failed:', rollbackError);
     onEvent?.({
       step: 0,
       phase: 'registration-error',

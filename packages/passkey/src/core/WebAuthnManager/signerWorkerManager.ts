@@ -95,7 +95,7 @@ export class SignerWorkerManager {
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
     const workerUrl = new URL(CONFIG.WORKER.URL, window.location.origin);
-    console.log('Creating secure worker from:', workerUrl.href);
+    console.debug('Creating secure worker from:', workerUrl.href);
 
     try {
       const worker = new Worker(workerUrl, {
@@ -233,7 +233,7 @@ export class SignerWorkerManager {
     nearAccountId: string,
   ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
     try {
-      console.log('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
+      console.info('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
 
       // Serialize credential first to ensure consistent PRF extraction with decryption phase
       const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
@@ -264,7 +264,7 @@ export class SignerWorkerManager {
         throw new Error('Dual PRF registration failed');
       }
 
-      console.log('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
+      console.debug('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
       // response.payload is a WasmEncryptionResult with proper WASM types
       const wasmResult = response.payload;
       // Store the encrypted key in IndexedDB using the manager
@@ -282,7 +282,7 @@ export class SignerWorkerManager {
       if (!verified) {
         throw new Error('Key storage verification failed');
       }
-      console.log('WebAuthnManager: Encrypted key stored and verified in IndexedDB');
+      console.info('WebAuthnManager: Encrypted key stored and verified in IndexedDB');
 
       return {
         success: true,
@@ -321,10 +321,10 @@ export class SignerWorkerManager {
     authenticators: ClientAuthenticatorData[],
   ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
     try {
-      console.log('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
+      console.info('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
 
       // Retrieve encrypted key data from IndexedDB in main thread
-      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
+      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
       const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
       if (!encryptedKeyData) {
         throw new Error(`No encrypted key found for account: ${nearAccountId}`);
@@ -343,7 +343,7 @@ export class SignerWorkerManager {
 
       // Extract dual PRF outputs and use the AES one for decryption
       const dualPrfOutputs = extractDualPrfOutputs(credential);
-      console.log('WebAuthnManager: Extracted dual PRF outputs, using AES PRF for decryption');
+      console.debug('WebAuthnManager: Extracted dual PRF outputs, using AES PRF for decryption');
 
       const response = await this.executeWorkerOperation({
         message: {
@@ -361,7 +361,7 @@ export class SignerWorkerManager {
         console.error('WebAuthnManager: Dual PRF private key decryption failed:', response);
         throw new Error('Private key decryption failed');
       }
-      console.log('WebAuthnManager: Dual PRF private key decryption successful');
+      console.info('WebAuthnManager: Dual PRF private key decryption successful');
       const wasmResult = response.payload as wasmModule.DecryptPrivateKeyResult;
       return {
         decryptedPrivateKey: wasmResult.privateKey,
@@ -394,7 +394,7 @@ export class SignerWorkerManager {
     error?: string;
   }> {
     try {
-      console.log('WebAuthnManager: Checking if user can be registered on-chain');
+      console.info('WebAuthnManager: Checking if user can be registered on-chain');
 
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.CheckCanRegisterUser>({
         message: {
@@ -414,7 +414,7 @@ export class SignerWorkerManager {
         throw Error("isCheckRegistrationSuccess failed")
       }
 
-      console.log('WebAuthnManager: User can be registered on-chain');
+      console.info('WebAuthnManager: User can be registered on-chain');
       const wasmResult = response.payload as wasmModule.RegistrationCheckResult;
       return {
         success: true,
@@ -469,7 +469,7 @@ export class SignerWorkerManager {
     preSignedDeleteTransaction: SignedTransaction;
   }> {
     try {
-      console.log('WebAuthnManager: Starting on-chain user registration with transaction');
+      console.info('WebAuthnManager: Starting on-chain user registration with transaction');
 
       if (!publicKeyStr) {
         throw new Error('Client NEAR public key not provided - cannot get access key nonce');
@@ -484,7 +484,7 @@ export class SignerWorkerManager {
       });
 
       // Retrieve encrypted key data from IndexedDB in main thread
-      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
+      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
       const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
       if (!encryptedKeyData) {
         throw new Error(`No encrypted key found for account: ${nearAccountId}`);
@@ -499,7 +499,7 @@ export class SignerWorkerManager {
         nearClient.viewBlock({ finality: 'final' })
       ]);
 
-      console.log('WebAuthnManager: Access key info received:', {
+      console.debug('WebAuthnManager: Access key info received:', {
         signerAccountId,
         publicKeyStr,
         accessKeyInfo,
@@ -517,7 +517,7 @@ export class SignerWorkerManager {
       // Convert base58 block hash to bytes for WASM
       const transactionBlockHashBytes = Array.from(base58Decode(blockHashString));
 
-      console.log('WebAuthnManager: Transaction metadata prepared', {
+      console.debug('WebAuthnManager: Transaction metadata prepared', {
         nonce: nonce.toString(),
         blockHash: blockHashString,
         blockHashBytesLength: transactionBlockHashBytes.length
@@ -549,7 +549,7 @@ export class SignerWorkerManager {
       });
 
       if (isRegistrationSuccess(response)) {
-        console.log('WebAuthnManager: On-chain user registration transaction successful');
+        console.debug('WebAuthnManager: On-chain user registration transaction successful');
         const wasmResult = response.payload;
         return {
           verified: wasmResult.verified,
@@ -602,7 +602,7 @@ export class SignerWorkerManager {
     logs?: string[]
   }> {
     try {
-      console.log('WebAuthnManager: Starting enhanced transaction signing with verification');
+      console.info('WebAuthnManager: Starting enhanced transaction signing with verification');
 
       payload.actions.forEach((action, index) => {
         try {
@@ -613,7 +613,7 @@ export class SignerWorkerManager {
       });
 
       // Retrieve encrypted key data from IndexedDB in main thread
-      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
+      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
       const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
       if (!encryptedKeyData) {
         throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
@@ -665,7 +665,7 @@ export class SignerWorkerManager {
         throw new Error(errorMsg);
       }
 
-      console.log('WebAuthnManager: Enhanced transaction signing successful with verification logs');
+      console.debug('WebAuthnManager: Enhanced transaction signing successful with verification logs');
 
       if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
         throw new Error('Incomplete signed transaction data received from worker');
@@ -709,7 +709,7 @@ export class SignerWorkerManager {
     logs?: string[]
   }> {
     try {
-      console.log('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
+      console.info('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
 
       const transferAction: ActionParams = {
         actionType: ActionType.Transfer,
@@ -718,7 +718,7 @@ export class SignerWorkerManager {
       validateActionParams(transferAction);
 
       // Retrieve encrypted key data from IndexedDB in main thread
-      console.log('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
+      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
       const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
       if (!encryptedKeyData) {
         throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
@@ -770,7 +770,7 @@ export class SignerWorkerManager {
         throw new Error(errorMsg);
       }
 
-      console.log('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
+      console.debug('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
 
       if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
         throw new Error('Incomplete signed transaction data received from worker');
@@ -806,7 +806,7 @@ export class SignerWorkerManager {
     accountIdHint?: string;
   }> {
     try {
-      console.log('SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential');
+      console.info('SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential');
       // Serialize the authentication credential for the worker (includes dual PRF outputs)
       const serializedCredential = serializeCredentialWithPRF<WebAuthnAuthenticationCredential>(
         credential
@@ -819,46 +819,46 @@ export class SignerWorkerManager {
       }
 
       // *** COMPREHENSIVE RECOVERY PRF OUTPUT LOGGING ***
-      console.log('=== RECOVERY KEYPAIR PRF ANALYSIS ===');
-      console.log('Account ID hint:', accountIdHint);
-      console.log('AES PRF output (for NEAR keypair recovery):');
-      console.log('  - Length:', serializedCredential.clientExtensionResults.prf.results.first.length);
-      console.log('  - >>>>>>>>> Full base64url:', serializedCredential.clientExtensionResults.prf.results.first);
-      console.log('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(0, 20));
-      console.log('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(serializedCredential.clientExtensionResults.prf.results.first.length - 20));
+      console.debug('=== RECOVERY KEYPAIR PRF ANALYSIS ===');
+      console.debug('Account ID hint:', accountIdHint);
+      console.debug('AES PRF output (for NEAR keypair recovery):');
+      console.debug('  - Length:', serializedCredential.clientExtensionResults.prf.results.first.length);
+      console.debug('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.first);
+      console.debug('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(0, 20));
+      console.debug('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(serializedCredential.clientExtensionResults.prf.results.first.length - 20));
 
-      console.log('Ed25519 PRF output (for NEAR keypair recovery):');
-      console.log('  - Length:', serializedCredential.clientExtensionResults.prf.results.second.length);
-      console.log('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.second);
-      console.log('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(0, 20));
-      console.log('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(serializedCredential.clientExtensionResults.prf.results.second.length - 20));
+      console.debug('Ed25519 PRF output (for NEAR keypair recovery):');
+      console.debug('  - Length:', serializedCredential.clientExtensionResults.prf.results.second.length);
+      console.debug('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.second);
+      console.debug('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(0, 20));
+      console.debug('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(serializedCredential.clientExtensionResults.prf.results.second.length - 20));
 
       // Convert to bytes for detailed analysis
       try {
         const aesBytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.first);
         const ed25519Bytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.second);
 
-        console.log('AES PRF bytes (for NEAR keypair recovery):');
-        console.log('  - Byte length:', aesBytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
+        console.debug('AES PRF bytes (for NEAR keypair recovery):');
+        console.debug('  - Byte length:', aesBytes.byteLength);
+        console.debug('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
+        console.debug('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
 
-        console.log('Ed25519 PRF bytes (for NEAR keypair recovery):');
-        console.log('  - Byte length:', ed25519Bytes.byteLength);
-        console.log('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
-        console.log('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
+        console.debug('Ed25519 PRF bytes (for NEAR keypair recovery):');
+        console.debug('  - Byte length:', ed25519Bytes.byteLength);
+        console.debug('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
+        console.debug('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
       } catch (decodeError) {
         console.error('Failed to decode recovery PRF outputs for byte analysis:', decodeError);
       }
 
-      console.log('PRF Salt Analysis (recovery context):');
+      console.debug('PRF Salt Analysis (recovery context):');
       if (accountIdHint) {
-        console.log('  - AES salt would be: aes-gcm-salt:' + accountIdHint);
-        console.log('  - Ed25519 salt would be: ed25519-salt:' + accountIdHint);
+        console.debug('  - AES salt would be: aes-gcm-salt:' + accountIdHint);
+        console.debug('  - Ed25519 salt would be: ed25519-salt:' + accountIdHint);
       } else {
-        console.log('  - No account ID hint - salt will be derived from credential analysis');
+        console.debug('  - No account ID hint - salt will be derived from credential analysis');
       }
-      console.log('=== END RECOVERY KEYPAIR PRF ANALYSIS ===');
+      console.debug('=== END RECOVERY KEYPAIR PRF ANALYSIS ===');
 
       // Use generic executeWorkerOperation with specific request type for better type safety
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.RecoverKeypairFromPasskey>({
@@ -873,7 +873,7 @@ export class SignerWorkerManager {
 
       // response is RecoverKeypairSuccessResponse | RecoverKeypairFailureResponse
       if (isRecoverKeypairSuccess(response)) {
-        console.log('SignerWorkerManager: Dual PRF keypair recovery successful');
+        console.debug('SignerWorkerManager: Dual PRF keypair recovery successful');
         // extractRecoveryResult extracts response.payload as a WasmRecoverKeypairResult
         const wasmResult = extractRecoveryResult(response);
 
@@ -899,7 +899,7 @@ export class SignerWorkerManager {
    */
   async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
     try {
-      console.log('SignerWorkerManager: Starting COSE public key extraction');
+      console.info('SignerWorkerManager: Starting COSE public key extraction');
 
       const response = await this.executeWorkerOperation({
         message: {
@@ -911,7 +911,7 @@ export class SignerWorkerManager {
       });
 
       if (isCoseExtractionSuccess(response)) {
-        console.log('SignerWorkerManager: COSE public key extraction successful');
+        console.info('SignerWorkerManager: COSE public key extraction successful');
         return response.payload.cosePublicKeyBytes;
       } else {
         console.error('SignerWorkerManager: COSE public key extraction failed:', response);

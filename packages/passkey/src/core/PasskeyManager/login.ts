@@ -46,7 +46,6 @@ export async function loginPasskey(
       return { success: false, error: errorMessage };
     }
 
-    console.log('⚡ Login: VRF login with WASM worker contract calls');
     // Handle login and unlock VRF keypair in VRF WASM worker for WebAuthn challenge generation
     return await handleLoginUnlockVRF(
       context,
@@ -277,7 +276,6 @@ export async function getRecentLogins(
 }
 
 export async function logoutAndClearVrfSession(context: PasskeyManagerContext): Promise<void> {
-  // For now, this is a no-op since VRF session management is simplified
-  // In the future, this could call a VRF logout method if needed
-  console.log('VRF session cleared (no-op for now)');
+  const { webAuthnManager } = context;
+  await webAuthnManager.clearVrfSession();
 }
