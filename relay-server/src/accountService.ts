@@ -40,6 +40,7 @@ export interface CreateAccountAndRegisterResult {
   transactionHash?: string;
   error?: string;
   message?: string;
+  contractResult?: FinalExecutionOutcome;
 }
 
 class AccountService {
@@ -185,19 +186,24 @@ class AccountService {
         };
 
         // Call the contract's atomic function
-        const result: FinalExecutionOutcome = await this.relayerAccount.functionCall({
-          contractId: this.config.webAuthnContractId,
-          methodName: 'create_account_and_register_user',
-          args: contractArgs,
-          gas: BigInt('300000000000000'), // 300 TGas for account creation + verification
-          attachedDeposit: this.config.defaultInitialBalance, // 0.05 NEAR for account creation
+        const result: FinalExecutionOutcome = await this.relayerAccount.signAndSendTransaction({
+          receiverId: this.config.webAuthnContractId,
+          actions: [
+            actionCreators.functionCall(
+              'create_account_and_register_user',
+              contractArgs,
+              BigInt('300000000000000'), // 300 TGas for account creation + verification
+              this.config.defaultInitialBalance // 0.05 NEAR for account creation
+            )
+          ]
         });
 
         console.log(`Atomic registration completed successfully: ${result.transaction.hash}`);
         return {
           success: true,
           transactionHash: result.transaction.hash,
-          message: `Account ${request.new_account_id} created and registered successfully`
+          message: `Account ${request.new_account_id} created and registered successfully`,
+          result: result,
         };
 
       } catch (error: any) {
