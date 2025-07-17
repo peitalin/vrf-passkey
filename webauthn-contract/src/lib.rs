@@ -4,6 +4,7 @@ mod authenticators;
 mod admin;
 mod types;
 mod contract_state;
+mod link_device;
 
 mod verify_authentication_response;
 mod verify_registration_response;
@@ -61,6 +62,7 @@ impl WebAuthnContract {
             authenticators: LookupMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
             credential_to_users: LookupMap::new(StorageKey::CredentialToUsers),
+            device_linking_map: LookupMap::new(StorageKey::DeviceLinkingMap),
         }
     }
 

@@ -56,6 +56,7 @@ pub enum StorageKey {
     RegisteredUsers,
     Admins,
     CredentialToUsers,
+    DeviceLinkingMap,
 }
 
 /// Main contract state
@@ -65,12 +66,16 @@ pub struct WebAuthnContract {
     pub greeting: String,
     pub contract_name: String,
     pub admins: IterableSet<AccountId>,
-    // Global VRF configuration
+    // VRF challenge verification settings
     pub vrf_settings: VRFSettings,
     // Authenticators: 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users
     pub registered_users: IterableSet<AccountId>,
     // Lookup accounts associated with a WebAuthn (TouchId) credential_id
+    // Required for Account Recovery Flow
     pub credential_to_users: LookupMap<String, Vec<AccountId>>,
+    // Temporary mapping for device linking: Device2 public key -> (Device1 account ID, access key permission)
+    // Required for Link Device Flow
+    pub device_linking_map: LookupMap<String, (AccountId, crate::link_device::AccessKeyPermission)>,
 }

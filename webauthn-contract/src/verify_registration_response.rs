@@ -195,6 +195,9 @@ impl WebAuthnContract {
         }
     }
 
+    // This function is only called by the Device2 account when Linking Devices
+    // Previously it was used to create accounts after Testnet Faucet has created an account.
+    // We now combine account creation and registration in a single transaction.
     pub fn verify_and_register_user(
         &mut self,
         vrf_data: VRFVerificationData,
@@ -212,6 +215,9 @@ impl WebAuthnContract {
             webauthn_registration,
             deterministic_vrf_public_key,
         )
+
+        // Check if self.device_linking_map contains the device public key
+        // If so, prune the entry
     }
 
     /// VIEW VERSION: Check if user can register without modifying state
