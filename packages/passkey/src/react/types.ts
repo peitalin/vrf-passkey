@@ -6,8 +6,11 @@ import type {
   PasskeyManager,
   PasskeyManagerConfigs,
   RecoveryResult,
-  AccountRecoveryFlow
+  AccountRecoveryFlow,
+  LinkDeviceFlow,
+  LinkDeviceResult
 } from '../core/PasskeyManager';
+import type { DeviceLinkingOptions } from '../core/types/passkeyManager';
 
 // === CORE STATE TYPES ===
 
@@ -124,6 +127,8 @@ export interface PasskeyContextType {
     reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
   startAccountRecoveryFlow: (options?: ActionOptions) => AccountRecoveryFlow;
+  createDeviceLinkingFlow: (options?: DeviceLinkingOptions) => LinkDeviceFlow;
+  scanAndLinkDevice: (options?: DeviceLinkingOptions) => Promise<LinkDeviceResult>;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;
@@ -153,8 +158,8 @@ export interface PasskeyContextType {
  * config: {
  *   nearRpcUrl: 'https://rpc.testnet.near.org',
  *   nearNetwork: 'testnet',
- *   contractId: 'web3-authn-v1.testnet',
- *   relayerAccount: 'web3-authn-v1.testnet',
+ *   contractId: 'web3-authn-v2.testnet',
+ *   relayerAccount: 'web3-authn-v2.testnet',
  *   relayServerUrl: 'https://faucet.testnet.near.org',
  *   initialUseRelayer: true
  * }
@@ -172,5 +177,6 @@ export type {
   ActionOptions,
   RegistrationSSEEvent,
   LoginEvent,
-  ActionEvent
+  ActionEvent,
+  DeviceLinkingOptions,
 } from '../core/types/passkeyManager';

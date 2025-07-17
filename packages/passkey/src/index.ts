@@ -3,6 +3,9 @@ export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 export { WebAuthnManager } from './core/WebAuthnManager';
 export { IndexedDBManager } from './core/IndexedDBManager';
 
+// === Flow Classes ===
+export { LinkDeviceFlow, AccountRecoveryFlow } from './core/PasskeyManager';
+
 // === Re-exported from various type definition files ===
 export type {
   PasskeyManagerConfigs,
@@ -18,6 +21,15 @@ export type {
   EventCallback,
   OperationHooks
 } from './core/types/passkeyManager';
+
+export type {
+  DeviceLinkingQRData,
+  DeviceLinkingSession,
+  DeviceLinkingStatus,
+  LinkDeviceResult,
+  DeviceLinkingError,
+  DeviceLinkingErrorCode
+} from './core/types/linkDevice';
 
 export type {
   WebAuthnRegistrationWithPrf,

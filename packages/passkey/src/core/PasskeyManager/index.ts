@@ -2,7 +2,11 @@ import { WebAuthnManager } from '../WebAuthnManager';
 import { registerPasskey } from './registration';
 import { loginPasskey, getLoginState, getRecentLogins, logoutAndClearVrfSession } from './login';
 import { executeAction } from './actions';
-import { addDeviceToAccount, getDeviceKeys, type AddKeysOptions, type AddKeysResult, type DeviceKeysView } from './addDevice';
+import {
+  createDeviceLinkingFlow,
+  scanAndLinkDevice,
+  LinkDeviceFlow
+} from './linkDevice';
 import { recoverAccount, AccountRecoveryFlow, type RecoveryResult } from './recoverAccount';
 import { MinimalNearClient, type NearClient } from '../NearClient';
 import type {
@@ -13,9 +17,11 @@ import type {
   LoginResult,
   ActionOptions,
   ActionResult,
-  LoginState
+  LoginState,
+  DeviceLinkingOptions
 } from '../types/passkeyManager';
 import type { ActionArgs } from '../types/actions';
+import type { DeviceLinkingQRData, DeviceLinkingSession, DeviceLinkingStatus, LinkDeviceResult } from '../types/linkDevice';
 import { ActionType } from '../types/actions';
 
 export interface PasskeyManagerContext {
@@ -42,6 +48,14 @@ export class PasskeyManager {
     this.nearClient = nearClient || new MinimalNearClient(configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(configs);
     // VRF worker initializes automatically in the constructor
+  }
+
+  private getContext(): PasskeyManagerContext {
+    return {
+      webAuthnManager: this.webAuthnManager,
+      nearClient: this.nearClient,
+      configs: this.configs
+    }
   }
 
   /**
@@ -75,15 +89,6 @@ export class PasskeyManager {
    * Get comprehensive login state information
    */
   async getLoginState(nearAccountId?: string): Promise<LoginState> {
-    return getLoginState(this.getContext(), nearAccountId);
-  }
-
-  /**
-   * Refresh and get updated login state - useful after account recovery or login
-   * This forces a fresh check of VRF worker status and user data
-   */
-  async refreshLoginState(nearAccountId?: string): Promise<LoginState> {
-    // Clear any cached state if needed, then get fresh login state
     return getLoginState(this.getContext(), nearAccountId);
   }
 
@@ -138,85 +143,61 @@ export class PasskeyManager {
     return await this.webAuthnManager.exportNearKeypairWithTouchId(nearAccountId)
   }
 
-  // === KEY MANAGEMENT (Add Device) ===
+  // === KEY MANAGEMENT (Link Device) ===
 
   /**
-   * Add current device's passkey-derived keypair to an existing NEAR account for multi-device access
-   *
-   * @param accountId - Account ID to add the device to
-   * @param privateKey - Private key from the existing account (for signing AddKey transaction)
-   * @param options - Optional configuration for the operation
+   * Creates a LinkDeviceFlow instance for step-by-step device linking UX
    *
    * @example
    * ```typescript
-   * // First export the keypair from another device
-   * const { accountId, privateKey } = await passkeyManager.exportNearKeypairWithTouchId('alice.near');
+   * // Device2: Generate QR and start polling
+   * const flow = passkeyManager.createDeviceLinkingFlow({ onEvent: ... });
+   * const { qrData, qrCodeDataURL } = await flow.generateQR('alice.near');
    *
-   * // Then on the new device, add it as an additional access key
-   * const result = await passkeyManager.addDeviceToAccount(
-   *   privateKey,
-   *   accountId,
-   *   {
-   *     onEvent: (event) => console.log('Progress:', event.message),
-   *     gas: '30000000000000'
-   *   }
-   * );
+   * // Device1: Scan and authorize
+   * const result = await passkeyManager.scanAndLinkDevice({ onEvent: ... });
+   *
+   * // Device2: Flow automatically completes when AddKey is detected
+   * const state = flow.getState();
    * ```
    */
-  async addDeviceToAccount({ accountId, privateKey, options }: {
-    accountId: string,
-    privateKey: string,
-    options?: AddKeysOptions
-  }): Promise<AddKeysResult> {
-    return addDeviceToAccount({
-      context: this.getContext(),
-      accountId,
-      privateKey,
-      options
-    });
+  createDeviceLinkingFlow(options?: DeviceLinkingOptions): LinkDeviceFlow {
+    return createDeviceLinkingFlow(this.getContext(), options);
+  }
+
+  /**
+   * Device1: Scan QR code and execute AddKey transaction (convenience method)
+   */
+  async scanAndLinkDevice(options?: DeviceLinkingOptions): Promise<LinkDeviceResult> {
+    return scanAndLinkDevice(this.getContext(), options);
   }
 
   /**
    * Delete a device key from an account
-   *
-   * @example
-   * ```typescript
-   * const result = await passkeyManager.deleteDeviceKey(
-   *   'alice.near',
-   *   'ed25519:5K8...old-device-key',
-   *   {
-   *     onEvent: (event) => console.log('Progress:', event.message)
-   *   }
-   * );
-   * ```
    */
-  async deleteDeviceKey(
-    accountId: string,
-    publicKeyToDelete: string,
-    options?: ActionOptions
-  ): Promise<ActionResult> {
-    // Validate that we're not deleting the last key
-    const keysView = await getDeviceKeys(this.getContext(), accountId);
-    if (keysView.keys.length <= 1) {
-      throw new Error('Cannot delete the last access key from an account');
-    }
+  async deleteDeviceKey(publicKeyToDelete: string): Promise<void> {
+    // // Validate that we're not deleting the last key
+    // const keysView = await getDeviceKeys(this.getContext(), accountId);
+    // if (keysView.keys.length <= 1) {
+    //   throw new Error('Cannot delete the last access key from an account');
+    // }
 
-    // Find the key to delete
-    const keyToDelete = keysView.keys.find(k => k.publicKey === publicKeyToDelete);
-    if (!keyToDelete) {
-      throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
-    }
+    // // Find the key to delete
+    // const keyToDelete = keysView.keys.find(k => k.publicKey === publicKeyToDelete);
+    // if (!keyToDelete) {
+    //   throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
+    // }
 
-    if (!keyToDelete.canDelete) {
-      throw new Error(`Cannot delete this access key`);
-    }
+    // if (!keyToDelete.canDelete) {
+    //   throw new Error(`Cannot delete this access key`);
+    // }
 
-    // Use the executeAction method with DeleteKey action
-    return this.executeAction(accountId, {
-      type: ActionType.DeleteKey,
-      receiverId: accountId,
-      publicKey: publicKeyToDelete
-    }, options);
+    // // Use the executeAction method with DeleteKey action
+    // return this.executeAction(accountId, {
+    //   type: ActionType.DeleteKey,
+    //   receiverId: accountId,
+    //   publicKey: publicKeyToDelete
+    // }, options);
   }
 
   ///////////////////////////////////////
@@ -274,24 +255,6 @@ export class PasskeyManager {
     return new AccountRecoveryFlow(this.getContext(), options);
   }
 
-  ///////////////////////////////////////
-  // PRIVATE FUNCTIONS
-  ///////////////////////////////////////
-
-  /**
-   * Internal VRF Worker initialization that runs automatically
-   * This abstracts VRF implementation details away from users
-   */
-
-
-  private getContext(): PasskeyManagerContext {
-    return {
-      webAuthnManager: this.webAuthnManager,
-      nearClient: this.nearClient,
-      configs: this.configs
-    }
-  }
-
 }
 
 // Re-export types for convenience
@@ -307,15 +270,26 @@ export type {
   ActionResult,
   ActionEvent,
   EventCallback,
-  OperationHooks
+  OperationHooks,
 } from '../types/passkeyManager';
 
-// Re-export key management types
 export type {
-  AddKeysOptions,
-  AddKeysResult,
-  DeviceKeysView
-} from './addDevice';
+  DeviceLinkingQRData,
+  DeviceLinkingSession,
+  DeviceLinkingStatus,
+  LinkDeviceResult
+} from '../types/linkDevice';
+
+// Re-export device linking error types and classes
+export {
+  DeviceLinkingError,
+  DeviceLinkingErrorCode
+} from '../types/linkDevice';
+
+// Re-export device linking flow class
+export {
+  LinkDeviceFlow
+} from './linkDevice';
 
 // Re-export account recovery types and classes
 export type {

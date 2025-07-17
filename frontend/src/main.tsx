@@ -16,9 +16,9 @@ function App() {
       <PasskeyProvider
         config={{
           nearRpcUrl: 'https://rpc.testnet.near.org',
-          contractId: 'web3-authn-v1.testnet',
+          contractId: 'web3-authn-v2.testnet',
           nearNetwork: 'testnet',
-          relayerAccount: 'web3-authn-v1.testnet',
+          relayerAccount: 'web3-authn-v2.testnet',
           relayServerUrl: 'http://localhost:3000',
           initialUseRelayer: false
         }}

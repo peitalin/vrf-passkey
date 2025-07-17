@@ -4,6 +4,7 @@ import { GreetingMenu } from '../components/GreetingMenu';
 import { TransactionDetails } from '../components/TransactionDetails';
 import { usePasskeyContext } from '@web3authn/passkey/react';
 import type { LastTxDetails } from '../types';
+import { LinkDeviceScanQR } from '../components/LinkDeviceScanQR';
 
 export function HomePage() {
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
@@ -22,6 +23,7 @@ export function HomePage() {
         <div className="homepage-content">
           <GreetingMenu onTransactionUpdate={setLastTxDetails} />
           <TransactionDetails lastTxDetails={lastTxDetails} />
+          <LinkDeviceScanQR />
         </div>
       ) : (
         <PasskeyLoginMenu />

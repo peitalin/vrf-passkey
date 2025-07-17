@@ -20,7 +20,7 @@ const config: AppConfig = {
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NEAR_NETWORK_ID || 'testnet',
   defaultInitialBalance: BigInt('30000000000000000000000'), // 0.03 NEAR initial balance when creating account
-  webAuthnContractId: process.env.WEBAUTHN_CONTRACT_ID || 'web3-authn-v1.testnet',
+  webAuthnContractId: process.env.WEBAUTHN_CONTRACT_ID || 'web3-authn-v2.testnet',
 };
 
 export default config;

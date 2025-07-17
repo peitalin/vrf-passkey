@@ -200,7 +200,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         await new Promise(resolve => setTimeout(resolve, 6000));
 
         // const receiverAccountId = generateTestAccountId();
-        const receiverAccountId = "web3-authn-v1.testnet";
+        const receiverAccountId = "web3-authn-v2.testnet";
         console.log(`Testing transfer: ${testAccountId} → ${receiverAccountId}`);
 
         const actionEvents: any[] = [];

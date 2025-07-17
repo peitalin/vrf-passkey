@@ -20,6 +20,7 @@ import type {
   LoginResult,
   RegistrationOptions,
   ActionOptions,
+  DeviceLinkingOptions,
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
@@ -61,8 +62,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const passkeyManager = useMemo(() => {
     const defaultConfig = {
       nearNetwork: 'testnet' as const,
-      relayerAccount: 'web3-authn-v1.testnet',
-      contractId: 'web3-authn-v1.testnet',
+      relayerAccount: 'web3-authn-v2.testnet',
+      contractId: 'web3-authn-v2.testnet',
       nearRpcUrl: 'https://rpc.testnet.near.org'
     };
 
@@ -80,7 +81,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     }
 
     return globalPasskeyManager;
-  }, [userConfig, nearClient]);
+  }, [userConfig]);
 
   // Use relayer hook
   const relayerHook = useRelayer({
@@ -233,6 +234,14 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return passkeyManager.startAccountRecoveryFlow(options);
   }
 
+  const createDeviceLinkingFlow = (options?: DeviceLinkingOptions) => {
+    return passkeyManager.createDeviceLinkingFlow(options);
+  }
+
+  const scanAndLinkDevice = async (options?: DeviceLinkingOptions) => {
+    return await passkeyManager.scanAndLinkDevice(options);
+  }
+
   // Function to manually refresh login state
   const refreshLoginState = useCallback(async (nearAccountId?: string) => {
       try {
@@ -270,24 +279,29 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const value: PasskeyContextType = {
     // UI acccount name input state (form/input tracking)
     accountInputState,
+    // Account input management
+    setInputUsername: accountInputHook.setInputUsername,
+    refreshAccountData: accountInputHook.refreshAccountData,
+    useRelayer: relayerHook.useRelayer,
+    setUseRelayer: relayerHook.setUseRelayer,
+    toggleRelayer: relayerHook.toggleRelayer,
+
     // Simple login/register functions
     logout,                      // Clears VRF session (logs out)
     loginPasskey,
     registerPasskey,
+
     // Account recovery functions
     recoverAccountWithAccountId, // Recover account with accountID and TouchId
-    startAccountRecoveryFlow,    // Discover accounts onchain, recover account with TouchId
+    startAccountRecoveryFlow,    // Create account recovery flow to discover accounts onchain, and recover accounts
+    createDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
+    scanAndLinkDevice,           // Scan QR and link device (Device1 side)
+
     // Authentication state (actual state from contract/backend)
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
     refreshLoginState,           // Manually refresh login state
     loginState,
-    // Account input management
-    setInputUsername: accountInputHook.setInputUsername,
-    refreshAccountData: accountInputHook.refreshAccountData,
-    // Relayer management
-    useRelayer: relayerHook.useRelayer,
-    setUseRelayer: relayerHook.setUseRelayer,
-    toggleRelayer: relayerHook.toggleRelayer,
+
     // Core PasskeyManager instance - provides ALL functionality
     passkeyManager,
   };

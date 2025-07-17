@@ -11,6 +11,8 @@ export { TxExecutionStatus } from '../core/types/actions';
 
 // === REACT COMPONENTS ===
 export { ProfileButton } from './components/ProfileSettingsButton';
+// Lazy-loaded QR Scanner (jsQR library ~234kB)
+export { QRCodeScanner } from './components/QRCodeScanner.lazy';
 
 // === TYPES ===
 export type {

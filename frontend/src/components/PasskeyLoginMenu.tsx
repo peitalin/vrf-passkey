@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
 import { usePasskeyContext } from '@web3authn/passkey/react'
-import { Toggle } from './Toggle'
-import { GreetingMenu } from './GreetingMenu'
-import { usePostfixPosition } from '../hooks/usePostfixPosition'
 import toast from 'react-hot-toast'
-import type {
-  RegistrationSSEEvent,
-  LoginEvent
-} from '@web3authn/passkey/react'
+
+import type { RegistrationSSEEvent } from '@web3authn/passkey/react'
+import { Toggle } from './Toggle'
+import { usePostfixPosition } from '../hooks/usePostfixPosition'
 import type { LastTxDetails } from '../types'
+import { LinkDeviceShowQR } from './LinkDeviceShowQR'
+
 
 export function PasskeyLoginMenu() {
   const {
@@ -36,12 +35,9 @@ export function PasskeyLoginMenu() {
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
-  const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
   const usernameInputRef = useRef<HTMLInputElement>(null);
   const postfixRef = useRef<HTMLSpanElement>(null);
-
-  const accountName = useMemo(() => nearAccountId?.split('.')?.[0], [nearAccountId]);
 
   // Use the postfix positioning hook
   usePostfixPosition({
@@ -132,7 +128,7 @@ export function PasskeyLoginMenu() {
     }
 
     console.log('Logging in with account:', targetAccountId);
-    const result = await loginPasskey(targetAccountId, {
+    await loginPasskey(targetAccountId, {
       onEvent: (event) => {
         switch (event.phase) {
           case 'preparation':
@@ -152,10 +148,6 @@ export function PasskeyLoginMenu() {
         }
       }
     });
-
-    if (result.success) {
-      // Login successful
-    }
   };
 
   if (!isSecureContext) {
@@ -190,66 +182,55 @@ export function PasskeyLoginMenu() {
           textPosition="left"
         />
 
-        {!isLoggedIn ? (
-          <>
-            <div className="input-wrapper">
-              <div className="username-input-container">
-                <input
-                  ref={usernameInputRef}
-                  type="text"
-                  value={inputUsername}
-                  onChange={handleLocalUsernameChange}
-                  placeholder="Enter username for passkey"
-                  className="styled-input username-input"
-                />
-                <span
-                  ref={postfixRef}
-                  className={`account-postfix ${isUsingExistingAccount ? 'stored-account' : ''}`}
-                  title={isUsingExistingAccount ? 'Using existing account domain' : 'New account domain'}
-                >
-                  {displayPostfix}
-                  {isUsingExistingAccount && <span className="stored-indicator">●</span>}
-                </span>
-              </div>
-              {accountExists && inputUsername && (
-                <div className="account-exists-badge">
-                  account exists
-                </div>
-              )}
-            </div>
-
-
-            <div className="auth-buttons">
-              <button onClick={onRegister}
-                className={`action-button ${!accountExists ? 'primary' : ''}`}
-                disabled={!inputUsername || !isSecureContext || accountExists}>
-                Register Passkey
-              </button>
-              <button onClick={onRecover}
-                className={`action-button ${!accountExists ? 'primary' : ''}`}
-                disabled={!inputUsername || !isSecureContext || accountExists}>
-                Recover Account
-              </button>
-              <button onClick={onLogin}
-                className={`action-button ${accountExists ? 'primary' : ''}`}
-                disabled={!inputUsername || !accountExists}
+        <>
+          <div className="input-wrapper">
+            <div className="username-input-container">
+              <input
+                ref={usernameInputRef}
+                type="text"
+                value={inputUsername}
+                onChange={handleLocalUsernameChange}
+                placeholder="Enter username for passkey"
+                className="styled-input username-input"
+              />
+              <span
+                ref={postfixRef}
+                className={`account-postfix ${isUsingExistingAccount ? 'stored-account' : ''}`}
+                title={isUsingExistingAccount ? 'Using existing account domain' : 'New account domain'}
               >
-                Login with Passkey
-              </button>
+                {displayPostfix}
+                {isUsingExistingAccount && <span className="stored-indicator">●</span>}
+              </span>
             </div>
-          </>
-        ) : (
-          <>
-            {nearPublicKey ? (
-              <GreetingMenu onTransactionUpdate={setLastTxDetails} />
-            ) : (
-              <div className="info-box">
-                <p>✅ Passkey registered successfully!</p>
-                <p>Server-derived NEAR public key not available for greeting functionality.</p>
+            {accountExists && inputUsername && (
+              <div className="account-exists-badge">
+                account exists
               </div>
             )}
-          </>
-        )}
+          </div>
+
+
+          <div className="auth-buttons">
+            <button onClick={onRegister}
+              className={`action-button ${!accountExists ? 'primary' : ''}`}
+              disabled={!inputUsername || !isSecureContext || accountExists}>
+              Register Passkey
+            </button>
+            <button onClick={onRecover}
+              className={`action-button ${!accountExists ? 'primary' : ''}`}
+              disabled={!inputUsername || !isSecureContext || accountExists}>
+              Recover Account
+            </button>
+            <button onClick={onLogin}
+              className={`action-button ${accountExists ? 'primary' : ''}`}
+              disabled={!inputUsername || !accountExists}
+            >
+              Login with Passkey
+            </button>
+          </div>
+
+          <LinkDeviceShowQR />
+        </>
       </div>
     </div>
   );

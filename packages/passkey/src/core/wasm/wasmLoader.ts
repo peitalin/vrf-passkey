@@ -190,12 +190,16 @@ For production deployment, ensure your server serves .wasm files with the correc
 
   // Race initialization against timeout
   try {
+    let timeoutId: NodeJS.Timeout;
     const result = await Promise.race([
       initWithTimeout(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`WASM initialization timeout after ${timeoutMs}ms`)), timeoutMs)
-      )
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`WASM initialization timeout after ${timeoutMs}ms`)), timeoutMs);
+      })
     ]);
+
+    // Clear timeout if initialization succeeds
+    clearTimeout(timeoutId!);
     return result;
   } catch (timeoutError: any) {
     console.error(`[${workerName}]: WASM initialization failed:`, timeoutError.message);

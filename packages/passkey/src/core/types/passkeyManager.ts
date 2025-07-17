@@ -24,12 +24,38 @@ export interface BaseSSEEvent {
 
 // Registration-specific events
 export interface BaseSSERegistrationEvent extends BaseSSEEvent {
-  phase: 'webauthn-verification' | 'user-ready' | 'access-key-addition' | 'account-verification' | 'database-storage' | 'contract-registration' | 'registration-complete' | 'registration-error';
+  phase: 'webauthn-verification'
+  | 'user-ready'
+  | 'access-key-addition'
+  | 'account-verification'
+  | 'database-storage'
+  | 'contract-registration'
+  | 'registration-complete'
+  | 'registration-error'
+  | 'device-linking';
 }
 
 // Action-specific events
 export interface BaseSSEActionEvent extends BaseSSEEvent {
-  phase: 'preparation' | 'authentication' | 'contract-verification' | 'transaction-signing' | 'broadcasting' | 'action-complete' | 'action-error';
+  phase: 'preparation'
+  | 'authentication'
+  | 'contract-verification'
+  | 'transaction-signing'
+  | 'broadcasting'
+  | 'action-complete'
+  | 'action-error'
+  | 'device-linking';
+}
+
+
+export interface DeviceLinkingSSEEvent extends BaseSSEEvent {
+  phase: 'qr-code-generated'
+  | 'addkey-detected'
+  | 'scanning'
+  | 'authorization'
+  | 'registration'
+  | 'registration-error'
+  | 'device-linking';
 }
 
 // Registration Event Types
@@ -246,6 +272,15 @@ export interface ActionOptions {
   waitUntil?: TxExecutionStatus;
 }
 
+export interface DeviceLinkingOptions {
+  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onError?: (error: Error) => void;
+  hooks?: OperationHooks;
+  fundingAmount?: string;
+  cameraId?: string;
+  config?: any;
+}
+
 // Result Types
 export interface RegistrationResult {
   success: boolean;
@@ -281,7 +316,7 @@ export interface ActionResult {
 export interface PasskeyManagerConfigs {
   nearRpcUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
-  contractId: 'web3-authn-v1.testnet' | 'web3-authn.near' | string;
+  contractId: 'web3-authn-v2.testnet' | 'web3-authn.near' | string;
   relayerAccount: string;
   // Relay Server is used to create new NEAR accounts
   // Optional: defaults to testnet faucet

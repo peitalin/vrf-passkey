@@ -67,8 +67,8 @@ import { base64UrlEncode } from '../utils/encoders';
 const DEFAULT_TEST_CONFIG = {
   frontendUrl: 'https://example.localhost',
   nearNetwork: 'testnet' as const,
-  relayerAccount: 'web3-authn-v1.testnet',
-  contractId: 'web3-authn-v1.testnet',
+  relayerAccount: 'web3-authn-v2.testnet',
+  contractId: 'web3-authn-v2.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow

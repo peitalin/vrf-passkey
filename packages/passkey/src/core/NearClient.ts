@@ -21,7 +21,7 @@ import { Signature, Transaction } from "@near-js/transactions";
 import { PublicKey } from "@near-js/crypto";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
-// import { Provider } from "@near-js/providers";
+import { Provider } from "@near-js/providers";
 
 export class SignedTransaction {
     transaction: Transaction;

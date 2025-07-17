@@ -37,7 +37,7 @@ async function createTestAccount(): Promise<boolean> {
     const keyPair = KeyPairEd25519.fromRandom();
     const publicKey = keyPair.getPublicKey();
     const timestamp = Date.now();
-    const accountId = `test-${timestamp}.web3-authn-v1.testnet`;
+    const accountId = `test-${timestamp}.web3-authn-v2.testnet`;
 
     console.log(`Account ID: ${accountId}`);
     console.log(`Public Key: ${publicKey.toString()}`);
