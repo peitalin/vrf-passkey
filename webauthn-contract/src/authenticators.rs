@@ -248,10 +248,10 @@ impl WebAuthnContract {
     /// CREDENTIAL LOOKUP
     /////////////////////////////////
 
-    /// Get all account IDs associated with a credential ID
+    /// Get the account ID associated with a credential ID
     /// This enables efficient account discovery during recovery
-    pub fn get_accounts_by_credential_id(&self, credential_id: String) -> Vec<AccountId> {
-        self.credential_to_users.get(&credential_id).cloned().unwrap_or_default()
+    pub fn get_account_by_credential_id(&self, credential_id: String) -> Option<AccountId> {
+        self.credential_to_users.get(&credential_id).cloned()
     }
 
     /// Get all credential IDs associated with an account ID
@@ -266,22 +266,11 @@ impl WebAuthnContract {
 
     /// Helper method to add a credential->user mapping (used during registration)
     pub(crate) fn add_credential_user_mapping(&mut self, credential_id: String, user_id: AccountId) {
-        let mut users = self.credential_to_users.get(&credential_id).cloned().unwrap_or_default();
-        if !users.contains(&user_id) {
-            users.push(user_id);
-            self.credential_to_users.insert(credential_id.clone(), users);
-        }
+        self.credential_to_users.insert(credential_id, user_id);
     }
 
     /// Helper method to remove a credential->user mapping (used during deregistration)
-    pub(crate) fn remove_credential_user_mapping(&mut self, credential_id: String, user_id: AccountId) {
-        if let Some(mut users) = self.credential_to_users.get(&credential_id).cloned() {
-            users.retain(|u| u != &user_id);
-            if users.is_empty() {
-                self.credential_to_users.remove(&credential_id);
-            } else {
-                self.credential_to_users.insert(credential_id.clone(), users);
-            }
-        }
+    pub(crate) fn remove_credential_user_mapping(&mut self, credential_id: String, _user_id: AccountId) {
+        self.credential_to_users.remove(&credential_id);
     }
 }

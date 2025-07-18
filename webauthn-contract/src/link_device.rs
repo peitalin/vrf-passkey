@@ -18,25 +18,26 @@ pub enum AccessKeyPermission {
 
 #[near]
 impl WebAuthnContract {
-    /// Add a device key to an account and store temporary mapping for Device2 polling
-    /// This enables secure device linking where Device2 can poll for the mapping
-    pub fn add_device_key(
+    /// Store device linking mapping for Device2 polling
+    /// Device1 calls this after directly adding Device2's key to their own account
+    /// This enables Device2 to discover which account it was linked to
+    pub fn store_device_linking_mapping(
         &mut self,
         device_public_key: String,
         target_account_id: AccountId,
-    ) -> Promise {
+    ) -> CryptoHash {
         let caller = env::predecessor_account_id();
         require!(caller == target_account_id, "Caller must be the target account");
 
         log!(
-            "Adding device key {} to account {} on behalf of {}",
+            "Storing device linking mapping: {} -> {} by {}",
             device_public_key,
             target_account_id,
             caller
         );
 
         // Parse the public key to validate format
-        let parsed_key = match device_public_key.parse::<PublicKey>() {
+        let _parsed_key = match device_public_key.parse::<PublicKey>() {
             Ok(key) => key,
             Err(e) => {
                 env::panic_str(&format!("Invalid public key format: {}", e));
@@ -49,58 +50,21 @@ impl WebAuthnContract {
             (target_account_id.clone(), AccessKeyPermission::FullAccess)
         );
 
-        // Initiate automatic cleanup after 200 blocks using yield-resume pattern
-        let _data_id = self.initiate_cleanup(device_public_key.clone());
-
-        // Add the key to the target account via cross-contract call
-        let add_key_promise = Promise::new(target_account_id.clone())
-            .add_full_access_key(parsed_key);
-
-        // Chain with callback to emit log event
-        let callback_promise = Promise::new(env::current_account_id()).function_call(
-            "on_device_key_added".to_string(),
-            serde_json::to_vec(&serde_json::json!({
-                "device_public_key": device_public_key,
-                "target_account_id": target_account_id,
-                "caller": caller,
-            })).unwrap(),
-            NearToken::from_yoctonear(0), // No payment needed for callback
-            Gas::from_tgas(10), // 10 TGas should be sufficient for logging
+        // Emit structured log event that Device2 can poll
+        log!(
+            "DEVICE_KEY_MAPPED:{}:{}:{}",
+            device_public_key,
+            target_account_id,
+            env::block_timestamp()
         );
 
-        add_key_promise.then(callback_promise)
+        // Initiate automatic cleanup after 200 blocks using yield-resume pattern
+        let data_id = self.initiate_cleanup(device_public_key.clone());
+        log!("Device linking mapping stored successfully for account {}", target_account_id);
+        data_id
     }
 
-    /// Callback function to emit log event after device key is added
-    #[private]
-    pub fn on_device_key_added(
-        &mut self,
-        device_public_key: String,
-        target_account_id: AccountId,
-        caller: AccountId,
-    ) {
-        // Check if the previous promise (add_key) succeeded
-        let promise_result = env::promise_result(0);
 
-        match promise_result {
-            near_sdk::PromiseResult::Successful(_) => {
-                // Emit structured log event that Device2 can poll
-                log!(
-                    "DEVICE_KEY_ADDED:{}:{}:{}:{}",
-                    device_public_key,
-                    target_account_id,
-                    caller,
-                    env::block_timestamp()
-                );
-
-                log!("Device key successfully added to account {}", target_account_id);
-            }
-            _ => {
-                log!("Failed to add device key {} to account {}", device_public_key, target_account_id);
-                env::panic_str("Device key addition failed");
-            }
-        }
-    }
 
     /// View function for Device2 to query which account it will be linked to and the access key permission
     /// Device2 calls this with its public key to discover Device1's account ID and confirm the access key permission
@@ -188,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_device_key_invalid_public_key() {
+    fn test_store_device_linking_mapping_invalid_public_key() {
         let alice = AccountId::from_str("alice.testnet").unwrap();
         let bob = AccountId::from_str("bob.testnet").unwrap();
 
@@ -204,12 +168,12 @@ mod tests {
 
         // This should panic due to invalid public key format
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            contract.add_device_key(invalid_key, bob.clone());
+            contract.store_device_linking_mapping(invalid_key, bob.clone());
         })).expect_err("Should panic with invalid public key format");
     }
 
     #[test]
-    fn test_add_device_key_valid_format() {
+    fn test_store_device_linking_mapping_valid_format() {
         let alice = AccountId::from_str("alice.testnet").unwrap();
         let bob = AccountId::from_str("bob.testnet").unwrap();
 
@@ -223,13 +187,13 @@ mod tests {
         // Test valid device public key
         let device_public_key = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".to_string();
 
-        // This creates a Promise but won't execute in test environment
+        // This stores the mapping without creating a Promise
         // We're just verifying the function doesn't panic with valid input
-        let _promise = contract.add_device_key(device_public_key, bob.clone());
+        contract.store_device_linking_mapping(device_public_key, bob.clone());
 
         // The function should complete without panicking
         // In a real blockchain environment, this would:
-        // 1. Add the key to bob's account
-        // 2. Emit the DEVICE_KEY_ADDED log event
+        // 1. Store the device linking mapping for Device2 to poll
+        // 2. Emit the DEVICE_KEY_MAPPED log event
     }
 }
