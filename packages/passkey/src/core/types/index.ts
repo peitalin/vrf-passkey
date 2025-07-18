@@ -15,3 +15,5 @@ export * from './vrf-worker'
 export * from './webauthn'
 export * from './errors'
 export * from './linkDevice'
+
+export type { ClientUserData } from '../IndexedDBManager/passkeyClientDB';

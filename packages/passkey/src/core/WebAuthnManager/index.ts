@@ -396,123 +396,56 @@ export class WebAuthnManager {
   }
 
   /**
-   * Sign a NEAR Transfer transaction using PRF
-   * Requires TouchId
-   *
-   * Enhanced Transfer transaction signing with contract verification and progress updates
-   * Uses the new verify+sign WASM function for secure, efficient transaction processing
-   */
-  async signTransferTransaction(
-    payload: {
-      nearAccountId: string;
-      receiverId: string;
-      depositAmount: string;
-      nonce: string;
-      blockHashBytes: number[];
-      // Additional parameters for contract verification
-      contractId: string;
-      vrfChallenge: VRFChallenge;
-    },
-    onEvent?: (update: onProgressEvents) => void
-  ): Promise<VerifyAndSignTransactionResult> {
-
-    const { nearAccountId, vrfChallenge } = payload;
-
-    onEvent?.({
-      step: 2,
-      phase: 'authentication',
-      status: 'progress',
-      message: 'Authenticating with VRF challenge...'
-    });
-
-    // Get stored authenticator data
-    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
-    if (authenticators.length === 0) {
-      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
-    }
-
-    const credential = await this.touchIdPrompt.getCredentials({
-      nearAccountId,
-      challenge: vrfChallenge.outputAs32Bytes(),
-      authenticators,
-    });
-
-    console.debug('✅ VRF WebAuthn authentication completed');
-    onEvent?.({
-      step: 3,
-      phase: 'contract-verification',
-      status: 'progress',
-      message: 'Authentication verified - preparing transaction...'
-    });
-
-    onEvent?.({
-      step: 4,
-      phase: 'transaction-signing',
-      status: 'progress',
-      message: 'Signing transaction in secure worker...'
-    });
-
-    return await this.signerWorkerManager.signTransferTransaction(
-      {
-        ...payload,
-        credential: credential,
-        nearRpcUrl: this.configs.nearRpcUrl,
-      },
-      onEvent
-    );
-  }
-
-  /**
    * Transaction signing with contract verification and progress updates.
    * Demonstrates the "streaming" worker pattern similar to SSE.
    *
    * Requires a successful TouchID/biometric prompt before transaction signing in wasm worker
    * Automatically verifies the authentication with the web3authn contract.
    *
-   * @param payload - Transaction payload containing:
+   * @param transactions - Transaction payload containing:
    *   - nearAccountId: NEAR account ID performing the transaction
    *   - receiverId: NEAR account ID receiving the transaction
    *   - actions: Array of NEAR actions to execute
    *   - nonce: Transaction nonce
-   *   - blockHashBytes: Recent block hash for transaction freshness
-   *   - contractId: Web3Authn contract ID for verification
-   *   - vrfChallenge: VRF challenge used in authentication
-   *   - credential: WebAuthn credential from TouchID prompt
+   * @param blockHashBytes: Recent block hash for transaction freshness
+   * @param contractId: Web3Authn contract ID for verification
+   * @param vrfChallenge: VRF challenge used in authentication
+   * @param credential: WebAuthn credential from TouchID prompt
    * @param onEvent - Optional callback for progress updates during signing
    */
-  async signTransactionWithActions(
-    payload: {
+  async signTransactionsWithActions({
+    transactions,
+    blockHashBytes,
+    contractId,
+    vrfChallenge,
+    credential,
+    nearRpcUrl,
+    onEvent,
+  }: {
+    transactions: Array<{
       nearAccountId: string;
       receiverId: string;
       actions: ActionParams[];
       nonce: string;
-      blockHashBytes: number[];
-      // Additional parameters for contract verification
-      contractId: string;
-      vrfChallenge: VRFChallenge;
-    },
+    }>,
+    // Common parameters for all transactions
+    blockHashBytes: number[],
+    contractId: string,
+    vrfChallenge: VRFChallenge,
+    credential: PublicKeyCredential,
+    nearRpcUrl: string,
     onEvent?: (update: onProgressEvents) => void
-  ): Promise<VerifyAndSignTransactionResult> {
+  }): Promise<VerifyAndSignTransactionResult[]> {
 
-    const { nearAccountId, vrfChallenge } = payload;
+    if (transactions.length === 0) {
+      throw new Error('No payloads provided for signing');
+    }
 
     onEvent?.({
       step: 2,
       phase: 'authentication',
       status: 'progress',
       message: 'Authenticating with VRF challenge...'
-    });
-
-    // Get stored authenticator data
-    const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
-    if (authenticators.length === 0) {
-      throw new Error(`No authenticators found for account ${nearAccountId}. Please register first.`);
-    }
-
-    const credential = await this.touchIdPrompt.getCredentials({
-      nearAccountId,
-      challenge: vrfChallenge.outputAs32Bytes(),
-      authenticators,
     });
 
     console.debug('VRF WebAuthn authentication completed');
@@ -520,23 +453,26 @@ export class WebAuthnManager {
       step: 3,
       phase: 'contract-verification',
       status: 'progress',
-      message: 'Authentication verified - preparing transaction...'
+      message: 'Authentication verified - preparing transactions...'
     });
 
     onEvent?.({
       step: 4,
       phase: 'transaction-signing',
       status: 'progress',
-      message: 'Signing transaction in secure worker...'
+      message: `Signing ${transactions.length} transactions in secure worker...`
     });
 
-    return await this.signerWorkerManager.signTransactionWithActions(
+    return await this.signerWorkerManager.signTransactionsWithActions(
       {
-        ...payload,
-        credential: credential,
-        nearRpcUrl: this.configs.nearRpcUrl,
+        transactions,
+        blockHashBytes,
+        contractId,
+        vrfChallenge,
+        credential,
+        nearRpcUrl,
+        onEvent
       },
-      onEvent
     );
   }
 
@@ -741,7 +677,7 @@ export class WebAuthnManager {
     deterministicVrfPublicKey,
     signerAccountId,
     nearAccountId,
-    publicKeyStr,
+    nearPublicKeyStr,
     nearClient,
     onEvent,
   }: {
@@ -751,7 +687,7 @@ export class WebAuthnManager {
     deterministicVrfPublicKey: string, // deterministic VRF key for key recovery
     signerAccountId: string;
     nearAccountId: string;
-    publicKeyStr: string;
+    nearPublicKeyStr: string;
     nearClient: NearClient;
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
@@ -771,7 +707,7 @@ export class WebAuthnManager {
         deterministicVrfPublicKey, // Pass through the deterministic VRF key
         signerAccountId,
         nearAccountId,
-        publicKeyStr,
+        nearPublicKeyStr,
         nearClient,
         onEvent,
         nearRpcUrl: this.configs.nearRpcUrl,
@@ -1063,17 +999,20 @@ export class WebAuthnManager {
         deposit: '0'
       };
 
-      const result = await this.signerWorkerManager.signTransactionWithActions({
-        nearAccountId: nearAccountId,
-        receiverId: contractId,
-        actions: [functionCallAction],
-        nonce: nonce,
+      const result = await this.signerWorkerManager.signTransactionsWithActions({
+        transactions: [{
+          nearAccountId: nearAccountId,
+          receiverId: contractId,
+          actions: [functionCallAction],
+          nonce: nonce,
+        }],
         blockHashBytes: blockHashBytes,
         contractId: contractId,
         vrfChallenge: vrfChallenge,
         credential: credential,
-        nearRpcUrl: nearRpcUrl
-      }, onEvent);
+        nearRpcUrl: nearRpcUrl,
+        onEvent: onEvent,
+      });
 
       console.debug('WebAuthnManager: VRF key addition completed successfully');
 
@@ -1084,7 +1023,7 @@ export class WebAuthnManager {
         message: 'VRF public key added to authenticator successfully'
       });
 
-      return result;
+      return result[0];
 
     } catch (error: any) {
       console.error('WebAuthnManager: VRF key addition error:', error);

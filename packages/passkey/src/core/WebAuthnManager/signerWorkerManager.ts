@@ -1,4 +1,5 @@
 import type { NearClient } from '../NearClient';
+import { getNonceBlockHashAndHeight } from "../PasskeyManager/actions";
 import { SignedTransaction } from "../NearClient";
 import { base64UrlEncode, base64UrlDecode, base58Decode } from '../../utils/encoders';
 import type {
@@ -16,7 +17,6 @@ import type {
   CheckRegistrationResponse,
   RegistrationResponse,
   TransactionResponse,
-  TransferResponse,
   DecryptionResponse,
   CoseExtractionResponse,
   WorkerErrorResponse,
@@ -28,7 +28,6 @@ import {
   WorkerResponseType,
   isEncryptionSuccess,
   isSignatureSuccess,
-  isTransferSuccess,
   isDecryptionSuccess,
   isCheckRegistrationSuccess,
   isRegistrationSuccess,
@@ -48,6 +47,7 @@ import {
   extractRecoveryResult,
 } from '../types/signer-worker';
 import { ActionType } from '../types/actions';
+import type { ClientUserData } from '../types';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
 import { TouchIdPrompt } from "./touchIdPrompt";
@@ -446,7 +446,7 @@ export class SignerWorkerManager {
     deterministicVrfPublicKey,
     signerAccountId,
     nearAccountId,
-    publicKeyStr,
+    nearPublicKeyStr,
     nearClient,
     nearRpcUrl,
     onEvent,
@@ -457,7 +457,7 @@ export class SignerWorkerManager {
     deterministicVrfPublicKey?: string; // Optional deterministic VRF key for dual registration
     signerAccountId: string;
     nearAccountId: string;
-    publicKeyStr: string; // NEAR public key for nonce retrieval
+    nearPublicKeyStr: string;
     nearClient: NearClient; // NEAR RPC client for getting transaction metadata
     nearRpcUrl: string; // NEAR RPC URL for contract verification
     onEvent?: (update: onProgressEvents) => void
@@ -471,7 +471,7 @@ export class SignerWorkerManager {
     try {
       console.info('WebAuthnManager: Starting on-chain user registration with transaction');
 
-      if (!publicKeyStr) {
+      if (!nearPublicKeyStr) {
         throw new Error('Client NEAR public key not provided - cannot get access key nonce');
       }
 
@@ -493,35 +493,22 @@ export class SignerWorkerManager {
       // Extract PRF output from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
-      // Get access key and transaction block info concurrently
-      const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-        nearClient.viewAccessKey(signerAccountId, publicKeyStr),
-        nearClient.viewBlock({ finality: 'final' })
-      ]);
+      const {
+        accessKeyInfo,
+        nextNonce,
+        txBlockHashBytes,
+        txBlockHeight,
+      } = await getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId });
 
       console.debug('WebAuthnManager: Access key info received:', {
         signerAccountId,
-        publicKeyStr,
+        nearPublicKeyStr,
         accessKeyInfo,
         hasNonce: accessKeyInfo?.nonce !== undefined,
         nonceValue: accessKeyInfo?.nonce,
         nonceType: typeof accessKeyInfo?.nonce
       });
 
-      if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
-        throw new Error(`Access key not found or invalid for account ${signerAccountId} with public key ${publicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`);
-      }
-
-      const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
-      const blockHashString = transactionBlockInfo.header.hash;
-      // Convert base58 block hash to bytes for WASM
-      const transactionBlockHashBytes = Array.from(base58Decode(blockHashString));
-
-      console.debug('WebAuthnManager: Transaction metadata prepared', {
-        nonce: nonce.toString(),
-        blockHash: blockHashString,
-        blockHashBytesLength: transactionBlockHashBytes.length
-      });
 
       // Step 2: Execute registration transaction via WASM
       const response = await this.executeWorkerOperation({
@@ -533,8 +520,8 @@ export class SignerWorkerManager {
             contractId,
             signerAccountId,
             nearAccountId,
-            nonce: nonce.toString(),
-            blockHashBytes: transactionBlockHashBytes,
+            nonce: nextNonce,
+            blockHashBytes: txBlockHashBytes,
             // Pass encrypted key data from IndexedDB
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv,
@@ -579,85 +566,121 @@ export class SignerWorkerManager {
   // === ACTION-BASED SIGNING METHODS ===
 
   /**
-   * Enhanced transaction signing with contract verification and progress updates
-   * Demonstrates the "streaming" worker pattern similar to SSE
+   * Sign multiple transactions with shared VRF challenge and credential
+   * Efficiently processes multiple transactions with one PRF authentication
    */
-  async signTransactionWithActions(
-    payload: {
+  async signTransactionsWithActions({
+    transactions,
+    blockHashBytes,
+    contractId,
+    vrfChallenge,
+    credential,
+    nearRpcUrl,
+    onEvent
+  }: {
+    transactions: Array<{
       nearAccountId: string;
       receiverId: string;
       actions: ActionParams[];
       nonce: string;
-      blockHashBytes: number[];
-      // Additional parameters for contract verification
-      contractId: string;
-      vrfChallenge: VRFChallenge;
-      credential: PublicKeyCredential;
-      nearRpcUrl: string;
-    },
+    }>;
+    blockHashBytes: number[];
+    contractId: string;
+    vrfChallenge: VRFChallenge;
+    credential: PublicKeyCredential;
+    nearRpcUrl: string;
     onEvent?: (update: onProgressEvents) => void
-  ): Promise<{
+  }): Promise<Array<{
     signedTransaction: SignedTransaction;
     nearAccountId: string;
     logs?: string[]
-  }> {
+  }>> {
     try {
-      console.info('WebAuthnManager: Starting enhanced transaction signing with verification');
+      console.info(`WebAuthnManager: Starting batch transaction signing for ${transactions.length} transactions`);
 
-      payload.actions.forEach((action, index) => {
-        try {
-          validateActionParams(action);
-        } catch (error) {
-          throw new Error(`Action ${index} validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-      });
-
-      // Retrieve encrypted key data from IndexedDB in main thread
-      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
-      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
-      if (!encryptedKeyData) {
-        throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
+      if (transactions.length === 0) {
+        throw new Error('No transactions provided for batch signing');
       }
 
-      // Extract PRF output from credential
-      const dualPrfOutputs = extractDualPrfOutputs(payload.credential);
-
-      const response = await this.executeWorkerOperation<typeof WorkerRequestType.SignTransactionWithActions>({
-        message: {
-          type: WorkerRequestType.SignTransactionWithActions,
-          payload: {
-            nearAccountId: payload.nearAccountId,
-            receiverId: payload.receiverId,
-            actions: JSON.stringify(payload.actions), // Convert actions array to JSON string
-            nonce: payload.nonce,
-            blockHashBytes: payload.blockHashBytes,
-            // Contract verification parameters
-            contractId: payload.contractId,
-            vrfChallenge: payload.vrfChallenge,
-            // Serialize credential right before sending - minimal exposure time
-            credential: serializeCredentialWithPRF(payload.credential),
-            nearRpcUrl: payload.nearRpcUrl,
-            // Pass encrypted key data from IndexedDB
-            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
-            encryptedPrivateKeyIv: encryptedKeyData.iv,
-            prfOutput: dualPrfOutputs.aesPrfOutput
+      // Validate all actions in all payloads
+      transactions.forEach((txPayload, txIndex) => {
+        txPayload.actions.forEach((action, actionIndex) => {
+          try {
+            validateActionParams(action);
+          } catch (error) {
+            throw new Error(`Transaction ${txIndex}, Action ${actionIndex} validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
-        },
-        onEvent, // onEvent callback for wasm-worker events
-        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
+        });
       });
 
-      if (!isSignatureSuccess(response)) {
-        console.error('WebAuthnManager: Enhanced transaction signing failed:', response);
-        throw new Error('Enhanced transaction signing failed');
+      // All transactions should use the same account for signing
+      const nearAccountId = transactions[0].nearAccountId;
+
+      // Verify all payloads use the same account
+      for (const tx of transactions) {
+        if (tx.nearAccountId !== nearAccountId) {
+          throw new Error('All transactions must be signed by the same account');
+        }
+      }
+
+      // Retrieve encrypted key data from IndexedDB in main thread
+      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${nearAccountId}`);
+      }
+
+      // Extract dual PRF outputs from credential
+      const dualPrfOutputs = extractDualPrfOutputs(credential);
+
+      if (!dualPrfOutputs.aesPrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
+        throw new Error('Failed to extract PRF outputs from credential');
+      }
+
+      console.debug('WebAuthnManager: Sending batch transaction signing request to worker');
+
+      // Create transaction signing requests
+      const txSigningRequests = transactions.map(tx => ({
+        nearAccountId: tx.nearAccountId,
+        receiverId: tx.receiverId,
+        actions: JSON.stringify(tx.actions),
+        nonce: tx.nonce,
+        blockHashBytes: blockHashBytes
+      }));
+
+      // Send batch signing request to WASM worker
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.SignTransactionsWithActions,
+          payload: {
+            verification: {
+              contractId: contractId,
+              nearRpcUrl: nearRpcUrl,
+              vrfChallenge: vrfChallenge,
+              credential: serializeCredentialWithPRF(credential)
+            },
+            decryption: {
+              aesPrfOutput: dualPrfOutputs.aesPrfOutput,
+              encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+              encryptedPrivateKeyIv: encryptedKeyData.iv
+            },
+            txSigningRequests: txSigningRequests
+          }
+        },
+        onEvent
+      });
+
+      if (response.type !== WorkerResponseType.SignatureSuccess) {
+        console.error('WebAuthnManager: Batch transaction signing failed:', response);
+        throw new Error('Batch transaction signing failed');
       }
 
       const wasmResult = response.payload as WasmTransactionSignResult;
 
-      // Check if the operation succeeded (contract verification + signing)
+      // Check if the batch operation succeeded
       if (!wasmResult.success) {
-        const errorMsg = wasmResult.error || 'Transaction signing failed';
-        console.error('WebAuthnManager: Transaction operation failed:', {
+        const errorMsg = wasmResult.error || 'Batch transaction signing failed';
+        console.error('WebAuthnManager: Batch transaction operation failed:', {
           success: wasmResult.success,
           error: wasmResult.error,
           logs: wasmResult.logs
@@ -665,128 +688,35 @@ export class SignerWorkerManager {
         throw new Error(errorMsg);
       }
 
-      console.debug('WebAuthnManager: Enhanced transaction signing successful with verification logs');
+      // Extract arrays from the single result - wasmResult contains arrays of all transactions
+      const signedTransactions = wasmResult.signedTransactions || [];
 
-      if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
-        throw new Error('Incomplete signed transaction data received from worker');
+      if (signedTransactions.length !== transactions.length) {
+        throw new Error(`Expected ${transactions.length} signed transactions but received ${signedTransactions.length}`);
       }
 
-      return {
-        signedTransaction: new SignedTransaction({
-          transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
-          signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
-          borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
-        }),
-        nearAccountId: payload.nearAccountId
-      };
-    } catch (error: any) {
-      console.error('WebAuthnManager: Enhanced transaction signing error:', error);
-      throw error;
-    }
-  }
+      // Process results for each transaction
+      const results = signedTransactions.map((signedTx, index) => {
+        if (!signedTx || !signedTx.transactionJson || !signedTx.signatureJson) {
+          throw new Error(`Incomplete signed transaction data received for transaction ${index + 1}`);
+        }
 
-  /**
-   * Enhanced Transfer transaction signing with contract verification and progress updates
-   * Uses the new verify+sign WASM function for secure, efficient transaction processing
-   */
-  async signTransferTransaction(
-    payload: {
-      nearAccountId: string;
-      receiverId: string;
-      depositAmount: string;
-      nonce: string;
-      blockHashBytes: number[];
-      // Additional parameters for contract verification
-      contractId: string;
-      vrfChallenge: VRFChallenge;
-      credential: PublicKeyCredential;
-      nearRpcUrl: string;
-    },
-    onEvent?: (update: onProgressEvents) => void
-  ): Promise<{
-    signedTransaction: SignedTransaction;
-    nearAccountId: string;
-    logs?: string[]
-  }> {
-    try {
-      console.info('WebAuthnManager: Starting enhanced transfer transaction signing with verification');
-
-      const transferAction: ActionParams = {
-        actionType: ActionType.Transfer,
-        deposit: payload.depositAmount
-      };
-      validateActionParams(transferAction);
-
-      // Retrieve encrypted key data from IndexedDB in main thread
-      console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', payload.nearAccountId);
-      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.nearAccountId);
-      if (!encryptedKeyData) {
-        throw new Error(`No encrypted key found for account: ${payload.nearAccountId}`);
-      }
-
-      // Extract PRF output from credential
-      const dualPrfOutputs = extractDualPrfOutputs(payload.credential);
-
-      const response = await this.executeWorkerOperation({
-        message: {
-          type: WorkerRequestType.SignTransferTransaction,
-          payload: {
-            nearAccountId: payload.nearAccountId,
-            receiverId: payload.receiverId,
-            depositAmount: payload.depositAmount,
-            nonce: payload.nonce,
-            blockHashBytes: payload.blockHashBytes,
-            // Contract verification parameters
-            contractId: payload.contractId,
-            vrfChallenge: payload.vrfChallenge,
-            // Serialize credential right before sending - minimal exposure time
-            credential: serializeCredentialWithPRF(payload.credential),
-            nearRpcUrl: payload.nearRpcUrl,
-            // Pass encrypted key data from IndexedDB
-            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
-            encryptedPrivateKeyIv: encryptedKeyData.iv,
-            prfOutput: dualPrfOutputs.aesPrfOutput
-          }
-        },
-        onEvent, // onEvent callback for wasm-worker events
-        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
+        return {
+          signedTransaction: new SignedTransaction({
+            transaction: jsonTryParse(signedTx.transactionJson),
+            signature: jsonTryParse(signedTx.signatureJson),
+            borsh_bytes: Array.from(signedTx.borshBytes || [])
+          }),
+          nearAccountId: transactions[index].nearAccountId,
+          logs: wasmResult.logs
+        };
       });
 
-      if (!isTransferSuccess(response)) {
-        console.error('WebAuthnManager: Enhanced transfer transaction signing failed:', response);
-        throw new Error('Enhanced transfer transaction signing failed');
-      }
+      console.debug(`WebAuthnManager: Batch transaction signing successful for ${results.length} transactions`);
+      return results;
 
-      const wasmResult = response.payload;
-
-      // Check if the operation succeeded (contract verification + signing)
-      if (!wasmResult.success) {
-        const errorMsg = wasmResult.error || 'Transfer transaction signing failed';
-        console.error('WebAuthnManager: Transfer transaction operation failed:', {
-          success: wasmResult.success,
-          error: wasmResult.error,
-          logs: wasmResult.logs
-        });
-        throw new Error(errorMsg);
-      }
-
-      console.debug('WebAuthnManager: Enhanced transfer transaction signing successful with verification logs');
-
-      if (!wasmResult.signedTransaction || !wasmResult.signedTransaction.transactionJson || !wasmResult.signedTransaction.signatureJson) {
-        throw new Error('Incomplete signed transaction data received from worker');
-      }
-
-      return {
-        signedTransaction: new SignedTransaction({
-          transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
-          signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
-          borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
-        }),
-        nearAccountId: payload.nearAccountId,
-        logs: wasmResult.logs || []
-      };
     } catch (error: any) {
-      console.error('WebAuthnManager: Enhanced transfer transaction signing error:', error);
+      console.error('WebAuthnManager: Batch transaction signing error:', error);
       throw error;
     }
   }
@@ -817,48 +747,6 @@ export class SignerWorkerManager {
           !serializedCredential.clientExtensionResults?.prf?.results?.second) {
         throw new Error('Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available');
       }
-
-      // *** COMPREHENSIVE RECOVERY PRF OUTPUT LOGGING ***
-      console.debug('=== RECOVERY KEYPAIR PRF ANALYSIS ===');
-      console.debug('Account ID hint:', accountIdHint);
-      console.debug('AES PRF output (for NEAR keypair recovery):');
-      console.debug('  - Length:', serializedCredential.clientExtensionResults.prf.results.first.length);
-      console.debug('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.first);
-      console.debug('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(0, 20));
-      console.debug('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.first.substring(serializedCredential.clientExtensionResults.prf.results.first.length - 20));
-
-      console.debug('Ed25519 PRF output (for NEAR keypair recovery):');
-      console.debug('  - Length:', serializedCredential.clientExtensionResults.prf.results.second.length);
-      console.debug('  - Full base64url:', serializedCredential.clientExtensionResults.prf.results.second);
-      console.debug('  - First 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(0, 20));
-      console.debug('  - Last 20 chars:', serializedCredential.clientExtensionResults.prf.results.second.substring(serializedCredential.clientExtensionResults.prf.results.second.length - 20));
-
-      // Convert to bytes for detailed analysis
-      try {
-        const aesBytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.first);
-        const ed25519Bytes = base64UrlDecode(serializedCredential.clientExtensionResults.prf.results.second);
-
-        console.debug('AES PRF bytes (for NEAR keypair recovery):');
-        console.debug('  - Byte length:', aesBytes.byteLength);
-        console.debug('  - First 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(0, 10))));
-        console.debug('  - Last 10 bytes:', Array.from(new Uint8Array(aesBytes.slice(-10))));
-
-        console.debug('Ed25519 PRF bytes (for NEAR keypair recovery):');
-        console.debug('  - Byte length:', ed25519Bytes.byteLength);
-        console.debug('  - First 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(0, 10))));
-        console.debug('  - Last 10 bytes:', Array.from(new Uint8Array(ed25519Bytes.slice(-10))));
-      } catch (decodeError) {
-        console.error('Failed to decode recovery PRF outputs for byte analysis:', decodeError);
-      }
-
-      console.debug('PRF Salt Analysis (recovery context):');
-      if (accountIdHint) {
-        console.debug('  - AES salt would be: aes-gcm-salt:' + accountIdHint);
-        console.debug('  - Ed25519 salt would be: ed25519-salt:' + accountIdHint);
-      } else {
-        console.debug('  - No account ID hint - salt will be derived from credential analysis');
-      }
-      console.debug('=== END RECOVERY KEYPAIR PRF ANALYSIS ===');
 
       // Use generic executeWorkerOperation with specific request type for better type safety
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.RecoverKeypairFromPasskey>({

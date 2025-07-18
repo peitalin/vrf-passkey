@@ -9,21 +9,27 @@ import type { ActionArgs } from '../types/actions';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
-import { DEFAULT_WAIT_STATUS } from '../types/rpc';
-
+import type { WebAuthnManager } from '../WebAuthnManager';
+import type { NearClient } from '../NearClient';
+import type { ClientUserData } from '../types';
 
 /**
  * Core action execution function without React dependencies
  * Handles blockchain transactions with PRF-based signing
+ * Supports both single actions and batched transactions
  */
 export async function executeAction(
   context: PasskeyManagerContext,
   nearAccountId: string,
-  actionArgs: ActionArgs,
+  actionArgs: ActionArgs | ActionArgs[],
   options?: ActionOptions,
 ): Promise<ActionResult> {
 
   const { onEvent, onError, hooks, waitUntil } = options || {};
+
+  // Normalize to array for consistent processing
+  const actions = Array.isArray(actionArgs) ? actionArgs : [actionArgs];
+  const isMultipleActions = actions.length > 1;
 
   // Run beforeCall hook
   await hooks?.beforeCall?.();
@@ -34,15 +40,17 @@ export async function executeAction(
     phase: 'preparation',
     status: 'progress',
     timestamp: Date.now(),
-    message: `Starting ${actionArgs.type} action to ${actionArgs.receiverId}`
+    message: isMultipleActions
+      ? `Starting batched transaction with ${actions.length} actions`
+      : `Starting ${actions[0].type} action to ${actions[0].receiverId}`
   });
 
   try {
-    // 1. Validation
+    // 1. Validation (use first action for account validation)
     const transactionContext = await validateActionInputs(
       context,
       nearAccountId,
-      actionArgs,
+      actions[0],
       { onEvent, onError, hooks, waitUntil }
     );
 
@@ -51,7 +59,7 @@ export async function executeAction(
       context,
       nearAccountId,
       transactionContext,
-      actionArgs,
+      actions,
       { onEvent, onError, hooks, waitUntil }
     );
 
@@ -82,6 +90,33 @@ export async function executeAction(
 }
 
 // === HELPER FUNCTIONS ===
+
+export async function getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId }: {
+  nearClient: NearClient,
+  nearPublicKeyStr: string,
+  nearAccountId: string
+}): Promise<TransactionContext> {
+
+  // Get access key and transaction block info concurrently
+  const [accessKeyInfo, txBlockInfo] = await Promise.all([
+    nearClient.viewAccessKey(nearAccountId, nearPublicKeyStr) as Promise<AccessKeyView>,
+    nearClient.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
+  ]);
+  if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
+    throw new Error(`Access key not found or invalid for account ${nearAccountId} with public key ${nearPublicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`);
+  }
+  const nextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(1)).toString();
+  const txBlockHashBytes = Array.from(bs58.decode(txBlockInfo.header.hash));
+  const txBlockHeight = txBlockInfo.header.height;
+
+  return {
+    nearPublicKeyStr,
+    accessKeyInfo,
+    nextNonce,
+    txBlockHashBytes,
+    txBlockHeight,
+  };
+}
 
 /**
  * 1. Validation - Validates inputs and prepares transaction context
@@ -117,34 +152,18 @@ async function validateActionInputs(
     message: 'Validating inputs...'
   });
 
-  // Check if user has PRF support
   const userData = await webAuthnManager.getUser(nearAccountId);
+  // Check if user has PRF support
   const usesPrf = userData?.prfSupported === true;
-  const publicKeyStr = userData?.clientNearPublicKey;
+  const nearPublicKeyStr = userData?.clientNearPublicKey;
+  if (!nearPublicKeyStr) {
+    throw new Error('Client NEAR public key not found in user data');
+  }
   if (!usesPrf) {
     throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
   }
-  if (!publicKeyStr) {
-    throw new Error('Client NEAR public key not found in user data');
-  }
 
-  // Get access key and transaction block info concurrently
-  const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-    nearClient.viewAccessKey(nearAccountId, publicKeyStr) as Promise<AccessKeyView>,
-    nearClient.viewBlock({ finality: 'final' }) as Promise<BlockInfo>
-  ]);
-  const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
-  const blockHashString = transactionBlockInfo.header.hash;
-  const transactionBlockHashBytes = Array.from(bs58.decode(blockHashString));
-
-  return {
-    userData,
-    publicKeyStr,
-    accessKeyInfo,
-    transactionBlockInfo,
-    nonce,
-    transactionBlockHashBytes
-  };
+  return getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId });
 }
 
 /**
@@ -155,7 +174,7 @@ async function verifyVrfAuthAndSignTransaction(
   context: PasskeyManagerContext,
   nearAccountId: string,
   transactionContext: TransactionContext,
-  actionArgs: ActionArgs,
+  actionArgs: ActionArgs[],
   options?: ActionOptions,
 ): Promise<VerifyAndSignTransactionResult> {
 
@@ -182,8 +201,8 @@ async function verifyVrfAuthAndSignTransaction(
   const vrfInputData = {
     userId: nearAccountId,
     rpId: window.location.hostname,
-    blockHeight: transactionContext.transactionBlockInfo.header.height,
-    blockHashBytes: transactionContext.transactionBlockHashBytes,
+    blockHeight: transactionContext.txBlockHeight,
+    blockHashBytes: transactionContext.txBlockHashBytes,
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
@@ -197,47 +216,102 @@ async function verifyVrfAuthAndSignTransaction(
     message: 'Authenticating with VRF challenge...'
   });
 
-  // Handle different action types
-  let signingResult: VerifyAndSignTransactionResult;
+  // Convert all actions to ActionParams format for batched transaction
+  const actionParams: ActionParams[] = actionArgs.map(action => {
+    switch (action.type) {
+      case ActionType.Transfer:
+        return {
+          actionType: ActionType.Transfer,
+          deposit: action.amount
+        };
 
-  if (actionArgs.type === ActionType.Transfer) {
-    signingResult = await webAuthnManager.signTransferTransaction({
-      nearAccountId: nearAccountId,
-      receiverId: actionArgs.receiverId,
-      depositAmount: actionArgs.amount,
-      nonce: transactionContext.nonce.toString(),
-      blockHashBytes: transactionContext.transactionBlockHashBytes,
-      // Webauthn verification parameters
-      contractId: webAuthnManager.configs.contractId,
-      vrfChallenge: vrfChallenge,
-    });
-
-  } else if (actionArgs.type === ActionType.FunctionCall) {
-    // Use the modern action-based WASM worker transaction signing for function calls
-    signingResult = await webAuthnManager.signTransactionWithActions({
-      nearAccountId: nearAccountId,
-      receiverId: actionArgs.receiverId,
-      actions: [
-        {
+      case ActionType.FunctionCall:
+        return {
           actionType: ActionType.FunctionCall,
-          method_name: actionArgs.methodName,
-          args: JSON.stringify(actionArgs.args), // Convert object to JSON string for worker
-          gas: actionArgs.gas || DEFAULT_GAS_STRING,
-          deposit: actionArgs.deposit || "0"
-        }
-      ] as ActionParams[],
-      nonce: transactionContext.nonce.toString(),
-      blockHashBytes: transactionContext.transactionBlockHashBytes,
-      // Webauthn verification parameters
-      contractId: webAuthnManager.configs.contractId,
-      vrfChallenge: vrfChallenge,
-    });
+          method_name: action.methodName,
+          args: JSON.stringify(action.args),
+          gas: action.gas || DEFAULT_GAS_STRING,
+          deposit: action.deposit || "0"
+        };
 
-  } else {
-    throw new Error(`Action type ${actionArgs.type} is not yet supported`);
-  }
+      case ActionType.AddKey:
+        // Ensure access key has proper format with nonce and permission object
+        const accessKey = {
+          nonce: action.accessKey.nonce || 0,
+          permission: action.accessKey.permission === 'FullAccess'
+            ? { FullAccess: {} }
+            : action.accessKey.permission // For FunctionCall permissions, pass as-is
+        };
+        return {
+          actionType: ActionType.AddKey,
+          public_key: action.publicKey,
+          access_key: JSON.stringify(accessKey)
+        };
 
-  return signingResult;
+      case ActionType.DeleteKey:
+        return {
+          actionType: ActionType.DeleteKey,
+          public_key: action.publicKey
+        };
+
+      case ActionType.CreateAccount:
+        return {
+          actionType: ActionType.CreateAccount
+        };
+
+      case ActionType.DeleteAccount:
+        return {
+          actionType: ActionType.DeleteAccount,
+          beneficiary_id: action.beneficiaryId
+        };
+
+      case ActionType.DeployContract:
+        return {
+          actionType: ActionType.DeployContract,
+          code: typeof action.code === 'string' ? Array.from(new TextEncoder().encode(action.code)) : Array.from(action.code)
+        };
+
+      case ActionType.Stake:
+        return {
+          actionType: ActionType.Stake,
+          stake: action.stake,
+          public_key: action.publicKey
+        };
+
+      default:
+        throw new Error(`Action type ${(action as any).type} is not supported`);
+    }
+  });
+
+  // Determine receiver ID (use first action's receiver, or account if mixed)
+  const receiverId = actionArgs.length === 1 ? actionArgs[0].receiverId : nearAccountId;
+
+  // Get credential for signing
+  const authenticators = await webAuthnManager.getAuthenticatorsByUser(nearAccountId);
+  const credential = await webAuthnManager.touchIdPrompt.getCredentials({
+    nearAccountId,
+    challenge: vrfChallenge.outputAs32Bytes(),
+    authenticators,
+  });
+
+  // Use the unified action-based WASM worker transaction signing
+  const signingResults = await webAuthnManager.signTransactionsWithActions({
+    transactions: [{
+      nearAccountId: nearAccountId,
+      receiverId: receiverId,
+      actions: actionParams,
+      nonce: transactionContext.nextNonce,
+    }],
+    // Common parameters
+    blockHashBytes: transactionContext.txBlockHashBytes,
+    contractId: webAuthnManager.configs.contractId,
+    vrfChallenge: vrfChallenge,
+    credential: credential,
+    nearRpcUrl: webAuthnManager.configs.nearRpcUrl
+  });
+
+  // Return the first (and only) result
+  return signingResults[0];
 }
 
 /**

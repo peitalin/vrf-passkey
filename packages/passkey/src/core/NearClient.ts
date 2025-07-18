@@ -109,102 +109,28 @@ export class MinimalNearClient implements NearClient {
   }
 
   /**
-   * Retry with exponential backoff
+   * Make a single RPC call
    */
-  private async retryWithBackoff<T>(
-    attempts: Array<() => Promise<T>>,
-    operationName: string,
-    baseDelay: number = 2000
+  private async makeDirectRpcCall<T>(
+    method: string,
+    params: any,
+    operationName: string
   ): Promise<T> {
-    let lastError: Error | null = null;
+    const request = {
+      jsonrpc: '2.0',
+      id: crypto.randomUUID(),
+      method,
+      params
+    };
 
-    for (let i = 0; i < attempts.length; i++) {
-      try {
-        const result = await attempts[i]();
-        return result;
-      } catch (error: any) {
-        console.debug(`${operationName} - Attempt ${i + 1} failed: ${error.message}`);
-        lastError = error;
+    const result = await this.makeRpcCall(this.rpcUrl, request);
 
-        if (i < attempts.length - 1) {
-          const delay = baseDelay;
-          console.debug(`Waiting ${delay}ms before next attempt...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+    // Check for query-specific errors in result.result
+    if (result.result?.error) {
+      throw new Error(`${operationName} Error: ${result.result.error}`);
     }
 
-    throw lastError || new Error(`All attempts failed for ${operationName}`);
-  }
-
-  /**
-   * Generic RPC retry with multiple endpoints and finality options
-   */
-  private async retryRpcCall<T>(
-    method: string,
-    getParams: (finality: string) => any,
-    operationName: string
-  ): Promise<T> {
-    const rpcConfigs = [
-      { url: this.rpcUrl, finality: 'final' },
-      { url: this.rpcUrl, finality: 'optimistic' },
-      { url: 'https://rpc.testnet.near.org', finality: 'final' },
-      { url: 'https://rpc.testnet.near.org', finality: 'optimistic' },
-    ];
-
-    const attempts = rpcConfigs.map(({ url, finality }) => async () => {
-      const params = getParams(finality);
-      const request = {
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method,
-        params
-      };
-      const result = await this.makeRpcCall(url, request);
-
-      // Check for query-specific errors in result.result
-      if (result.result?.error) {
-        throw new Error(`${operationName} Error: ${result.result.error}`);
-      }
-
-      return result.result;
-    });
-
-    return this.retryWithBackoff(attempts, operationName);
-  }
-
-  /**
-   * Transaction retry (different endpoints only, no finality variations)
-   */
-  private async retrySendTransaction(
-    signedTxBase64: string,
-    waitUntil: TxExecutionStatus,
-    operationName: string
-  ): Promise<FinalExecutionOutcome> {
-    const endpoints = [
-      this.rpcUrl,
-      'https://rpc.testnet.near.org',
-    ];
-
-    const attempts = endpoints.map(url => async () => {
-      const params = { signed_tx_base64: signedTxBase64, wait_until: waitUntil };
-      const request = {
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'send_tx',
-        params
-      };
-      const result = await this.makeRpcCall(url, request);
-
-      if (result.error) {
-        const errorMessage = result.error.data?.message || result.error.message || 'Transaction failed';
-        throw new Error(`Transaction Error: ${errorMessage}`);
-      }
-
-      return result.result;
-    });
-
-    return this.retryWithBackoff(attempts, operationName, 1000);
+    return result.result;
   }
 
   // ===========================
@@ -218,78 +144,83 @@ export class MinimalNearClient implements NearClient {
       ? { request_type: pathOrParams, ...JSON.parse(data!) }
       : pathOrParams;
 
-    return this.retryRpcCall<T>('query',
-      (finality) => ({ ...params, finality: params.finality || finality }),
-      'Query'
-    );
+    const finalParams = { ...params, finality: params.finality || 'final' };
+    return this.makeDirectRpcCall<T>('query', finalParams, 'Query');
   }
 
   async viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView> {
     const publicKeyStr = typeof publicKey === 'string' ? publicKey : publicKey.toString();
     const finality = finalityQuery?.finality || 'final';
 
-    return this.retryRpcCall<AccessKeyView>('query',
-      (defaultFinality) => ({
-        request_type: 'view_access_key',
-        finality: finality,
-        account_id: accountId,
-        public_key: publicKeyStr
-      }),
-      'View Access Key'
-    );
+    const params = {
+      request_type: 'view_access_key',
+      finality: finality,
+      account_id: accountId,
+      public_key: publicKeyStr
+    };
+
+    return this.makeDirectRpcCall<AccessKeyView>('query', params, 'View Access Key');
   }
 
   async viewAccessKeyList(accountId: string, finalityQuery?: FinalityReference): Promise<AccessKeyList> {
     const finality = finalityQuery?.finality || 'final';
 
-    return this.retryRpcCall<AccessKeyList>('query',
-      (defaultFinality) => ({
-        request_type: 'view_access_key_list',
-        finality: finality,
-        account_id: accountId
-      }),
-      'View Access Key List'
-    );
+    const params = {
+      request_type: 'view_access_key_list',
+      finality: finality,
+      account_id: accountId
+    };
+
+    return this.makeDirectRpcCall<AccessKeyList>('query', params, 'View Access Key List');
   }
 
   async viewAccount(accountId: string): Promise<any> {
-    return this.retryRpcCall('query',
-      (finality) => ({
-        request_type: 'view_account',
-        finality,
-        account_id: accountId
-      }),
-      'View Account'
-    );
+    const params = {
+      request_type: 'view_account',
+      finality: 'final',
+      account_id: accountId
+    };
+
+    return this.makeDirectRpcCall('query', params, 'View Account');
   }
 
   async viewBlock(params: BlockReference): Promise<BlockResult> {
-    return this.retryRpcCall<BlockResult>('block',
-      () => params,
-      'View Block'
-    );
+    return this.makeDirectRpcCall<BlockResult>('block', params, 'View Block');
   }
 
   async sendTransaction(
     signedTransaction: SignedTransaction,
     waitUntil: TxExecutionStatus = DEFAULT_WAIT_STATUS.executeAction
   ): Promise<FinalExecutionOutcome> {
-    const signedTxBase64 = signedTransaction.base64Encode();
-    return this.retrySendTransaction(signedTxBase64, waitUntil, 'Send Transaction');
+
+    const result = await this.makeRpcCall(this.rpcUrl, {
+      jsonrpc: '2.0',
+      id: crypto.randomUUID(),
+      method: 'send_tx',
+      params: {
+        signed_tx_base64: signedTransaction.base64Encode(),
+        wait_until: waitUntil
+      }
+    });
+
+    if (result.error) {
+      const errorMessage = result.error.data?.message || result.error.message || 'Transaction failed';
+      throw new Error(`Transaction Error: ${errorMessage}`);
+    }
+
+    return result.result;
   }
 
   async view(params: { account: string; method: string; args: any }): Promise<any> {
-    const result = await this.retryRpcCall<{ result: number[] }>('query',
-      (finality) => ({
-        request_type: 'call_function',
-        finality,
-        account_id: params.account,
-        method_name: params.method,
-        // args_base64: Buffer.from(JSON.stringify(params.args)).toString('base64')
-        args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(params.args)))
-      }),
-      'View Function'
-    );
+    const rpcParams = {
+      request_type: 'call_function',
+      finality: 'final',
+      account_id: params.account,
+      method_name: params.method,
+      args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(params.args)))
+    };
+
+    const result = await this.makeDirectRpcCall<{ result: number[] }>('query', rpcParams, 'View Function');
 
     // Parse result bytes to string/JSON
     const resultBytes = result.result;

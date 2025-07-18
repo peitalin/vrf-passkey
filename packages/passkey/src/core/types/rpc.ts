@@ -18,12 +18,11 @@ export interface NearRpcCallParams {
 }
 
 export interface TransactionContext {
-  userData: ClientUserData;
-  publicKeyStr: string;
+  nearPublicKeyStr: string;
   accessKeyInfo: AccessKeyView;
-  transactionBlockInfo: BlockInfo;
-  nonce: bigint;
-  transactionBlockHashBytes: number[];
+  nextNonce: string;
+  txBlockHashBytes: number[];
+  txBlockHeight: number;
 }
 
 export interface BlockInfo {

@@ -87,7 +87,7 @@ pub fn send_progress_message(message_type: &str, step: &str, message: &str, data
 
     // Post message to main thread (only works in WASM context)
     if let Ok(response_json) = serde_json::to_string(&response) {
-        #[wasm_bindgen]
+#[wasm_bindgen]
         extern "C" {
             #[wasm_bindgen(js_namespace = ["self"], js_name = postMessage)]
             fn post_message_to_main_thread(data: &str);

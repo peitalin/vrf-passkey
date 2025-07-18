@@ -178,10 +178,7 @@ export interface RequestResponseMap {
   [WorkerRequestType.CheckCanRegisterUser]: WasmRegistrationCheckResult;
   [WorkerRequestType.SignVerifyAndRegisterUser]: WasmRegistrationResult;
   [WorkerRequestType.DecryptPrivateKeyWithPrf]: WasmDecryptPrivateKeyResult;
-  [WorkerRequestType.SignTransactionWithActions]: WasmTransactionSignResult;
-  [WorkerRequestType.SignTransferTransaction]: WasmTransactionSignResult;
-  [WorkerRequestType.AddKeyWithPrf]: WasmTransactionSignResult;
-  [WorkerRequestType.DeleteKeyWithPrf]: WasmTransactionSignResult;
+  [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
 }
 
@@ -231,8 +228,7 @@ export type EncryptionResponse = WorkerResponseForRequest<typeof WorkerRequestTy
 export type RecoveryResponse = WorkerResponseForRequest<typeof WorkerRequestType.RecoverKeypairFromPasskey>;
 export type CheckRegistrationResponse = WorkerResponseForRequest<typeof WorkerRequestType.CheckCanRegisterUser>;
 export type RegistrationResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignVerifyAndRegisterUser>;
-export type TransactionResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignTransactionWithActions>;
-export type TransferResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignTransferTransaction>;
+export type TransactionResponse = WorkerResponseForRequest<typeof WorkerRequestType.SignTransactionsWithActions>;
 export type DecryptionResponse = WorkerResponseForRequest<typeof WorkerRequestType.DecryptPrivateKeyWithPrf>;
 export type CoseExtractionResponse = WorkerResponseForRequest<typeof WorkerRequestType.ExtractCosePublicKey>;
 
@@ -303,11 +299,7 @@ export function isRegistrationSuccess(response: RegistrationResponse): response 
   return response.type === WorkerResponseType.RegistrationSuccess;
 }
 
-export function isSignatureSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionWithActions> {
-  return response.type === WorkerResponseType.SignatureSuccess;
-}
-
-export function isTransferSuccess(response: TransferResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransferTransaction> {
+export function isSignatureSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
   return response.type === WorkerResponseType.SignatureSuccess;
 }
 
@@ -490,6 +482,9 @@ function extractDualPrfFromCredential(credential: PublicKeyCredential): {
 } {
   const extensionResults = credential.getClientExtensionResults();
   const prfResults = extensionResults?.prf?.results;
+  if (!prfResults) {
+    throw new Error('Missing PRF results from credential, use a PRF-enabled Authenticator');
+  }
   return {
     first: prfResults?.first ? base64UrlEncode(prfResults.first as ArrayBuffer) : undefined,
     second: prfResults?.second ? base64UrlEncode(prfResults.second as ArrayBuffer) : undefined
