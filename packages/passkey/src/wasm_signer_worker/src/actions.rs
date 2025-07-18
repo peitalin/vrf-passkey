@@ -36,7 +36,7 @@ pub enum ActionParams {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ActionType {
     CreateAccount,
     DeployContract,

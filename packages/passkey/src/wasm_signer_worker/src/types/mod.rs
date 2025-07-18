@@ -2,7 +2,7 @@
 
 pub mod near;
 pub mod webauthn;
-pub mod worker;
+pub mod worker_messages;
 pub mod requests;
 pub mod crypto;
 
@@ -10,5 +10,5 @@ pub mod crypto;
 pub use near::*;
 pub use webauthn::*;
 pub use crypto::*;
-pub use worker::*;
+pub use worker_messages::*;
 pub use requests::*;

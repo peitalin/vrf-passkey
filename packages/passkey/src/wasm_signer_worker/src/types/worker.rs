@@ -2,8 +2,12 @@
 // Enums and message structures for worker communication
 
 use serde::{Serialize, Deserialize};
+use serde::de::DeserializeOwned;
+use crate::error::ParsePayloadError;
+use wasm_bindgen::prelude::*;
 
 /// Worker request types enum - corresponds to TypeScript WorkerRequestType
+#[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerRequestType {
     DeriveNearKeypairAndEncrypt,
@@ -11,14 +15,26 @@ pub enum WorkerRequestType {
     CheckCanRegisterUser,
     SignVerifyAndRegisterUser,
     DecryptPrivateKeyWithPrf,
-    SignTransactionWithActions,
-    SignTransferTransaction,
-    AddKeyWithPrf,
-    DeleteKeyWithPrf,
+    SignTransactionsWithActions,
     ExtractCosePublicKey,
 }
 
+impl WorkerRequestType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            WorkerRequestType::DeriveNearKeypairAndEncrypt => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT",
+            WorkerRequestType::RecoverKeypairFromPasskey => "RECOVER_KEYPAIR_FROM_PASSKEY",
+            WorkerRequestType::CheckCanRegisterUser => "CHECK_CAN_REGISTER_USER",
+            WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
+            WorkerRequestType::DecryptPrivateKeyWithPrf => "DECRYPT_PRIVATE_KEY_WITH_PRF",
+            WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
+            WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
+        }
+    }
+}
+
 /// Worker response types enum - corresponds to TypeScript WorkerResponseType
+#[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerResponseType {
     EncryptionSuccess,
@@ -50,11 +66,8 @@ impl From<u32> for WorkerRequestType {
             2 => WorkerRequestType::CheckCanRegisterUser,
             3 => WorkerRequestType::SignVerifyAndRegisterUser,
             4 => WorkerRequestType::DecryptPrivateKeyWithPrf,
-            5 => WorkerRequestType::SignTransactionWithActions,
-            6 => WorkerRequestType::SignTransferTransaction,
-            7 => WorkerRequestType::AddKeyWithPrf,
-            8 => WorkerRequestType::DeleteKeyWithPrf,
-            9 => WorkerRequestType::ExtractCosePublicKey,
+            5 => WorkerRequestType::SignTransactionsWithActions,
+            6 => WorkerRequestType::ExtractCosePublicKey,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -92,6 +105,13 @@ pub struct SignerWorkerMessage {
     #[serde(rename = "type")]
     pub msg_type: u32,
     pub payload: serde_json::Value,
+}
+
+impl SignerWorkerMessage {
+    pub fn parse_payload_for_request<T: DeserializeOwned>(&self, request_type: WorkerRequestType) -> Result<T, ParsePayloadError> {
+        serde_json::from_value(self.payload.clone())
+            .map_err(|e| ParsePayloadError::new(request_type.name(), e))
+    }
 }
 
 /// Main worker response structure

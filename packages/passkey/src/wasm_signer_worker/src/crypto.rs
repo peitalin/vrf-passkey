@@ -211,12 +211,6 @@ pub fn decrypt_private_key_with_prf(
     let aes_key = derive_aes_gcm_key_from_prf(aes_prf_output, near_account_id)
         .map_err(|e| format!("Account-specific key derivation failed: {}", e))?;
 
-    let encrypted_data_bytes = base64_url_decode(encrypted_private_key_data)
-        .map_err(|e| format!("Failed to decode encrypted private key data: {}", e))?;
-
-    let iv_nonce_bytes = base64_url_decode(encrypted_private_key_iv)
-        .map_err(|e| format!("Failed to decode IV: {}", e))?;
-
     // 2. Decrypt private key using AES-GCM
     let decrypted_private_key_str = decrypt_data_aes_gcm(
         encrypted_private_key_data,

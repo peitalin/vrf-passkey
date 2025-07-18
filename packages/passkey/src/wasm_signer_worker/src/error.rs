@@ -1,7 +1,51 @@
 use wasm_bindgen::JsValue;
 use std::fmt;
+use serde::Serialize;
 
-//// Not Used at the moment
+// Trait for converting response types to JSON
+pub trait ToJson {
+    fn to_json(&self) -> Result<serde_json::Value, String>;
+}
+
+impl<T: Serialize> ToJson for T {
+    fn to_json(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(self).map_err(|e| format!("Failed to serialize to JSON: {}", e))
+    }
+}
+
+// Parse payload error with message name context
+#[derive(Debug)]
+pub struct ParsePayloadError {
+    pub message_name: String,
+    pub serde_error: serde_json::Error,
+}
+
+impl ParsePayloadError {
+    pub fn new(message_name: &str, serde_error: serde_json::Error) -> Self {
+        Self {
+            message_name: message_name.to_string(),
+            serde_error,
+        }
+    }
+}
+
+impl fmt::Display for ParsePayloadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Invalid payload for {}: {}", self.message_name, self.serde_error)
+    }
+}
+
+impl From<ParsePayloadError> for String {
+    fn from(err: ParsePayloadError) -> Self {
+        err.to_string()
+    }
+}
+
+impl From<ParsePayloadError> for JsValue {
+    fn from(err: ParsePayloadError) -> Self {
+        JsValue::from_str(&err.to_string())
+    }
+}
 
 // Custom error type for KDF operations
 #[derive(Debug)]
