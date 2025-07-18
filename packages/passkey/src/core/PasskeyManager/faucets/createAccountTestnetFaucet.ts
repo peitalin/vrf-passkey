@@ -160,7 +160,7 @@ export async function createAccountAndRegisterWithTestnetFaucet(
       deterministicVrfPublicKey: deterministicVrfPublicKey,
       signerAccountId: nearAccountId,
       nearAccountId: nearAccountId,
-      publicKeyStr: publicKey,
+      nearPublicKeyStr: publicKey,
       nearClient: nearClient,
       onEvent: (progress) => {
         onEvent?.({

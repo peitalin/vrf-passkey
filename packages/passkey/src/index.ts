@@ -51,7 +51,6 @@ export type {
   CheckRegistrationResponse,
   RegistrationResponse,
   TransactionResponse,
-  TransferResponse,
   DecryptionResponse,
   CoseExtractionResponse,
 } from './core/types/signer-worker';

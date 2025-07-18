@@ -5,7 +5,8 @@ import { ActionType } from '../types/actions';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
 import { getLoginState } from './login';
-import { executeAction } from './actions';
+import { executeAction, getNonceBlockHashAndHeight } from './actions';
+import { base64UrlEncode } from '../../utils/encoders';
 import type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
@@ -14,8 +15,8 @@ import type {
 } from '../types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import QRCode from 'qrcode';
-import { base64UrlEncode } from '../../utils/encoders';
 // jsQR will be dynamically imported when needed
+import { scanQRCodeFromCamera } from '../../utils/qr-scanner';
 
 /**
  * Device linking flow class - manages the complete device linking process
@@ -145,7 +146,6 @@ export class LinkDeviceFlow {
       });
 
       // 1. Scan QR code
-      const { scanQRCodeFromCamera } = await import('../../utils/qr-scanner');
       const qrData = await scanQRCodeFromCamera(options?.cameraId, options?.config);
 
       onEvent?.({
@@ -184,45 +184,145 @@ export class LinkDeviceFlow {
         message: `Adding Device2's key to ${device1AccountId}...`
       });
 
-      // 4. Call contract's add_device_key function instead of direct AddKey
+      // 4. Execute batched transaction: AddKey + Contract notification
       const fundingAmount = options?.fundingAmount || '0.1'; // Default funding amount
 
-      const actionResult = await executeAction(
-        context,
-        device1AccountId, // Use Device1's account ID for signing
-        {
-          type: ActionType.FunctionCall,
-          receiverId: context.webAuthnManager.configs.contractId, // Call the contract
-          methodName: 'add_device_key',
-          args: {
-            device_public_key: qrData.devicePublicKey, // Device2's public key from QR
-            target_account_id: device1AccountId, // Add key to Device1's account
-          },
-          gas: '100000000000000', // 100 TGas
-          deposit: '0' // No deposit needed for device linking
-        },
-        {
-          onEvent: (event) => {
-            // Forward action events as device linking events
-            onEvent?.({
-              step: 4,
-              phase: 'authorization',
-              status: event.status,
-              timestamp: event.timestamp,
-              message: `Device key addition: ${event.message}`
-            });
-          },
-          onError: onError,
-          hooks: options?.hooks
-        }
-      );
-
-      if (!actionResult.success) {
-        throw new Error(actionResult.error || 'Device key addition failed');
+      // Parse the device public key for AddKey action
+      const devicePublicKey = qrData.devicePublicKey;
+      if (!devicePublicKey.startsWith('ed25519:')) {
+        throw new Error('Invalid device public key format');
       }
+
+      // Execute two transactions with one PRF - reuse VRF challenge and credential
+
+      onEvent?.({
+        step: 4,
+        phase: 'authorization',
+        status: 'progress',
+        timestamp: Date.now(),
+        message: `Performing TouchID authentication for device linking...`
+      });
+
+      // Device1 account is already validated above
+
+      const userData = await context.webAuthnManager.getUser(device1AccountId);
+      const nearPublicKeyStr = userData?.clientNearPublicKey;
+      if (!nearPublicKeyStr) {
+        throw new Error('Client NEAR public key not found in user data');
+      }
+      // Generate VRF challenge once for both transactions
+      const {
+        accessKeyInfo,
+        nextNonce,
+        txBlockHeight,
+        txBlockHashBytes
+      } = await getNonceBlockHashAndHeight({
+        nearClient: context.nearClient,
+        nearPublicKeyStr: nearPublicKeyStr,
+        nearAccountId: device1AccountId
+      });
+
+      const nextNextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(2)).toString();
+
+      const vrfInputData = {
+        userId: device1AccountId,
+        rpId: window.location.hostname,
+        blockHeight: txBlockHeight,
+        blockHashBytes: txBlockHashBytes,
+        timestamp: Date.now()
+      };
+
+      const vrfChallenge = await context.webAuthnManager.generateVrfChallenge(vrfInputData);
+
+      // Single TouchID prompt for both transactions
+      const authenticators = await context.webAuthnManager.getAuthenticatorsByUser(device1AccountId);
+      const credential = await context.webAuthnManager.touchIdPrompt.getCredentials({
+        nearAccountId: device1AccountId,
+        challenge: vrfChallenge.outputAs32Bytes(),
+        authenticators,
+      });
+
+      onEvent?.({
+        step: 4,
+        phase: 'authorization',
+        status: 'progress',
+        timestamp: Date.now(),
+        message: `TouchID successful! Signing AddKey transaction...`
+      });
+
+      // Sign both transactions with one PRF authentication
+      const transactionResults = await context.webAuthnManager.signTransactionsWithActions({
+        transactions: [
+          // Transaction 1: AddKey - Add Device2's key to Device1's account
+          {
+            nearAccountId: device1AccountId,
+            receiverId: device1AccountId,
+            actions: [{
+              actionType: ActionType.AddKey,
+              public_key: devicePublicKey,
+              access_key: JSON.stringify({
+                nonce: 0,
+                permission: { FullAccess: {} }
+              })
+            }],
+            nonce: nextNonce,
+          },
+          // Transaction 2: Store mapping in contract
+          {
+            nearAccountId: device1AccountId,
+            receiverId: context.webAuthnManager.configs.contractId,
+            actions: [{
+              actionType: ActionType.FunctionCall,
+              method_name: 'store_device_linking_mapping',
+              args: JSON.stringify({
+                device_public_key: devicePublicKey,
+                target_account_id: device1AccountId,
+              }),
+              gas: '10000000000000', // 10 TGas for simple storage
+              deposit: '0'
+            }],
+            nonce: nextNextNonce,
+          }
+        ],
+        // Common parameters
+        blockHashBytes: txBlockHashBytes,
+        contractId: context.webAuthnManager.configs.contractId,
+        vrfChallenge: vrfChallenge,
+        credential: credential,
+        nearRpcUrl: context.webAuthnManager.configs.nearRpcUrl,
+        onEvent: (progress) => {
+          onEvent?.({
+            step: 4,
+            phase: 'authorization',
+            status: 'progress',
+            timestamp: Date.now(),
+            message: `Contract registration: ${progress.message}`
+          })
+        }
+      });
+
+      if (!transactionResults[0].signedTransaction) {
+        throw new Error('AddKey transaction signing failed');
+      }
+
+      if (!transactionResults[1].signedTransaction) {
+        throw new Error('Contract mapping transaction signing failed');
+      }
+
+      // Broadcast both transactions
+      const addKeyTxResult = await context.nearClient.sendTransaction(transactionResults[0].signedTransaction);
+      const contractTxResult = await context.nearClient.sendTransaction(transactionResults[1].signedTransaction);
 
       onEvent?.({
         step: 5,
+        phase: 'authorization',
+        status: 'progress',
+        timestamp: Date.now(),
+        message: `Both transactions signed and broadcasted successfully!`
+      });
+
+      onEvent?.({
+        step: 6,
         phase: 'registration',
         status: 'success',
         timestamp: Date.now(),
@@ -232,7 +332,7 @@ export class LinkDeviceFlow {
       return {
         success: true,
         devicePublicKey: qrData.devicePublicKey,
-        transactionId: actionResult.transactionId || 'unknown',
+        transactionId: addKeyTxResult?.transaction?.hash || contractTxResult?.transaction?.hash || 'unknown',
         fundingAmount,
         linkedToAccount: device1AccountId // Include which account the key was added to
       };
@@ -277,7 +377,7 @@ export class LinkDeviceFlow {
           this.stopPolling();
         }
       }
-    }, 1000);
+    }, 2000);
   }
 
   private shouldContinuePolling(): boolean {
@@ -313,7 +413,6 @@ export class LinkDeviceFlow {
    */
   private async checkForDeviceKeyAdded(): Promise<boolean> {
     console.log(`LinkDeviceFlow[${this.instanceId}]: Checking for device key addition`);
-    // if (!this.session || Date.now() - this.lastRpcCallTime < 1000) return false;
 
     try {
       this.lastRpcCallTime = Date.now();
@@ -377,7 +476,7 @@ export class LinkDeviceFlow {
         deterministicVrfPublicKey: deterministicVrfResult.vrfPublicKey,
         signerAccountId: this.session.accountId,
         nearAccountId: this.session.accountId,
-        publicKeyStr: this.session.nearPublicKey,
+        nearPublicKeyStr: this.session.nearPublicKey,
         nearClient: this.context.nearClient,
         onEvent: (progress) => {
           this.options?.onEvent?.({
