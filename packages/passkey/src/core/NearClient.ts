@@ -12,6 +12,7 @@ import {
   TxExecutionStatus,
   AccessKeyView,
   AccessKeyList,
+  AccountView,
   BlockResult,
   BlockReference,
   RpcQueryRequest,
@@ -22,6 +23,19 @@ import { PublicKey } from "@near-js/crypto";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
 import { Provider } from "@near-js/providers";
+
+interface ContractResult<T> extends QueryResponseKind {
+  result?: T | string | number | any;
+  logs: string[];
+}
+
+export enum RpcCallType {
+  Query = "query",
+  View = "view",
+  Send = "send_tx",
+  Block = "block",
+  Call = "call_function",
+}
 
 export class SignedTransaction {
     transaction: Transaction;
@@ -60,14 +74,20 @@ export class SignedTransaction {
 export interface NearClient {
   viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView>;
   viewAccessKeyList(accountId: string, finalityQuery?: FinalityReference): Promise<AccessKeyList>;
-  viewAccount(accountId: string): Promise<any>;
+  viewAccount(accountId: string): Promise<AccountView>;
   viewBlock(params: BlockReference): Promise<BlockResult>;
   sendTransaction(
     signedTransaction: SignedTransaction,
     waitUntil?: TxExecutionStatus
   ): Promise<FinalExecutionOutcome>;
-  query<T extends QueryResponseKind>(path: string, data: string): Promise<T>;
-  view(params: { account: string; method: string; args: any }): Promise<any>;
+  query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
+  callFunction<T>(
+    contractId: string,
+    method: string,
+    args: Record<string, unknown>,
+    blockQuery?: BlockReference
+  ): Promise<T>;
+  view<T>(params: { account: string; method: string; args: any }): Promise<T>;
 }
 
 export class MinimalNearClient implements NearClient {
@@ -82,54 +102,63 @@ export class MinimalNearClient implements NearClient {
   // ===========================
 
   /**
-   * Execute single RPC call to specific endpoint
+   * Execute RPC call with proper error handling and result extraction
    */
-  private async makeRpcCall(url: string, requestBody: object): Promise<any> {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const responseText = await response.text();
-    if (!responseText?.trim()) {
-      throw new Error('Empty response from RPC server');
-    }
-
-    const result = JSON.parse(responseText);
-    if (result.error) {
-      throw new Error(`RPC Error: ${result.error.message}`);
-    }
-
-    return result;
-  }
-
-  /**
-   * Make a single RPC call
-   */
-  private async makeDirectRpcCall<T>(
+  private async makeRpcCall<T>(
     method: string,
     params: any,
     operationName: string
   ): Promise<T> {
-    const request = {
+    console.log(`[NearClient.makeRpcCall] Starting ${operationName}`);
+    console.log(`[NearClient.makeRpcCall] Method:`, method);
+    console.log(`[NearClient.makeRpcCall] Params:`, params);
+    console.log(`[NearClient.makeRpcCall] RPC URL:`, this.rpcUrl);
+
+    const body = {
       jsonrpc: '2.0',
       id: crypto.randomUUID(),
       method,
       params
     };
 
-    const result = await this.makeRpcCall(this.rpcUrl, request);
+    console.log(`[NearClient.makeRpcCall] Request body:`, body);
+
+    const response = await fetch(this.rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    console.log(`[NearClient.makeRpcCall] Response status:`, response.status, response.statusText);
+
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const responseText = await response.text();
+    console.log(`[NearClient.makeRpcCall] Response text length:`, responseText?.length || 0);
+    console.log(`[NearClient.makeRpcCall] Response text (first 500 chars):`, responseText?.substring(0, 500));
+
+    if (!responseText?.trim()) {
+      throw new Error('Empty response from RPC server');
+    }
+
+    const result = JSON.parse(responseText);
+    console.log(`[NearClient.makeRpcCall] Parsed result:`, result);
+    console.log(`[NearClient.makeRpcCall] Result keys:`, result ? Object.keys(result) : 'no keys');
+
+    if (result.error) {
+      console.error(`[NearClient.makeRpcCall] RPC Error:`, result.error);
+      throw new Error(`RPC Error: ${result.error.message}`);
+    }
 
     // Check for query-specific errors in result.result
     if (result.result?.error) {
+      console.error(`[NearClient.makeRpcCall] Operation Error:`, result.result.error);
       throw new Error(`${operationName} Error: ${result.result.error}`);
     }
 
+    console.log(`[NearClient.makeRpcCall] Returning result.result:`, result.result);
     return result.result;
   }
 
@@ -137,15 +166,8 @@ export class MinimalNearClient implements NearClient {
   // PUBLIC API METHODS
   // ===========================
 
-  async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
-  async query<T extends QueryResponseKind>(path: string, data: string): Promise<T>;
-  async query<T extends QueryResponseKind>(pathOrParams: string | RpcQueryRequest, data?: string): Promise<T> {
-    const params = typeof pathOrParams === 'string'
-      ? { request_type: pathOrParams, ...JSON.parse(data!) }
-      : pathOrParams;
-
-    const finalParams = { ...params, finality: params.finality || 'final' };
-    return this.makeDirectRpcCall<T>('query', finalParams, 'Query');
+  async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T> {
+    return this.makeRpcCall<T>(RpcCallType.Query, params, 'Query');
   }
 
   async viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView> {
@@ -159,7 +181,7 @@ export class MinimalNearClient implements NearClient {
       public_key: publicKeyStr
     };
 
-    return this.makeDirectRpcCall<AccessKeyView>('query', params, 'View Access Key');
+    return this.makeRpcCall<AccessKeyView>(RpcCallType.Query, params, 'View Access Key');
   }
 
   async viewAccessKeyList(accountId: string, finalityQuery?: FinalityReference): Promise<AccessKeyList> {
@@ -171,21 +193,21 @@ export class MinimalNearClient implements NearClient {
       account_id: accountId
     };
 
-    return this.makeDirectRpcCall<AccessKeyList>('query', params, 'View Access Key List');
+    return this.makeRpcCall<AccessKeyList>(RpcCallType.Query, params, 'View Access Key List');
   }
 
-  async viewAccount(accountId: string): Promise<any> {
+  async viewAccount(accountId: string): Promise<AccountView> {
     const params = {
       request_type: 'view_account',
       finality: 'final',
       account_id: accountId
     };
 
-    return this.makeDirectRpcCall('query', params, 'View Account');
+    return this.makeRpcCall<AccountView>(RpcCallType.Query, params, 'View Account');
   }
 
   async viewBlock(params: BlockReference): Promise<BlockResult> {
-    return this.makeDirectRpcCall<BlockResult>('block', params, 'View Block');
+    return this.makeRpcCall<BlockResult>(RpcCallType.Block, params, 'View Block');
   }
 
   async sendTransaction(
@@ -193,44 +215,70 @@ export class MinimalNearClient implements NearClient {
     waitUntil: TxExecutionStatus = DEFAULT_WAIT_STATUS.executeAction
   ): Promise<FinalExecutionOutcome> {
 
-    const result = await this.makeRpcCall(this.rpcUrl, {
-      jsonrpc: '2.0',
-      id: crypto.randomUUID(),
-      method: 'send_tx',
-      params: {
+    console.log('[NearClient.sendTransaction] Starting transaction send');
+    console.log('[NearClient.sendTransaction] Wait until:', waitUntil);
+    console.log('[NearClient.sendTransaction] Signed transaction base64:', signedTransaction.base64Encode());
+
+    const result = await this.makeRpcCall<FinalExecutionOutcome>(
+      RpcCallType.Send,
+      {
         signed_tx_base64: signedTransaction.base64Encode(),
         wait_until: waitUntil
-      }
-    });
+      },
+      'Send Transaction'
+    );
 
-    if (result.error) {
-      const errorMessage = result.error.data?.message || result.error.message || 'Transaction failed';
-      throw new Error(`Transaction Error: ${errorMessage}`);
-    }
+    console.log('[NearClient.sendTransaction] makeRpcCall result:', result);
+    console.log('[NearClient.sendTransaction] result type:', typeof result);
+    console.log('[NearClient.sendTransaction] result keys:', result ? Object.keys(result) : 'no keys - result is falsy');
+    console.log('[NearClient.sendTransaction] returning result directly (not result.result)');
 
-    return result.result;
+    return result;
   }
 
-  async view(params: { account: string; method: string; args: any }): Promise<any> {
+  async callFunction<T>(
+    contractId: string,
+    method: string,
+    args: Record<string, unknown>,
+    blockQuery?: BlockReference
+  ): Promise<T> {
     const rpcParams = {
       request_type: 'call_function',
       finality: 'final',
-      account_id: params.account,
-      method_name: params.method,
-      args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(params.args)))
+      account_id: contractId,
+      method_name: method,
+      args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(args)))
     };
 
-    const result = await this.makeDirectRpcCall<{ result: number[] }>('query', rpcParams, 'View Function');
+    const result = await this.makeRpcCall<ContractResult<T>>(
+      RpcCallType.Query,
+      rpcParams,
+      'View Function'
+    );
 
     // Parse result bytes to string/JSON
     const resultBytes = result.result;
-    if (!Array.isArray(resultBytes)) return result;
+    if (!Array.isArray(resultBytes)) {
+      // If result is not bytes array, it might already be parsed
+      return result as unknown as T;
+    }
 
     const resultString = String.fromCharCode(...resultBytes);
-    try {
-      return JSON.parse(resultString);
-    } catch {
-      return resultString.replace(/^"|"$/g, ''); // Remove quotes
+    if (!resultString.trim()) {
+      return null as T;
     }
+
+    try {
+      const parsed = JSON.parse(resultString);
+      return parsed as T;
+    } catch {
+      // Return the string value if it's not valid JSON
+      const cleanString = resultString.replace(/^"|"$/g, ''); // Remove quotes
+      return cleanString as T;
+    }
+  }
+
+  async view<T>(params: { account: string; method: string; args: any }): Promise<T> {
+    return this.callFunction<T>(params.account, params.method, params.args);
   }
 }
