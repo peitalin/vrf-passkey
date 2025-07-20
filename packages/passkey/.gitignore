@@ -1,3 +1,8 @@
 /node_modules
-/disttest-results/
+/dist
+test-results/
 playwright-report/
+
+# Generated TypeScript declaration files
+build-paths.d.ts
+build-paths.d.ts.map
