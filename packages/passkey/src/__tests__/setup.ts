@@ -69,7 +69,8 @@ const DEFAULT_TEST_CONFIG = {
   nearNetwork: 'testnet' as const,
   relayerAccount: 'web3-authn-v2.testnet',
   contractId: 'web3-authn-v2.testnet',
-  nearRpcUrl: 'https://rpc.testnet.near.org',
+  // nearRpcUrl: 'https://rpc.testnet.near.org',
+  nearRpcUrl: 'https://free.rpc.fastnear.com',
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
