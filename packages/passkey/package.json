@@ -5,17 +5,17 @@
   "description": "Web3 Authn passkeys built on NEAR protocol",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
-  "types": "./dist/types/index.d.ts",
+  "types": "./dist/types/src/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.js",
-      "types": "./dist/types/index.d.ts"
+      "types": "./dist/types/src/index.d.ts"
     },
     "./react": {
       "import": "./dist/esm/react/index.js",
       "require": "./dist/cjs/react/index.js",
-      "types": "./dist/types/react/index.d.ts"
+      "types": "./dist/types/src/react/index.d.ts"
     },
     "./react/styles": "./dist/esm/react/styles/styles.css",
     "./worker": "./dist/web3authn-signer.worker.js",

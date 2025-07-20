@@ -21,7 +21,6 @@ import type {
   CoseExtractionResponse,
   WorkerErrorResponse,
   WorkerProgressResponse,
-  WorkerCompletionResponse,
 } from '../types/signer-worker';
 import {
   WorkerRequestType,
@@ -39,15 +38,12 @@ import {
   isWorkerError,
   isWorkerSuccess,
   isWorkerProgress,
-  isWorkerComplete,
   takeAesPrfOutput,
   extractEncryptionResult,
   extractTransactionResult,
   extractRegistrationResult,
   extractRecoveryResult,
 } from '../types/signer-worker';
-import { ActionType } from '../types/actions';
-import type { ClientUserData } from '../types';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
 import { TouchIdPrompt } from "./touchIdPrompt";
@@ -155,31 +151,14 @@ export class SignerWorkerManager {
         if (
           response.type === WorkerResponseType.VerificationProgress ||
           response.type === WorkerResponseType.SigningProgress ||
-          response.type === WorkerResponseType.RegistrationProgress
+          response.type === WorkerResponseType.RegistrationProgress ||
+          response.type === WorkerResponseType.VerificationComplete || // Treat as progress, not final completion
+          response.type === WorkerResponseType.SigningComplete ||      // Treat as progress, not final completion
+          response.type === WorkerResponseType.RegistrationComplete    // Treat as progress, not final completion
         ) {
           const progressResponse = response as WorkerProgressResponse;
           onEvent?.(progressResponse.payload as onProgressEvents);
           return; // Continue listening for more messages
-        }
-
-        // Handle completion messages using WASM-generated numeric enum values
-        if (
-          response.type === WorkerResponseType.SigningComplete ||
-          response.type === WorkerResponseType.RegistrationComplete ||
-          response.type === WorkerResponseType.VerificationComplete
-        ) {
-          const completionResponse = response as WorkerCompletionResponse;
-          onEvent?.(completionResponse.payload as onProgressEvents);
-
-          clearTimeout(timeoutId);
-          worker.terminate();
-
-          if (completionResponse.payload.status === 'success') {
-            resolve(completionResponse as WorkerResponseForRequest<T>);
-          } else {
-            reject(new Error(completionResponse.payload.message || 'Operation failed'));
-          }
-          return;
         }
 
         // Handle errors using WASM-generated enum
@@ -807,6 +786,102 @@ export class SignerWorkerManager {
       }
     } catch (error: any) {
       console.error('SignerWorkerManager: COSE public key extraction error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sign transaction with raw private key (for key replacement in Option D device linking)
+   * No TouchID/PRF required - uses provided private key directly
+   */
+  async signTransactionWithKeyPair({
+    nearPrivateKey,
+    signerAccountId,
+    receiverId,
+    nonce,
+    blockHashBytes,
+    actions
+  }: {
+    nearPrivateKey: string;
+    signerAccountId: string;
+    receiverId: string;
+    nonce: string;
+    blockHashBytes: number[];
+    actions: ActionParams[];
+  }): Promise<{
+    signedTransaction: SignedTransaction;
+    logs?: string[];
+  }> {
+    try {
+      console.info('SignerWorkerManager: Starting transaction signing with provided private key');
+
+      // Validate actions
+      actions.forEach((action, index) => {
+        try {
+          validateActionParams(action);
+        } catch (error) {
+          throw new Error(`Action ${index} validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      });
+
+      const response = await this.executeWorkerOperation({
+        message: {
+          type: WorkerRequestType.SignTransactionWithKeyPair,
+          payload: {
+            nearPrivateKey,
+            signerAccountId,
+            receiverId,
+            nonce,
+            blockHashBytes,
+            actions: JSON.stringify(actions)
+          }
+        }
+      });
+
+      if (response.type !== WorkerResponseType.SignatureSuccess) {
+        console.error('SignerWorkerManager: Transaction signing with private key failed:', response);
+        throw new Error('Transaction signing with private key failed');
+      }
+
+      const wasmResult = response.payload as WasmTransactionSignResult;
+
+      // Check if the operation succeeded
+      if (!wasmResult.success) {
+        const errorMsg = wasmResult.error || 'Transaction signing failed';
+        console.error('SignerWorkerManager: Transaction signing operation failed:', {
+          success: wasmResult.success,
+          error: wasmResult.error,
+          logs: wasmResult.logs
+        });
+        throw new Error(errorMsg);
+      }
+
+      // Extract the signed transaction
+      const signedTransactions = wasmResult.signedTransactions || [];
+
+      if (signedTransactions.length !== 1) {
+        throw new Error(`Expected 1 signed transaction but received ${signedTransactions.length}`);
+      }
+
+      const signedTx = signedTransactions[0];
+      if (!signedTx || !signedTx.transactionJson || !signedTx.signatureJson) {
+        throw new Error('Incomplete signed transaction data received');
+      }
+
+      const result = {
+        signedTransaction: new SignedTransaction({
+          transaction: jsonTryParse(signedTx.transactionJson),
+          signature: jsonTryParse(signedTx.signatureJson),
+          borsh_bytes: Array.from(signedTx.borshBytes || [])
+        }),
+        logs: wasmResult.logs
+      };
+
+      console.debug('SignerWorkerManager: Transaction signing with private key successful');
+      return result;
+
+    } catch (error: any) {
+      console.error('SignerWorkerManager: Transaction signing with private key error:', error);
       throw error;
     }
   }

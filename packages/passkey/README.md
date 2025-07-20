@@ -110,7 +110,6 @@ The build system uses centralized configuration files:
 build-paths.ts        # SDK filepath configs (source of truth)
 build-paths.sh        # Build scripts filepaths
 rolldown.config.mjs   # Rolldown bundler configuration
-tsconfig.worker.json   # TypeScript config for workers
 ```
 
 **Filepath Configuraiton Files:**

@@ -2,12 +2,48 @@
  * Enhanced WASM Signer Worker (v2)
  * This worker uses Rust-based message handling for better type safety and performance
  * Similar to the VRF worker architecture
+ *
+ * MESSAGING FLOW DOCUMENTATION:
+ * =============================
+ *
+ * 1. PROGRESS MESSAGES (During Operation):
+ *    Rust WASM calls send_typed_progress_message() →
+ *    calls global sendProgressMessage() (defined below) →
+ *    postMessage() to main thread with progress update
+ *
+ *    - Multiple progress messages per operation
+ *    - Real-time updates for UX (e.g., "Verifying contract...", "Signing transaction...")
+ *    - Does not affect final result
+ *
+ * 2. FINAL RESULTS (Operation Complete):
+ *    Rust WASM returns result from handle_signer_message() →
+ *    TypeScript receives return value →
+ *    postMessage() to main thread with final result
+ *
+ *    - One result message per operation
+ *    - Contains success/error and actual operation data
+ *    - Main thread awaits this for completion
+ *
+ * TYPE SAFETY:
+ * ============
+ * All message types are auto-generated from Rust using wasm-bindgen:
+ * - ProgressMessageType: VERIFICATION_PROGRESS, SIGNING_PROGRESS, etc.
+ * - ProgressStep: preparation, contract_verification, transaction_signing, etc.
+ * - ProgressStatus: progress, success, error
+ * - WorkerProgressMessage: Complete message structure
  */
 
-import { WorkerMessage, WorkerRequestType, ProgressStep, ProgressMessageType } from './types/signer-worker';
+import {
+  WorkerMessage,
+  WorkerRequestType,
+  WorkerResponseType
+} from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 import { resolveWasmUrl } from './wasm/wasmLoader';
+
+// Import auto-generated enums from WASM module
+const { ProgressMessageType, ProgressStep } = wasmModule;
 
 /**
  * WASM Asset Path Resolution for Signer Worker
@@ -30,23 +66,27 @@ let messageProcessed = false;
  * Function called by WASM to send progress messages
  * This is imported into the WASM module as sendProgressMessage
  *
- * Enhanced version that supports logs and creates consistent onProgressEvents output
+ * Now receives both numeric enum values AND message string names from Rust
  *
- * @param messageType - Type of message (e.g., 'VERIFICATION_PROGRESS', 'SIGNING_COMPLETE')
- * @param step - Step identifier (e.g., 'contract_verification', 'transaction_signing')
+ * @param messageType - Numeric ProgressMessageType enum value
+ * @param messageTypeName - String name of the message type for debugging
+ * @param step - Numeric ProgressStep enum value
+ * @param stepName - String name of the step for debugging
  * @param message - Human-readable progress message
  * @param data - JSON string containing structured data
  * @param logs - Optional JSON string containing array of log messages
  */
 function sendProgressMessage(
-  messageType: ProgressMessageType | string,
-  step: ProgressStep | string,
+  messageType: number,
+  messageTypeName: string,
+  step: number,
+  stepName: string,
   message: string,
   data: string,
   logs?: string
 ): void {
   try {
-    console.debug(`[signer-worker]: Progress update: ${messageType} - ${step} - ${message}`);
+    console.debug(`[signer-worker]: Progress update: ${messageTypeName} (${messageType}) - ${stepName} (${step}) - ${message}`);
 
     // Parse structured data and logs
     let parsedData: any = {};
@@ -66,18 +106,45 @@ function sendProgressMessage(
       parsedLogs = logs ? [logs] : [];
     }
 
+    // Map step names to frontend phase values (now they match directly)
+    let phase: string;
+    switch (stepName) {
+      case 'preparation':
+      case 'contract-verification':
+      case 'transaction-signing':
+        phase = stepName; // Direct pass-through - no mapping needed
+        break;
+      case 'verification-complete':
+        phase = 'contract-verification'; // Show as verification phase
+        break;
+      case 'signing-complete':
+        phase = 'transaction-signing'; // Show as signing phase
+        break;
+      case 'error':
+        phase = 'action-error';
+        break;
+      default:
+        console.warn(`[signer-worker]: Unknown step name: ${stepName}, defaulting to preparation`);
+        phase = 'preparation';
+        break;
+    }
+
     // Create onProgressEvents-compatible payload
     const progressPayload = {
-      step: typeof step === 'string' ? step : ProgressStep[step as keyof typeof ProgressStep] || step,
-      phase: step, // Use step as phase for compatibility
-      status: messageType.includes('COMPLETE') ? 'success' : 'progress',
+      step: step,
+      phase: phase,
+      status: (
+        messageTypeName === 'VERIFICATION_COMPLETE' ||
+        messageTypeName === 'SIGNING_COMPLETE' ||
+        messageTypeName === 'REGISTRATION_COMPLETE'
+      ) ? 'success' : 'progress',
       message: message,
       timestamp: Date.now(),
       data: parsedData,
       logs: parsedLogs
     };
 
-    // Send progress message to main thread
+    // Use the numeric messageType directly - no more string mapping needed!
     const progressMessage = {
       type: messageType,
       payload: progressPayload,
@@ -91,7 +158,7 @@ function sendProgressMessage(
 
     // Send error message as fallback
     self.postMessage({
-      type: 'ERROR',
+      type: WorkerResponseType.Error,
       payload: {
         error: `Progress message failed: ${error?.message || 'Unknown error'}`,
         context: { messageType, step, message }
@@ -101,7 +168,7 @@ function sendProgressMessage(
   }
 }
 
-// Make sendProgressMessage available globally for WASM to call
+// Important: Make sendProgressMessage available globally for WASM to call
 (globalThis as any).sendProgressMessage = sendProgressMessage;
 
 /**
@@ -119,7 +186,7 @@ async function initializeWasm(): Promise<void> {
 self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): Promise<void> => {
   if (messageProcessed) {
     self.postMessage({
-      type: 'ERROR',
+      type: WorkerResponseType.Error,
       payload: { error: 'Worker has already processed a message' }
     });
     self.close();
@@ -147,7 +214,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): 
     console.error('[signer-worker]: Message processing failed:', error);
 
     self.postMessage({
-      type: 'ERROR',
+      type: WorkerResponseType.Error,
       payload: {
         error: error?.message || 'Unknown error occurred',
         context: { type: event.data.type }
