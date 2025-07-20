@@ -1,470 +1,403 @@
-# Link Device by QR Code Implementation Plan
+# Device Linking by QR Code
 
 ## Overview
 
-Implement a secure device linking system that allows users to add backup devices to their NEAR account using QR code scanning.
+The device linking flow enables users to add a companion device (Device2) to their existing NEAR account by scanning a QR code with their original device (Device1). This creates a **1:N mapping** where multiple devices can authenticate for the same account.
 
-## User Flow Summary
+## Key Features
 
-1. **Device2 (New Device)**: Generate credentials → Show QR code → Poll chain for AddKey event → Auto-complete registration
-2. **Device1 (Primary Device)**: Authorize with TouchID → Scan QR code → Transfer funds and access key → Done
+- ✅ **Hybrid Flow Support**: Account ID provided (fast) or discovered (seamless UX)
+- ✅ **Deterministic VRF**: Proper account-specific key derivation for recovery
+- ✅ **On-Chain Backup**: Device2 authenticator stored on-chain for account recovery
+- ✅ **Atomic Operations**: Key replacement happens in single transaction
+- ✅ **Clean Database**: Failed attempts automatically cleaned up
+- ✅ **Security**: TouchID authentication with cryptographic verification
 
-## Architecture Components
+## Flow Types
 
-### Core Components
+### **Option E: Account ID Provided (Faster)**
+User provides account ID upfront → Generate proper NEAR keypair immediately
+
+### **Option F: Account Discovery (Seamless UX)**
+No account ID needed → Generate temp keypair → Discover account → Replace with proper keypair
+
+## Complete Flow Diagram
+
+```mermaid
+graph TD
+    A[Device2: Start Device Linking] --> B{Account ID provided?}
+
+    B -->|Yes - Option E| C[Generate proper NEAR keypair with TouchID]
+    B -->|No - Option F| D[Generate temp NEAR keypair without TouchID]
+
+    C --> E[Create QR code with proper public key]
+    D --> F[Create QR code with temp public key]
+
+    E --> G[Device1: Scan QR code]
+    F --> G
+
+    G --> H[Device1: TouchID + AddKey transaction]
+    H --> I[Device1: Store device linking mapping on contract]
+
+    I --> J[Device2: Poll contract for mapping]
+    J --> K{Mapping found?}
+    K -->|No| L[Continue polling...]
+    L --> J
+    K -->|Yes| M[Device2: Discover real account ID]
+
+    M --> N{Option F flow?}
+    N -->|Yes| O[TouchID + Generate proper credentials]
+    N -->|No| P[Credentials already proper]
+
+    O --> Q[Key replacement: AddKey new + DeleteKey old]
+    Q --> R[Register Device2 authenticator on-chain]
+
+    P --> R
+    R --> S[✅ Device linking complete]
+
+    style C fill:#e1f5fe
+    style D fill:#fff3e0
+    style Q fill:#f3e5f5
+    style R fill:#e8f5e8
+```
+
+## Technical Implementation
+
+### 1. Device2 QR Generation
+
+**Option E (Account Provided):**
 ```typescript
-// New PasskeyManager methods
-class PasskeyManager {
-  async generateDeviceLinkingQR(accountId: string): Promise<DeviceLinkingQRData>
-  async scanAndLinkDevice(qrData: DeviceLinkingQRData): Promise<LinkDeviceResult>
-  async completeDeviceLinking(linkingSession: DeviceLinkingSession): Promise<void>
-}
+// Generate proper NEAR keypair immediately
+const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
+const credential = await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
+  nearAccountId: accountId,
+  challenge: vrfChallenge.outputAs32Bytes(),
+});
+const nearKeyResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
+  credential,
+  nearAccountId: accountId
+});
+```
 
-// Supporting types
-interface DeviceLinkingQRData {
-  accountId: string;
-  devicePublicKey: string;
-  sessionId: string;
-  timestamp: number;
-}
+**Option F (Account Discovery):**
+```typescript
+// Generate temporary Ed25519 keypair without TouchID
+const tempNearKeyResult = await generateTemporaryNearKeypair();
+// Store temp private key for later key replacement
+session.tempPrivateKey = tempNearKeyResult.privateKey;
+```
 
+### 2. Device1 Authorization
+
+```typescript
+// Single TouchID prompt for both transactions
+const vrfChallenge = await webAuthnManager.generateVrfChallenge(vrfInputData);
+const credential = await webAuthnManager.touchIdPrompt.getCredentials({
+  nearAccountId: device1AccountId,
+  challenge: vrfChallenge.outputAs32Bytes(),
+  authenticators,
+});
+
+// Execute two transactions atomically
+const results = await webAuthnManager.signTransactionsWithActions({
+  transactions: [
+    // Transaction 1: AddKey - Add Device2's key
+    {
+      nearAccountId: device1AccountId,
+      receiverId: device1AccountId,
+      actions: [{
+        actionType: ActionType.AddKey,
+        public_key: devicePublicKey,
+        access_key: JSON.stringify({ nonce: 0, permission: { FullAccess: {} } })
+      }]
+    },
+    // Transaction 2: Store mapping in contract
+    {
+      nearAccountId: device1AccountId,
+      receiverId: contractId,
+      actions: [{
+        actionType: ActionType.FunctionCall,
+        method_name: 'store_device_linking_mapping',
+        args: JSON.stringify({
+          device_public_key: devicePublicKey,
+          target_account_id: device1AccountId,
+        }),
+        gas: '50000000000000', // 50 TGas
+        deposit: '0'
+      }]
+    }
+  ],
+  // ... other parameters
+});
+```
+
+### 3. Device2 Account Discovery
+
+```typescript
+// Poll contract for device linking mapping
+const linkingResult = await nearClient.view({
+  account: contractId,
+  method: 'get_device_linking_account',
+  args: { device_public_key: tempPublicKey }
+});
+
+if (linkingResult && Array.isArray(linkingResult) && linkingResult.length >= 2) {
+  const [linkedAccountId, accessKeyPermission] = linkingResult;
+  session.accountId = linkedAccountId;
+  return true; // Found mapping
+}
+```
+
+### 4. Key Replacement (Option F Only)
+
+```typescript
+// Generate proper credentials with TouchID
+const vrfChallenge = await generateBootstrapVrfChallenge(context, realAccountId);
+const credential = await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
+  nearAccountId: realAccountId,
+  challenge: vrfChallenge.outputAs32Bytes(),
+});
+
+// Re-derive NEAR keypair with proper account-specific salt
+const nearKeyResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
+  credential: credential,
+  nearAccountId: realAccountId
+});
+
+// Execute atomic key replacement transaction
+const result = await webAuthnManager.signTransactionWithKeyPair({
+  nearPrivateKey: tempPrivateKey,
+  signerAccountId: realAccountId,
+  receiverId: realAccountId,
+  nonce: nextNonce,
+  blockHashBytes: Array.from(txBlockHashBytes),
+  actions: [
+    {
+      actionType: ActionType.AddKey,
+      public_key: nearKeyResult.publicKey, // New proper key
+      access_key: JSON.stringify({ nonce: 0, permission: { FullAccess: {} } })
+    },
+    {
+      actionType: ActionType.DeleteKey,
+      public_key: oldTempPublicKey // Remove temp key
+    }
+  ]
+});
+```
+
+### 5. On-Chain Authenticator Registration
+
+```typescript
+// Register Device2's authenticator on-chain for account recovery
+const actionResult = await executeAction(context, realAccountId, {
+  type: ActionType.FunctionCall,
+  receiverId: contractId,
+  methodName: 'verify_and_register_user',
+  args: {
+    vrf_data: {
+      vrf_input_data: Array.from(base64UrlDecode(vrfChallenge.vrfInput)),
+      vrf_output: Array.from(base64UrlDecode(vrfChallenge.vrfOutput)),
+      vrf_proof: Array.from(base64UrlDecode(vrfChallenge.vrfProof)),
+      public_key: Array.from(base64UrlDecode(vrfChallenge.vrfPublicKey)),
+      user_id: realAccountId,
+      rp_id: window.location.hostname,
+      block_height: vrfChallenge.blockHeight,
+      block_hash: Array.from(base64UrlDecode(vrfChallenge.blockHash))
+    },
+    webauthn_registration: {
+      id: credential.id,
+      raw_id: Array.from(new Uint8Array(credential.rawId)),
+      type: credential.type,
+      response: {
+        client_data_json: credential.response.clientDataJSON,
+        attestation_object: credential.response.attestationObject,
+        transports: credential.response.transports || ['internal']
+      }
+    },
+    deterministic_vrf_public_key: null
+  },
+  gas: '50000000000000',
+  deposit: '0'
+});
+```
+
+## Contract Integration
+
+### Device Linking Mapping Storage
+
+```rust
+// Store temporary mapping: Device2 public key -> Device1 account
+pub fn store_device_linking_mapping(
+    &mut self,
+    device_public_key: String,
+    target_account_id: AccountId,
+) -> bool
+```
+
+### Account Discovery
+
+```rust
+// Get account ID from Device2's public key
+pub fn get_device_linking_account(
+    &self,
+    device_public_key: String
+) -> Option<(AccountId, AccessKeyPermission)>
+```
+
+### Authenticator Registration
+
+```rust
+// Add Device2's authenticator to existing account (1:N mapping)
+pub fn verify_and_register_user(
+    &mut self,
+    vrf_data: VRFVerificationData,
+    webauthn_registration: WebAuthnRegistrationCredential,
+    deterministic_vrf_public_key: Option<Vec<u8>>,
+) -> VerifyRegistrationResponse
+```
+
+## VRF Key Derivation
+
+### Account-Specific Salt Generation
+
+```rust
+// Generate account-specific salt for deterministic key derivation
+fn near_key_salt_for_account(account_id: &str) -> String {
+    format!("near-key-derivation:{}", account_id)
+}
+```
+
+### Proper vs Temp Derivation
+
+**Temp Account (Option F initial):**
+```rust
+// Salt: "near-key-derivation:temp-device-linking.testnet"
+// Used only for QR generation, replaced later
+```
+
+**Real Account (both Options):**
+```rust
+// Salt: "near-key-derivation:serp117.web3-authn-v2.testnet"
+// Used for actual authentication and account recovery
+```
+
+## Error Handling & Cleanup
+
+### Failed Attempt Cleanup
+
+```typescript
+async cleanupFailedLinkingAttempt(): Promise<void> {
+  // Remove any authenticator data for the real account
+  await IndexedDBManager.clientDB.deleteAllAuthenticatorsForUser(accountId);
+
+  // Remove any user data for the real account
+  await IndexedDBManager.clientDB.deleteUser(accountId);
+
+  // Remove VRF credentials for both temp and real accounts
+  await IndexedDBManager.nearKeysDB.deleteEncryptedKey(accountId);
+  await IndexedDBManager.nearKeysDB.deleteEncryptedKey('temp-device-linking.testnet');
+}
+```
+
+### Session Management
+
+```typescript
 interface DeviceLinkingSession {
-  accountId: string;
-  deviceKeypair: KeyPair;
-  credential: PublicKeyCredential;
-  vrfChallenge: VRFChallenge;
-  status: 'waiting' | 'authorized' | 'registered' | 'failed';
-}
-```
-
-### WebAuthn Integration
-```typescript
-// WebAuthnManager new methods
-class WebAuthnManager {
-  async generateDeviceLinkingCredentials(accountId: string): Promise<{
-    credential: PublicKeyCredential;
-    keypair: KeyPair;
-    vrfChallenge: VRFChallenge;
-  }>
-
-  async signDeviceLinkingTransaction(
-    qrData: DeviceLinkingQRData,
-    fundingAmount: string
-  ): Promise<SignedTransaction>
-}
-```
-
-## Implementation Plan
-
-### Phase 1: Core Infrastructure (Week 1)
-
-#### 1.1 Data Structures & Types
-```typescript
-// Add to src/core/types/passkeyManager.ts
-export interface DeviceLinkingQRData {
-  accountId: string;
-  devicePublicKey: string;
-  sessionId: string;
-  timestamp: number;
-  version: string; // For future compatibility
-}
-
-export interface DeviceLinkingSession {
-  sessionId: string;
-  accountId: string;
-  deviceKeypair: KeyPair;
-  credential: PublicKeyCredential;
-  vrfChallenge: VRFChallenge;
+  accountId: string | null; // Null until discovered (Option F) or provided (Option E)
+  nearPublicKey: string;
+  credential: PublicKeyCredential | null; // Null for Option F until real account discovered
+  vrfChallenge: VRFChallenge | null; // Null for Option F until real account discovered
   status: DeviceLinkingStatus;
   createdAt: number;
   expiresAt: number;
-}
-
-export type DeviceLinkingStatus =
-  | 'generating'     // Device2: Generating credentials
-  | 'waiting'        // Device2: Waiting for Device1 authorization
-  | 'authorizing'    // Device1: Processing authorization
-  | 'authorized'     // Device1: AddKey transaction sent
-  | 'registering'    // Device2: Calling verify_and_register_user
-  | 'completed'      // Success
-  | 'failed'         // Error state
-  | 'expired';       // Timeout
-
-export interface LinkDeviceResult extends ActionResult {
-  devicePublicKey: string;
-  transactionId?: string;
-  fundingAmount: string;
+  tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
 }
 ```
 
-#### 1.2 Session Management
+## Usage Examples
+
+### Option E (Account Provided)
+
 ```typescript
-// Add to src/core/PasskeyManager/deviceLinking.ts
-export class DeviceLinkingSessionManager {
-  private sessions = new Map<string, DeviceLinkingSession>();
+// Device2: Generate QR with known account
+const flow = passkeyManager.startDeviceLinkingFlow({
+  onEvent: (event) => console.log(event.message)
+});
+const { qrData, qrCodeDataURL } = await flow.generateQR('alice.near');
 
-  createSession(accountId: string): DeviceLinkingSession;
-  getSession(sessionId: string): DeviceLinkingSession | null;
-  updateSessionStatus(sessionId: string, status: DeviceLinkingStatus): void;
-  cleanupExpiredSessions(): void;
-}
-```
-
-#### 1.3 QR Code Generation
-```typescript
-// Device2: Generate QR data
-export async function generateDeviceLinkingQR(
-  context: PasskeyManagerContext,
-  accountId: string
-): Promise<{
-  qrData: DeviceLinkingQRData;
-  session: DeviceLinkingSession;
-}> {
-  // 1. Validate account ID
-  validateNearAccountId(accountId);
-
-  // 2. Generate VRF challenge
-  const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
-
-  // 3. Generate WebAuthn credentials (TouchID #1)
-  const credential = await context.webAuthnManager.touchIdPrompt
-    .generateRegistrationCredentials({
-      nearAccountId: accountId,
-      challenge: vrfChallenge.outputAs32Bytes(),
-    });
-
-  // 4. Derive NEAR keypair
-  const keypairResult = await context.webAuthnManager
-    .deriveNearKeypairAndEncrypt({
-      credential,
-      nearAccountId: accountId
-    });
-
-  // 5. Create session
-  const sessionId = generateSessionId();
-  const session: DeviceLinkingSession = {
-    sessionId,
-    accountId,
-    deviceKeypair: KeyPair.fromString(keypairResult.privateKey),
-    credential,
-    vrfChallenge,
-    status: 'waiting',
-    createdAt: Date.now(),
-    expiresAt: Date.now() + (15 * 60 * 1000) // 15 minute timeout
-  };
-
-  // 6. Generate QR data
-  const qrData: DeviceLinkingQRData = {
-    accountId,
-    devicePublicKey: keypairResult.publicKey,
-    sessionId,
-    timestamp: Date.now(),
-    version: '1.0'
-  };
-
-  return { qrData, session };
-}
-```
-
-### Phase 2: Device1 Authorization (Week 2)
-
-#### 2.1 QR Scanning & Validation
-```typescript
-// Device1: Scan and validate QR
-export async function scanAndLinkDevice(
-  context: PasskeyManagerContext,
-  qrData: DeviceLinkingQRData,
-  options?: { fundingAmount?: string }
-): Promise<LinkDeviceResult> {
-
-  // 1. Validate QR data
-  validateDeviceLinkingQRData(qrData);
-
-  // 2. Check account ownership
-  await verifyAccountOwnership(context, qrData.accountId);
-
-  // 3. Create combined AddKey + Transfer transaction
-  const fundingAmount = options?.fundingAmount || '0.1'; // Default 0.1 NEAR
-
-  const signedTransaction = await context.webAuthnManager
-    .signDeviceLinkingTransaction({
-      context,
-      accountId: qrData.accountId,
-      devicePublicKey: qrData.devicePublicKey,
-      fundingAmount: parseNearAmount(fundingAmount)!,
-    });
-
-  // 4. Broadcast transaction (TouchID #2)
-  const result = await broadcastTransaction(context, signedTransaction, options);
-
-  return {
-    success: true,
-    accountId: qrData.accountId,
-    devicePublicKey: qrData.devicePublicKey,
-    transactionId: result.transactionId,
-    fundingAmount
-  };
-}
-```
-
-#### 2.2 Combined Transaction Creation
-```typescript
-// WebAuthnManager method
-async signDeviceLinkingTransaction({
-  context,
-  accountId,
-  devicePublicKey,
-  fundingAmount
-}: {
-  context: PasskeyManagerContext;
-  accountId: string;
-  devicePublicKey: string;
-  fundingAmount: string;
-}): Promise<SignedTransaction> {
-
-  const publicKey = PublicKey.from(devicePublicKey);
-
-  // Create combined transaction
-  const transaction = await context.nearClient.createTransaction({
-    receiverId: accountId,
-    actions: [
-      // Add Device2's public key as full access key
-      actionCreators.addKey(
-        publicKey,
-        AccessKey.fullAccess()
-      ),
-      // Transfer funding for Device2's operations
-      actionCreators.transfer(fundingAmount)
-    ]
-  });
-
-  // Sign with Device1's credentials (TouchID prompt)
-  return await this.signTransaction({
-    context,
-    accountId,
-    transaction,
-    prompt: `Authorize new device and transfer ${formatNearAmount(fundingAmount)} NEAR for setup`
-  });
-}
-```
-
-### Phase 3: Device2 Registration (Week 2)
-
-#### 3.1 Blockchain Polling
-```typescript
-// Device2: Wait for authorization
-export async function waitForDeviceAuthorization(
-  context: PasskeyManagerContext,
-  session: DeviceLinkingSession
-): Promise<boolean> {
-
-  const maxAttempts = 45; // 45 attempts = ~90 seconds with exponential backoff
-  let attempts = 0;
-
-  while (attempts < maxAttempts) {
-    try {
-      // Check if our public key is now an access key
-      const accessKeys = await context.nearClient
-        .viewAccessKeyList(session.accountId);
-
-      const hasKey = accessKeys.keys.some(key =>
-        key.public_key === session.deviceKeypair.getPublicKey().toString()
-      );
-
-      if (hasKey) {
-        return true; // Authorization detected!
-      }
-
-      // Exponential backoff: 2s, 3s, 4.5s, 6.75s, ... max 10s
-      const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      attempts++;
-
-    } catch (error) {
-      console.warn(`Polling attempt ${attempts} failed:`, error);
-      attempts++;
-    }
-  }
-
-  throw new Error('Device authorization timeout - please try again');
-}
-```
-
-#### 3.2 Complete Registration
-```typescript
-// Device2: Complete registration
-export async function completeDeviceLinking(
-  context: PasskeyManagerContext,
-  session: DeviceLinkingSession
-): Promise<void> {
-
-  // 1. Wait for Device1 authorization
-  await waitForDeviceAuthorization(context, session);
-
-  // 2. Create NEAR client with Device2's keypair
-  const device2Client = new NearClient({
-    networkId: context.nearClient.networkId,
-    keyStore: new InMemoryKeyStore(),
-  });
-
-  // Add Device2's keypair to keystore
-  await device2Client.keyStore.setKey(
-    context.nearClient.networkId,
-    session.accountId,
-    session.deviceKeypair
-  );
-
-  // 3. Call verify_and_register_user with Device2's credentials
-  const registrationData = serializeCredentialWithPRF(session.credential);
-
-  // use signAndSendTransaction, callFunction may be deprecated
-  await device2Client.callFunction({
-    contractId: context.nearClient.contractId,
-    methodName: 'verify_and_register_user',
-    args: {
-      webauthn_registration: registrationData,
-      vrf_challenge_data: session.vrfChallenge,
-    },
-    gas: '300000000000000',
-    attachedDeposit: '0'
-  });
-
-  // 4. Store authenticator locally
-  await context.webAuthnManager.storeAuthenticator({
-    credentialId: session.credential.id,
-    credentialPublicKey: new Uint8Array(session.credential.rawId),
-    transports: ['internal'],
-    name: `Linked Device ${new Date().toISOString()}`,
-    nearAccountId: session.accountId,
-    registered: new Date().toISOString(),
-    syncedAt: new Date().toISOString(),
-    vrfPublicKey: session.deviceKeypair.getPublicKey().toString()
-  });
-}
-```
-
-### Phase 4: UI Components (Week 3)
-
-#### 4.1 React Components
-```typescript
-// src/react/components/DeviceLinking/GenerateQRComponent.tsx
-interface GenerateQRProps {
-  accountId: string;
-  onComplete: (result: LinkDeviceResult) => void;
-  onError: (error: Error) => void;
-}
-
-export function GenerateQRComponent({ accountId, onComplete, onError }: GenerateQRProps) {
-  const [qrData, setQRData] = useState<DeviceLinkingQRData | null>(null);
-  const [status, setStatus] = useState<DeviceLinkingStatus>('generating');
-
-  // Implementation with QR display, status updates, polling
-}
-
-// src/react/components/DeviceLinking/ScanQRComponent.tsx
-interface ScanQRProps {
-  onComplete: (result: LinkDeviceResult) => void;
-  onError: (error: Error) => void;
-}
-
-export function ScanQRComponent({ onComplete, onError }: ScanQRProps) {
-  // QR scanner implementation with validation
-}
-```
-
-#### 4.2 Hook Integration
-```typescript
-// src/react/hooks/useDeviceLinking.ts
-export function useDeviceLinking() {
-  const { passkeyManager } = usePasskeyManager();
-
-  const generateQR = useCallback(async (accountId: string) => {
-    return await passkeyManager.generateDeviceLinkingQR(accountId);
-  }, [passkeyManager]);
-
-  const scanAndLink = useCallback(async (qrData: DeviceLinkingQRData) => {
-    return await passkeyManager.scanAndLinkDevice(qrData);
-  }, [passkeyManager]);
-
-  const completeLink = useCallback(async (session: DeviceLinkingSession) => {
-    return await passkeyManager.completeDeviceLinking(session);
-  }, [passkeyManager]);
-
-  return { generateQR, scanAndLink, completeLink };
-}
-```
-
-### Phase 5: Error Handling & Testing (Week 4)
-
-#### 5.1 Error Scenarios
-```typescript
-// Error handling for common scenarios
-export class DeviceLinkingError extends Error {
-  constructor(
-    message: string,
-    public code: DeviceLinkingErrorCode,
-    public phase: 'generation' | 'authorization' | 'registration'
-  ) {
-    super(message);
-  }
-}
-
-export enum DeviceLinkingErrorCode {
-  INVALID_QR_DATA = 'INVALID_QR_DATA',
-  ACCOUNT_NOT_OWNED = 'ACCOUNT_NOT_OWNED',
-  AUTHORIZATION_TIMEOUT = 'AUTHORIZATION_TIMEOUT',
-  INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
-  REGISTRATION_FAILED = 'REGISTRATION_FAILED',
-  SESSION_EXPIRED = 'SESSION_EXPIRED'
-}
-```
-
-#### 5.2 E2E Test Plan
-```typescript
-// src/__tests__/e2e/device-linking.test.ts
-describe('Device Linking E2E', () => {
-  test('Complete device linking flow', async () => {
-    // Setup: Create Device1 account
-    const device1Account = await setupTestAccount();
-
-    // Device2: Generate QR
-    const { qrData, session } = await passkeyManager2
-      .generateDeviceLinkingQR(device1Account.accountId);
-
-    expect(qrData.accountId).toBe(device1Account.accountId);
-    expect(qrData.devicePublicKey).toMatch(/^ed25519:/);
-
-    // Device1: Scan and authorize
-    const linkResult = await passkeyManager1
-      .scanAndLinkDevice(qrData);
-
-    expect(linkResult.success).toBe(true);
-    expect(linkResult.transactionId).toBeDefined();
-
-    // Device2: Complete registration
-    await passkeyManager2.completeDeviceLinking(session);
-
-    // Verify: Both devices can now access account
-    const device1Auth = await passkeyManager1.getAuthenticatedUser();
-    const device2Auth = await passkeyManager2.getAuthenticatedUser();
-
-    expect(device1Auth?.accountId).toBe(device1Account.accountId);
-    expect(device2Auth?.accountId).toBe(device1Account.accountId);
-  });
-
-  test('Error: Invalid QR data', async () => {
-    const invalidQR = { accountId: 'invalid', devicePublicKey: 'bad' };
-
-    await expect(passkeyManager.scanAndLinkDevice(invalidQR))
-      .rejects.toThrow(DeviceLinkingError);
-  });
-
-  test('Error: Authorization timeout', async () => {
-    const { session } = await passkeyManager2.generateDeviceLinkingQR('test.testnet');
-
-    // Don't authorize, just wait for timeout
-    await expect(passkeyManager2.completeDeviceLinking(session))
-      .rejects.toThrow('authorization timeout');
-  });
+// Device1: Scan and authorize
+const result = await passkeyManager.scanAndLinkDevice({
+  onEvent: (event) => console.log(event.message)
 });
 ```
+
+### Option F (Account Discovery)
+
+```typescript
+// Device2: Generate QR without account (seamless UX)
+const flow = passkeyManager.startDeviceLinkingFlow({
+  onEvent: (event) => console.log(event.message)
+});
+const { qrData, qrCodeDataURL } = await flow.generateQR(); // No account ID
+
+// Device1: Scan and authorize (same as Option E)
+const result = await passkeyManager.scanAndLinkDevice({
+  onEvent: (event) => console.log(event.message)
+});
+
+// Device2: Flow automatically handles account discovery and key replacement
+const state = flow.getState();
+```
+
+## Security Considerations
+
+### TouchID Requirements
+
+- **Device1**: TouchID required for authorization transaction
+- **Device2 Option E**: TouchID required for proper credential generation
+- **Device2 Option F**: TouchID only when account is discovered (better UX)
+
+### Key Management
+
+- **Temporary keys**: Only used for QR generation and initial AddKey
+- **Proper keys**: Account-specific derivation for authentication and recovery
+- **Atomic replacement**: Old temp key deleted in same transaction as new key addition
+
+### Account Recovery
+
+- **Both devices** have authenticators stored on-chain in 1:N mapping
+- **Deterministic derivation** ensures consistent recovery across devices
+- **VRF credentials** properly scoped to real account for recovery
+
+## Benefits
+
+1. **Seamless UX**: No need to input account ID (Option F)
+2. **Fast Alternative**: Account ID input for immediate setup (Option E)
+3. **Secure**: TouchID + cryptographic verification at every step
+4. **Recoverable**: Both devices backed up on-chain for account recovery
+5. **Clean**: Failed attempts automatically cleaned up
+6. **Atomic**: Key operations happen in single transactions
+7. **Scalable**: Supports unlimited device linking per account
+
+## Troubleshooting
+
+### Common Issues
+
+**QR Code Not Detected:**
+- Ensure good lighting and camera focus
+- Try uploading QR image instead of camera scanning
+
+**Polling Timeout:**
+- Check network connectivity
+- Verify Device1 completed authorization transaction
+- Increase polling timeout if needed
+
+**Key Replacement Failed:**
+- Check account has sufficient gas balance
+- Verify temporary private key is valid
+- Ensure new public key derivation succeeded
+
+**Account Recovery Issues:**
+- Verify authenticator was registered on-chain
+- Check VRF credentials are using real account salt
+- Confirm 1:N mapping exists in contract state
