@@ -72,8 +72,8 @@ pub struct WebAuthnContract {
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users
     pub registered_users: IterableSet<AccountId>,
-    // Lookup account associated with a WebAuthn (TouchId) credential_id (1:1 mapping)
-    // Required for Account Recovery Flow
+    // Reverse Lookup account associated with a WebAuthn (TouchId) credential_id (1:1 mapping)
+    // May be needed for future account recovery flow (discover accounts with TouchID)
     pub credential_to_users: LookupMap<String, AccountId>,
     // Temporary mapping for device linking: Device2 public key -> (Device1 account ID, access key permission)
     // Required for Link Device Flow
