@@ -2,17 +2,6 @@ use wasm_bindgen::JsValue;
 use std::fmt;
 use serde::Serialize;
 
-// Trait for converting response types to JSON
-pub trait ToJson {
-    fn to_json(&self) -> Result<serde_json::Value, String>;
-}
-
-impl<T: Serialize> ToJson for T {
-    fn to_json(&self) -> Result<serde_json::Value, String> {
-        serde_json::to_value(self).map_err(|e| format!("Failed to serialize to JSON: {}", e))
-    }
-}
-
 // Parse payload error with message name context
 #[derive(Debug)]
 pub struct ParsePayloadError {

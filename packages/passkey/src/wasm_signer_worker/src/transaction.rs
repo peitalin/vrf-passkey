@@ -1,4 +1,5 @@
 use ed25519_dalek::{SigningKey, Signer};
+use sha2::{Sha256, Digest};
 use borsh;
 
 use crate::types::*;
@@ -77,5 +78,15 @@ pub fn sign_transaction(transaction: Transaction, private_key: &SigningKey) -> R
     // Serialize to Borsh
     borsh::to_vec(&signed_transaction)
         .map_err(|e| format!("Signed transaction serialization failed: {}", e))
+}
+
+/// Calculate a proper transaction hash from signed transaction bytes using SHA256
+pub fn calculate_transaction_hash(signed_tx_bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(signed_tx_bytes);
+    let result = hasher.finalize();
+
+    // Convert to hex string for readability and consistency
+    format!("{:x}", result)
 }
 

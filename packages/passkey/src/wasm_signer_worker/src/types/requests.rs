@@ -1,7 +1,18 @@
+use serde::{Serialize, Deserialize};
+
 // === REQUEST PAYLOAD TYPES ===
 // All request payload structures for different worker operations
 
-use serde::{Serialize, Deserialize};
+// Trait for converting response types to JSON
+pub trait ToJson {
+    fn to_json(&self) -> Result<serde_json::Value, String>;
+}
+
+impl<T: Serialize> ToJson for T {
+    fn to_json(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(self).map_err(|e| format!("Failed to serialize to JSON: {}", e))
+    }
+}
 
 // === KEYPAIR DERIVATION REQUESTS ===
 
@@ -171,4 +182,18 @@ pub struct VrfChallengePayload {
     pub block_height: u64,
     #[serde(rename = "blockHash")]
     pub block_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SignTransactionWithKeyPairPayload {
+    #[serde(rename = "nearPrivateKey")]
+    pub near_private_key: String, // ed25519:... format
+    #[serde(rename = "signerAccountId")]
+    pub signer_account_id: String,
+    #[serde(rename = "receiverId")]
+    pub receiver_id: String,
+    pub nonce: String,
+    #[serde(rename = "blockHashBytes")]
+    pub block_hash_bytes: Vec<u8>,
+    pub actions: String, // JSON string of ActionParams[]
 }
