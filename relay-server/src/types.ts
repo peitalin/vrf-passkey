@@ -95,3 +95,55 @@ export type RegistrationSSEEvent =
 
 // SSE Event emission callback type
 export type SSEEventEmitter = (event: RegistrationSSEEvent) => void;
+
+
+// Runtime-tested NEAR error types (based on actual on-chain observations)
+interface NearActionErrorKind {
+  AccountAlreadyExists?: {
+    accountId: string;
+  };
+  AccountDoesNotExist?: {
+    account_id: string;
+  };
+  InsufficientStake?: {
+    account_id: string;
+    stake: string;
+    minimum_stake: string;
+  };
+  LackBalanceForState?: {
+    account_id: string;
+    balance: string;
+  };
+  // Add more error types as we discover them
+  [key: string]: any;
+}
+
+export interface NearActionError {
+  kind: NearActionErrorKind;
+  index: string; // NEAR uses string indexes, not numbers
+}
+
+export interface NearExecutionFailure {
+  ActionError?: NearActionError;
+  // Add other failure types as needed
+  [key: string]: any;
+}
+
+interface NearReceiptStatus {
+  SuccessValue?: string;
+  SuccessReceiptId?: string;
+  Failure?: NearExecutionFailure;
+}
+
+export interface NearReceiptOutcomeWithId {
+  id: string;
+  outcome: {
+    logs: string[];
+    receipt_ids: string[];
+    gas_burnt: number;
+    tokens_burnt: string;
+    executor_id: string;
+    status: NearReceiptStatus;
+  };
+}
+

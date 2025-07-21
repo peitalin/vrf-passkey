@@ -9,7 +9,7 @@ import { FinalExecutionOutcome } from '@near-js/types';
 
 import * as dotenv from 'dotenv';
 dotenv.config();
-import type { SSEEventEmitter } from './types';
+import type { SSEEventEmitter, NearExecutionFailure, NearReceiptOutcomeWithId } from './types';
 import config, { type AppConfig } from './config';
 
 // Interfaces for relay server API
@@ -110,6 +110,14 @@ class AccountService {
           throw new Error(`Invalid account ID format: ${request.accountId}`);
         }
 
+        // Check if account already exists before attempting creation
+        console.log(`Checking if account ${request.accountId} already exists...`);
+        const accountExists = await this.checkAccountExists(request.accountId);
+        if (accountExists) {
+          throw new Error(`Account ${request.accountId} already exists. Cannot create duplicate account.`);
+        }
+        console.log(`Account ${request.accountId} is available for creation`);
+
         // Parse initial balance or use default
         const initialBalance = this.config.defaultInitialBalance;
 
@@ -170,6 +178,14 @@ class AccountService {
           throw new Error(`Invalid account ID format: ${request.new_account_id}`);
         }
 
+        // Check if account already exists before attempting creation
+        console.log(`Checking if account ${request.new_account_id} already exists...`);
+        const accountExists = await this.checkAccountExists(request.new_account_id);
+        if (accountExists) {
+          throw new Error(`Account ${request.new_account_id} already exists. Cannot create duplicate account.`);
+        }
+        console.log(`Account ${request.new_account_id} is available for atomic creation and registration`);
+
         // Parse the public key
         const publicKey = PublicKey.fromString(request.new_public_key);
         console.log(`Atomic registration for account: ${request.new_account_id}`);
@@ -198,12 +214,19 @@ class AccountService {
           ]
         });
 
+        // Parse contract execution results to detect failures
+        const contractError = this.parseContractExecutionError(result, request.new_account_id);
+        if (contractError) {
+          console.error(`Contract execution failed for ${request.new_account_id}:`, contractError);
+          throw new Error(contractError);
+        }
+
         console.log(`Atomic registration completed successfully: ${result.transaction.hash}`);
         return {
           success: true,
           transactionHash: result.transaction.hash,
           message: `Account ${request.new_account_id} created and registered successfully`,
-          result: result,
+          contractResult: result,
         };
 
       } catch (error: any) {
@@ -215,6 +238,90 @@ class AccountService {
         };
       }
     }, `atomic create and register ${request.new_account_id}`);
+  }
+
+  /**
+   * Parse contract execution results to detect specific failure types
+   * Uses runtime-tested types based on actual NEAR on-chain error structures
+   * @param result - The transaction execution result from @near-js/types
+   * @param accountId - The account ID being created (for context)
+   * @returns Error message if contract execution failed, null if successful
+   */
+  private parseContractExecutionError(result: FinalExecutionOutcome, accountId: string): string | null {
+    try {
+      // Check main transaction status first
+      if (result.status && typeof result.status === 'object' && 'Failure' in result.status) {
+        console.log(`Transaction failed:`, result.status.Failure);
+        return `Transaction failed: ${JSON.stringify(result.status.Failure)}`;
+      }
+
+      // Check receipts for failures using our runtime-tested types
+      const receipts = (result.receipts_outcome || []) as NearReceiptOutcomeWithId[];
+      for (const receipt of receipts) {
+        const status = receipt.outcome?.status;
+
+        // Check receipt failure status
+        if (status?.Failure) {
+          const failure: NearExecutionFailure = status.Failure;
+          console.log(`Receipt failure detected:`, failure);
+
+          // Check for ActionError with proper typing
+          if (failure.ActionError?.kind) {
+            const actionKind = failure.ActionError.kind;
+
+            // AccountAlreadyExists is an object with accountId property
+            if (actionKind.AccountAlreadyExists) {
+              const existingAccountId = actionKind.AccountAlreadyExists.accountId;
+              return `Account ${existingAccountId} already exists on NEAR network`;
+            }
+
+            // AccountDoesNotExist is an object with account_id property
+            if (actionKind.AccountDoesNotExist) {
+              const missingAccountId = actionKind.AccountDoesNotExist.account_id;
+              return `Referenced account ${missingAccountId} does not exist`;
+            }
+
+            // InsufficientStake is an object with account_id, stake, minimum_stake
+            if (actionKind.InsufficientStake) {
+              const stakeInfo = actionKind.InsufficientStake;
+              return `Insufficient stake for account creation: ${stakeInfo.account_id} (has: ${stakeInfo.stake}, needs: ${stakeInfo.minimum_stake})`;
+            }
+
+            // LackBalanceForState is an object with account_id, balance
+            if (actionKind.LackBalanceForState) {
+              const balanceInfo = actionKind.LackBalanceForState;
+              return `Insufficient balance for account state: ${balanceInfo.account_id} (balance: ${balanceInfo.balance})`;
+            }
+
+            // Generic action error
+            return `Account creation failed: ${JSON.stringify(actionKind)}`;
+          }
+
+          // Generic failure
+          return `Contract execution failed: ${JSON.stringify(failure)}`;
+        }
+
+        // Check logs for error keywords
+        const logs = receipt.outcome?.logs || [];
+        for (const log of logs) {
+          if (typeof log === 'string') {
+            if (log.includes('AccountAlreadyExists') || log.includes('account already exists')) {
+              return `Account ${accountId} already exists`;
+            }
+            if (log.includes('AccountDoesNotExist')) {
+              return `Referenced account does not exist`;
+            }
+          }
+        }
+      }
+
+      // No errors detected
+      return null;
+
+    } catch (parseError: any) {
+      console.warn(`Error parsing contract execution results:`, parseError);
+      return null; // Don't fail the transaction due to parsing issues
+    }
   }
 
   private isValidAccountId(accountId: string): boolean {
