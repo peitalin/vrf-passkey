@@ -33,8 +33,8 @@ pub use verify_registration_response::{
 pub use verify_authentication_response::{
     VerifiedAuthenticationResponse,
 };
-use near_sdk::{env, log, near, AccountId};
-use near_sdk::store::{LookupMap, IterableSet, IterableMap};
+use near_sdk::{env, log, near};
+use near_sdk::store::{LookupMap, IterableSet};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -62,6 +62,7 @@ impl WebAuthnContract {
             authenticators: LookupMap::new(StorageKey::Authenticators),
             registered_users: IterableSet::new(StorageKey::RegisteredUsers),
             credential_to_users: LookupMap::new(StorageKey::CredentialToUsers),
+            device_numbers: LookupMap::new(StorageKey::AccountDeviceCounters),
             device_linking_map: LookupMap::new(StorageKey::DeviceLinkingMap),
         }
     }

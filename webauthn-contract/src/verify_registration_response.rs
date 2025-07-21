@@ -138,6 +138,7 @@ impl WebAuthnContract {
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
         deterministic_vrf_public_key: Option<Vec<u8>>,
+        device_number: Option<u8>,
     ) -> VerifyRegistrationResponse {
 
         log!("Verifying VRF proof and WebAuthn registration with dual VRF support for account: {}", account_id);
@@ -171,6 +172,14 @@ impl WebAuthnContract {
         // 3. If WebAuthn verification succeeded, store the authenticator and user data
         if webauthn_result.verified {
             if let Some(registration_info) = webauthn_result.registration_info {
+                // Determine device number (defaults to 1 for first device, 1-indexed for UX)
+                let device_num = device_number.unwrap_or(1);
+
+                // For new accounts (device 1), initialize counter
+                if device_num == 1 {
+                    self.device_numbers.insert(account_id.clone(), 2); // Next device will be 2
+                }
+
                 // Store the authenticator and user data with dual VRF keys for the specific account
                 let storage_result = self.store_authenticator_and_user_for_account(
                     account_id.clone(),
@@ -178,6 +187,7 @@ impl WebAuthnContract {
                     webauthn_registration,
                     vrf_data.public_key,
                     deterministic_vrf_public_key,
+                    device_num,
                 );
 
                 log!("VRF WebAuthn registration completed successfully for account: {}", account_id);
@@ -203,6 +213,7 @@ impl WebAuthnContract {
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
         deterministic_vrf_public_key: Option<Vec<u8>>,
+        device_number: Option<u8>,
     ) -> VerifyRegistrationResponse {
 
         // Use predecessor account ID
@@ -214,6 +225,7 @@ impl WebAuthnContract {
             vrf_data,
             webauthn_registration,
             deterministic_vrf_public_key,
+            device_number,
         )
 
         // Check if self.device_linking_map contains the device public key
@@ -772,7 +784,8 @@ mod tests {
         let result = contract.verify_and_register_user(
             vrf_data,
             webauthn_registration,
-            None
+            None,
+            Some(1) // First device gets device number 1
         );
 
         // The result should fail VRF verification (expected with mock data)

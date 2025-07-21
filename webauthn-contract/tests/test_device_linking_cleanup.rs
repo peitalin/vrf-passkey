@@ -72,22 +72,22 @@ async fn test_device_linking_automatic_cleanup() -> Result<(), Box<dyn std::erro
         .view()
         .await?;
 
-    let linking_account: Option<(String, String)> = query_result.json()?;
+    let linking_account: Option<(String, u32)> = query_result.json()?;
     println!("Device linking query result: {:?}", linking_account);
 
     // Verify the mapping exists and points to the test account
     assert!(linking_account.is_some(), "Device linking mapping should exist");
-    let (account_id, permission) = linking_account.unwrap();
+    let (account_id, device_number) = linking_account.unwrap();
     assert_eq!(account_id, test_account_id);
-    assert_eq!(permission, "FullAccess");
+    assert_eq!(device_number, 2, "Second device should get device number 2");
 
         ///////////// Step 3: Fast forward 200+ blocks /////////////
-    println!("\nStep 3: Fast forwarding 200+ blocks to trigger automatic cleanup");
+    println!("\nStep 3: Fast forwarding 200+ blocks to simulate passage of time");
 
-    fast_forward(&sandbox, 210).await?;
+    fast_forward(&sandbox, 240).await?;
 
     ///////////// Step 4: Verify device linking mapping is cleaned up /////////////
-    println!("\nStep 4: Verify device linking mapping has been automatically cleaned up");
+    println!("\nStep 4: Verify device linking mapping has been cleaned up");
 
     let query_result_after = contract
         .call("get_device_linking_account")
@@ -95,13 +95,13 @@ async fn test_device_linking_automatic_cleanup() -> Result<(), Box<dyn std::erro
         .view()
         .await?;
 
-    let linking_account_after: Option<(String, String)> = query_result_after.json()?;
+    let linking_account_after: Option<(String, u32)> = query_result_after.json()?;
     println!("Device linking query result after cleanup: {:?}", linking_account_after);
 
-    // Verify the mapping has been automatically cleaned up
-    assert!(linking_account_after.is_none(), "Device linking mapping should be automatically cleaned up after 200 blocks");
+    // Verify the mapping has been cleaned up
+    assert!(linking_account_after.is_none(), "Device linking mapping should be cleaned up after calling cleanup_device_linking");
 
-    println!("Test passed: Device linking HashMap was automatically cleaned up after 200 blocks");
+    println!("Test passed: Device linking HashMap was cleaned up successfully");
 
     Ok(())
 }

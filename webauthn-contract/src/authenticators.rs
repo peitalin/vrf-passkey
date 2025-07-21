@@ -87,6 +87,7 @@ impl WebAuthnContract {
         transports: Option<Vec<AuthenticatorTransport>>,
         registered: String,
         vrf_public_keys: Vec<Vec<u8>>, // Changed from single key to vector of keys
+        device_number: u8, // Device number for this authenticator
     ) -> bool {
         require!(self.only_sender_or_admin(&user_id), "Must be called by the msg.sender, owner, or admins");
 
@@ -96,6 +97,7 @@ impl WebAuthnContract {
             transports,
             registered,
             vrf_public_keys, // Store all VRF keys
+            device_number,   // Store device number
         };
 
         // Check if user's authenticator map exists, if not create it
@@ -149,6 +151,7 @@ impl WebAuthnContract {
         credential: WebAuthnRegistrationCredential,
         bootstrap_vrf_public_key: Vec<u8>,
         deterministic_vrf_public_key: Option<Vec<u8>>,
+        device_number: u8,
     ) -> VerifyRegistrationResponse {
 
         log!("Storing new authenticator for account {}", account_id);
@@ -190,6 +193,7 @@ impl WebAuthnContract {
             transports,
             current_timestamp,
             vrf_keys,
+            device_number,
         );
 
         // 2. Register user in user registry if not already registered
@@ -242,6 +246,36 @@ impl WebAuthnContract {
             log!("No authenticators found for user {}", user_id);
             false
         }
+    }
+
+    /// Get authenticator by credential ID (for device number recovery)
+    pub fn get_authenticator_by_credential_id(
+        &self,
+        credential_id: String,
+    ) -> Option<(AccountId, StoredAuthenticator)> {
+        // Use reverse lookup to find account, then get authenticator with device_number
+        if let Some(account_id) = self.credential_to_users.get(&credential_id).cloned() {
+            if let Some(authenticators) = self.authenticators.get(&account_id) {
+                if let Some(authenticator) = authenticators.get(&credential_id).cloned() {
+                    return Some((account_id, authenticator));
+                }
+            }
+        }
+        None
+    }
+
+    /// Get all authenticators for an account with their device numbers
+    pub fn get_all_authenticators_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Vec<(String, StoredAuthenticator)> {
+        // Return all authenticators with their device numbers
+        self.authenticators
+            .get(&account_id)
+            .map(|auth_map| {
+                auth_map.iter().map(|(id, auth)| (id.clone(), auth.clone())).collect()
+            })
+            .unwrap_or_default()
     }
 
     /////////////////////////////////

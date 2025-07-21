@@ -31,6 +31,7 @@ pub struct StoredAuthenticator {
     pub transports: Option<Vec<AuthenticatorTransport>>,
     pub registered: String, // ISO timestamp of registration
     pub vrf_public_keys: Vec<Vec<u8>>, // VRF public keys for stateless authentication (max 5, FIFO)
+    pub device_number: u8, // Device number for this authenticator (1-indexed for UX)
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
@@ -56,6 +57,7 @@ pub enum StorageKey {
     RegisteredUsers,
     Admins,
     CredentialToUsers,
+    AccountDeviceCounters,
     DeviceLinkingMap,
 }
 
@@ -75,7 +77,9 @@ pub struct WebAuthnContract {
     // Reverse Lookup account associated with a WebAuthn (TouchId) credential_id (1:1 mapping)
     // May be needed for future account recovery flow (discover accounts with TouchID)
     pub credential_to_users: LookupMap<String, AccountId>,
-    // Temporary mapping for device linking: Device2 public key -> (Device1 account ID, access key permission)
+    // Temporary mapping for device linking: Device2 public key -> (Device1 account ID, device number)
     // Required for Link Device Flow
-    pub device_linking_map: LookupMap<String, (AccountId, crate::link_device::AccessKeyPermission)>,
+    pub device_linking_map: LookupMap<String, (AccountId, u32)>,
+    // Device counter per account: AccountId -> next device number
+    pub device_numbers: LookupMap<AccountId, u32>,
 }

@@ -4,7 +4,7 @@ use near_sdk::{
     Promise, AccountId, NearToken, Gas, PublicKey, CryptoHash, GasWeight
 };
 
-// Simple enum for access key permission
+// Simple enum for access key permission (kept for potential future use)
 #[derive(Clone, Debug, PartialEq)]
 #[near_sdk::near(serializers = [json, borsh])]
 pub enum AccessKeyPermission {
@@ -20,7 +20,7 @@ pub enum AccessKeyPermission {
 impl WebAuthnContract {
     /// Store device linking mapping for Device2 polling
     /// Device1 calls this after directly adding Device2's key to their own account
-    /// This enables Device2 to discover which account it was linked to
+    /// This enables Device2 to discover which account it was linked to and get assigned a device number
     pub fn store_device_linking_mapping(
         &mut self,
         device_public_key: String,
@@ -44,33 +44,52 @@ impl WebAuthnContract {
             }
         };
 
-        // Store temporary mapping for Device2 to poll (account ID and access key permission)
+        // Get next device number for this account (1-indexed for UX)
+        let current_counter = self.device_numbers
+            .get(&target_account_id)
+            .copied()
+            .unwrap_or(2); // Start from 2 since device 1 is the first device
+
+        let device_number = current_counter;
+
+        // Increment and store the new counter
+        self.device_numbers.insert(target_account_id.clone(), current_counter + 1);
+
+        // Store temporary mapping for Device2 to poll (account ID and assigned device number)
         self.device_linking_map.insert(
             device_public_key.clone(),
-            (target_account_id.clone(), AccessKeyPermission::FullAccess)
+            (target_account_id.clone(), device_number)
         );
 
         // Emit structured log event that Device2 can poll
         log!(
-            "DEVICE_KEY_MAPPED:{}:{}:{}",
+            "DEVICE_KEY_MAPPED:{}:{}:{}:{}",
             device_public_key,
             target_account_id,
+            device_number,
             env::block_timestamp()
         );
 
         // Initiate automatic cleanup after 200 blocks using yield-resume pattern
         let data_id = self.initiate_cleanup(device_public_key.clone());
-        log!("Device linking mapping stored successfully for account {}", target_account_id);
+        log!(
+            "Device linking mapping stored successfully for account {} with device number {}",
+            target_account_id,
+            device_number
+        );
         data_id
     }
 
-
-
-    /// View function for Device2 to query which account it will be linked to and the access key permission
-    /// Device2 calls this with its public key to discover Device1's account ID and confirm the access key permission
-    pub fn get_device_linking_account(&self, device_public_key: String) -> Option<(AccountId, AccessKeyPermission)> {
+    /// View function for Device2 to query which account it will be linked to and get its assigned device number
+    /// Device2 calls this with its public key to discover Device1's account ID and its assigned device number
+    pub fn get_device_linking_account(&self, device_public_key: String) -> Option<(AccountId, u32)> {
         self.device_linking_map.get(&device_public_key)
-            .map(|(account_id, permission)| (account_id.clone(), permission.clone()))
+            .map(|(account_id, device_number)| (account_id.clone(), *device_number))
+    }
+
+    /// Get the current device counter for an account (useful for debugging)
+    pub fn get_device_counter(&self, account_id: AccountId) -> u32 {
+        self.device_numbers.get(&account_id).copied().unwrap_or(0)
     }
 
     /// Initiate automatic cleanup using yield-resume pattern (executes after 200 blocks)
@@ -121,15 +140,19 @@ impl WebAuthnContract {
     /// This bypasses the normal add_device_key flow to enable testing of just the HashMap cleanup
     /// WARNING: This is for testing purposes only and should not be used in production
     pub fn test_add_device_linking_entry(&mut self, device_public_key: String, account_id: AccountId) {
+        // For testing, assign device number 2 (simulating first additional device - 1-indexed system)
+        let test_device_number = 2u32;
+
         self.device_linking_map.insert(
             device_public_key.clone(),
-            (account_id.clone(), AccessKeyPermission::FullAccess)
+            (account_id.clone(), test_device_number)
         );
 
         // Initiate automatic cleanup after 200 blocks using yield-resume pattern
         let _data_id = self.initiate_cleanup(device_public_key.clone());
 
-        log!("Test helper: Added device linking entry for key: {} -> account: {}", device_public_key, account_id);
+        log!("Test helper: Added device linking entry for key: {} -> account: {} with device number {}",
+             device_public_key, account_id, test_device_number);
     }
 
 }
@@ -175,7 +198,6 @@ mod tests {
     #[test]
     fn test_store_device_linking_mapping_valid_format() {
         let alice = AccountId::from_str("alice.testnet").unwrap();
-        let bob = AccountId::from_str("bob.testnet").unwrap();
 
         // Setup context with Alice as caller
         let context = get_context(alice.clone());
@@ -189,7 +211,8 @@ mod tests {
 
         // This stores the mapping without creating a Promise
         // We're just verifying the function doesn't panic with valid input
-        contract.store_device_linking_mapping(device_public_key, bob.clone());
+        // Alice can only create device linking mappings for her own account
+        contract.store_device_linking_mapping(device_public_key, alice.clone());
 
         // The function should complete without panicking
         // In a real blockchain environment, this would:

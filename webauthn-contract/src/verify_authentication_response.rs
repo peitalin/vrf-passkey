@@ -497,6 +497,7 @@ mod tests {
             transports: Some(vec![crate::contract_state::AuthenticatorTransport::Internal]),
             registered: "1234567890".to_string(),
             vrf_public_keys: vec![vrf_public_key], // Store VRF public key for stateless auth
+            device_number: 0
         }
     }
 
