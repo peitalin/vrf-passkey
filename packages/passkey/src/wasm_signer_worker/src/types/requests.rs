@@ -17,11 +17,25 @@ impl<T: Serialize> ToJson for T {
 // === KEYPAIR DERIVATION REQUESTS ===
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct LinkDeviceRegistrationTransaction {
+    #[serde(rename = "vrfChallenge")]
+    pub vrf_challenge: VrfChallengePayload,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub nonce: String,
+    #[serde(rename = "blockHashBytes")]
+    pub block_hash_bytes: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct DeriveKeypairPayload {
     #[serde(rename = "dualPrfOutputs")]
     pub dual_prf_outputs: DualPrfOutputsStruct,
     #[serde(rename = "nearAccountId")]
     pub near_account_id: String,
+    // Optional device linking registration transaction
+    #[serde(rename = "registrationTransaction")]
+    pub registration_transaction: Option<LinkDeviceRegistrationTransaction>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

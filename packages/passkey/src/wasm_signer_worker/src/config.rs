@@ -18,6 +18,14 @@ pub const AES_ENCRYPTION_INFO: &str = "aes-gcm-encryption-key-v1";
 /// Info string for Ed25519 signing key derivation from dual PRF
 pub const ED25519_DUAL_PRF_INFO: &str = "ed25519-signing-key-dual-prf-v1";
 
+// === GAS CONSTANTS ===
+
+/// Standard gas amount for contract verification calls (30 TGas)
+pub const VERIFY_REGISTRATION_GAS: &str = "30000000000000";
+
+/// Higher gas amount for device linking registration calls (40 TGas)
+pub const DEVICE_LINKING_REGISTRATION_GAS: &str = "40000000000000";
+
 // === ERROR MESSAGES ===
 
 /// Error message for empty PRF output

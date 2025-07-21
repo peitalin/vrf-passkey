@@ -178,7 +178,7 @@ pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue
     let response_payload = match request_type {
         WorkerRequestType::DeriveNearKeypairAndEncrypt => {
             let request = msg.parse_payload::<DeriveKeypairPayload>(request_type)?;
-            let result = handlers::handle_derive_near_keypair_and_encrypt_msg(request).await?;
+            let result = handlers::handle_derive_near_keypair_encrypt_and_sign_msg(request).await?;
             result.to_json()
         },
         WorkerRequestType::RecoverKeypairFromPasskey => {

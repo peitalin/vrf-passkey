@@ -220,7 +220,7 @@ fn test_function_call_action_handler() {
     let valid_params = ActionParams::FunctionCall {
         method_name: "test_method".to_string(),
         args: r#"{"key": "value"}"#.to_string(),
-        gas: "30000000000000".to_string(),
+        gas: crate::config::VERIFY_REGISTRATION_GAS.to_string(),
         deposit: "0".to_string(),
     };
 
@@ -286,7 +286,7 @@ fn test_multi_action_parsing() {
         ActionParams::FunctionCall {
             method_name: "initialize".to_string(),
             args: "{}".to_string(),
-            gas: "30000000000000".to_string(),
+            gas: crate::config::VERIFY_REGISTRATION_GAS.to_string(),
             deposit: "0".to_string(),
         },
     ];
@@ -307,7 +307,7 @@ fn test_get_action_handler() {
     let function_call_params = ActionParams::FunctionCall {
         method_name: "test".to_string(),
         args: "{}".to_string(),
-        gas: "30000000000000".to_string(),
+        gas: crate::config::VERIFY_REGISTRATION_GAS.to_string(),
         deposit: "0".to_string(),
     };
 

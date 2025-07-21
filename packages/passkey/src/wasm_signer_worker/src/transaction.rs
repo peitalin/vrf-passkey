@@ -63,7 +63,9 @@ pub fn build_actions_from_params(action_params: Vec<ActionParams>) -> Result<Vec
     Ok(actions)
 }
 
-/// Sign a transaction and return the serialized SignedTransaction
+/// Low-level transaction signing function
+/// Takes an already-built Transaction and SigningKey, signs it, and returns serialized bytes
+/// Used internally by higher-level functions like sign_registration_tx_wasm() and sign_link_device_registration_tx()
 pub fn sign_transaction(transaction: Transaction, private_key: &SigningKey) -> Result<Vec<u8>, String> {
     // Get transaction hash for signing
     let (transaction_hash, _size) = transaction.get_hash_and_size();
@@ -88,5 +90,223 @@ pub fn calculate_transaction_hash(signed_tx_bytes: &[u8]) -> String {
 
     // Convert to hex string for readability and consistency
     format!("{:x}", result)
+}
+
+// === REGISTRATION TRANSACTION SIGNING FUNCTIONS ===
+// These are higher-level convenience functions that build specific transaction types.
+// They use the low-level sign_transaction() function internally but handle the business
+// logic for specific use cases:
+// 1. sign_registration_tx_wasm: Traditional user registration - decrypts PRF-encrypted keys
+// 2. sign_link_device_registration_tx: Device linking registration - uses unencrypted keys
+
+/// Sign registration transaction with encrypted private key (traditional flow)
+/// Decrypts the key first using PRF, then builds and signs the transaction
+pub async fn sign_registration_tx_wasm(
+    contract_id: &str,
+    vrf_data: crate::http::VrfData,
+    deterministic_vrf_public_key: Option<&str>, // Optional deterministic VRF key for dual registration
+    webauthn_registration_credential: crate::http::WebAuthnRegistrationCredential,
+    signer_account_id: &str,
+    encrypted_private_key_data: &str,
+    encrypted_private_key_iv: &str,
+    prf_output_base64: &str,
+    nonce: u64,
+    block_hash_bytes: &[u8],
+) -> Result<crate::http::ContractRegistrationResult, String> {
+    use log::info;
+    use log::debug;
+    use base64::prelude::*;
+
+    info!("RUST: Performing dual VRF user registration (state-changing function)");
+
+    // Step 1: Decrypt the private key using PRF with account-specific HKDF
+    let private_key = crate::crypto::decrypt_private_key_with_prf(
+        signer_account_id,          // 1st parameter: Account ID
+        prf_output_base64,          // 2nd parameter: PRF output
+        encrypted_private_key_data, // 3rd parameter: Encrypted data
+        encrypted_private_key_iv,   // 4th parameter: IV
+    ).map_err(|e| format!("Failed to decrypt private key: {:?}", e))?;
+
+    // Step 2: Build dual VRF data for contract arguments
+    let deterministic_vrf_key_bytes = if let Some(det_vrf_key) = deterministic_vrf_public_key {
+        let det_vrf_key_bytes = crate::http::base64url_decode(det_vrf_key)
+            .map_err(|e| format!("Failed to decode deterministic VRF key: {}", e))?;
+        Some(det_vrf_key_bytes)
+    } else {
+        debug!("RUST: Single VRF registration - using bootstrap VRF key only");
+        None
+    };
+
+    // Step 3: Build contract arguments for verify_and_register_user with dual VRF support
+    let contract_args = serde_json::json!({
+        "vrf_data": vrf_data,
+        "webauthn_registration": webauthn_registration_credential,
+        "deterministic_vrf_public_key": deterministic_vrf_key_bytes
+    });
+
+    // Step 4: Create FunctionCall action using existing infrastructure
+    let action_params = vec![crate::actions::ActionParams::FunctionCall {
+        method_name: crate::http::VERIFY_AND_REGISTER_USER_METHOD.to_string(),
+        args: contract_args.to_string(),
+        gas: crate::config::VERIFY_REGISTRATION_GAS.to_string(),
+        deposit: "0".to_string(),
+    }];
+
+    info!("RUST: Building FunctionCall action for {}", crate::http::VERIFY_AND_REGISTER_USER_METHOD);
+
+    // Step 5: Build actions using existing infrastructure
+    let actions = build_actions_from_params(action_params)
+        .map_err(|e| format!("Failed to build actions: {}", e))?;
+
+    // Step 6: Build transaction using existing infrastructure
+    let transaction = build_transaction_with_actions(
+        signer_account_id,
+        contract_id, // receiver_id is the contract
+        nonce,
+        block_hash_bytes,
+        &private_key,
+        actions,
+    ).map_err(|e| format!("Failed to build transaction: {}", e))?;
+
+    // Step 7: Sign registration transaction using existing infrastructure
+    let signed_registration_tx_bytes = sign_transaction(transaction, &private_key)
+        .map_err(|e| format!("Failed to sign registration transaction: {}", e))?;
+
+    info!("RUST: Registration transaction signed successfully");
+
+    // Step 8: Generate pre-signed delete transaction for rollback with SAME nonce/block hash
+    info!("RUST: Generating pre-signed deleteAccount transaction for rollback");
+
+    let delete_action_params = vec![crate::actions::ActionParams::DeleteAccount {
+        beneficiary_id: "testnet".to_string(), // Default beneficiary for rollback
+    }];
+
+    let delete_actions = build_actions_from_params(delete_action_params)
+        .map_err(|e| format!("Failed to build delete actions: {}", e))?;
+
+    // Use SAME nonce and block hash - makes transactions mutually exclusive
+    let delete_transaction = build_transaction_with_actions(
+        signer_account_id,
+        signer_account_id, // receiver_id same as signer for delete account
+        nonce, // SAME nonce as registration
+        block_hash_bytes, // SAME block hash as registration
+        &private_key, // SAME private key as registration
+        delete_actions,
+    ).map_err(|e| format!("Failed to build delete transaction: {}", e))?;
+
+    let signed_delete_tx_bytes = sign_transaction(delete_transaction, &private_key)
+        .map_err(|e| format!("Failed to sign delete transaction: {}", e))?;
+
+    info!("RUST: Pre-signed deleteAccount transaction created - same nonce ensures mutual exclusivity");
+    info!("RUST: Registration transaction: {} bytes, Delete transaction: {} bytes",
+                 signed_registration_tx_bytes.len(), signed_delete_tx_bytes.len());
+
+    Ok(crate::http::ContractRegistrationResult {
+        success: true,
+        verified: true, // We assume verification will succeed since we built the transaction correctly
+        error: None,
+        logs: vec![], // No logs yet since we haven't executed the transaction
+        registration_info: None, // Will be available after broadcast in main thread
+        signed_transaction_borsh: Some(signed_registration_tx_bytes),
+        pre_signed_delete_transaction: Some(signed_delete_tx_bytes), // NEW: Add delete transaction
+    })
+}
+
+/// Sign device linking registration transaction with unencrypted private key
+/// Specifically for device linking flow where we have an already-derived private key
+/// and need to register the device's authenticator on-chain
+pub async fn sign_link_device_registration_tx(
+    contract_id: &str,
+    vrf_data: crate::http::VrfData,
+    deterministic_vrf_public_key: Option<&str>,
+    webauthn_registration: crate::http::WebAuthnRegistrationCredential,
+    signer_account_id: &str,
+    private_key: &str, // Already derived private key (not encrypted)
+    nonce: u64,
+    block_hash_bytes: &[u8],
+) -> Result<crate::http::ContractRegistrationResult, String> {
+    use ed25519_dalek::SigningKey;
+    use bs58;
+
+    // Parse the private key from NEAR format (ed25519:base58_encoded_64_bytes)
+    let private_key_str = if private_key.starts_with("ed25519:") {
+        &private_key[8..] // Remove "ed25519:" prefix
+    } else {
+        return Err("Private key must be in ed25519: format".to_string());
+    };
+
+    // Decode the base58-encoded private key
+    let private_key_bytes = bs58::decode(private_key_str)
+        .into_vec()
+        .map_err(|e| format!("Failed to decode private key: {}", e))?;
+
+    if private_key_bytes.len() != 64 {
+        return Err(format!("Invalid private key length: expected 64 bytes, got {}", private_key_bytes.len()));
+    }
+
+    // Extract the 32-byte seed (first 32 bytes)
+    let seed_bytes: [u8; 32] = private_key_bytes[0..32].try_into()
+        .map_err(|_| "Failed to extract seed from private key".to_string())?;
+
+    // Create SigningKey from seed
+    let signing_key = SigningKey::from_bytes(&seed_bytes);
+
+    // Build verify_and_register_user transaction actions
+    let action_params = vec![crate::actions::ActionParams::FunctionCall {
+        method_name: "verify_and_register_user".to_string(),
+        args: serde_json::json!({
+            "vrf_data": {
+                "vrf_input_data": vrf_data.vrf_input_data,
+                "vrf_output": vrf_data.vrf_output,
+                "vrf_proof": vrf_data.vrf_proof,
+                "public_key": vrf_data.public_key,
+                "user_id": vrf_data.user_id,
+                "rp_id": vrf_data.rp_id,
+                "block_height": vrf_data.block_height,
+                "block_hash": vrf_data.block_hash
+            },
+            "webauthn_registration": {
+                "id": webauthn_registration.id,
+                "raw_id": webauthn_registration.raw_id,
+                "type": webauthn_registration.reg_type,
+                "response": {
+                    "client_data_json": webauthn_registration.response.client_data_json,
+                    "attestation_object": webauthn_registration.response.attestation_object,
+                    "transports": webauthn_registration.response.transports.unwrap_or_default()
+                }
+            },
+            "deterministic_vrf_public_key": deterministic_vrf_public_key
+        }).to_string(),
+        gas: crate::config::DEVICE_LINKING_REGISTRATION_GAS.to_string(),
+        deposit: "0".to_string(),
+    }];
+
+    // Build actions
+    let actions = build_actions_from_params(action_params)
+        .map_err(|e| format!("Failed to build actions: {}", e))?;
+
+    // Build and sign transaction
+    let transaction = build_transaction_with_actions(
+        signer_account_id,
+        contract_id,
+        nonce,
+        block_hash_bytes,
+        &signing_key,
+        actions,
+    ).map_err(|e| format!("Failed to build transaction: {}", e))?;
+
+    let signed_tx_bytes = sign_transaction(transaction, &signing_key)
+        .map_err(|e| format!("Failed to sign transaction: {}", e))?;
+
+    // Return a simplified registration result with the signed transaction
+    Ok(crate::http::ContractRegistrationResult {
+        success: true,
+        verified: true, // Assume success for now
+        registration_info: None, // Not needed for device linking
+        logs: vec!["Registration transaction signed successfully".to_string()],
+        signed_transaction_borsh: Some(signed_tx_bytes),
+        pre_signed_delete_transaction: None, // Not needed for device linking
+        error: None,
+    })
 }
 
