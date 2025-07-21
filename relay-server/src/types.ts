@@ -11,6 +11,20 @@ export interface CreateAccountResult {
   details?: string;
 }
 
+// Interfaces for relay server API
+export interface AccountCreationResult {
+  success: boolean;
+  transactionHash?: string;
+  accountId?: string;
+  error?: string;
+  message?: string;
+}
+
+export interface AccountCreationRequest {
+  accountId: string;
+  publicKey: string;
+}
+
 // Interface for atomic account creation and registration
 export interface CreateAccountAndRegisterRequest {
   new_account_id: string;
@@ -18,6 +32,15 @@ export interface CreateAccountAndRegisterRequest {
   vrf_data: any; // VRFVerificationData from contract
   webauthn_registration: any; // WebAuthnRegistrationCredential from contract
   deterministic_vrf_public_key?: Uint8Array;
+}
+
+// Result type for atomic account creation and registration
+export interface CreateAccountAndRegisterResult {
+  success: boolean;
+  transactionHash?: string;
+  error?: string;
+  message?: string;
+  contractResult?: any; // FinalExecutionOutcome
 }
 
 // SSE Registration Event Types
@@ -98,7 +121,7 @@ export type SSEEventEmitter = (event: RegistrationSSEEvent) => void;
 
 
 // Runtime-tested NEAR error types (based on actual on-chain observations)
-interface NearActionErrorKind {
+export interface NearActionErrorKind {
   AccountAlreadyExists?: {
     accountId: string;
   };
@@ -129,7 +152,7 @@ export interface NearExecutionFailure {
   [key: string]: any;
 }
 
-interface NearReceiptStatus {
+export interface NearReceiptStatus {
   SuccessValue?: string;
   SuccessReceiptId?: string;
   Failure?: NearExecutionFailure;

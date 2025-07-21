@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { nearAccountService } from '../accountService';
-import type { RegistrationSSEEvent, CreateAccountAndRegisterRequest } from '../types';
+import type { RegistrationSSEEvent, CreateAccountAndRegisterRequest, CreateAccountAndRegisterResult } from '../types';
 
 const router = Router();
 
@@ -69,11 +69,14 @@ router.post('/create_account_and_register_user', async (req: Request<any, any, C
       deterministic_vrf_public_key
     });
 
-    if (!result.success) {
-      throw new Error(result.error || 'Atomic registration failed');
+    // Return the result directly - don't throw if unsuccessful
+    if (result.success) {
+      res.status(200).json(result);
+    } else {
+      // Return error response with appropriate HTTP status code
+      console.error('Atomic account creation and registration failed:', result.error);
+      res.status(400).json(result); // Use 400 for client errors like "account already exists"
     }
-
-    res.status(200).json(result);
 
   } catch (error: any) {
     console.error('Atomic account creation and registration failed:', error.message);
@@ -107,9 +110,14 @@ router.post('/accounts/create-account', async (req: Request<any, any, RequestPar
 
     const result = await nearAccountService.createAccount({ accountId, publicKey });
 
-    if (!result.success) throw new Error(result.error || 'Account creation failed');
-
-    res.status(200).json(result);
+    // Return the result directly - don't throw if unsuccessful
+    if (result.success) {
+      res.status(200).json(result);
+    } else {
+      // Return error response with appropriate HTTP status code
+      console.error('Account creation failed:', result.error);
+      res.status(400).json(result); // Use 400 for client errors like "account already exists"
+    }
 
   } catch (error: any) {
     console.error('Account creation failed:', error.message);

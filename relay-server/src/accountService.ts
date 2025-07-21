@@ -5,43 +5,20 @@ import { InMemoryKeyStore, type KeyStore } from '@near-js/keystores';
 import { JsonRpcProvider, type Provider } from '@near-js/providers';
 import type { Signer } from '@near-js/signers';
 import { actionCreators } from '@near-js/transactions';
-import { FinalExecutionOutcome } from '@near-js/types';
+import type { FinalExecutionOutcome } from '@near-js/types';
 
 import * as dotenv from 'dotenv';
 dotenv.config();
-import type { SSEEventEmitter, NearExecutionFailure, NearReceiptOutcomeWithId } from './types';
+import type {
+  SSEEventEmitter,
+  NearExecutionFailure,
+  NearReceiptOutcomeWithId,
+  CreateAccountAndRegisterResult,
+  CreateAccountAndRegisterRequest,
+  AccountCreationRequest,
+  AccountCreationResult
+} from './types';
 import config, { type AppConfig } from './config';
-
-// Interfaces for relay server API
-export interface AccountCreationResult {
-  success: boolean;
-  transactionHash?: string;
-  accountId?: string;
-  error?: string;
-  message?: string;
-}
-
-export interface AccountCreationRequest {
-  accountId: string;
-  publicKey: string;
-}
-
-// Interface for atomic account creation and registration
-export interface CreateAccountAndRegisterRequest {
-  new_account_id: string;
-  new_public_key: string;
-  vrf_data: any; // VRFVerificationData from contract
-  webauthn_registration: any; // WebAuthnRegistrationCredential from contract
-  deterministic_vrf_public_key?: Uint8Array;
-}
-
-export interface CreateAccountAndRegisterResult {
-  success: boolean;
-  transactionHash?: string;
-  error?: string;
-  message?: string;
-  contractResult?: FinalExecutionOutcome;
-}
 
 class AccountService {
   private config: AppConfig;
@@ -89,14 +66,11 @@ class AccountService {
   }
 
   /**
-   * Simplified account creation for relay server API
-   * Creates account with actionCreators (cleaner than LocalAccountCreator)
+   * Create a new account with the specified balance
+   *
    * @param request - Account creation parameters
-   * @param request.accountId - The desired NEAR account ID
-   * @param request.publicKey - The public key to associate with the account (ed25519:...)
-   * @param onEvent - Optional SSE event emitter callback for progress updates
-   * @param sessionId - Optional session ID for SSE tracking
-   * @returns Promise resolving to account creation result with success status and transaction details
+   * @param onEvent - Optional SSE event emitter for real-time updates
+   * @returns Promise<AccountCreationResult> with success status and details
    */
   async createAccount(
     request: AccountCreationRequest,
@@ -134,12 +108,12 @@ class AccountService {
           actions: [
             actionCreators.createAccount(),
             actionCreators.transfer(initialBalance),
-            actionCreators.addKey(publicKey, actionCreators.fullAccessKey())
+            actionCreators.addKey(publicKey, actionCreators.fullAccessKey()),
           ]
         });
 
-        console.log(`Account created successfully: ${result.transaction.hash}`);
-        const nearAmount = (Number(initialBalance) / 1e24).toFixed(4);
+        console.log(`Account creation completed successfully: ${result.transaction.hash}`);
+        const nearAmount = (Number(initialBalance) / 1e24).toFixed(6);
         return {
           success: true,
           transactionHash: result.transaction.hash,
