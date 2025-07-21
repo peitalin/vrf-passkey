@@ -10,7 +10,10 @@ import type {
   LinkDeviceFlow,
   LinkDeviceResult
 } from '../core/PasskeyManager';
-import type { DeviceLinkingOptions } from '../core/types/passkeyManager';
+import type {
+  StartDeviceLinkingOptionsDevice2,
+  ScanAndLinkDeviceOptionsDevice1
+} from '../core/types/linkDevice';
 
 // === CORE STATE TYPES ===
 
@@ -126,9 +129,11 @@ export interface PasskeyContextType {
     options?: ActionOptions,
     reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
+  // Account recovery functions
   startAccountRecoveryFlow: (options?: ActionOptions) => AccountRecoveryFlow;
-  createDeviceLinkingFlow: (options?: DeviceLinkingOptions) => LinkDeviceFlow;
-  scanAndLinkDevice: (options?: DeviceLinkingOptions) => Promise<LinkDeviceResult>;
+  // Device linking functions
+  startDeviceLinkingFlow: (options?: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
+  scanAndLinkDevice: (options?: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;
@@ -178,5 +183,9 @@ export type {
   RegistrationSSEEvent,
   LoginEvent,
   ActionEvent,
-  DeviceLinkingOptions,
 } from '../core/types/passkeyManager';
+
+export type {
+  StartDeviceLinkingOptionsDevice2,
+  ScanAndLinkDeviceOptionsDevice1,
+} from '../core/types/linkDevice';

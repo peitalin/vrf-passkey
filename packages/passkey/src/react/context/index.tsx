@@ -20,7 +20,8 @@ import type {
   LoginResult,
   RegistrationOptions,
   ActionOptions,
-  DeviceLinkingOptions,
+  StartDeviceLinkingOptionsDevice2,
+  ScanAndLinkDeviceOptionsDevice1,
 } from '../types';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
@@ -234,11 +235,21 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return passkeyManager.startAccountRecoveryFlow(options);
   }
 
-  const createDeviceLinkingFlow = (options?: DeviceLinkingOptions) => {
-    return passkeyManager.createDeviceLinkingFlow(options);
+  /**
+   * Device2: Start device linking flow
+   * @param options - DeviceLinkingOptionsDevice2
+   * @returns LinkDeviceFlow
+   */
+  const startDeviceLinkingFlow = (options?: StartDeviceLinkingOptionsDevice2) => {
+    return passkeyManager.startDeviceLinkingFlow(options);
   }
 
-  const scanAndLinkDevice = async (options?: DeviceLinkingOptions) => {
+  /**
+   * Device1: Scan QR code and execute AddKey transaction
+   * @param options - DeviceLinkingOptionsDevice1
+   * @returns LinkDeviceResult
+   */
+  const scanAndLinkDevice = async (options?: ScanAndLinkDeviceOptionsDevice1) => {
     return await passkeyManager.scanAndLinkDevice(options);
   }
 
@@ -294,7 +305,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     // Account recovery functions
     recoverAccountWithAccountId, // Recover account with accountID and TouchId
     startAccountRecoveryFlow,    // Create account recovery flow to discover accounts onchain, and recover accounts
-    createDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
+    startDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
     scanAndLinkDevice,           // Scan QR and link device (Device1 side)
 
     // Authentication state (actual state from contract/backend)

@@ -1,17 +1,20 @@
 import React from 'react';
+import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
 
 // Lazy load the QRCodeScanner component
 const QRCodeScannerComponent = React.lazy(() => import('./QRCodeScanner'));
 
 // Props interface (re-exported for convenience)
 export interface QRCodeScannerProps {
-  onQRCodeScanned?: (qrData: any) => void;
-  onDeviceLinked?: (result: any) => void;
+  onQRCodeScanned?: (qrData: DeviceLinkingQRData) => void;
+  onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
+  onClose?: () => void;
   autoLink?: boolean;
   fundingAmount?: string;
+  isOpen?: boolean;
   cameraId?: string;
-  config?: {
+  cameraConfigs?: {
     facingMode?: 'user' | 'environment';
     width?: number;
     height?: number;

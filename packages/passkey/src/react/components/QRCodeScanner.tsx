@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { usePasskeyContext } from '../context';
 import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
-import { LinkDeviceFlow, validateDeviceLinkingQRData } from '../../core/PasskeyManager/linkDevice';
+import { validateDeviceLinkingQRData } from '../../core/PasskeyManager/linkDevice';
 
 
 interface QRCodeScannerProps {
@@ -42,9 +42,12 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>(cameraId || '');
   const [scanMode, setScanMode] = useState<'camera' | 'file' | 'auto'>('auto');
+  const [isFrontCamera, setIsFrontCamera] = useState<boolean>(false);
 
   // Use refs to avoid closure issues
   const isScanningRef = useRef(false);
+  const scanStartTimeRef = useRef<number>(0);
+  const SCAN_TIMEOUT_MS = 60000; // 60 seconds timeout
 
   // Initialize camera devices
   useEffect(() => {
@@ -55,13 +58,40 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         setCameras(videoDevices);
 
         if (videoDevices.length > 0 && !selectedCamera) {
-          // Prefer back camera if available
-          const backCamera = videoDevices.find(device =>
-            device.label.toLowerCase().includes('back') ||
-            device.label.toLowerCase().includes('rear') ||
-            device.label.toLowerCase().includes('environment')
-          );
-          setSelectedCamera(backCamera?.deviceId || videoDevices[0].deviceId);
+          // Prefer back camera if available - check multiple patterns
+          const backCamera = videoDevices.find(device => {
+            const label = device.label.toLowerCase();
+            return label.includes('back') ||
+                   label.includes('rear') ||
+                   label.includes('environment') ||
+                   label.includes('main') ||
+                   (label.includes('camera') && label.includes('0')) || // Often camera 0 is rear
+                   label.includes('facing back');
+          });
+
+          // If no clear back camera, avoid cameras with "front", "user", "selfie"
+          const nonFrontCamera = backCamera || videoDevices.find(device => {
+            const label = device.label.toLowerCase();
+            return !label.includes('front') &&
+                   !label.includes('user') &&
+                   !label.includes('selfie') &&
+                   !label.includes('facetime');
+          });
+
+          setSelectedCamera(nonFrontCamera?.deviceId || videoDevices[0].deviceId);
+
+          // Detect if the selected camera is a front camera
+          const selectedCameraDevice = nonFrontCamera || videoDevices[0];
+          const isUsingFrontCamera = selectedCameraDevice && (() => {
+            const label = selectedCameraDevice.label.toLowerCase();
+            return label.includes('front') ||
+                   label.includes('user') ||
+                   label.includes('selfie') ||
+                   label.includes('facetime') ||
+                   label.includes('facing front');
+          })();
+
+          setIsFrontCamera(!!isUsingFrontCamera);
         }
       } catch (err) {
         console.error('Failed to enumerate cameras:', err);
@@ -76,7 +106,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     // Keep ref in sync with state
     isScanningRef.current = isScanning;
     if (isScanning) {
-      console.log('📹 QRCodeScanner: Scanning started');
+      console.log('QRCodeScanner: Scanning started');
     }
   }, [isScanning]);
 
@@ -107,8 +137,9 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       const constraints: MediaStreamConstraints = {
         video: {
           deviceId: selectedCamera || undefined,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 720, min: 480 },
+          height: { ideal: 720, min: 480 },
+          aspectRatio: { ideal: 1.0 }, // Square aspect ratio to match display
           facingMode: selectedCamera ? undefined : 'environment'
         }
       };
@@ -129,6 +160,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       console.log('QRCodeScanner: Setting isScanning to true...');
       setIsScanning(true);
       isScanningRef.current = true;
+      scanStartTimeRef.current = Date.now();
 
       // Start automatic QR scanning with improved frame detection
       console.log('QRCodeScanner: Starting frame scanning in 500ms...');
@@ -167,6 +199,17 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
     if (!video || !canvas || !isOpen || !isScanningRef.current) {
       console.log('QRCodeScanner: scanFrame conditions not met - stopping scan loop');
+      return;
+    }
+
+    // Check for scanning timeout
+    const elapsedTime = Date.now() - scanStartTimeRef.current;
+    if (elapsedTime > SCAN_TIMEOUT_MS) {
+      console.log('QRCodeScanner: Scanning timeout reached after', elapsedTime, 'ms');
+      setIsScanning(false);
+      isScanningRef.current = false;
+      setError('QR scanning timeout - no valid QR code found within 60 seconds. Please ensure the QR code is clearly visible and try again.');
+      onError?.(new Error('QR scanning timeout after 60 seconds'));
       return;
     }
 
@@ -211,7 +254,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         } else {
           // Very infrequent scanning status log
           if (Math.random() < 0.005) {
-            console.log('📷 QRCodeScanner: Scanning... (no QR detected)');
+            console.log('QRCodeScanner: Scanning... (no QR detected)');
           }
         }
       } catch (err) {
@@ -335,6 +378,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     console.log('QRCodeScanner: Stopping camera and cleaning up...');
     setIsScanning(false);
     isScanningRef.current = false;
+    scanStartTimeRef.current = 0; // Reset scan start time
 
     // Cancel animation frame first to stop scanning loop
     if (animationRef.current) {
@@ -446,6 +490,19 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
   const handleCameraChange = (deviceId: string) => {
     setSelectedCamera(deviceId);
+
+    // Detect if the new camera is a front camera
+    const selectedCameraDevice = cameras.find(camera => camera.deviceId === deviceId);
+    if (selectedCameraDevice) {
+      const label = selectedCameraDevice.label.toLowerCase();
+      const isNewCameraFront = label.includes('front') ||
+                              label.includes('user') ||
+                              label.includes('selfie') ||
+                              label.includes('facetime') ||
+                              label.includes('facing front');
+      setIsFrontCamera(isNewCameraFront);
+    }
+
     if (isScanning) {
       stopScanning();
       // Restart with new camera
@@ -487,7 +544,10 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
               <div style={modalStyles.cameraContainer}>
                 <video
                   ref={videoRef}
-                  style={modalStyles.video}
+                  style={{
+                    ...modalStyles.video,
+                    transform: isFrontCamera ? 'scaleX(-1)' : 'none' // Flip front cameras horizontally
+                  }}
                   playsInline
                   autoPlay
                   muted
@@ -511,6 +571,11 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                 <p style={modalStyles.subInstruction}>
                   {isProcessing ? 'Processing QR code...' : 'The camera will automatically scan when a QR code is detected'}
                 </p>
+                {isScanning && (
+                  <p style={{ ...modalStyles.subInstruction, fontSize: '12px', opacity: 0.7 }}>
+                    Timeout: {Math.ceil((SCAN_TIMEOUT_MS - (Date.now() - scanStartTimeRef.current)) / 1000)}s remaining
+                  </p>
+                )}
               </div>
 
               {/* Camera controls */}
@@ -592,9 +657,12 @@ const modalStyles: Record<string, React.CSSProperties> = {
   video: {
     width: '400px',
     height: '400px',
-    objectFit: 'cover',
+    objectFit: 'cover', // Crop to square format
+    objectPosition: 'center center', // Center the crop properly
     borderRadius: '12px',
     display: 'block',
+    margin: '0 auto', // Center the video element itself
+    transform: 'translateX(0)', // Ensure no horizontal offset
   },
   canvas: {
     display: 'none',
