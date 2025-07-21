@@ -23,7 +23,7 @@ async function loadJsQR(): Promise<JsQR> {
  */
 export async function scanQRCodeFromCamera(
   cameraId?: string,
-  config?: {
+  cameraConfigs?: {
     facingMode?: 'user' | 'environment';
     width?: number;
     height?: number;
@@ -33,6 +33,8 @@ export async function scanQRCodeFromCamera(
     let stream: MediaStream | null = null;
     let scanning = true;
     let jsQR: JsQR | null = null;
+    const SCAN_TIMEOUT_MS = 60000; // 60 seconds timeout
+    const scanStartTime = Date.now();
 
     const cleanup = () => {
       scanning = false;
@@ -48,9 +50,9 @@ export async function scanQRCodeFromCamera(
       // Get camera stream
       const constraints: MediaStreamConstraints = {
         video: {
-          facingMode: config?.facingMode || 'environment',
-          width: config?.width || 640,
-          height: config?.height || 480,
+          facingMode: cameraConfigs?.facingMode || 'environment',
+          width: cameraConfigs?.width || 640,
+          height: cameraConfigs?.height || 480,
           ...(cameraId && { deviceId: { exact: cameraId } })
         }
       };
@@ -82,6 +84,18 @@ export async function scanQRCodeFromCamera(
 
       const scanFrame = () => {
         if (!scanning || !jsQR) return;
+
+        // Check for scanning timeout
+        const elapsedTime = Date.now() - scanStartTime;
+        if (elapsedTime > SCAN_TIMEOUT_MS) {
+          cleanup();
+          reject(new DeviceLinkingError(
+            'QR scanning timeout - no valid QR code found within 60 seconds. Please ensure the QR code is clearly visible and try again.',
+            DeviceLinkingErrorCode.SESSION_EXPIRED,
+            'authorization'
+          ));
+          return;
+        }
 
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
           canvas.width = video.videoWidth;

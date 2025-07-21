@@ -4,6 +4,7 @@ import { base64Decode, base64UrlDecode } from '../../utils/encoders';
 export interface RegisterCredentialsArgs {
   nearAccountId: string,
   challenge: Uint8Array<ArrayBuffer>,
+  deviceNumber?: number, // Optional device number for device-specific user ID (0, 1, 2, etc.)
 }
 
 export interface AuthenticateCredentialsArgs {
@@ -165,11 +166,17 @@ export class TouchIdPrompt {
    * Generate WebAuthn registration credentials with PRF output for a new passkey
    * @param nearAccountId - NEAR account ID to register
    * @param challenge - Random challenge bytes for the registration ceremony
+   * @param deviceNumber - Device number for device-specific user ID.
+   * e.g. bob.1.testnet, where 1 is the device number.
+   * For registration leave it blank if you want bob.testnet for the userID (device 0)
+   * This is mostly for device linking purposes: giving the 2nd device a unique passkey userId
+   * so that chrome passkey sync doesn't overwrite the old passkey
    * @returns Credential with PRF output
    */
   async generateRegistrationCredentials({
     nearAccountId,
     challenge,
+    deviceNumber // Only provide during device linking, not during registration
   }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
     const credential = await navigator.credentials.create({
       publicKey: {
@@ -179,9 +186,9 @@ export class TouchIdPrompt {
           id: window.location.hostname
         },
         user: {
-          id: new TextEncoder().encode(nearAccountId),
-          name: nearAccountId,
-          displayName: nearAccountId
+          id: new TextEncoder().encode(generateDeviceSpecificUserId(nearAccountId, deviceNumber)),
+          name: generateDeviceSpecificUserId(nearAccountId, deviceNumber),
+          displayName: generateDeviceSpecificUserId(nearAccountId, deviceNumber)
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' }, // ES256
@@ -205,5 +212,35 @@ export class TouchIdPrompt {
     }) as PublicKeyCredential;
 
     return credential;
+  }
+}
+
+/**
+ * Generate device-specific user ID to prevent Chrome sync conflicts
+ * Uses device number for device identification
+ *
+ * @param nearAccountId - The NEAR account ID (e.g., "serp120.web3-authn.testnet")
+ * @param deviceNumber - The device number (optional, 0 for device 1, 1 for device 2, etc.)
+ * @returns Device-specific user ID:
+ *   - Device 0 (first device): "serp120.web3-authn.testnet" (original account ID)
+ *   - Device 1 (second device): "serp120.1.web3-authn.testnet"
+ *   - Device 2 (third device): "serp120.2.web3-authn.testnet"
+ */
+function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: number): string {
+  // If no device number provided or device number is 0, this is the first device (registration)
+  if (deviceNumber === undefined || deviceNumber === 0) {
+    return nearAccountId;
+  }
+
+  // Add device number to account ID
+  if (nearAccountId.includes('.')) {
+    const parts = nearAccountId.split('.');
+    // Insert device number after the first part
+    // "serp120.web3-authn.testnet" -> "serp120.1.web3-authn.testnet"
+    parts.splice(1, 0, deviceNumber.toString());
+    return parts.join('.');
+  } else {
+    // Fallback for accounts without dots
+    return `${nearAccountId}.${deviceNumber}`;
   }
 }

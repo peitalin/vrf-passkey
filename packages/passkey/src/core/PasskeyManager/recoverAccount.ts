@@ -5,6 +5,7 @@ import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
 import { base58Decode } from '../../utils/encoders';
+import { NearClient } from '../NearClient';
 
 /**
  * Use case:
@@ -222,51 +223,48 @@ async function getAvailablePasskeysForDomain(
   const { webAuthnManager, nearClient, configs } = context;
 
   const credentialIds = await getCredentialIdsFromContract(nearClient, configs.contractId, accountId);
-  if (credentialIds.length === 0) {
-    return [{
-      credentialId: 'manual-input',
-      accountId: null,
-      publicKey: '',
-      displayName: 'No credentials found - manual account entry required',
-      credential: null,
-    }];
-  }
 
+  // Always try to authenticate with the provided account ID, even if no credentials found in contract
+  try {
   const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
     nearAccountId: accountId,
     challenge: vrfChallenge.outputAs32Bytes(),
-    credentialIds: credentialIds,
-  });
+      credentialIds: credentialIds.length > 0 ? credentialIds : [], // Empty array if no contract credentials
+    });
 
-  if (!credential) {
-    return [{
-      credentialId: 'manual-input',
-      accountId: null,
-      publicKey: '',
-      displayName: 'Authentication failed - enter account ID manually',
-      credential: null,
-    }];
-  }
-
+    if (credential) {
   return [{
     credentialId: credential.id,
     accountId: accountId,
     publicKey: '',
     displayName: `${accountId} (Authenticated with this passkey)`,
     credential: credential
+      }];
+    }
+  } catch (error) {
+    console.warn('Failed to authenticate with passkey:', error);
+  }
+
+  // If authentication failed, still return the account option but without credential
+  return [{
+    credentialId: 'manual-input',
+    accountId: accountId, // Use the provided accountId instead of null
+    publicKey: '',
+    displayName: `${accountId} (Authentication failed - please try again)`,
+    credential: null,
   }];
 }
 
 /**
  * Get credential IDs from contract
  */
-async function getCredentialIdsFromContract(nearClient: any, contractId: string, accountId: string): Promise<string[]> {
+async function getCredentialIdsFromContract(nearClient: NearClient, contractId: string, accountId: string): Promise<string[]> {
   try {
-    const credentialIds = await nearClient.view({
-      account: contractId,
-      method: 'get_credential_ids_by_account',
-      args: { account_id: accountId }
-    });
+    const credentialIds = await nearClient.callFunction<string[]>(
+      contractId,
+      'get_credential_ids_by_account',
+      { account_id: accountId }
+    );
     return credentialIds || [];
   } catch (error: any) {
     console.warn('Failed to fetch credential IDs from contract:', error.message);
@@ -599,7 +597,15 @@ async function restoreUserData(webAuthnManager: any, accountId: string, publicKe
 async function restoreAuthenticators(webAuthnManager: any, accountId: string, contractAuthenticators: any[], vrfPublicKey: string) {
   for (const { credentialId, authenticator } of contractAuthenticators) {
     const credentialPublicKey = new Uint8Array(authenticator.credential_public_key);
-    const transports = authenticator.transports?.map((t: any) => t.transport) || [];
+
+    // Fix transport processing: filter out undefined values and provide fallback
+    const rawTransports = authenticator.transports?.map((t: any) => t.transport) || [];
+    const validTransports = rawTransports.filter((transport: any) =>
+      transport !== undefined && transport !== null && typeof transport === 'string'
+    );
+
+    // If no valid transports, default to 'internal' for platform authenticators
+    const transports = validTransports.length > 0 ? validTransports : ['internal'];
 
     await webAuthnManager.storeAuthenticator({
       nearAccountId: accountId,

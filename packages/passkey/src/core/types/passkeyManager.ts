@@ -41,10 +41,13 @@ export interface BaseSSEActionEvent extends BaseSSEEvent {
   | 'authentication'
   | 'contract-verification'
   | 'transaction-signing'
+  | 'device-linking'
+  | 'verification-complete'    // Rust WASM worker phase
+  | 'signing-complete'         // Rust WASM worker phase
+  | 'error'                   // Rust WASM worker phase
   | 'broadcasting'
   | 'action-complete'
-  | 'action-error'
-  | 'device-linking';
+  | 'action-error';
 }
 
 
@@ -270,15 +273,6 @@ export interface ActionOptions {
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
   waitUntil?: TxExecutionStatus;
-}
-
-export interface DeviceLinkingOptions {
-  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
-  onError?: (error: Error) => void;
-  hooks?: OperationHooks;
-  fundingAmount?: string;
-  cameraId?: string;
-  config?: any;
 }
 
 // Result Types

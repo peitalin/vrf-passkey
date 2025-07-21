@@ -74,11 +74,14 @@ export async function createAccountAndRegisterWithRelayServer(
       body: JSON.stringify(requestData)
     });
 
-    if (!response.ok) {
-      throw new Error(`Atomic registration failed: HTTP ${response.status}`);
-    }
-
+    // Handle both successful and failed responses
     const result = await response.json();
+
+    if (!response.ok) {
+      // Extract specific error message from relay server response
+      const errorMessage = result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
+      throw new Error(errorMessage);
+    }
 
     if (!result.success) {
       throw new Error(result.error || 'Atomic registration failed');
@@ -158,11 +161,14 @@ export async function createAccountRelayServer(
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
+    // Handle both successful and failed responses
     const result = await response.json();
+
+    if (!response.ok) {
+      // Extract specific error message from relay server response
+      const errorMessage = result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
+      throw new Error(errorMessage);
+    }
 
     if (!result.success) {
       throw new Error(result.error || 'Account creation failed');

@@ -336,17 +336,31 @@ export class WebAuthnManager {
 
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
+   * Optionally signs a verify_and_register_user transaction if VRF data is provided
    */
   async deriveNearKeypairAndEncrypt({
-    credential,
     nearAccountId,
+    credential,
+    options
   }: {
-    credential: PublicKeyCredential,
-    nearAccountId: string,
-  }): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
+    credential: PublicKeyCredential;
+    nearAccountId: string;
+    options?: {
+      vrfChallenge?: VRFChallenge;
+      contractId?: string;
+      nonce?: string;
+      blockHashBytes?: number[];
+    };
+  }): Promise<{
+    success: boolean;
+    nearAccountId: string;
+    publicKey: string;
+    signedTransaction?: SignedTransaction;
+  }> {
     return await this.signerWorkerManager.deriveNearKeypairAndEncrypt(
       credential,
       nearAccountId,
+      options
     );
   }
 
@@ -1037,6 +1051,38 @@ export class WebAuthnManager {
 
       throw new Error(`VRF key addition failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Sign transaction with raw private key (for key replacement in device linking)
+   * No TouchID/PRF required - uses provided private key directly
+   */
+  async signTransactionWithKeyPair({
+    nearPrivateKey,
+    signerAccountId,
+    receiverId,
+    nonce,
+    blockHashBytes,
+    actions
+  }: {
+    nearPrivateKey: string;
+    signerAccountId: string;
+    receiverId: string;
+    nonce: string;
+    blockHashBytes: number[];
+    actions: ActionParams[];
+  }): Promise<{
+    signedTransaction: SignedTransaction;
+    logs?: string[];
+  }> {
+    return await this.signerWorkerManager.signTransactionWithKeyPair({
+      nearPrivateKey,
+      signerAccountId,
+      receiverId,
+      nonce,
+      blockHashBytes,
+      actions
+    });
   }
 
   /**

@@ -180,6 +180,7 @@ export interface RequestResponseMap {
   [WorkerRequestType.DecryptPrivateKeyWithPrf]: WasmDecryptPrivateKeyResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
+  [WorkerRequestType.SignTransactionWithKeyPair]: WasmTransactionSignResult;
 }
 
 // Generic success response type that uses WASM types
@@ -202,15 +203,10 @@ export interface WorkerErrorResponse extends BaseWorkerResponse {
 export interface WorkerProgressResponse extends BaseWorkerResponse {
   type: typeof WorkerResponseType.VerificationProgress
       | typeof WorkerResponseType.SigningProgress
-      | typeof WorkerResponseType.RegistrationProgress;
-  payload: onProgressEvents;
-}
-
-// Completion response type
-export interface WorkerCompletionResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.VerificationComplete
-      | typeof WorkerResponseType.SigningComplete
-      | typeof WorkerResponseType.RegistrationComplete;
+      | typeof WorkerResponseType.RegistrationProgress
+      | typeof WorkerResponseType.VerificationComplete    // Moved from completion to progress
+      | typeof WorkerResponseType.SigningComplete         // Moved from completion to progress
+      | typeof WorkerResponseType.RegistrationComplete;   // Moved from completion to progress
   payload: onProgressEvents;
 }
 
@@ -219,8 +215,7 @@ export interface WorkerCompletionResponse extends BaseWorkerResponse {
 export type WorkerResponseForRequest<T extends WorkerRequestType> =
   | WorkerSuccessResponse<T>
   | WorkerErrorResponse
-  | WorkerProgressResponse
-  | WorkerCompletionResponse;
+  | WorkerProgressResponse;
 
 // === CONVENIENCE TYPE ALIASES ===
 
@@ -267,17 +262,10 @@ export function isWorkerProgress<T extends WorkerRequestType>(
   return (
     response.type === WorkerResponseType.VerificationProgress ||
     response.type === WorkerResponseType.SigningProgress ||
-    response.type === WorkerResponseType.RegistrationProgress
-  );
-}
-
-export function isWorkerComplete<T extends WorkerRequestType>(
-  response: WorkerResponseForRequest<T>
-): response is WorkerCompletionResponse {
-  return (
-    response.type === WorkerResponseType.VerificationComplete ||
-    response.type === WorkerResponseType.SigningComplete ||
-    response.type === WorkerResponseType.RegistrationComplete
+    response.type === WorkerResponseType.RegistrationProgress ||
+    response.type === WorkerResponseType.VerificationComplete ||  // Moved from completion to progress
+    response.type === WorkerResponseType.SigningComplete ||       // Moved from completion to progress
+    response.type === WorkerResponseType.RegistrationComplete     // Moved from completion to progress
   );
 }
 

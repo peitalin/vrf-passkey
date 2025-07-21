@@ -56,7 +56,6 @@ export async function loginPasskey(
     );
 
   } catch (err: any) {
-    console.error('Login error:', err.message, err.stack);
     onError?.(err);
     onEvent?.({
       step: 0,

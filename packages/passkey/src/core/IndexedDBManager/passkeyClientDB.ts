@@ -399,10 +399,19 @@ export class PasskeyClientDBManager {
     // Add all contract authenticators to cache
     const syncedAt = new Date().toISOString();
     for (const auth of contractAuthenticators) {
+      // Fix transport processing: filter out undefined values and provide fallback
+      const rawTransports = auth.transports || [];
+      const validTransports = rawTransports.filter((transport: any) =>
+        transport !== undefined && transport !== null && typeof transport === 'string'
+      );
+
+      // If no valid transports, default to 'internal' for platform authenticators
+      const transports = validTransports.length > 0 ? validTransports : ['internal'];
+
       const clientAuth: ClientAuthenticatorData = {
         credentialId: auth.credentialId,
         credentialPublicKey: auth.credentialPublicKey,
-        transports: auth.transports,
+        transports,
         name: auth.name,
         nearAccountId: nearAccountId,
         registered: auth.registered,

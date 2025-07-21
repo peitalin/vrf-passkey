@@ -442,6 +442,65 @@ const validateRegistrationInputs = async (
     throw error;
   }
 
+  // Check if account already exists on-chain
+  onEvent?.({
+    step: 1,
+    phase: 'webauthn-verification',
+    status: 'progress',
+    timestamp: Date.now(),
+    message: `Checking if account ${nearAccountId} is available...`
+  } as RegistrationSSEEvent);
+
+  try {
+    const accountInfo = await context.nearClient.viewAccount(nearAccountId);
+    // If we get here without an error, the account already exists
+    const error = new Error(`Account ${nearAccountId} already exists. Please choose a different account ID.`);
+    onError?.(error);
+    throw error;
+  } catch (viewError: any) {
+    // Check if it's a "does not exist" error (which is what we want for registration)
+    // Handle multiple NEAR RPC error formats
+    const isAccountNotFound =
+      // Legacy error patterns
+      viewError.message?.includes('does not exist') ||
+      viewError.message?.includes('AccountDoesNotExist') ||
+      viewError.type === 'AccountDoesNotExist' ||
+      // Current NEAR RPC error structure (via enhanced NearClient)
+      viewError.cause?.name === 'UNKNOWN_ACCOUNT' ||
+      viewError.rpcError?.cause?.name === 'UNKNOWN_ACCOUNT' ||
+      // Check error data field
+      viewError.data?.includes('does not exist') ||
+      viewError.rpcError?.data?.includes('does not exist') ||
+      // Additional fallback patterns
+      viewError.rpcError?.name === 'UNKNOWN_ACCOUNT';
+
+    if (isAccountNotFound) {
+      // Account doesn't exist - this is good for registration
+      console.log(`✅ Account ${nearAccountId} is available for registration (UNKNOWN_ACCOUNT confirmed)`);
+      onEvent?.({
+        step: 1,
+        phase: 'webauthn-verification',
+        status: 'progress',
+        timestamp: Date.now(),
+        message: `Account ${nearAccountId} is available for registration`
+      } as RegistrationSSEEvent);
+      return; // Continue with registration
+    } else {
+      // Some other error occurred while checking account
+      console.error('Unexpected error during account existence check:', {
+        message: viewError.message,
+        type: viewError.type,
+        cause: viewError.cause,
+        data: viewError.data,
+        code: viewError.code,
+        rpcError: viewError.rpcError,
+        fullError: viewError
+      });
+      const error = new Error(`Failed to check account availability: ${viewError.message || 'Unknown error'}`);
+      onError?.(error);
+      throw error;
+    }
+  }
 }
 
 /**

@@ -206,11 +206,24 @@ export class SignerWorkerManager {
 
   /**
    * Secure registration flow with dual PRF: WebAuthn + WASM worker encryption using dual PRF
+   * Optionally signs a verify_and_register_user transaction if VRF data is provided
    */
   async deriveNearKeypairAndEncrypt(
     credential: PublicKeyCredential,
     nearAccountId: string,
-  ): Promise<{ success: boolean; nearAccountId: string; publicKey: string }> {
+    options?: {
+      vrfChallenge?: VRFChallenge;
+      contractId?: string;
+      nearRpcUrl?: string;
+      nonce?: string;
+      blockHashBytes?: number[];
+    }
+  ): Promise<{
+    success: boolean;
+    nearAccountId: string;
+    publicKey: string;
+    signedTransaction?: SignedTransaction;
+  }> {
     try {
       console.info('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
 
@@ -234,6 +247,13 @@ export class SignerWorkerManager {
           payload: {
             dualPrfOutputs,
             nearAccountId: nearAccountId,
+            // Optional device linking registration transaction
+            registrationTransaction: (options?.vrfChallenge && options?.contractId && options?.nonce && options?.blockHashBytes) ? {
+              vrfChallenge: options.vrfChallenge,
+              contractId: options.contractId,
+              nonce: options.nonce,
+              blockHashBytes: options.blockHashBytes,
+            } : undefined,
           }
         }
       });
@@ -263,10 +283,21 @@ export class SignerWorkerManager {
       }
       console.info('WebAuthnManager: Encrypted key stored and verified in IndexedDB');
 
+      // Convert optional WASM signed transaction to SignedTransaction object
+      let signedTransaction: SignedTransaction | undefined = undefined;
+      if (wasmResult.signedTransaction) {
+        signedTransaction = new SignedTransaction({
+          transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
+          signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
+          borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
+        });
+      }
+
       return {
         success: true,
         nearAccountId: wasmResult.nearAccountId,
-        publicKey: wasmResult.publicKey
+        publicKey: wasmResult.publicKey,
+        signedTransaction
       };
     } catch (error: any) {
       console.error('WebAuthnManager: Dual PRF registration error:', error);

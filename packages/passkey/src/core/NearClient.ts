@@ -68,8 +68,7 @@ export class SignedTransaction {
 }
 
 /**
- * A minimal NEAR RPC client that only includes the methods actually used by PasskeyManager
- * If needed, we can just wrap @near-js if we require more complex functionality and type definitions
+ * MinimalNearClient provides a simplified interface for NEAR protocol interactions
  */
 export interface NearClient {
   viewAccessKey(accountId: string, publicKey: PublicKey | string, finalityQuery?: FinalityReference): Promise<AccessKeyView>;
@@ -109,10 +108,6 @@ export class MinimalNearClient implements NearClient {
     params: any,
     operationName: string
   ): Promise<T> {
-    console.log(`[NearClient.makeRpcCall] Starting ${operationName}`);
-    console.log(`[NearClient.makeRpcCall] Method:`, method);
-    console.log(`[NearClient.makeRpcCall] Params:`, params);
-    console.log(`[NearClient.makeRpcCall] RPC URL:`, this.rpcUrl);
 
     const body = {
       jsonrpc: '2.0',
@@ -121,44 +116,31 @@ export class MinimalNearClient implements NearClient {
       params
     };
 
-    console.log(`[NearClient.makeRpcCall] Request body:`, body);
-
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
-    console.log(`[NearClient.makeRpcCall] Response status:`, response.status, response.statusText);
-
     if (!response.ok) {
       throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
     }
 
     const responseText = await response.text();
-    console.log(`[NearClient.makeRpcCall] Response text length:`, responseText?.length || 0);
-    console.log(`[NearClient.makeRpcCall] Response text (first 500 chars):`, responseText?.substring(0, 500));
-
     if (!responseText?.trim()) {
       throw new Error('Empty response from RPC server');
     }
 
     const result = JSON.parse(responseText);
-    console.log(`[NearClient.makeRpcCall] Parsed result:`, result);
-    console.log(`[NearClient.makeRpcCall] Result keys:`, result ? Object.keys(result) : 'no keys');
-
     if (result.error) {
-      console.error(`[NearClient.makeRpcCall] RPC Error:`, result.error);
-      throw new Error(`RPC Error: ${result.error.message}`);
+      throw result.error;
     }
 
     // Check for query-specific errors in result.result
     if (result.result?.error) {
-      console.error(`[NearClient.makeRpcCall] Operation Error:`, result.result.error);
       throw new Error(`${operationName} Error: ${result.result.error}`);
     }
 
-    console.log(`[NearClient.makeRpcCall] Returning result.result:`, result.result);
     return result.result;
   }
 
@@ -214,12 +196,7 @@ export class MinimalNearClient implements NearClient {
     signedTransaction: SignedTransaction,
     waitUntil: TxExecutionStatus = DEFAULT_WAIT_STATUS.executeAction
   ): Promise<FinalExecutionOutcome> {
-
-    console.log('[NearClient.sendTransaction] Starting transaction send');
-    console.log('[NearClient.sendTransaction] Wait until:', waitUntil);
-    console.log('[NearClient.sendTransaction] Signed transaction base64:', signedTransaction.base64Encode());
-
-    const result = await this.makeRpcCall<FinalExecutionOutcome>(
+    return await this.makeRpcCall<FinalExecutionOutcome>(
       RpcCallType.Send,
       {
         signed_tx_base64: signedTransaction.base64Encode(),
@@ -227,13 +204,6 @@ export class MinimalNearClient implements NearClient {
       },
       'Send Transaction'
     );
-
-    console.log('[NearClient.sendTransaction] makeRpcCall result:', result);
-    console.log('[NearClient.sendTransaction] result type:', typeof result);
-    console.log('[NearClient.sendTransaction] result keys:', result ? Object.keys(result) : 'no keys - result is falsy');
-    console.log('[NearClient.sendTransaction] returning result directly (not result.result)');
-
-    return result;
   }
 
   async callFunction<T>(

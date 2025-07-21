@@ -8,8 +8,10 @@ import type { BaseSSEActionEvent } from './passkeyManager';
 
 export interface onProgressEvents extends Omit<BaseSSEActionEvent, 'timestamp'> {
   step: number;
-  phase: 'preparation' | 'authentication' | 'contract-verification' | 'transaction-signing' | 'broadcasting' | 'action-complete' | 'action-error';
-  status: 'progress' | 'success' | 'error';
+  // phase is inherited from BaseSSEActionEvent and includes both legacy and Rust WASM worker phases
+  status: 'progress'
+    | 'success'
+    | 'error';
   message: string;
   data?: any;
   logs?: string[];

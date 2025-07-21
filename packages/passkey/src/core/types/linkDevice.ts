@@ -1,4 +1,9 @@
-import { ActionResult } from './passkeyManager';
+import {
+  ActionResult,
+  DeviceLinkingSSEEvent,
+  EventCallback,
+  OperationHooks
+} from './passkeyManager';
 import { VRFChallenge } from './webauthn';
 
 // === DEVICE LINKING TYPES ===
@@ -10,13 +15,15 @@ export interface DeviceLinkingQRData {
 }
 
 export interface DeviceLinkingSession {
-  accountId: string | null; // Null until discovered from contract logs
+  accountId: string | null; // Null until discovered from contract logs (Option F) or provided upfront (Option E)
+  deviceNumber?: number; // Device number assigned by Device1 for device linking
   nearPublicKey: string;
-  credential: PublicKeyCredential;
-  vrfChallenge: VRFChallenge;
+  credential: PublicKeyCredential | null; // Null for Option F until real account discovered
+  vrfChallenge: VRFChallenge | null; // Null for Option F until real account discovered
   status: DeviceLinkingStatus;
   createdAt: number;
   expiresAt: number;
+  tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
 }
 
 export type DeviceLinkingStatus =
@@ -53,4 +60,24 @@ export enum DeviceLinkingErrorCode {
   INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
   REGISTRATION_FAILED = 'REGISTRATION_FAILED',
   SESSION_EXPIRED = 'SESSION_EXPIRED'
+}
+
+export interface StartDeviceLinkingOptionsDevice2 {
+  cameraId?: string;
+  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onError?: (error: Error) => void;
+  hooks?: OperationHooks;
+}
+
+export interface ScanAndLinkDeviceOptionsDevice1 {
+  fundingAmount: string;
+  cameraId?: string;
+  cameraConfigs?: {
+    facingMode?: 'user' | 'environment';
+    width?: number;
+    height?: number;
+  };
+  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onError?: (error: Error) => void;
+  hooks?: OperationHooks;
 }

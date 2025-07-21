@@ -64,13 +64,26 @@ export async function executeAction(
     );
 
     // 3. Transaction Broadcasting
+    console.log('[executeAction] Starting transaction broadcasting...');
     const actionResult = await broadcastTransaction(
       context,
       signingResult,
       { onEvent, onError, hooks, waitUntil }
     );
 
-    hooks?.afterCall?.(true, actionResult);
+    console.log('[executeAction] Broadcasting completed, calling afterCall hook...', {
+      hasHooks: !!hooks,
+      hasAfterCall: !!hooks?.afterCall,
+      actionResult
+    });
+    try {
+      hooks?.afterCall?.(true, actionResult);
+      console.log('[executeAction] afterCall hook completed successfully');
+    } catch (hookError: any) {
+      console.error('[executeAction] Error in afterCall hook:', hookError);
+      // Don't fail the entire transaction if the hook fails
+    }
+    console.log('[executeAction] Returning result');
     return actionResult;
 
   } catch (error: any) {
@@ -307,7 +320,15 @@ async function verifyVrfAuthAndSignTransaction(
     contractId: webAuthnManager.configs.contractId,
     vrfChallenge: vrfChallenge,
     credential: credential,
-    nearRpcUrl: webAuthnManager.configs.nearRpcUrl
+    nearRpcUrl: webAuthnManager.configs.nearRpcUrl,
+    // Pass through the onEvent callback for progress updates
+    // Convert onProgressEvents to ActionSSEEvent by adding timestamp
+    onEvent: onEvent ? (progressEvent) => {
+      onEvent({
+        ...progressEvent,
+        timestamp: Date.now()
+      } as any);
+    } : undefined
   });
 
   // Return the first (and only) result
@@ -338,14 +359,26 @@ export async function broadcastTransaction(
   const signedTransaction = signingResult.signedTransaction;
 
   // Send the transaction using NearClient
-  const transactionResult = await nearClient.sendTransaction(
-    signedTransaction,
-    options?.waitUntil
-  );
+  let transactionResult;
+  try {
+    transactionResult = await nearClient.sendTransaction(
+      signedTransaction,
+      options?.waitUntil
+    );
+    console.log('[broadcastTransaction] Transaction result received successfully');
+  } catch (error) {
+    console.error('[broadcastTransaction] sendTransaction failed:', error);
+    throw error;
+  }
+
+  // Extract transaction ID from NEAR FinalExecutionOutcome
+  // Based on logs, the structure has transaction_outcome.id
+  const transactionId = transactionResult?.transaction_outcome?.id
+    || transactionResult?.transaction?.hash;
 
   const actionResult: ActionResult = {
     success: true,
-    transactionId: transactionResult?.transaction_outcome?.id,
+    transactionId: transactionId,
     result: transactionResult
   };
 
