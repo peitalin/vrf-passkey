@@ -367,6 +367,9 @@ export class WebAuthnManager {
       contractId?: string;
       nonce?: string;
       blockHashBytes?: number[];
+      // Add VRF public key for registration transactions
+      // Note: deviceNumber removed for device linking - contract determines this automatically
+      deterministicVrfPublicKey?: string;
     };
   }): Promise<{
     success: boolean;

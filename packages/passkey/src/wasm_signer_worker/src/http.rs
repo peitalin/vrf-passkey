@@ -2,12 +2,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
 use serde_json::Value;
-use base64::prelude::*;
-use bs58;
 use serde::{Serialize, Deserialize};
 use log::{info, debug, warn};
-
-// Logging is now handled by the standard log crate
+use crate::encoders::base64_standard_encode;
 
 // Helper functions for testing
 #[cfg(test)]
@@ -113,16 +110,6 @@ fn extract_action_error_message(kind: &Value, index: u64) -> String {
     }
 
     format!("Transaction failure: {} (action {})", kind, index)
-}
-
-#[cfg(test)]
-fn bs58_encode(data: &[u8]) -> String {
-    bs58::encode(data).into_string()
-}
-
-#[cfg(test)]
-fn bs58_decode(encoded: &str) -> Result<Vec<u8>, bs58::decode::Error> {
-    bs58::decode(encoded).into_vec()
 }
 
 /// Contract verification result
@@ -269,7 +256,7 @@ pub async fn perform_contract_verification_wasm(
             "request_type": "call_function",
             "account_id": contract_id,
             "method_name": VERIFY_AUTHENTICATION_RESPONSE_METHOD,
-            "args_base64": BASE64_STANDARD.encode(contract_args.to_string().as_bytes()),
+            "args_base64": base64_standard_encode(contract_args.to_string().as_bytes()),
             "finality": "optimistic"
         }
     });
@@ -382,7 +369,7 @@ pub async fn check_can_register_user_wasm(
             "request_type": "call_function",
             "account_id": contract_id,
             "method_name": CHECK_CAN_REGISTER_USER_METHOD,
-            "args_base64": BASE64_STANDARD.encode(contract_args.to_string().as_bytes()),
+            "args_base64": base64_standard_encode(contract_args.to_string().as_bytes()),
             "finality": "optimistic"
         }
     });
@@ -394,24 +381,6 @@ pub async fn check_can_register_user_wasm(
 
     // Parse the response for view function
     parse_view_registration_response(response_result)
-}
-
-/// Helper function to decode base64url strings
-pub fn base64url_decode(input: &str) -> Result<Vec<u8>, String> {
-    // Handle base64url padding
-    let padded = match input.len() % 4 {
-        2 => format!("{}==", input),
-        3 => format!("{}=", input),
-        _ => input.to_string(),
-    };
-
-    // Replace base64url characters with base64 characters
-    let standard_b64 = padded
-        .replace('-', "+")
-        .replace('_', "/");
-
-    BASE64_STANDARD.decode(standard_b64)
-        .map_err(|e| format!("Base64 decode error: {}", e))
 }
 
 /// Shared HTTP request execution logic

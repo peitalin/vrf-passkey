@@ -1,29 +1,30 @@
 use crate::http::*;
+use crate::encoders::base64_url_decode;
 use serde_json::json;
 
 #[test]
-fn test_base64url_decode() {
+fn test_base64_url_decode() {
     // Test valid base64url
     let input = "SGVsbG8gV29ybGQ";
-    let result = base64url_decode(input).unwrap();
+    let result = base64_url_decode(input).unwrap();
     assert_eq!(result, b"Hello World");
 
     // Test base64url with URL-safe characters
     let input_urlsafe = "SGVsbG8gV29ybGQ";
-    let result_urlsafe = base64url_decode(input_urlsafe).unwrap();
+    let result_urlsafe = base64_url_decode(input_urlsafe).unwrap();
     assert_eq!(result_urlsafe, b"Hello World");
 
     // Test with padding needed
     let input_padding = "SGVsbG8";
-    let result_padding = base64url_decode(input_padding).unwrap();
+    let result_padding = base64_url_decode(input_padding).unwrap();
     assert_eq!(result_padding, b"Hello");
 
     // Test invalid base64url
     let invalid_input = "Invalid@#$%";
-    assert!(base64url_decode(invalid_input).is_err());
+    assert!(base64_url_decode(invalid_input).is_err());
 
     // Test empty string
-    let empty_result = base64url_decode("").unwrap();
+    let empty_result = base64_url_decode("").unwrap();
     assert_eq!(empty_result, b"");
 }
 

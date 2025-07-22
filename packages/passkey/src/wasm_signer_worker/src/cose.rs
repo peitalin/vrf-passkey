@@ -1,14 +1,7 @@
-use base64ct::{Base64UrlUnpadded, Encoding};
 use ciborium::Value as CborValue;
 use log::debug;
 
-use crate::error::KdfError;
-
-/// Helper function for base64url decoding
-fn base64_url_decode(input: &str) -> Result<Vec<u8>, KdfError> {
-    Base64UrlUnpadded::decode_vec(input)
-        .map_err(|e| KdfError::Base64DecodeError(format!("{:?}", e)))
-}
+use crate::encoders::base64_url_decode;
 
 /// Parse WebAuthn attestation object to extract authData
 pub fn parse_attestation_object(attestation_object_bytes: &[u8]) -> Result<Vec<u8>, String> {

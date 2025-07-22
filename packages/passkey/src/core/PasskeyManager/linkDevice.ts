@@ -405,9 +405,17 @@ export class LinkDeviceFlow {
         throw new Error('VRF credentials not available after migration');
       }
 
+      // Issue 1 Fix: Log device number to debug the issue
+      console.log(">>>>>> Device2 authenticator storage - Device Number:", this.session.deviceNumber);
+      if (this.session.deviceNumber === undefined || this.session.deviceNumber === null) {
+        console.error(">>>>>> Device number is undefined/null! This should be 2 for device2");
+        throw new Error('Device number not available - cannot determine device-specific account ID');
+      }
+
       // Generate device-specific account ID for storage
       const deviceSpecificAccountId = this.generateDeviceSpecificAccountId(accountId, this.session.deviceNumber);
       console.log(">>>>>> deviceSpecificAccountId to REGISTER: ", deviceSpecificAccountId);
+      console.log(">>>>>> Using device number: ", this.session.deviceNumber, " (assigned by contract for this device)");
 
       console.log(`LinkDeviceFlow: Storing authenticator data for device-specific account: ${deviceSpecificAccountId}`);
 
@@ -422,7 +430,8 @@ export class LinkDeviceFlow {
           id: credential.id,
           rawId: base64UrlEncode(new Uint8Array(credential.rawId))
         },
-        encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair
+        encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair,
+        deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
 
       // Store authenticator for the device-specific account
@@ -434,7 +443,8 @@ export class LinkDeviceFlow {
         name: `Device ${this.session.deviceNumber || 'Unknown'} Passkey for ${accountId.split('.')[0]}`,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
-        vrfPublicKey: migrateKeysResult.vrfPublicKey
+        vrfPublicKey: migrateKeysResult.vrfPublicKey,
+        deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
 
       console.log(`LinkDeviceFlow: Successfully stored authenticator data for account: ${deviceSpecificAccountId}`);
@@ -558,6 +568,9 @@ export class LinkDeviceFlow {
             contractId: this.context.webAuthnManager.configs.contractId,
             nonce: newKeyNonce, // ✅ Use NEW key's actual nonce
             blockHashBytes: newTxBlockHashBytes,
+            // Pass the deterministic VRF public key for contract call
+            // Note: deviceNumber removed - contract determines this automatically for device linking
+            deterministicVrfPublicKey: vrfDerivationResult.vrfPublicKey,
           }
         });
 
@@ -946,7 +959,7 @@ export async function scanAndLinkDevice(
       phase: 'authorization',
       status: 'progress',
       timestamp: Date.now(),
-      message: `TouchID successful! Signing AddKey transaction...`
+      message: 'TouchID successful! Signing AddKey transaction...'
     });
 
     // Sign both transactions with one PRF authentication

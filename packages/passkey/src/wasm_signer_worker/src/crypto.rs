@@ -1,13 +1,13 @@
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::aead::generic_array::GenericArray;
-use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{SigningKey};
 use getrandom::getrandom;
 use hkdf::Hkdf;
 use bs58;
 use sha2::Sha256;
 use log::{info, debug};
+use crate::encoders::{base64_url_decode, base64_url_encode};
 
 use crate::error::KdfError;
 use crate::types::EncryptedDataAesGcmResponse;
@@ -24,14 +24,6 @@ use crate::config::{
 };
 
 // === UTILITY FUNCTIONS ===
-
-/// Helper function for base64url decoding
-pub(crate) fn base64_url_decode(input: &str) -> Result<Vec<u8>, KdfError> {
-    Base64UrlUnpadded::decode_vec(input)
-        .map_err(|e| KdfError::Base64DecodeError(format!("{:?}", e)))
-}
-
-// === KEY DERIVATION ===
 
 /// Derive account-specific AES-GCM encryption key from PRF output using HKDF
 /// This provides domain separation for different accounts and is the ONLY AES derivation function
@@ -84,8 +76,8 @@ pub(crate) fn encrypt_data_aes_gcm(plain_text_data_str: &str, key_bytes: &[u8]) 
         .map_err(|e| format!("Encryption error: {}", e))?;
 
     Ok(EncryptedDataAesGcmResponse {
-        encrypted_near_key_data_b64u: Base64UrlUnpadded::encode_string(&ciphertext),
-        aes_gcm_nonce_b64u: Base64UrlUnpadded::encode_string(&aes_gcm_nonce_bytes),
+        encrypted_near_key_data_b64u: base64_url_encode(&ciphertext),
+        aes_gcm_nonce_b64u: base64_url_encode(&aes_gcm_nonce_bytes),
     })
 }
 
@@ -93,7 +85,7 @@ pub(crate) fn encrypt_data_aes_gcm(plain_text_data_str: &str, key_bytes: &[u8]) 
 pub(crate) fn decrypt_data_aes_gcm(
     encrypted_data_b64u: &str,
     aes_gcm_nonce_b64u: &str,
-    key_bytes: &[u8]
+    key_bytes: &[u8],
 ) -> Result<String, String> {
     if key_bytes.len() != AES_KEY_SIZE {
         return Err(ERROR_INVALID_KEY_SIZE.to_string());
@@ -101,15 +93,15 @@ pub(crate) fn decrypt_data_aes_gcm(
     let key_ga = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key_ga);
 
-    let aes_gcm_nonce_bytes = Base64UrlUnpadded::decode_vec(aes_gcm_nonce_b64u)
-        .map_err(|e| format!("Base64UrlUnpadded decode error for AES-GCM nonce: {}", e))?;
+    let aes_gcm_nonce_bytes = base64_url_decode(aes_gcm_nonce_b64u)
+        .map_err(|e| format!("Base64 decode error for AES-GCM nonce: {}", e))?;
     if aes_gcm_nonce_bytes.len() != AES_GCM_NONCE_SIZE {
         return Err(format!("Decryption AES-GCM nonce must be {} bytes.", AES_GCM_NONCE_SIZE));
     }
     let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
 
-    let encrypted_data = Base64UrlUnpadded::decode_vec(encrypted_data_b64u)
-        .map_err(|e| format!("Base64UrlUnpadded decode error for encrypted data: {}", e))?;
+    let encrypted_data = base64_url_decode(encrypted_data_b64u)
+        .map_err(|e| format!("Base64 decode error for encrypted data: {}", e))?;
 
     let decrypted_bytes = cipher.decrypt(nonce, encrypted_data.as_slice())
         .map_err(|e| format!("Decryption error: {}", e))?;

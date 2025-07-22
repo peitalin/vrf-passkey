@@ -2,6 +2,7 @@ mod actions;
 mod config;
 mod crypto;
 mod cose;
+mod encoders;
 mod error;
 mod handlers;
 mod http;

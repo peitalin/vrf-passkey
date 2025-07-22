@@ -25,6 +25,9 @@ pub struct LinkDeviceRegistrationTransaction {
     pub nonce: String,
     #[serde(rename = "blockHashBytes")]
     pub block_hash_bytes: Vec<u8>,
+    // Add VRF public key for device linking registration
+    #[serde(rename = "deterministicVrfPublicKey")]
+    pub deterministic_vrf_public_key: String, // Base64-encoded string from TypeScript
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -33,6 +36,8 @@ pub struct DeriveKeypairPayload {
     pub dual_prf_outputs: DualPrfOutputsStruct,
     #[serde(rename = "nearAccountId")]
     pub near_account_id: String,
+    // WebAuthn registration credential for device linking
+    pub credential: SerializedRegistrationCredential,
     // Optional device linking registration transaction
     #[serde(rename = "registrationTransaction")]
     pub registration_transaction: Option<LinkDeviceRegistrationTransaction>,

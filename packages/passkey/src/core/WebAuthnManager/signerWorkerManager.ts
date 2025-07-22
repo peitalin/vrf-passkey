@@ -214,6 +214,8 @@ export class SignerWorkerManager {
     nearAccountId: AccountId,
     options?: {
       vrfChallenge?: VRFChallenge;
+      // Add VRF public key for registration transactions
+      deterministicVrfPublicKey?: string;
       contractId?: string;
       nearRpcUrl?: string;
       nonce?: string;
@@ -248,12 +250,15 @@ export class SignerWorkerManager {
           payload: {
             dualPrfOutputs,
             nearAccountId: nearAccountId,
+            credential: serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential),
             // Optional device linking registration transaction
             registrationTransaction: (options?.vrfChallenge && options?.contractId && options?.nonce && options?.blockHashBytes) ? {
               vrfChallenge: options.vrfChallenge,
               contractId: options.contractId,
               nonce: options.nonce,
               blockHashBytes: options.blockHashBytes,
+              // Pass VRF public key to WASM worker (device number determined by contract)
+              deterministicVrfPublicKey: options.deterministicVrfPublicKey,
             } : undefined,
           }
         }

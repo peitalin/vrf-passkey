@@ -84,6 +84,7 @@ export interface Verification {
 
 export interface UserData {
   nearAccountId: AccountId;
+  deviceNumber?: number; // Device number for multi-device support (1-indexed)
   clientNearPublicKey?: string;
   lastUpdated: number;
   prfSupported?: boolean;

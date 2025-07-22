@@ -12,11 +12,11 @@ use ed25519_dalek::SigningKey;
 // Import necessary types and functions from other modules
 use crate::types::*;
 use crate::types::{VrfChallengePayload, SerializedCredential};
+use crate::encoders::base64_url_decode;
 use crate::http::{
     VrfData,
     WebAuthnAuthenticationCredential,
     WebAuthnRegistrationCredential,
-    base64url_decode,
     perform_contract_verification_wasm,
     check_can_register_user_wasm,
 };
@@ -815,18 +815,18 @@ impl TryFrom<&VrfChallengeStruct> for VrfData {
 
     fn try_from(vrf_challenge: &VrfChallengeStruct) -> Result<Self, Self::Error> {
         Ok(VrfData {
-            vrf_input_data: base64url_decode(&vrf_challenge.vrf_input)
+            vrf_input_data: base64_url_decode(&vrf_challenge.vrf_input)
                 .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF input: {}", e)))?,
-            vrf_output: base64url_decode(&vrf_challenge.vrf_output)
+            vrf_output: base64_url_decode(&vrf_challenge.vrf_output)
                 .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF output: {}", e)))?,
-            vrf_proof: base64url_decode(&vrf_challenge.vrf_proof)
+            vrf_proof: base64_url_decode(&vrf_challenge.vrf_proof)
                 .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF proof: {}", e)))?,
-            public_key: base64url_decode(&vrf_challenge.vrf_public_key)
+            public_key: base64_url_decode(&vrf_challenge.vrf_public_key)
                 .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF public key: {}", e)))?,
             user_id: vrf_challenge.user_id.clone(),
             rp_id: vrf_challenge.rp_id.clone(),
             block_height: vrf_challenge.block_height,
-            block_hash: base64url_decode(&vrf_challenge.block_hash)
+            block_hash: base64_url_decode(&vrf_challenge.block_hash)
                 .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode block hash: {}", e)))?,
         })
     }
@@ -916,27 +916,29 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
         let vrf_data = VrfData::try_from(&vrf_challenge_struct)
             .map_err(|e| format!("Failed to convert VRF challenge: {:?}", e))?;
 
-        // Create a minimal WebAuthn registration credential for the transaction
-        // Note: For device linking, we don't have a real WebAuthn credential yet,
-        // so we'll create a placeholder that the contract can handle
-        let placeholder_webauthn = crate::http::WebAuthnRegistrationCredential {
-            id: format!("device-link-{}", request.near_account_id),
-            raw_id: format!("device-link-{}", request.near_account_id),
+        // Convert the SerializedRegistrationCredential to WebAuthnRegistrationCredential
+        let webauthn_registration = WebAuthnRegistrationCredential {
+            id: request.credential.id.clone(),
+            raw_id: request.credential.raw_id.clone(),
             response: crate::http::WebAuthnRegistrationResponse {
-                client_data_json: "{}".to_string(), // Placeholder
-                attestation_object: "".to_string(), // Placeholder
-                transports: None,
+                client_data_json: request.credential.response.client_data_json.clone(),
+                attestation_object: request.credential.response.attestation_object.clone(),
+                transports: Some(request.credential.response.transports.clone()),
             },
-            authenticator_attachment: None,
-            reg_type: "public-key".to_string(),
+            authenticator_attachment: request.credential.authenticator_attachment.clone(),
+            reg_type: request.credential.credential_type.clone(),
         };
 
         // Sign the verify_and_register_user transaction
+        // Decode base64url deterministic VRF public key to Vec<u8>
+        let deterministic_vrf_public_key = base64_url_decode(&registration_tx.deterministic_vrf_public_key)
+            .map_err(|e| format!("Failed to decode deterministic VRF public key: {}", e))?;
+
         match crate::transaction::sign_link_device_registration_tx(
             &registration_tx.contract_id,
             vrf_data,
-            None, // No deterministic VRF public key for device linking
-            placeholder_webauthn,
+            deterministic_vrf_public_key,
+            webauthn_registration,
             &request.near_account_id,
             &near_private_key, // Use the properly derived NEAR private key
             parsed_nonce,

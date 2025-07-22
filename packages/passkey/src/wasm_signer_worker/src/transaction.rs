@@ -4,6 +4,13 @@ use borsh;
 
 use crate::types::*;
 use crate::actions::{ActionParams, get_action_handler};
+use crate::encoders::base64_url_decode;
+use crate::http::{
+    VrfData,
+    WebAuthnRegistrationCredential,
+    perform_contract_verification_wasm,
+    ContractRegistrationResult,
+};
 
 
 /// Build a transaction with multiple actions
@@ -116,7 +123,6 @@ pub async fn sign_registration_tx_wasm(
 ) -> Result<crate::http::ContractRegistrationResult, String> {
     use log::info;
     use log::debug;
-    use base64::prelude::*;
 
     info!("RUST: Performing dual VRF user registration (state-changing function)");
 
@@ -130,7 +136,7 @@ pub async fn sign_registration_tx_wasm(
 
     // Step 2: Build dual VRF data for contract arguments
     let deterministic_vrf_key_bytes = if let Some(det_vrf_key) = deterministic_vrf_public_key {
-        let det_vrf_key_bytes = crate::http::base64url_decode(det_vrf_key)
+        let det_vrf_key_bytes = base64_url_decode(det_vrf_key)
             .map_err(|e| format!("Failed to decode deterministic VRF key: {}", e))?;
         Some(det_vrf_key_bytes)
     } else {
@@ -220,7 +226,7 @@ pub async fn sign_registration_tx_wasm(
 pub async fn sign_link_device_registration_tx(
     contract_id: &str,
     vrf_data: crate::http::VrfData,
-    deterministic_vrf_public_key: Option<&str>,
+    deterministic_vrf_public_key: Vec<u8>,
     webauthn_registration: crate::http::WebAuthnRegistrationCredential,
     signer_account_id: &str,
     private_key: &str, // Already derived private key (not encrypted)
@@ -257,26 +263,8 @@ pub async fn sign_link_device_registration_tx(
     let action_params = vec![crate::actions::ActionParams::FunctionCall {
         method_name: "verify_and_register_user".to_string(),
         args: serde_json::json!({
-            "vrf_data": {
-                "vrf_input_data": vrf_data.vrf_input_data,
-                "vrf_output": vrf_data.vrf_output,
-                "vrf_proof": vrf_data.vrf_proof,
-                "public_key": vrf_data.public_key,
-                "user_id": vrf_data.user_id,
-                "rp_id": vrf_data.rp_id,
-                "block_height": vrf_data.block_height,
-                "block_hash": vrf_data.block_hash
-            },
-            "webauthn_registration": {
-                "id": webauthn_registration.id,
-                "raw_id": webauthn_registration.raw_id,
-                "type": webauthn_registration.reg_type,
-                "response": {
-                    "client_data_json": webauthn_registration.response.client_data_json,
-                    "attestation_object": webauthn_registration.response.attestation_object,
-                    "transports": webauthn_registration.response.transports.unwrap_or_default()
-                }
-            },
+            "vrf_data": vrf_data,
+            "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }).to_string(),
         gas: crate::config::DEVICE_LINKING_REGISTRATION_GAS.to_string(),

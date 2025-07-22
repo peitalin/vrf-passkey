@@ -69,3 +69,9 @@ impl From<KdfError> for JsValue {
         JsValue::from_str(&err.to_string())
     }
 }
+
+impl From<String> for KdfError {
+    fn from(err: String) -> Self {
+        KdfError::Base64DecodeError(err)
+    }
+}

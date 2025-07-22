@@ -74,7 +74,7 @@ interface PasskeyClientDBConfig {
 // === CONSTANTS ===
 const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 6, // Increment version for AccountId + deviceNumber schema changes
+  dbVersion: 7, // Increment version for removing redundant nearAccountIdDevice index
   userStore: 'users',
   appStateStore: 'appState',
   authenticatorStore: 'authenticators'
@@ -108,7 +108,6 @@ export class PasskeyClientDBManager {
           // Authenticators table: composite key of [nearAccountId, deviceNumber, credentialId]
           const authStore = db.createObjectStore(DB_CONFIG.authenticatorStore, { keyPath: ['nearAccountId', 'deviceNumber', 'credentialId'] });
           authStore.createIndex('nearAccountId', 'nearAccountId', { unique: false });
-          authStore.createIndex('nearAccountIdDevice', ['nearAccountId', 'deviceNumber'], { unique: false });
         }
       },
       blocked() {
@@ -305,6 +304,7 @@ export class PasskeyClientDBManager {
    */
   async storeWebAuthnUserData(userData: {
     nearAccountId: AccountId;
+    deviceNumber?: number; // Device number for multi-device support (1-indexed)
     clientNearPublicKey?: string;
     lastUpdated?: number;
     prfSupported?: boolean;
@@ -325,7 +325,9 @@ export class PasskeyClientDBManager {
     // Get existing user data or create new
     let existingUser = await this.getUser(userData.nearAccountId);
     if (!existingUser) {
-      existingUser = await this.registerUser(userData.nearAccountId);
+      existingUser = await this.registerUser(userData.nearAccountId, {
+        deviceNumber: userData.deviceNumber || 1 // Use provided device number or default to 1
+      });
     }
 
     // Update with WebAuthn-specific data (including VRF credentials)
@@ -334,6 +336,7 @@ export class PasskeyClientDBManager {
       prfSupported: userData.prfSupported,
       passkeyCredential: userData.passkeyCredential,
       encryptedVrfKeypair: userData.encryptedVrfKeypair,
+      deviceNumber: userData.deviceNumber || existingUser.deviceNumber, // Use provided device number or keep existing
       lastUpdated: userData.lastUpdated || Date.now()
     });
   }
