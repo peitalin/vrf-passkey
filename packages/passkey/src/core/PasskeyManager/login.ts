@@ -5,13 +5,15 @@ import type {
   LoginEvent,
 } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
+import type { AccountId, AccountIdDeviceSpecific } from '../types/accountIds';
+import { toDeviceSpecificAccountId } from '../types/accountIds';
 
 /**
  * Core login function that handles passkey authentication without React dependencies
  */
 export async function loginPasskey(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   options?: LoginOptions
 ): Promise<LoginResult> {
 
@@ -94,7 +96,7 @@ export async function loginPasskey(
  */
 async function handleLoginUnlockVRF(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   onEvent?: (event: LoginEvent) => void,
   onError?: (error: Error) => void,
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
@@ -206,14 +208,15 @@ async function handleLoginUnlockVRF(
 
 export async function getLoginState(
   context: PasskeyManagerContext,
-  nearAccountId?: string
+  nearAccountId?: AccountId
 ): Promise<LoginState> {
   const { webAuthnManager } = context;
   try {
     // Determine target account ID
     let targetAccountId = nearAccountId;
     if (!targetAccountId) {
-      targetAccountId = await webAuthnManager.getLastUsedNearAccountId() || undefined;
+      const lastUsedAccountId = await webAuthnManager.getLastUsedNearAccountId() || undefined;
+      targetAccountId = lastUsedAccountId?.nearAccountId || undefined;
     }
     if (!targetAccountId) {
       return {
@@ -260,7 +263,14 @@ export async function getLoginState(
 
 export async function getRecentLogins(
   context: PasskeyManagerContext
-): Promise<{ accountIds: string[], lastUsedAccountId: string | null }> {
+): Promise<{
+  accountIds: string[],
+  lastUsedAccountId: {
+    nearAccountId: AccountId,
+    deviceNumber: number,
+    accountIdDeviceSpecific: AccountIdDeviceSpecific
+  } | null
+}> {
   const { webAuthnManager } = context;
   // Get all user accounts from IndexDB
   const allUsersData = await webAuthnManager.getAllUserData();

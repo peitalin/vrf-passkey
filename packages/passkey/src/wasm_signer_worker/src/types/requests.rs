@@ -102,6 +102,8 @@ pub struct SignVerifyAndRegisterUserPayload {
     pub prf_output: String,
     #[serde(rename = "deterministicVrfPublicKey")]
     pub deterministic_vrf_public_key: Option<String>,
+    #[serde(rename = "deviceNumber")]
+    pub device_number: Option<u8>, // Device number for multi-device support (defaults to 1)
 }
 
 // === COSE REQUESTS ===

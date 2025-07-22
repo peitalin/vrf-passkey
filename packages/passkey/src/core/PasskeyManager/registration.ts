@@ -13,6 +13,7 @@ import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccou
 import { WebAuthnManager } from '../WebAuthnManager';
 import { VRFChallenge } from '../types/webauthn';
 import type { PasskeyManagerContext } from './index';
+import type { AccountId, AccountIdDeviceSpecific, toDeviceSpecificAccountId } from '../types/accountIds';
 import { base64UrlEncode, base64Decode } from '../../utils/encoders';
 
 /**
@@ -32,7 +33,7 @@ import { base64UrlEncode, base64Decode } from '../../utils/encoders';
  */
 export async function registerPasskey(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
 
@@ -367,7 +368,7 @@ export async function registerPasskey(
  */
 export async function generateBootstrapVrfChallenge(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
 ): Promise<VRFChallenge> {
 
   const { webAuthnManager, nearClient } = context;
@@ -410,7 +411,7 @@ export async function generateBootstrapVrfChallenge(
  */
 const validateRegistrationInputs = async (
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
 ) => {
@@ -514,7 +515,7 @@ async function performRegistrationRollback(
     contractTransactionId: string | null;
     preSignedDeleteTransaction: SignedTransaction | null;
   },
-  nearAccountId: string,
+  nearAccountId: AccountId,
   webAuthnManager: WebAuthnManager,
   rpcNodeUrl: string,
   onEvent?: (event: RegistrationSSEEvent) => void

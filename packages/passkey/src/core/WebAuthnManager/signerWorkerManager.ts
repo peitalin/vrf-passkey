@@ -51,6 +51,7 @@ import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
 import { jsonTryParse } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
+import { AccountId, validateBaseAccountId } from "../types/accountIds";
 
 // === CONFIGURATION ===
 const CONFIG = {
@@ -210,7 +211,7 @@ export class SignerWorkerManager {
    */
   async deriveNearKeypairAndEncrypt(
     credential: PublicKeyCredential,
-    nearAccountId: string,
+    nearAccountId: AccountId,
     options?: {
       vrfChallenge?: VRFChallenge;
       contractId?: string;
@@ -220,7 +221,7 @@ export class SignerWorkerManager {
     }
   ): Promise<{
     success: boolean;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     publicKey: string;
     signedTransaction?: SignedTransaction;
   }> {
@@ -295,7 +296,7 @@ export class SignerWorkerManager {
 
       return {
         success: true,
-        nearAccountId: wasmResult.nearAccountId,
+        nearAccountId: validateBaseAccountId(wasmResult.nearAccountId),
         publicKey: wasmResult.publicKey,
         signedTransaction
       };
@@ -327,9 +328,9 @@ export class SignerWorkerManager {
    */
   async decryptPrivateKeyWithPrf(
     touchIdPrompt: TouchIdPrompt,
-    nearAccountId: string,
+    nearAccountId: AccountId,
     authenticators: ClientAuthenticatorData[],
-  ): Promise<{ decryptedPrivateKey: string; nearAccountId: string }> {
+  ): Promise<{ decryptedPrivateKey: string; nearAccountId: AccountId }> {
     try {
       console.info('WebAuthnManager: Starting private key decryption with dual PRF (local operation)');
 
@@ -375,7 +376,7 @@ export class SignerWorkerManager {
       const wasmResult = response.payload as wasmModule.DecryptPrivateKeyResult;
       return {
         decryptedPrivateKey: wasmResult.privateKey,
-        nearAccountId: wasmResult.nearAccountId
+        nearAccountId: validateBaseAccountId(wasmResult.nearAccountId)
       };
     } catch (error: any) {
       console.error('WebAuthnManager: Dual PRF private key decryption error:', error);
@@ -459,6 +460,7 @@ export class SignerWorkerManager {
     nearPublicKeyStr,
     nearClient,
     nearRpcUrl,
+    deviceNumber = 1, // Default to device number 1 for first device (1-indexed)
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
@@ -466,10 +468,11 @@ export class SignerWorkerManager {
     contractId: string;
     deterministicVrfPublicKey?: string; // Optional deterministic VRF key for dual registration
     signerAccountId: string;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     nearPublicKeyStr: string;
     nearClient: NearClient; // NEAR RPC client for getting transaction metadata
     nearRpcUrl: string; // NEAR RPC URL for contract verification
+    deviceNumber?: number; // Device number for multi-device support (defaults to 1)
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     verified: boolean;
@@ -539,6 +542,7 @@ export class SignerWorkerManager {
             // Add missing nearRpcUrl field
             nearRpcUrl,
             deterministicVrfPublicKey,
+            deviceNumber, // Pass device number for multi-device support
           }
         },
         onEvent,
@@ -589,7 +593,7 @@ export class SignerWorkerManager {
     onEvent
   }: {
     transactions: Array<{
-      nearAccountId: string;
+      nearAccountId: AccountId;
       receiverId: string;
       actions: ActionParams[];
       nonce: string;
@@ -602,7 +606,7 @@ export class SignerWorkerManager {
     onEvent?: (update: onProgressEvents) => void
   }): Promise<Array<{
     signedTransaction: SignedTransaction;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     logs?: string[]
   }>> {
     try {

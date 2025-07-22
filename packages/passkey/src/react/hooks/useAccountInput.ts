@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { PasskeyManager } from '../../core/PasskeyManager';
+import { toDeviceSpecificAccountId, validateBaseAccountId } from '../../core/types/accountIds';
 
 export interface AccountInputState {
   inputUsername: string;
@@ -52,7 +53,8 @@ export function useAccountInput({
       let lastDomain = '';
 
       if (lastUsedAccountId) {
-        const parts = lastUsedAccountId.split('.');
+
+        const parts = lastUsedAccountId.nearAccountId.split('.');
         lastUsername = parts[0];
         lastDomain = `.${parts.slice(1).join('.')}`;
       }
@@ -124,7 +126,7 @@ export function useAccountInput({
     }
 
     try {
-      const hasCredential = await passkeyManager.hasPasskeyCredential(accountId);
+      const hasCredential = await passkeyManager.hasPasskeyCredential(toDeviceSpecificAccountId(validateBaseAccountId(accountId), 1));
       setState(prevState => ({ ...prevState, accountExists: hasCredential }));
     } catch (error) {
       console.warn('Error checking credentials:', error);
@@ -151,7 +153,7 @@ export function useAccountInput({
         // No logged-in user, try to get last used account
         const { lastUsedAccountId } = await passkeyManager.getRecentLogins();
         if (lastUsedAccountId) {
-          const username = lastUsedAccountId.split('.')[0];
+          const username = lastUsedAccountId.nearAccountId.split('.')[0];
           setState(prevState => ({ ...prevState, inputUsername: username }));
         }
       }
@@ -168,7 +170,7 @@ export function useAccountInput({
         try {
         const { lastUsedAccountId } = await passkeyManager.getRecentLogins();
           if (lastUsedAccountId) {
-            const username = lastUsedAccountId.split('.')[0];
+            const username = lastUsedAccountId.nearAccountId.split('.')[0];
             setState(prevState => ({ ...prevState, inputUsername: username }));
           }
         } catch (error) {

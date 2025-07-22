@@ -1,6 +1,6 @@
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
-import type { VRFChallenge } from '../types';
+import type { AccountId, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
@@ -37,7 +37,7 @@ export interface AccountLookupResult {
 
 export interface PasskeyOption {
   credentialId: string;
-  accountId: string | null;
+  accountId: AccountId | null;
   publicKey: string;
   displayName: string;
   credential: PublicKeyCredential | null;
@@ -84,7 +84,7 @@ export class AccountRecoveryFlow {
    * Phase 1: Discover available accounts
    * Returns safe display data without exposing credentials to UI
    */
-  async discover(accountId: string): Promise<PasskeyOptionWithoutCredential[]> {
+  async discover(accountId: AccountId): Promise<PasskeyOptionWithoutCredential[]> {
     try {
       this.phase = 'discovering';
       console.debug('AccountRecoveryFlow: Discovering available accounts...');
@@ -205,7 +205,7 @@ export class AccountRecoveryFlow {
  */
 async function getRecoverableAccounts(
   context: PasskeyManagerContext,
-  accountId: string
+  accountId: AccountId
 ): Promise<PasskeyOption[]> {
   const vrfChallenge = await generateBootstrapVrfChallenge(context, accountId);
   const availablePasskeys = await getAvailablePasskeysForDomain(context, vrfChallenge, accountId);
@@ -218,7 +218,7 @@ async function getRecoverableAccounts(
 async function getAvailablePasskeysForDomain(
   context: PasskeyManagerContext,
   vrfChallenge: VRFChallenge,
-  accountId: string
+  accountId: AccountId
 ): Promise<PasskeyOption[]> {
   const { webAuthnManager, nearClient, configs } = context;
 
@@ -277,7 +277,7 @@ async function getCredentialIdsFromContract(nearClient: NearClient, contractId: 
  */
 export async function recoverAccount(
   context: PasskeyManagerContext,
-  accountId: string,
+  accountId: AccountId,
   options?: ActionOptions,
   reuseCredential?: PublicKeyCredential
 ): Promise<RecoveryResult> {
@@ -489,7 +489,7 @@ async function performAccountRecovery({
   encryptedVrfResult,
 }: {
   context: PasskeyManagerContext,
-  accountId: string,
+  accountId: AccountId,
   publicKey: string,
   encryptedKeypair: {
     encryptedPrivateKey: string,

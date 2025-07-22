@@ -6,6 +6,8 @@ import { actionCreators, createTransaction, Signature } from '@near-js/transacti
 import type { PasskeyManagerContext } from '../PasskeyManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
+import type { AccountId, AccountIdDeviceSpecific } from '../types/accountIds';
+import { toDeviceSpecificAccountId, validateBaseAccountId } from '../types/accountIds';
 import { ActionType } from '../types/actions';
 import {
   IndexedDBManager,
@@ -30,7 +32,7 @@ import { EncryptedVRFKeypair, VRFInputData } from '../types/vrf-worker';
 // Define interfaces that are missing
 export interface VRFWorkerStatus {
   active: boolean;
-  nearAccountId: string | null;
+  nearAccountId: AccountId | null;
   sessionDuration?: number;
 }
 
@@ -125,7 +127,7 @@ export class WebAuthnManager {
     vrfInputParams
   }: {
     credential: PublicKeyCredential;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     vrfInputParams?: {
       userId: string;
       rpId: string;
@@ -217,7 +219,7 @@ export class WebAuthnManager {
     encryptedVrfKeypair,
     credential,
   }: {
-    nearAccountId: string;
+    nearAccountId: AccountId;
     encryptedVrfKeypair: EncryptedVRFKeypair;
     credential: PublicKeyCredential;
   }): Promise<{ success: boolean; error?: string }> {
@@ -263,7 +265,7 @@ export class WebAuthnManager {
     await IndexedDBManager.clientDB.storeWebAuthnUserData(userData);
   }
 
-  async getUser(nearAccountId: string): Promise<ClientUserData | null> {
+  async getUser(nearAccountId: AccountId): Promise<ClientUserData | null> {
     return await IndexedDBManager.clientDB.getUser(nearAccountId);
   }
 
@@ -284,15 +286,15 @@ export class WebAuthnManager {
     return await IndexedDBManager.clientDB.getAllUsers();
   }
 
-  async getAuthenticatorsByUser(nearAccountId: string): Promise<ClientAuthenticatorData[]> {
+  async getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
     return await IndexedDBManager.clientDB.getAuthenticatorsByUser(nearAccountId);
   }
 
-  async updateLastLogin(nearAccountId: string): Promise<void> {
+  async updateLastLogin(nearAccountId: AccountId): Promise<void> {
     return await IndexedDBManager.clientDB.updateLastLogin(nearAccountId);
   }
 
-  async registerUser(nearAccountId: string, additionalData?: Partial<ClientUserData>): Promise<ClientUserData> {
+  async registerUser(nearAccountId: AccountId, additionalData?: Partial<ClientUserData>): Promise<ClientUserData> {
     return await IndexedDBManager.clientDB.registerUser(nearAccountId, additionalData);
   }
 
@@ -301,15 +303,21 @@ export class WebAuthnManager {
     credentialPublicKey: Uint8Array;
     transports?: string[];
     name?: string;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     registered: string;
     syncedAt: string;
     vrfPublicKey: string;
+    deviceNumber?: number;
   }): Promise<void> {
-    return await IndexedDBManager.clientDB.storeAuthenticator(authenticatorData);
+    const authData = {
+      ...authenticatorData,
+      nearAccountId: validateBaseAccountId(authenticatorData.nearAccountId),
+      deviceNumber: authenticatorData.deviceNumber || 1 // Default to device 1 (1-indexed)
+    };
+    return await IndexedDBManager.clientDB.storeAuthenticator(authData);
   }
 
-  extractUsername(nearAccountId: string): string {
+  extractUsername(nearAccountId: AccountId): string {
     return IndexedDBManager.clientDB.extractUsername(nearAccountId);
   }
 
@@ -317,17 +325,26 @@ export class WebAuthnManager {
     return await IndexedDBManager.clientDB.atomicOperation(callback);
   }
 
-  async rollbackUserRegistration(nearAccountId: string): Promise<void> {
+  async rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
     return await IndexedDBManager.clientDB.rollbackUserRegistration(nearAccountId);
   }
 
-  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
+  async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
     return await IndexedDBManager.clientDB.hasPasskeyCredential(nearAccountId);
   }
 
-  async getLastUsedNearAccountId(): Promise<string | null> {
+  async getLastUsedNearAccountId(): Promise<{
+    nearAccountId: AccountId;
+    deviceNumber: number;
+    accountIdDeviceSpecific: AccountIdDeviceSpecific;
+  } | null> {
     const lastUser = await IndexedDBManager.clientDB.getLastUser();
-    return lastUser?.nearAccountId || null;
+    if (!lastUser) return null;
+    return {
+      nearAccountId: lastUser.nearAccountId,
+      deviceNumber: lastUser.deviceNumber,
+      accountIdDeviceSpecific: toDeviceSpecificAccountId(lastUser.nearAccountId, lastUser.deviceNumber)
+    };
   }
 
   ///////////////////////////////////////
@@ -344,7 +361,7 @@ export class WebAuthnManager {
     options
   }: {
     credential: PublicKeyCredential;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     options?: {
       vrfChallenge?: VRFChallenge;
       contractId?: string;
@@ -353,7 +370,7 @@ export class WebAuthnManager {
     };
   }): Promise<{
     success: boolean;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     publicKey: string;
     signedTransaction?: SignedTransaction;
   }> {
@@ -375,7 +392,7 @@ export class WebAuthnManager {
    * - Challenge only needs to be random to prevent pre-computation
    * - Security comes from device possession + biometrics, not challenge validation
    */
-  async exportNearKeypairWithTouchId(nearAccountId: string): Promise<{
+  async exportNearKeypairWithTouchId(nearAccountId: AccountId): Promise<{
     accountId: string,
     publicKey: string,
     privateKey: string
@@ -437,7 +454,7 @@ export class WebAuthnManager {
     onEvent,
   }: {
     transactions: Array<{
-      nearAccountId: string;
+      nearAccountId: AccountId;
       receiverId: string;
       actions: ActionParams[];
       nonce: string;
@@ -553,7 +570,7 @@ export class WebAuthnManager {
     vrfInputParams,
     onEvent,
   }: {
-    nearAccountId: string;
+    nearAccountId: AccountId;
     vrfInputParams: {
       userId: string;
       rpId: string;
@@ -693,6 +710,7 @@ export class WebAuthnManager {
     nearAccountId,
     nearPublicKeyStr,
     nearClient,
+    deviceNumber = 1, // Default to device number 1 for first device (1-indexed)
     onEvent,
   }: {
     contractId: string,
@@ -700,9 +718,10 @@ export class WebAuthnManager {
     vrfChallenge: VRFChallenge,
     deterministicVrfPublicKey: string, // deterministic VRF key for key recovery
     signerAccountId: string;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     nearPublicKeyStr: string;
     nearClient: NearClient;
+    deviceNumber?: number; // Device number for multi-device support (defaults to 1)
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
@@ -723,6 +742,7 @@ export class WebAuthnManager {
         nearAccountId,
         nearPublicKeyStr,
         nearClient,
+        deviceNumber, // Pass device number for multi-device support
         onEvent,
         nearRpcUrl: this.configs.nearRpcUrl,
       });
@@ -762,7 +782,7 @@ export class WebAuthnManager {
     vrfPublicKey,
     onEvent
   }: {
-    nearAccountId: string;
+    nearAccountId: AccountId;
     credential: PublicKeyCredential;
     publicKey: string;
     encryptedVrfKeypair: EncryptedVRFKeypair;
@@ -975,7 +995,7 @@ export class WebAuthnManager {
     nearRpcUrl,
     onEvent
   }: {
-    nearAccountId: string;
+    nearAccountId: AccountId;
     contractId: string;
     credentialId: string;
     vrfPublicKey: Uint8Array | number[];
@@ -987,7 +1007,7 @@ export class WebAuthnManager {
     onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     signedTransaction: SignedTransaction;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     logs?: string[]
   }> {
     console.debug('WebAuthnManager: Starting VRF key addition to authenticator');
@@ -1037,7 +1057,11 @@ export class WebAuthnManager {
         message: 'VRF public key added to authenticator successfully'
       });
 
-      return result[0];
+      return {
+        signedTransaction: result[0].signedTransaction,
+        nearAccountId: validateBaseAccountId(result[0].nearAccountId),
+        logs: result[0].logs
+      };
 
     } catch (error: any) {
       console.error('WebAuthnManager: VRF key addition error:', error);
@@ -1088,7 +1112,7 @@ export class WebAuthnManager {
   /**
    * Check VRF worker status
    */
-  async checkVrfStatus(): Promise<{ active: boolean; nearAccountId: string | null; sessionDuration?: number }> {
+  async checkVrfStatus(): Promise<{ active: boolean; nearAccountId: AccountId | null; sessionDuration?: number }> {
     return this.vrfWorkerManager.checkVrfStatus();
   }
 

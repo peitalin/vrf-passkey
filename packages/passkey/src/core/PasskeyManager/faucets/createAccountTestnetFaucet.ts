@@ -4,13 +4,14 @@ import { PasskeyManagerContext } from '..';
 import { VRFChallenge } from '@/core/types/webauthn';
 import { AccessKeyView } from 'node_modules/@near-js/types/lib/commonjs/provider/response.cjs';
 import { NearClient } from '@/core/NearClient';
+import { AccountId } from '@/core/types/accountIds';
 
 /**
  * Create NEAR account using testnet faucet service
  * This only works on testnet, for production use the relayer server
  */
 export async function createAccountTestnetFaucet(
-  nearAccountId: string,
+  nearAccountId: AccountId,
   publicKey: string,
   onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{ success: boolean; message: string; error?: string }> {
@@ -109,7 +110,7 @@ export async function createAccountTestnetFaucet(
  */
 export async function createAccountAndRegisterWithTestnetFaucet(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   publicKey: string,
   credential: PublicKeyCredential,
   vrfChallenge: VRFChallenge,
@@ -162,6 +163,7 @@ export async function createAccountAndRegisterWithTestnetFaucet(
       nearAccountId: nearAccountId,
       nearPublicKeyStr: publicKey,
       nearClient: nearClient,
+      deviceNumber: 1, // First device gets device number 1 (1-indexed)
       onEvent: (progress) => {
         onEvent?.({
           step: 5,
@@ -229,7 +231,7 @@ export async function createAccountAndRegisterWithTestnetFaucet(
  */
 async function waitForAccessKey(
   nearClient: NearClient,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   nearPublicKey: string,
   maxRetries: number = 10,
   delayMs: number = 1000

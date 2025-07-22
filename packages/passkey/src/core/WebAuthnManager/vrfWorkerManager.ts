@@ -16,6 +16,7 @@ import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlDecode, base64UrlEncode } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
+import { AccountId, validateBaseAccountId } from '../types/accountIds';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;
@@ -25,7 +26,7 @@ export interface VrfWorkerManagerConfig {
 
 export interface VRFWorkerStatus {
   active: boolean;
-  nearAccountId: string | null;
+  nearAccountId: AccountId | null;
   sessionDuration?: number;
 }
 
@@ -198,7 +199,7 @@ export class VrfWorkerManager {
     onEvent,
   }: {
     touchIdPrompt: TouchIdPrompt,
-    nearAccountId: string,
+    nearAccountId: AccountId,
     encryptedVrfKeypair: EncryptedVRFKeypair,
     authenticators: ClientAuthenticatorData[],
     prfOutput?: ArrayBuffer,
@@ -308,7 +309,7 @@ export class VrfWorkerManager {
       if (response.success && response.data) {
         return {
           active: response.data.active,
-          nearAccountId: this.currentVrfAccountId || null,
+          nearAccountId: this.currentVrfAccountId ? validateBaseAccountId(this.currentVrfAccountId) : null,
           sessionDuration: response.data.sessionDuration
         };
       }
@@ -495,7 +496,7 @@ export class VrfWorkerManager {
     vrfInputParams
   }: {
     prfOutput: string;
-    nearAccountId: string;
+    nearAccountId: AccountId;
     vrfInputParams?: {
       userId: string;
       rpId: string;

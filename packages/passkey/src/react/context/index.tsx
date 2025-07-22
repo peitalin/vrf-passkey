@@ -254,7 +254,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   }
 
   // Function to manually refresh login state
-  const refreshLoginState = useCallback(async (nearAccountId?: string) => {
+    const refreshLoginState = useCallback(async (nearAccountId?: string) => {
       try {
       const loginState = await passkeyManager.getLoginState(nearAccountId);
 

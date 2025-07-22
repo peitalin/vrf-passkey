@@ -2,6 +2,7 @@ import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
 
 import { DEFAULT_GAS_STRING } from '../../config';
+
 import { ActionParams } from '../types/signer-worker';
 import { VerifyAndSignTransactionResult } from '../types/webauthn';
 import { ActionType } from '../types/actions';
@@ -12,6 +13,7 @@ import type { PasskeyManagerContext } from './index';
 import type { WebAuthnManager } from '../WebAuthnManager';
 import type { NearClient } from '../NearClient';
 import type { ClientUserData } from '../types';
+import type { AccountId } from '../types/accountIds';
 
 /**
  * Core action execution function without React dependencies
@@ -20,7 +22,7 @@ import type { ClientUserData } from '../types';
  */
 export async function executeAction(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   actionArgs: ActionArgs | ActionArgs[],
   options?: ActionOptions,
 ): Promise<ActionResult> {
@@ -107,7 +109,7 @@ export async function executeAction(
 export async function getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId }: {
   nearClient: NearClient,
   nearPublicKeyStr: string,
-  nearAccountId: string
+  nearAccountId: AccountId
 }): Promise<TransactionContext> {
 
   // Get access key and transaction block info concurrently
@@ -136,7 +138,7 @@ export async function getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr,
  */
 async function validateActionInputs(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   actionArgs: ActionArgs,
   options?: ActionOptions,
 ): Promise<TransactionContext> {
@@ -185,7 +187,7 @@ async function validateActionInputs(
  */
 async function verifyVrfAuthAndSignTransaction(
   context: PasskeyManagerContext,
-  nearAccountId: string,
+  nearAccountId: AccountId,
   transactionContext: TransactionContext,
   actionArgs: ActionArgs[],
   options?: ActionOptions,

@@ -14,6 +14,8 @@ import type {
   ActionResult,
   LoginState,
 } from '../types/passkeyManager';
+import type { AccountId, AccountIdDeviceSpecific } from '../types/accountIds';
+import { extractBaseAccountId, validateBaseAccountId } from '../types/accountIds';
 import { ActionType, type ActionArgs } from '../types/actions';
 import type {
   LinkDeviceResult,
@@ -62,22 +64,24 @@ export class PasskeyManager {
 
   /**
    * Register a new passkey for the given NEAR account ID
+   * Uses AccountId for on-chain operations and PRF salt derivation
    */
   async registerPasskey(
     nearAccountId: string,
     options: RegistrationOptions
   ): Promise<RegistrationResult> {
-    return registerPasskey(this.getContext(), nearAccountId, options);
+    return registerPasskey(this.getContext(), validateBaseAccountId(nearAccountId), options);
   }
 
   /**
    * Login with an existing passkey
+   * Uses AccountId for on-chain operations and VRF operations
    */
   async loginPasskey(
     nearAccountId: string,
     options?: LoginOptions
   ): Promise<LoginResult> {
-    return loginPasskey(this.getContext(), nearAccountId, options);
+    return loginPasskey(this.getContext(), validateBaseAccountId(nearAccountId), options);
   }
 
   /**
@@ -89,12 +93,20 @@ export class PasskeyManager {
 
   /**
    * Get comprehensive login state information
+   * Uses AccountId for core account login state
    */
   async getLoginState(nearAccountId?: string): Promise<LoginState> {
-    return getLoginState(this.getContext(), nearAccountId);
+    return getLoginState(this.getContext(), nearAccountId ? validateBaseAccountId(nearAccountId) : undefined);
   }
 
-  async getRecentLogins(): Promise<{ accountIds: string[], lastUsedAccountId: string|null }> {
+  async getRecentLogins(): Promise<{
+    accountIds: string[],
+    lastUsedAccountId: {
+      nearAccountId: AccountId,
+      deviceNumber: number,
+      accountIdDeviceSpecific: AccountIdDeviceSpecific
+    } | null
+  }> {
     return getRecentLogins(this.getContext());
   }
 
@@ -126,15 +138,18 @@ export class PasskeyManager {
     actionArgs: ActionArgs,
     options?: ActionOptions
   ): Promise<ActionResult> {
-    return executeAction(this.getContext(), nearAccountId, actionArgs, options);
+    return executeAction(this.getContext(), validateBaseAccountId(nearAccountId), actionArgs, options);
   }
 
-  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
-    return await this.webAuthnManager.hasPasskeyCredential(nearAccountId);
+  async hasPasskeyCredential(nearAccountId: AccountIdDeviceSpecific): Promise<boolean> {
+    // Convert device-specific ID to base account ID for IndexedDB lookup
+    const baseAccountId = extractBaseAccountId(nearAccountId);
+    return await this.webAuthnManager.hasPasskeyCredential(baseAccountId);
   }
 
   /**
    * Export key pair (both private and public keys)
+   * Uses AccountId for consistent PRF salt derivation
    */
   async exportNearKeypairWithTouchId(nearAccountId: string): Promise<{
     accountId: string;
@@ -142,7 +157,7 @@ export class PasskeyManager {
     publicKey: string
   }> {
     // Export private key using the method above
-    return await this.webAuthnManager.exportNearKeypairWithTouchId(nearAccountId)
+    return await this.webAuthnManager.exportNearKeypairWithTouchId(validateBaseAccountId(nearAccountId))
   }
 
   // === KEY MANAGEMENT (Link Device) ===
@@ -234,7 +249,7 @@ export class PasskeyManager {
     options?: ActionOptions,
     reuseCredential?: PublicKeyCredential
   ): Promise<RecoveryResult> {
-    return recoverAccount(this.getContext(), accountId, options, reuseCredential);
+    return recoverAccount(this.getContext(), validateBaseAccountId(accountId), options, reuseCredential);
   }
 
   /**

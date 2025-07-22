@@ -1,10 +1,13 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { type ValidationResult, validateNearAccountId } from '../../utils/validation';
+import type { AccountId } from '../types/accountIds';
+import { toDeviceSpecificAccountId, validateBaseAccountId } from '../types/accountIds';
 
 // === TYPE DEFINITIONS ===
 export interface ClientUserData {
-  // Primary key
-  nearAccountId: string;
+  // Primary key - now uses AccountId + deviceNumber for unique identification
+  nearAccountId: AccountId;
+  deviceNumber: number; // Device number for multi-device support (1-indexed)
 
   // User metadata
   registeredAt: number;
@@ -41,7 +44,8 @@ export interface ClientAuthenticatorData {
   credentialPublicKey: Uint8Array;
   transports?: string[]; // AuthenticatorTransport[]
   name?: string;
-  nearAccountId: string; // FK reference for queries
+  nearAccountId: AccountId; // FK reference using AccountId
+  deviceNumber: number; // Device number for this authenticator (1-indexed)
   registered: string; // ISO date string
   syncedAt: string; // When this cache entry was last synced with contract
   vrfPublicKey: string; // Base64-encoded VRF public key (1:1 relationship on client)
@@ -50,6 +54,13 @@ export interface ClientAuthenticatorData {
 interface AppStateEntry<T = any> {
   key: string;
   value: T;
+}
+
+// Special type for lastUserAccountId app state entry
+export interface LastUserAccountIdState {
+  accountId: AccountId;
+  deviceNumber: number;
+  accountIdDeviceSpecific: string; // For autofill login display purposes
 }
 
 interface PasskeyClientDBConfig {
@@ -63,7 +74,7 @@ interface PasskeyClientDBConfig {
 // === CONSTANTS ===
 const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 5, // Increment version for schema changes
+  dbVersion: 6, // Increment version for AccountId + deviceNumber schema changes
   userStore: 'users',
   appStateStore: 'appState',
   authenticatorStore: 'authenticators'
@@ -86,15 +97,18 @@ export class PasskeyClientDBManager {
       upgrade(db, oldVersion): void {
         // Create stores if they don't exist
         if (!db.objectStoreNames.contains(DB_CONFIG.userStore)) {
-          db.createObjectStore(DB_CONFIG.userStore, { keyPath: 'nearAccountId' });
+          // Users table: composite key of [nearAccountId, deviceNumber]
+          const userStore = db.createObjectStore(DB_CONFIG.userStore, { keyPath: ['nearAccountId', 'deviceNumber'] });
+          userStore.createIndex('nearAccountId', 'nearAccountId', { unique: false });
         }
         if (!db.objectStoreNames.contains(DB_CONFIG.appStateStore)) {
           db.createObjectStore(DB_CONFIG.appStateStore, { keyPath: 'key' });
         }
         if (!db.objectStoreNames.contains(DB_CONFIG.authenticatorStore)) {
-          // Use composite key for authenticators
-          const authStore = db.createObjectStore(DB_CONFIG.authenticatorStore, { keyPath: ['nearAccountId', 'credentialId'] });
+          // Authenticators table: composite key of [nearAccountId, deviceNumber, credentialId]
+          const authStore = db.createObjectStore(DB_CONFIG.authenticatorStore, { keyPath: ['nearAccountId', 'deviceNumber', 'credentialId'] });
           authStore.createIndex('nearAccountId', 'nearAccountId', { unique: false });
+          authStore.createIndex('nearAccountIdDevice', ['nearAccountId', 'deviceNumber'], { unique: false });
         }
       },
       blocked() {
@@ -132,14 +146,14 @@ export class PasskeyClientDBManager {
    * Validate that a NEAR account ID is in the expected format
    * Supports both <username>.<relayerAccountId> and <username>.testnet formats
    */
-  validateNearAccountId(nearAccountId: string): ValidationResult {
+  validateNearAccountId(nearAccountId: AccountId): ValidationResult {
     return validateNearAccountId(nearAccountId);
   }
 
   /**
    * Extract username from NEAR account ID
    */
-  extractUsername(nearAccountId: string): string {
+  extractUsername(nearAccountId: AccountId): string {
     const validation = validateNearAccountId(nearAccountId);
     if (!validation.valid) {
       throw new Error(`Invalid NEAR account ID: ${validation.error}`);
@@ -163,7 +177,7 @@ export class PasskeyClientDBManager {
 
   // === USER MANAGEMENT METHODS ===
 
-  async getUser(nearAccountId: string): Promise<ClientUserData | null> {
+  async getUser(nearAccountId: AccountId): Promise<ClientUserData | null> {
     if (!nearAccountId) return null;
 
     const validation = this.validateNearAccountId(nearAccountId);
@@ -173,8 +187,13 @@ export class PasskeyClientDBManager {
     }
 
     const db = await this.getDB();
-    const result = await db.get(DB_CONFIG.userStore, nearAccountId);
-    return result || null;
+    const accountId = validateBaseAccountId(nearAccountId);
+
+    // Find first device for this account (most common case)
+    // Should only have one record per account per device
+    const index = db.transaction(DB_CONFIG.userStore).store.index('nearAccountId');
+    const results = await index.getAll(accountId);
+    return results.length > 0 ? results[0] : null;
   }
 
   /**
@@ -182,13 +201,13 @@ export class PasskeyClientDBManager {
    * This is maintained via app state and updated whenever a user is stored or updated
    */
   async getLastUser(): Promise<ClientUserData | null> {
-    const lastUserAccount = await this.getAppState<string>('lastUserAccountId');
-    if (!lastUserAccount) return null;
+    const lastUserState = await this.getAppState<LastUserAccountIdState>('lastUserAccountId');
+    if (!lastUserState) return null;
 
-    return this.getUser(lastUserAccount);
+    return this.getUser(lastUserState.accountId);
   }
 
-  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
+  async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
     try {
       const userData = await this.getUser(nearAccountId);
       return !!userData && !!userData.clientNearPublicKey;
@@ -204,7 +223,7 @@ export class PasskeyClientDBManager {
    * @param additionalData - Additional user data to store
    */
   async registerUser(
-    nearAccountId: string,
+    nearAccountId: AccountId,
     additionalData?: Partial<ClientUserData>
   ): Promise<ClientUserData> {
     const validation = this.validateNearAccountId(nearAccountId);
@@ -215,7 +234,8 @@ export class PasskeyClientDBManager {
     const now = Date.now();
 
     const userData: ClientUserData = {
-      nearAccountId,
+      nearAccountId: validateBaseAccountId(nearAccountId),
+      deviceNumber: additionalData?.deviceNumber || 1, // Default to device 1 (1-indexed)
       registeredAt: now,
       lastLogin: now,
       lastUpdated: now,
@@ -231,7 +251,7 @@ export class PasskeyClientDBManager {
     return userData;
   }
 
-  async updateUser(nearAccountId: string, updates: Partial<ClientUserData>): Promise<void> {
+  async updateUser(nearAccountId: AccountId, updates: Partial<ClientUserData>): Promise<void> {
     const user = await this.getUser(nearAccountId);
     if (user) {
       const updatedUser = {
@@ -243,12 +263,12 @@ export class PasskeyClientDBManager {
     }
   }
 
-  async updateLastLogin(nearAccountId: string): Promise<void> {
+  async updateLastLogin(nearAccountId: AccountId): Promise<void> {
     await this.updateUser(nearAccountId, { lastLogin: Date.now() });
   }
 
   async updatePreferences(
-    nearAccountId: string,
+    nearAccountId: AccountId,
     preferences: Partial<UserPreferences>
   ): Promise<void> {
     const user = await this.getUser(nearAccountId);
@@ -269,7 +289,14 @@ export class PasskeyClientDBManager {
 
     const db = await this.getDB();
     await db.put(DB_CONFIG.userStore, userData);
-    await this.setAppState('lastUserAccountId', userData.nearAccountId);
+
+    // Update lastUserAccountId with new format including device info
+    const lastUserState: LastUserAccountIdState = {
+      accountId: userData.nearAccountId,
+      deviceNumber: userData.deviceNumber,
+      accountIdDeviceSpecific: toDeviceSpecificAccountId(userData.nearAccountId, userData.deviceNumber)
+    };
+    await this.setAppState('lastUserAccountId', lastUserState);
   }
 
   /**
@@ -277,7 +304,7 @@ export class PasskeyClientDBManager {
    * @param userData - User data with nearAccountId as primary identifier
    */
   async storeWebAuthnUserData(userData: {
-    nearAccountId: string;
+    nearAccountId: AccountId;
     clientNearPublicKey?: string;
     lastUpdated?: number;
     prfSupported?: boolean;
@@ -316,7 +343,7 @@ export class PasskeyClientDBManager {
     return db.getAll(DB_CONFIG.userStore);
   }
 
-  async deleteUser(nearAccountId: string): Promise<void> {
+  async deleteUser(nearAccountId: AccountId): Promise<void> {
     const db = await this.getDB();
     await db.delete(DB_CONFIG.userStore, nearAccountId);
     // Also clean up related authenticators
@@ -342,22 +369,24 @@ export class PasskeyClientDBManager {
   }
 
   /**
-   * Get all authenticators for a user
+   * Get all authenticators for a user (optionally for a specific device)
    */
-  async getAuthenticatorsByUser(nearAccountId: string): Promise<ClientAuthenticatorData[]> {
+  async getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.authenticatorStore, 'readonly');
     const store = tx.objectStore(DB_CONFIG.authenticatorStore);
-    const index = store.index('nearAccountId');
+    const accountId = validateBaseAccountId(nearAccountId);
 
-    return await index.getAll(nearAccountId);
+    // Get all authenticators for this account across all devices
+    const index = store.index('nearAccountId');
+    return await index.getAll(accountId);
   }
 
   /**
    * Get a specific authenticator by credential ID
    */
   async getAuthenticatorByCredentialId(
-    nearAccountId: string,
+    nearAccountId: AccountId,
     credentialId: string
   ): Promise<ClientAuthenticatorData | null> {
     const db = await this.getDB();
@@ -368,7 +397,7 @@ export class PasskeyClientDBManager {
   /**
    * Clear all authenticators for a user
    */
-  async clearAuthenticatorsForUser(nearAccountId: string): Promise<void> {
+  async clearAuthenticatorsForUser(nearAccountId: AccountId): Promise<void> {
     const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.authenticatorStore, 'readwrite');
@@ -383,7 +412,7 @@ export class PasskeyClientDBManager {
    * Sync authenticators from contract data
    */
   async syncAuthenticatorsFromContract(
-    nearAccountId: string,
+    nearAccountId: AccountId,
     contractAuthenticators: Array<{
       credentialId: string;
       credentialPublicKey: Uint8Array;
@@ -391,6 +420,7 @@ export class PasskeyClientDBManager {
       name?: string;
       registered: string;
       vrfPublicKey: string;
+      deviceNumber?: number; // Device number from contract
     }>
   ): Promise<void> {
     // Clear existing cache for this user
@@ -413,7 +443,8 @@ export class PasskeyClientDBManager {
         credentialPublicKey: auth.credentialPublicKey,
         transports,
         name: auth.name,
-        nearAccountId: nearAccountId,
+        nearAccountId: validateBaseAccountId(nearAccountId),
+        deviceNumber: auth.deviceNumber || 1, // Default to device 1 (1-indexed)
         registered: auth.registered,
         syncedAt: syncedAt,
         vrfPublicKey: auth.vrfPublicKey,
@@ -427,7 +458,7 @@ export class PasskeyClientDBManager {
   /**
    * Delete all authenticators for a user
    */
-  async deleteAllAuthenticatorsForUser(nearAccountId: string): Promise<void> {
+  async deleteAllAuthenticatorsForUser(nearAccountId: AccountId): Promise<void> {
     const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
 
     if (authenticators.length === 0) {
@@ -465,7 +496,7 @@ export class PasskeyClientDBManager {
    * Complete rollback of user registration data
    * Deletes user, authenticators, and WebAuthn data atomically
    */
-  async rollbackUserRegistration(nearAccountId: string): Promise<void> {
+  async rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
     console.debug(`Rolling back registration data for ${nearAccountId}`);
 
     await this.atomicOperation(async (db) => {

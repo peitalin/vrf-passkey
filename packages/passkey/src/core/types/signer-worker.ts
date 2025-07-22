@@ -23,6 +23,7 @@ import {
   WorkerRequestType,
   WorkerResponseType,
 } from '../../wasm_signer_worker/wasm_signer_worker.js';
+import { AccountId } from "./accountIds";
 // Export the WASM enums directly
 export { WorkerRequestType, WorkerResponseType };
 
@@ -82,7 +83,7 @@ export interface Verification {
 // === USER DATA TYPES ===
 
 export interface UserData {
-  nearAccountId: string;
+  nearAccountId: AccountId;
   clientNearPublicKey?: string;
   lastUpdated: number;
   prfSupported?: boolean;

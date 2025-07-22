@@ -9,6 +9,122 @@ use log::{info, debug, warn};
 
 // Logging is now handled by the standard log crate
 
+// Helper functions for testing
+#[cfg(test)]
+fn extract_detailed_execution_error(execution_outcome: &Value) -> String {
+    // Handle direct failure object (test format)
+    if let Some(failure) = execution_outcome.get("Failure") {
+        if failure.is_string() {
+            return failure.as_str().unwrap_or("Transaction validation failed").to_string();
+        }
+
+        // Handle ActionError format
+        if let Some(action_error) = failure.get("ActionError") {
+            let index = action_error.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+            if let Some(kind) = action_error.get("kind") {
+                return extract_action_error_message(kind, index);
+            }
+        }
+
+        // Handle InvalidTxError format (direct under Failure)
+        if let Some(invalid_tx) = failure.get("InvalidTxError") {
+            return format!("Invalid transaction: {}", invalid_tx);
+        }
+
+        // Handle unknown error formats
+        return format!("Transaction failure: {}", failure);
+    }
+
+    // Handle transaction outcome format
+    if let Some(status) = execution_outcome.get("status") {
+        if let Some(failure) = status.get("Failure") {
+            if failure.is_string() {
+                return failure.as_str().unwrap_or("Transaction validation failed").to_string();
+            }
+            if let Some(action_error) = failure.get("ActionError") {
+                let index = action_error.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                if let Some(kind) = action_error.get("kind") {
+                    return extract_action_error_message(kind, index);
+                }
+            }
+            return format!("Transaction validation failed: {}", failure);
+        }
+    }
+
+    // Check receipts for execution errors
+    if let Some(receipts) = execution_outcome.get("receipts") {
+        if let Value::Array(receipts_array) = receipts {
+            for receipt in receipts_array {
+                if let Some(outcome) = receipt.get("outcome") {
+                    if let Some(status) = outcome.get("status") {
+                        if let Some(failure) = status.get("Failure") {
+                            if let Some(action_error) = failure.get("ActionError") {
+                                let index = action_error.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                                if let Some(kind) = action_error.get("kind") {
+                                    return extract_action_error_message(kind, index);
+                                }
+                            }
+                            return format!("Receipt execution failed: {}", failure);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    "Unknown execution error".to_string()
+}
+
+#[cfg(test)]
+fn extract_action_error_message(kind: &Value, index: u64) -> String {
+    if let Some(function_call_error) = kind.get("FunctionCallError") {
+        if let Some(method_resolve_error) = function_call_error.get("MethodResolveError") {
+            return format!("Method not found: {} (action {})", method_resolve_error, index);
+        }
+        if let Some(execution_error) = function_call_error.get("ExecutionError") {
+            return format!("FunctionCall execution error: {} (action {})", execution_error, index);
+        }
+        return format!("FunctionCall execution error (action {})", index);
+    }
+
+    if let Some(account_error) = kind.get("AccountDoesNotExist") {
+        if let Some(account_id) = account_error.get("account_id") {
+            return format!("Account does not exist: {} (action {})", account_id, index);
+        }
+        return format!("Account does not exist (action {})", index);
+    }
+
+    if let Some(insufficient_stake) = kind.get("InsufficientStake") {
+        let mut msg = "Insufficient stake".to_string();
+        if let Some(min_stake) = insufficient_stake.get("minimum_stake") {
+            let min_stake_str = min_stake.as_str().map(|s| s.to_string()).unwrap_or_else(|| min_stake.to_string());
+            msg.push_str(&format!(" minimum_stake={}", min_stake_str.trim_matches('"')));
+        }
+        if let Some(user_stake) = insufficient_stake.get("user_stake") {
+            let user_stake_str = user_stake.as_str().map(|s| s.to_string()).unwrap_or_else(|| user_stake.to_string());
+            msg.push_str(&format!(" user_stake={}", user_stake_str.trim_matches('"')));
+        }
+        msg.push_str(&format!(" (action {})", index));
+        return msg;
+    }
+
+    if kind.get("InvalidTxError").is_some() {
+        return format!("Invalid transaction (action {})", index);
+    }
+
+    format!("Transaction failure: {} (action {})", kind, index)
+}
+
+#[cfg(test)]
+fn bs58_encode(data: &[u8]) -> String {
+    bs58::encode(data).into_string()
+}
+
+#[cfg(test)]
+fn bs58_decode(encoded: &str) -> Result<Vec<u8>, bs58::decode::Error> {
+    bs58::decode(encoded).into_vec()
+}
+
 /// Contract verification result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractVerificationResult {

@@ -45,6 +45,7 @@ export async function createAccountAndRegisterWithRelayServer(
     const requestData = {
       new_account_id: nearAccountId,
       new_public_key: publicKey,
+      device_number: 1, // First device gets device number 1 (1-indexed)
       vrf_data: {
         vrf_input_data: Array.from(base64UrlDecode(vrfChallenge.vrfInput)),
         vrf_output: Array.from(base64UrlDecode(vrfChallenge.vrfOutput)),

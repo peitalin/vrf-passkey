@@ -5,17 +5,18 @@ import {
   OperationHooks
 } from './passkeyManager';
 import { VRFChallenge } from './webauthn';
+import { AccountId } from './accountIds';
 
 // === DEVICE LINKING TYPES ===
 export interface DeviceLinkingQRData {
-  accountId?: string; // Optional - Device2 discovers this from contract polling
+  accountId?: AccountId; // Optional - Device2 discovers this from contract polling
   devicePublicKey: string;
   timestamp: number;
   version: string; // For future compatibility
 }
 
 export interface DeviceLinkingSession {
-  accountId: string | null; // Null until discovered from contract logs (Option F) or provided upfront (Option E)
+  accountId: AccountId | null; // Null until discovered from contract logs (Option F) or provided upfront (Option E)
   deviceNumber?: number; // Device number assigned by Device1 for device linking
   nearPublicKey: string;
   credential: PublicKeyCredential | null; // Null for Option F until real account discovered

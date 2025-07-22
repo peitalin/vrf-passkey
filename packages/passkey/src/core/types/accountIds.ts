@@ -78,35 +78,6 @@ export function extractBaseAccountId(accountId: string): AccountId {
 }
 
 /**
- * Generate device-specific account ID from base account ID and device number
- *
- * @param baseAccountId - Base account ID
- * @param deviceNumber - Device number (0 = first device, no suffix added)
- * @returns Device-specific account ID for storage
- */
-export function generateDeviceSpecificAccountId(
-  baseAccountId: AccountId,
-  deviceNumber?: number
-): AccountIdDeviceSpecific {
-  // Device 0 or undefined = first device, use base account ID
-  if (deviceNumber === undefined || deviceNumber === 0) {
-    return baseAccountId as unknown as AccountIdDeviceSpecific;
-  }
-
-  // Add device number to account ID
-  if (baseAccountId.includes('.')) {
-    const parts = baseAccountId.split('.');
-    // Insert device number after the first part
-    // "serp124.web3-authn-v2.testnet" → "serp124.1.web3-authn-v2.testnet"
-    parts.splice(1, 0, deviceNumber.toString());
-    return parts.join('.') as AccountIdDeviceSpecific;
-  } else {
-    // Fallback for accounts without dots
-    return `${baseAccountId}.${deviceNumber}` as AccountIdDeviceSpecific;
-  }
-}
-
-/**
  * Extract device number from device-specific account ID
  * Returns undefined for base account IDs
  */
@@ -153,13 +124,27 @@ export function toBaseAccountId(accountId: string): AccountId {
 
 /**
  * Convert base account ID to device-specific account ID
- * Alias for generateDeviceSpecificAccountId with clearer intent
  */
 export function toDeviceSpecificAccountId(
   baseAccountId: AccountId,
   deviceNumber?: number
 ): AccountIdDeviceSpecific {
-  return generateDeviceSpecificAccountId(baseAccountId, deviceNumber);
+  // Device 0 or undefined = first device, use base account ID
+  if (deviceNumber === undefined || deviceNumber === 0) {
+    return baseAccountId as unknown as AccountIdDeviceSpecific;
+  }
+
+  // Add device number to account ID
+  if (baseAccountId.includes('.')) {
+    const parts = baseAccountId.split('.');
+    // Insert device number after the first part
+    // "serp124.web3-authn-v2.testnet" → "serp124.1.web3-authn-v2.testnet"
+    parts.splice(1, 0, deviceNumber.toString());
+    return parts.join('.') as AccountIdDeviceSpecific;
+  } else {
+    // Fallback for accounts without dots
+    return `${baseAccountId}.${deviceNumber}` as AccountIdDeviceSpecific;
+  }
 }
 
 /**
@@ -169,16 +154,9 @@ export const AccountId = {
   isBase: isBaseAccountId,
   isDeviceSpecific: isDeviceSpecificAccountId,
   extractBase: extractBaseAccountId,
-  generateDeviceSpecific: generateDeviceSpecificAccountId,
   extractDeviceNumber,
   validateBase: validateBaseAccountId,
   validateDeviceSpecific: validateDeviceSpecificAccountId,
   toBase: toBaseAccountId,
   toDeviceSpecific: toDeviceSpecificAccountId,
 } as const;
-
-// Re-export utility functions for backward compatibility
-export {
-  extractBaseAccountId as extractBaseAccountIdLegacy,
-  generateDeviceSpecificAccountId as generateDeviceSpecificAccountIdLegacy
-};

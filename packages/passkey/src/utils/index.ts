@@ -33,3 +33,5 @@ export const formatLongMessage = (message: string) => {
 export function jsonTryParse<T>(obj: string | undefined): T {
   return JSON.parse(obj || '{}') as T;
 }
+
+

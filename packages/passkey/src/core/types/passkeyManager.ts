@@ -1,5 +1,6 @@
 import { TxExecutionStatus } from "@near-js/types";
 import type { EncryptedVRFKeypair } from './vrf-worker';
+import { AccountId } from "./accountIds";
 
 // Base event callback type
 export type EventCallback<T> = (event: T) => void;
@@ -261,7 +262,7 @@ export interface LoginOptions {
 
 export interface LoginState {
   isLoggedIn: boolean;
-  nearAccountId: string | null;
+  nearAccountId: AccountId | null;
   publicKey: string | null;
   userData: any | null;
   vrfActive: boolean;
@@ -280,7 +281,7 @@ export interface RegistrationResult {
   success: boolean;
   error?: string;
   clientNearPublicKey?: string | null;
-  nearAccountId?: string;
+  nearAccountId?: AccountId;
   transactionId?: string | null;
   vrfRegistration?: {
     success: boolean;
@@ -296,7 +297,7 @@ export interface LoginResult {
   error?: string;
   loggedInNearAccountId?: string;
   clientNearPublicKey?: string | null;
-  nearAccountId?: string;
+  nearAccountId?: AccountId;
 }
 
 export interface ActionResult {

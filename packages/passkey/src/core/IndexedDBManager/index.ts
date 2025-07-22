@@ -13,6 +13,7 @@ export type {
   EncryptedKeyData
 } from './passkeyNearKeysDB';
 
+import { AccountId } from '../types/accountIds';
 // === SINGLETON INSTANCES ===
 import { PasskeyClientDBManager, type ClientUserData } from './passkeyClientDB';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from './passkeyNearKeysDB';
@@ -74,7 +75,7 @@ export class UnifiedIndexedDBManager {
   /**
    * Get user data and check if they have encrypted NEAR keys
    */
-  async getUserWithKeys(nearAccountId: string): Promise<{
+  async getUserWithKeys(nearAccountId: AccountId): Promise<{
     userData: ClientUserData | null;
     hasKeys: boolean;
     keyData?: EncryptedKeyData | null;

@@ -112,6 +112,7 @@ pub async fn sign_registration_tx_wasm(
     prf_output_base64: &str,
     nonce: u64,
     block_hash_bytes: &[u8],
+    device_number: Option<u8>, // Device number for multi-device support (defaults to 1)
 ) -> Result<crate::http::ContractRegistrationResult, String> {
     use log::info;
     use log::debug;
@@ -141,7 +142,8 @@ pub async fn sign_registration_tx_wasm(
     let contract_args = serde_json::json!({
         "vrf_data": vrf_data,
         "webauthn_registration": webauthn_registration_credential,
-        "deterministic_vrf_public_key": deterministic_vrf_key_bytes
+        "deterministic_vrf_public_key": deterministic_vrf_key_bytes,
+        "device_number": device_number // Include device number for multi-device support
     });
 
     // Step 4: Create FunctionCall action using existing infrastructure

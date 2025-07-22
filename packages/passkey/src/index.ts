@@ -65,8 +65,26 @@ export {
   takeAesPrfOutput,
 } from './core/types/signer-worker';
 
+// === ACCOUNT ID TYPE SAFETY ===
+export type {
+  AccountId,
+  AccountIdDeviceSpecific
+} from './core/types/accountIds';
+
+export {
+  isDeviceSpecificAccountId,
+  isBaseAccountId,
+  extractBaseAccountId,
+  extractDeviceNumber,
+  validateBaseAccountId,
+  validateDeviceSpecificAccountId,
+  toBaseAccountId,
+  toDeviceSpecificAccountId
+} from './core/types/accountIds';
+
 // === UTILITIES ===
 export { base64UrlEncode, base64UrlDecode } from './utils/encoders';
+
 export * from './config';
 
 // === MAIN PASSKEY SDK EXPORTS ===

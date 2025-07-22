@@ -6,7 +6,8 @@ import { generateBootstrapVrfChallenge } from './registration';
 import { getLoginState } from './login';
 import { executeAction, getNonceBlockHashAndHeight } from './actions';
 import { base64UrlEncode, base64UrlDecode } from '../../utils';
-import { extractBaseAccountId } from '../types/accountIds';
+import type { AccountId } from '../types/accountIds';
+import { extractBaseAccountId, validateBaseAccountId } from '../types/accountIds';
 
 import type {
   DeviceLinkingQRData,
@@ -68,7 +69,7 @@ export class LinkDeviceFlow {
    * - Option E: If accountId provided, generate proper NEAR keypair immediately (faster)
    * - Option F: If no accountId, generate temp NEAR keypair, replace later (seamless UX)
    */
-  async generateQR(accountId?: string): Promise<{
+  async generateQR(accountId?: AccountId): Promise<{
     qrData: DeviceLinkingQRData;
     qrCodeDataURL: string
   }> {
@@ -99,7 +100,7 @@ export class LinkDeviceFlow {
         // Derive NEAR keypair with proper account-specific salt
         const nearKeyResult = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
           credential,
-          nearAccountId: accountId
+          nearAccountId: validateBaseAccountId(accountId)
         });
 
         if (!nearKeyResult.success || !nearKeyResult.publicKey) {
@@ -412,7 +413,7 @@ export class LinkDeviceFlow {
 
       // Store user data for the device-specific account
       await webAuthnManager.storeUserData({
-        nearAccountId: deviceSpecificAccountId, // Use device-specific account ID
+        nearAccountId: accountId, // Use device-specific account ID
         clientNearPublicKey: migrateKeysResult.nearPublicKey,
         lastUpdated: Date.now(),
         prfSupported: true,
@@ -426,7 +427,7 @@ export class LinkDeviceFlow {
 
       // Store authenticator for the device-specific account
       await webAuthnManager.storeAuthenticator({
-        nearAccountId: deviceSpecificAccountId, // Use device-specific account ID
+        nearAccountId: accountId, // Use device-specific account ID
         credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
         credentialPublicKey: new Uint8Array(credential.rawId),
         transports: ['internal'],
@@ -711,7 +712,7 @@ export class LinkDeviceFlow {
    * Generate device-specific account ID for storage
    * Similar to generateDeviceSpecificUserId but for account storage keys
    */
-  private generateDeviceSpecificAccountId(nearAccountId: string, deviceNumber?: number): string {
+  private generateDeviceSpecificAccountId(nearAccountId: AccountId, deviceNumber?: number): string {
     // If no device number provided or device number is 0, this is the first device
     if (deviceNumber === undefined || deviceNumber === 0) {
       return nearAccountId;
@@ -743,55 +744,27 @@ export class LinkDeviceFlow {
 
       // Remove any authenticator data for both base and device-specific accounts (if they were discovered)
       if (accountId && credential) {
-        // Try to clean up device-specific account data first
-        const deviceSpecificAccountId = this.generateDeviceSpecificAccountId(accountId, this.session.deviceNumber);
 
         try {
-          await IndexedDBManager.clientDB.deleteAllAuthenticatorsForUser(deviceSpecificAccountId);
-          console.log(`LinkDeviceFlow: Removed authenticators for ${deviceSpecificAccountId}`);
+          await IndexedDBManager.clientDB.deleteAllAuthenticatorsForUser(accountId);
+          console.log(`LinkDeviceFlow: Removed authenticators for ${accountId}`);
         } catch (err) {
-          console.warn(`️LinkDeviceFlow: Could not remove authenticators for ${deviceSpecificAccountId}:`, err);
+          console.warn(`️LinkDeviceFlow: Could not remove authenticators for ${accountId}:`, err);
         }
 
         try {
-          await IndexedDBManager.clientDB.deleteUser(deviceSpecificAccountId);
-          console.log(`LinkDeviceFlow: Removed user data for ${deviceSpecificAccountId}`);
+          await IndexedDBManager.clientDB.deleteUser(accountId);
+          console.log(`LinkDeviceFlow: Removed user data for ${accountId}`);
         } catch (err) {
-          console.warn(`️LinkDeviceFlow: Could not remove user data for ${deviceSpecificAccountId}:`, err);
-        }
-
-        // Also try to clean up base account data in case it was stored there
-        if (deviceSpecificAccountId !== accountId) {
-          try {
-            await IndexedDBManager.clientDB.deleteAllAuthenticatorsForUser(accountId);
-            console.log(`LinkDeviceFlow: Removed authenticators for ${accountId}`);
-          } catch (err) {
-            console.warn(`️LinkDeviceFlow: Could not remove authenticators for ${accountId}:`, err);
-          }
-
-          try {
-            await IndexedDBManager.clientDB.deleteUser(accountId);
-            console.log(`LinkDeviceFlow: Removed user data for ${accountId}`);
-          } catch (err) {
-            console.warn(`️LinkDeviceFlow: Could not remove user data for ${accountId}:`, err);
-          }
+          console.warn(`️LinkDeviceFlow: Could not remove user data for ${accountId}:`, err);
         }
 
         // Remove any VRF credentials for both device-specific and base accounts (in case re-derivation happened)
         try {
-          await IndexedDBManager.nearKeysDB.deleteEncryptedKey(deviceSpecificAccountId);
-          console.log(`LinkDeviceFlow: Removed VRF credentials for device-specific account ${deviceSpecificAccountId}`);
+          await IndexedDBManager.nearKeysDB.deleteEncryptedKey(accountId);
+          console.log(`LinkDeviceFlow: Removed VRF credentials for device-specific account ${accountId}`);
         } catch (err) {
-          console.warn(`️LinkDeviceFlow: Could not remove VRF credentials for ${deviceSpecificAccountId}:`, err);
-        }
-
-        if (deviceSpecificAccountId !== accountId) {
-          try {
-            await IndexedDBManager.nearKeysDB.deleteEncryptedKey(accountId);
-            console.log(`LinkDeviceFlow: Removed VRF credentials for base account ${accountId}`);
-          } catch (err) {
-            console.warn(`️LinkDeviceFlow: Could not remove VRF credentials for ${accountId}:`, err);
-          }
+          console.warn(`️LinkDeviceFlow: Could not remove VRF credentials for ${accountId}:`, err);
         }
       }
 
