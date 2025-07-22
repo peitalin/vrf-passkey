@@ -36,6 +36,7 @@ pub struct VRFVerificationData {
     /// NOTE: NEAR contracts cannot access historical block hashes, so this is used
     /// purely for additional entropy in the VRF input construction
     pub block_hash: Vec<u8>,
+
 }
 
 // WebAuthn verification structures
@@ -137,7 +138,7 @@ impl WebAuthnContract {
         account_id: AccountId,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
+        deterministic_vrf_public_key: Vec<u8>,
         device_number: Option<u8>,
     ) -> VerifyRegistrationResponse {
 
@@ -145,11 +146,7 @@ impl WebAuthnContract {
         log!("  - User ID: {}", vrf_data.user_id);
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
         log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
-        if let Some(ref det_key) = deterministic_vrf_public_key {
-            log!("  - Deterministic VRF key: {} bytes", det_key.len());
-        } else {
-            log!("  - Deterministic VRF key: None (single VRF registration)");
-        }
+        log!("  - Deterministic VRF key: {} bytes", deterministic_vrf_public_key.len());
 
         // 1. Validate VRF and extract WebAuthn challenge (view-only)
         let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
@@ -183,11 +180,11 @@ impl WebAuthnContract {
                 // Store the authenticator and user data with dual VRF keys for the specific account
                 let storage_result = self.store_authenticator_and_user_for_account(
                     account_id.clone(),
+                    device_num,
                     registration_info,
                     webauthn_registration,
                     vrf_data.public_key,
                     deterministic_vrf_public_key,
-                    device_num,
                 );
 
                 log!("VRF WebAuthn registration completed successfully for account: {}", account_id);
@@ -212,12 +209,19 @@ impl WebAuthnContract {
         &mut self,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
-        device_number: Option<u8>,
+        deterministic_vrf_public_key: Vec<u8>,
     ) -> VerifyRegistrationResponse {
 
         // Use predecessor account ID
         let account_id = env::predecessor_account_id();
+
+        // For device linking, determine the device number from contract state
+        // Check if this account already has devices registered
+        let device_number = self.device_numbers.get(&account_id)
+            .map(|counter| *counter as u8) // Use current counter value as the device number (cast u32 to u8)
+            .unwrap_or(1u8); // Default to device 1 for new accounts
+
+        log!("Device linking registration: account {} assigned device number {}", account_id, device_number);
 
         // Delegate to the account-specific version
         self.verify_and_register_user_for_account(
@@ -225,7 +229,7 @@ impl WebAuthnContract {
             vrf_data,
             webauthn_registration,
             deterministic_vrf_public_key,
-            device_number,
+            Some(device_number),
         )
 
         // Check if self.device_linking_map contains the device public key
@@ -752,6 +756,8 @@ mod tests {
 
         // Create mock VRF data
         let mock_vrf = MockVRFData::create_mock();
+        // use mock as determistic vrf public key just for testing
+        let deterministic_vrf_public_key = mock_vrf.public_key.clone();
 
         // Create VRF verification data struct
         let vrf_data = VRFVerificationData {
@@ -784,8 +790,7 @@ mod tests {
         let result = contract.verify_and_register_user(
             vrf_data,
             webauthn_registration,
-            None,
-            Some(1) // First device gets device number 1
+            deterministic_vrf_public_key,
         );
 
         // The result should fail VRF verification (expected with mock data)

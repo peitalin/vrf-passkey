@@ -147,11 +147,11 @@ impl WebAuthnContract {
     pub fn store_authenticator_and_user_for_account(
         &mut self,
         account_id: AccountId,
+        device_number: u8,
         registration_info: RegistrationInfo,
         credential: WebAuthnRegistrationCredential,
         bootstrap_vrf_public_key: Vec<u8>,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
-        device_number: u8,
+        deterministic_vrf_public_key: Vec<u8>,
     ) -> VerifyRegistrationResponse {
 
         log!("Storing new authenticator for account {}", account_id);
@@ -178,12 +178,8 @@ impl WebAuthnContract {
 
         // Prepare VRF keys for storage
         let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
-        if let Some(det_key) = deterministic_vrf_public_key {
-            vrf_keys.push(det_key);
-            log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
-        } else {
-            log!("Storing authenticator with single VRF key for account {}: bootstrap only", account_id);
-        }
+        vrf_keys.push(deterministic_vrf_public_key);
+        log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
 
         // Store the authenticator with multiple VRF public keys
         self.store_authenticator(
