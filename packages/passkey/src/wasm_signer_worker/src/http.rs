@@ -488,7 +488,6 @@ async fn execute_rpc_request(rpc_url: &str, rpc_body: &serde_json::Value) -> Res
 }
 
 /// Parse response for view-only registration check
-#[cfg(test)]
 pub fn parse_view_registration_response(result: serde_json::Value) -> Result<ContractRegistrationResult, String> {
     info!("RUST: Received registration check RPC response");
 
