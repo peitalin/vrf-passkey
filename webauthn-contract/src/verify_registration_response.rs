@@ -212,23 +212,21 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Vec<u8>,
     ) -> VerifyRegistrationResponse {
 
-                // Use predecessor account ID
         let account_id = env::predecessor_account_id();
 
-        // For device linking, determine the device number from contract state
-        // The device_numbers map stores the NEXT available device number
-        // So we need to use (current_counter - 1) for this registration
-        let counter = self.device_numbers.get(&account_id).copied().unwrap_or(1);
-        let device_number = if counter > 1 {
-            // Device linking scenario: use the previous counter value
-            (counter - 1) as u8
-        } else {
-            // First device registration
-            1u8
-        };
+        // Check if this account already has devices registered
+        let device_number = self.device_numbers.get(&account_id)
+            .map(|counter| *counter as u8) // Use current counter value as the device number (cast u32 to u8)
+            .unwrap_or(1u8); // Default to device 1 for new accounts
 
-        log!("Device linking registration: account {} assigned device number {} (counter = {})",
-             account_id, device_number, counter);
+        log!("Device linking registration: account {} assigned device number {}", account_id, device_number);
+
+        // Increment the counter for the next device
+        let next_counter = self.device_numbers.get(&account_id).copied().unwrap_or(1) + 1;
+        self.device_numbers.insert(account_id.clone(), next_counter);
+
+        log!("Device linking registration: account {} assigned device number {} (next_counter = {})",
+             account_id, device_number, next_counter);
 
         // Delegate to the account-specific version
         self.verify_and_register_user_for_account(

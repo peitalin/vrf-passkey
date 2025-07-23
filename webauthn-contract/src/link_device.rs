@@ -52,9 +52,6 @@ impl WebAuthnContract {
 
         let device_number = current_counter;
 
-        // Increment and store the new counter
-        self.device_numbers.insert(target_account_id.clone(), current_counter + 1);
-
         // Store temporary mapping for Device2 to poll (account ID and assigned device number)
         self.device_linking_map.insert(
             device_public_key.clone(),
