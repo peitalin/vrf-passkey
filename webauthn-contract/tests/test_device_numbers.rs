@@ -44,7 +44,7 @@ mod device_number_tests {
         assert!(success, "First authenticator should be stored successfully");
 
         // Test that we can retrieve all authenticators with device numbers
-        let all_auths = contract.get_all_authenticators_for_account(account.clone());
+        let all_auths = contract.get_authenticators_by_user(account.clone());
         assert_eq!(all_auths.len(), 1, "Should have one authenticator");
         assert_eq!(all_auths[0].1.device_number, 1, "First device should have device number 1");
 

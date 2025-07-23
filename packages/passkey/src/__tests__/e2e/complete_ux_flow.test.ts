@@ -13,7 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
 import { ActionType } from '../../core/types/actions';
-import { validateBaseAccountId } from '../../core/types/accountIds';
+import { validateAccountId } from '../../core/types/accountIds';
 import { BUILD_PATHS } from '@build-paths';
 
 test.describe('PasskeyManager Complete E2E Test Suite', () => {
@@ -76,7 +76,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
         // Registration
         const registrationEvents: any[] = [];
-        const registrationResult = await passkeyManager.registerPasskey(validateBaseAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push(event);
             console.log(`Registration [${event.step}]: ${event.phase} - ${event.message}`);
@@ -173,7 +173,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         }
 
         const loginEvents: any[] = [];
-        const loginResult = await passkeyManager.loginPasskey(validateBaseAccountId(testAccountId), {
+        const loginResult = await passkeyManager.loginPasskey(validateAccountId(testAccountId), {
           onEvent: (event: any) => {
             loginEvents.push(event);
             console.log(`Login [${event.step}]: ${event.phase} - ${event.message}`);
@@ -209,7 +209,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
         try {
           transferResult = await passkeyManager.executeAction(
-            validateBaseAccountId(testAccountId),
+            validateAccountId(testAccountId),
             {
               type: actionType.Transfer, // Use the passed ActionType
               receiverId: receiverAccountId,
@@ -239,7 +239,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         console.log('=== PHASE 3: RECOVERY FLOW ===');
 
         const recoveryEvents: any[] = [];
-        const recoveryResult = await passkeyManager.recoverAccountWithAccountId(validateBaseAccountId(testAccountId), {
+        const recoveryResult = await passkeyManager.recoverAccountWithAccountId(validateAccountId(testAccountId), {
           onEvent: (event: any) => {
             recoveryEvents.push(event);
             console.log(`Recovery [${event.step}]: ${event.phase} - ${event.message}`);
@@ -254,7 +254,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         // =================================================================
         console.log('=== FINAL STATE VERIFICATION ===');
 
-        const finalLoginState = await passkeyManager.getLoginState(validateBaseAccountId(testAccountId));
+        const finalLoginState = await passkeyManager.getLoginState(validateAccountId(testAccountId));
         const recentLogins = await passkeyManager.getRecentLogins();
 
         return {

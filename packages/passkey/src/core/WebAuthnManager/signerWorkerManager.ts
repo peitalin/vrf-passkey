@@ -1,7 +1,7 @@
 import type { NearClient } from '../NearClient';
 import { getNonceBlockHashAndHeight } from "../PasskeyManager/actions";
 import { SignedTransaction } from "../NearClient";
-import { base64UrlEncode, base64UrlDecode, base58Decode } from '../../utils/encoders';
+import { base58Decode } from '../../utils/encoders';
 import type {
   ActionParams,
   WebAuthnAuthenticationCredential,
@@ -51,7 +51,7 @@ import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
 import { jsonTryParse } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
-import { AccountId, validateBaseAccountId } from "../types/accountIds";
+import { AccountId, validateAccountId } from "../types/accountIds";
 
 // === CONFIGURATION ===
 const CONFIG = {
@@ -213,13 +213,11 @@ export class SignerWorkerManager {
     credential: PublicKeyCredential,
     nearAccountId: AccountId,
     options?: {
-      vrfChallenge?: VRFChallenge;
-      // Add VRF public key for registration transactions
-      deterministicVrfPublicKey?: string;
-      contractId?: string;
-      nearRpcUrl?: string;
-      nonce?: string;
-      blockHashBytes?: number[];
+      vrfChallenge: VRFChallenge;
+      deterministicVrfPublicKey: string; // Add VRF public key for registration transactions
+      contractId: string;
+      nonce: string;
+      blockHash: string;
     }
   ): Promise<{
     success: boolean;
@@ -252,11 +250,11 @@ export class SignerWorkerManager {
             nearAccountId: nearAccountId,
             credential: serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential),
             // Optional device linking registration transaction
-            registrationTransaction: (options?.vrfChallenge && options?.contractId && options?.nonce && options?.blockHashBytes) ? {
+            registrationTransaction: (options?.vrfChallenge && options?.contractId && options?.nonce && options?.blockHash) ? {
               vrfChallenge: options.vrfChallenge,
               contractId: options.contractId,
               nonce: options.nonce,
-              blockHashBytes: options.blockHashBytes,
+              blockHashBytes: Array.from(base58Decode(options.blockHash)),
               // Pass VRF public key to WASM worker (device number determined by contract)
               deterministicVrfPublicKey: options.deterministicVrfPublicKey,
             } : undefined,
@@ -301,7 +299,7 @@ export class SignerWorkerManager {
 
       return {
         success: true,
-        nearAccountId: validateBaseAccountId(wasmResult.nearAccountId),
+        nearAccountId: validateAccountId(wasmResult.nearAccountId),
         publicKey: wasmResult.publicKey,
         signedTransaction
       };
@@ -381,7 +379,7 @@ export class SignerWorkerManager {
       const wasmResult = response.payload as wasmModule.DecryptPrivateKeyResult;
       return {
         decryptedPrivateKey: wasmResult.privateKey,
-        nearAccountId: validateBaseAccountId(wasmResult.nearAccountId)
+        nearAccountId: validateAccountId(wasmResult.nearAccountId)
       };
     } catch (error: any) {
       console.error('WebAuthnManager: Dual PRF private key decryption error:', error);
@@ -514,7 +512,7 @@ export class SignerWorkerManager {
       const {
         accessKeyInfo,
         nextNonce,
-        txBlockHashBytes,
+        txBlockHash,
         txBlockHeight,
       } = await getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId });
 
@@ -539,7 +537,7 @@ export class SignerWorkerManager {
             signerAccountId,
             nearAccountId,
             nonce: nextNonce,
-            blockHashBytes: txBlockHashBytes,
+            blockHashBytes: Array.from(base58Decode(txBlockHash)),
             // Pass encrypted key data from IndexedDB
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv,
@@ -590,7 +588,7 @@ export class SignerWorkerManager {
    */
   async signTransactionsWithActions({
     transactions,
-    blockHashBytes,
+    blockHash,
     contractId,
     vrfChallenge,
     credential,
@@ -603,7 +601,7 @@ export class SignerWorkerManager {
       actions: ActionParams[];
       nonce: string;
     }>;
-    blockHashBytes: number[];
+    blockHash: string;
     contractId: string;
     vrfChallenge: VRFChallenge;
     credential: PublicKeyCredential;
@@ -664,7 +662,7 @@ export class SignerWorkerManager {
         receiverId: tx.receiverId,
         actions: JSON.stringify(tx.actions),
         nonce: tx.nonce,
-        blockHashBytes: blockHashBytes
+        blockHashBytes: Array.from(base58Decode(blockHash))
       }));
 
       // Send batch signing request to WASM worker
@@ -839,14 +837,14 @@ export class SignerWorkerManager {
     signerAccountId,
     receiverId,
     nonce,
-    blockHashBytes,
+    blockHash,
     actions
   }: {
     nearPrivateKey: string;
     signerAccountId: string;
     receiverId: string;
     nonce: string;
-    blockHashBytes: number[];
+    blockHash: string;
     actions: ActionParams[];
   }): Promise<{
     signedTransaction: SignedTransaction;
@@ -872,7 +870,7 @@ export class SignerWorkerManager {
             signerAccountId,
             receiverId,
             nonce,
-            blockHashBytes,
+            blockHashBytes: Array.from(base58Decode(blockHash)),
             actions: JSON.stringify(actions)
           }
         }

@@ -13,7 +13,7 @@ import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccou
 import { WebAuthnManager } from '../WebAuthnManager';
 import { VRFChallenge } from '../types/webauthn';
 import type { PasskeyManagerContext } from './index';
-import type { AccountId, AccountIdDeviceSpecific, toDeviceSpecificAccountId } from '../types/accountIds';
+import type { AccountId } from '../types/accountIds';
 import { base64UrlEncode, base64Decode } from '../../utils/encoders';
 
 /**
@@ -95,7 +95,7 @@ export async function registerPasskey(
     });
 
     const credential = await webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
-      nearAccountId,
+      nearAccountId: nearAccountId,
       challenge: vrfChallengeBytes,
     });
 
@@ -373,15 +373,7 @@ export async function generateBootstrapVrfChallenge(
 
   const { webAuthnManager, nearClient } = context;
 
-  const {
-    blockHeight,
-    blockHashBytes,
-  } = await nearClient.viewBlock({ finality: 'final' }).then(blockInfo => {
-    return {
-      blockHeight: blockInfo.header.height,
-      blockHashBytes: base64Decode(blockInfo.header.hash)
-    };
-  });
+  const blockInfo = await nearClient.viewBlock({ finality: 'final' });
 
   console.log('Generating VRF keypair for registration');
   // Generate VRF keypair and persist in worker memory
@@ -390,8 +382,8 @@ export async function generateBootstrapVrfChallenge(
     {
       userId: nearAccountId,
       rpId: window.location.hostname,
-      blockHeight: blockHeight,
-      blockHashBytes: Array.from(blockHashBytes),
+      blockHeight: blockInfo.header.height,
+      blockHash: blockInfo.header.hash,
       timestamp: Date.now()
     }
   );

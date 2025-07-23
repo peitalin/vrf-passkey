@@ -1,11 +1,14 @@
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
-import type { AccountId, VRFChallenge } from '../types';
+import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
 import { base58Decode } from '../../utils/encoders';
 import { NearClient } from '../NearClient';
+import { WebAuthnManager } from '../WebAuthnManager';
+import { IndexedDBManager } from '../IndexedDBManager';
+import type { VRFInputData } from '../types/vrf-worker';
 
 /**
  * Use case:
@@ -226,19 +229,19 @@ async function getAvailablePasskeysForDomain(
 
   // Always try to authenticate with the provided account ID, even if no credentials found in contract
   try {
-  const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
-    nearAccountId: accountId,
-    challenge: vrfChallenge.outputAs32Bytes(),
-      credentialIds: credentialIds.length > 0 ? credentialIds : [], // Empty array if no contract credentials
+    const credential = await webAuthnManager.touchIdPrompt.getCredentialsForRecovery({
+      nearAccountId: accountId,
+      challenge: vrfChallenge.outputAs32Bytes(),
+      credentialIds: credentialIds.length > 0 ? credentialIds : [] // Empty array if no contract credentials
     });
 
     if (credential) {
-  return [{
-    credentialId: credential.id,
-    accountId: accountId,
-    publicKey: '',
-    displayName: `${accountId} (Authenticated with this passkey)`,
-    credential: credential
+      return [{
+        credentialId: credential.id,
+        accountId: accountId,
+        publicKey: '',
+        displayName: `${accountId} (Authenticated with this passkey)`,
+        credential: credential
       }];
     }
   } catch (error) {
@@ -311,35 +314,33 @@ export async function recoverAccount(
       message: 'Verifying account ownership...'
     });
 
-    const { hasAccess, blockHeight, blockHashBytes } = await Promise.all([
+    const { hasAccess, blockHeight, blockHash } = await Promise.all([
       nearClient.viewAccessKey(accountId, recoveredKeypair.publicKey),
       nearClient.viewBlock({ finality: 'final' })
     ]).then(([hasAccess, blockInfo]) => {
       return {
         hasAccess,
         blockHeight: blockInfo.header.height,
-        blockHashBytes: Array.from(base58Decode(blockInfo.header.hash)),
+        blockHash: blockInfo.header.hash,
       };
     });
 
     if (!hasAccess) {
       return handleRecoveryError(accountId, `Account ${accountId} was not created with this passkey`, onError, hooks);
     }
-    const vrfInputParams = {
+    const vrfInputData: VRFInputData = {
       userId: accountId,
       rpId: window.location.hostname,
       blockHeight,
-      blockHashBytes,
+      blockHash,
       timestamp: Date.now()
     };
     const { encryptedVrfResult, vrfChallenge } = await deriveVrfKeypair(
       webAuthnManager,
       credential,
       accountId,
-      vrfInputParams
+      vrfInputData
     );
-
-    await generateNearKeypair(webAuthnManager, credential, accountId);
 
     onEvent?.({
       step: 4,
@@ -404,7 +405,11 @@ async function getOrCreateCredential(
 /**
  * Derive keypair from credential
  */
-async function deriveKeypairFromCredential(webAuthnManager: any, credential: PublicKeyCredential, accountId: string) {
+async function deriveKeypairFromCredential(
+  webAuthnManager: WebAuthnManager,
+  credential: PublicKeyCredential,
+  accountId: string
+) {
   return await webAuthnManager.recoverKeypairFromPasskey(
     crypto.getRandomValues(new Uint8Array(32)),
     credential,
@@ -415,11 +420,16 @@ async function deriveKeypairFromCredential(webAuthnManager: any, credential: Pub
 /**
  * Derive VRF keypair and generate challenge
  */
-async function deriveVrfKeypair(webAuthnManager: any, credential: PublicKeyCredential, accountId: string, vrfInputParams: any) {
+async function deriveVrfKeypair(
+  webAuthnManager: WebAuthnManager,
+  credential: PublicKeyCredential,
+  accountId: AccountId,
+  vrfInputData: VRFInputData
+) {
   const deterministicVrfResult = await webAuthnManager.deriveVrfKeypairFromPrf({
     credential,
     nearAccountId: accountId,
-    vrfInputParams
+    vrfInputData
   });
 
   if (
@@ -438,22 +448,6 @@ async function deriveVrfKeypair(webAuthnManager: any, credential: PublicKeyCrede
     },
     vrfChallenge: deterministicVrfResult.vrfChallenge
   };
-}
-
-/**
- * Generate and encrypt NEAR keypair
- */
-async function generateNearKeypair(webAuthnManager: any, credential: PublicKeyCredential, accountId: string) {
-  const keyGenResult = await webAuthnManager.deriveNearKeypairAndEncrypt({
-    credential,
-    nearAccountId: accountId
-  });
-
-  if (!keyGenResult.success || !keyGenResult.publicKey) {
-    throw new Error('Failed to generate NEAR keypair with PRF');
-  }
-
-  return keyGenResult;
 }
 
 /**
@@ -508,8 +502,8 @@ async function performAccountRecovery({
     // 1. Sync on-chain authenticator data
     const contractAuthenticators = await syncContractAuthenticators(nearClient, configs.contractId, accountId);
 
-    // 2. Restore user data to IndexedDB
-    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair);
+    // 2. Restore user data to IndexedDB (including encrypted NEAR keypair)
+    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair, encryptedKeypair);
 
     // 3. Restore authenticator data to IndexedDB
     await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
@@ -548,20 +542,43 @@ async function performAccountRecovery({
   }
 }
 
-// Helper functions for cleaner code organization
+/** Stored authenticator onchain uses snake case */
+export interface ContractStoredAuthenticator {
+  credential_id: string;
+  credential_public_key: Uint8Array;
+  transports: AuthenticatorTransport[];
+  registered: string; // Contract returns timestamp as string
+  vrf_public_keys?: string[];
+  device_number?: number;
+}
 
-async function syncContractAuthenticators(nearClient: any, contractId: string, accountId: string) {
+async function syncContractAuthenticators(
+  nearClient: NearClient,
+  contractId: string,
+  accountId: AccountId
+): Promise<Array<{ credentialId: string, authenticator: StoredAuthenticator }>> {
   try {
-    const authenticatorsResult = await nearClient.view({
+    const authenticatorsResult = await nearClient.view<[string, ContractStoredAuthenticator][]>({
       account: contractId,
       method: 'get_authenticators_by_user',
       args: { user_id: accountId }
     });
+    console.log("Contract: Authenticators result", authenticatorsResult);
 
     if (authenticatorsResult && Array.isArray(authenticatorsResult)) {
-      return authenticatorsResult.map(([credentialId, authenticator]: [string, any]) => ({
+      return authenticatorsResult.map(([credentialId, contractAuthenticator]) => ({
         credentialId,
-        authenticator
+        authenticator: {
+          credentialId,
+          credentialPublicKey: new Uint8Array(contractAuthenticator.credential_public_key),
+          transports: contractAuthenticator.transports,
+          userId: accountId,
+          name: `Device ${contractAuthenticator.device_number || 1} Authenticator`,
+          registered: new Date(parseInt(contractAuthenticator.registered as string)),
+          // Store additional contract-specific data
+          deviceNumber: contractAuthenticator.device_number || 1,
+          vrfPublicKeys: contractAuthenticator.vrf_public_keys
+        }
       }));
     }
     return [];
@@ -571,8 +588,26 @@ async function syncContractAuthenticators(nearClient: any, contractId: string, a
   }
 }
 
-async function restoreUserData(webAuthnManager: any, accountId: string, publicKey: string, encryptedVrfKeypair: EncryptedVRFKeypair) {
+async function restoreUserData(
+  webAuthnManager: WebAuthnManager,
+  accountId: AccountId,
+  publicKey: string,
+  encryptedVrfKeypair: EncryptedVRFKeypair,
+  encryptedNearKeypair: {
+    encryptedPrivateKey: string;
+    iv: string
+  }
+) {
   const existingUser = await webAuthnManager.getUser(accountId);
+
+  // Store the encrypted NEAR keypair in the encrypted keys database
+  await IndexedDBManager.nearKeysDB.storeEncryptedKey({
+    nearAccountId: accountId,
+    encryptedData: encryptedNearKeypair.encryptedPrivateKey,
+    iv: encryptedNearKeypair.iv,
+    timestamp: Date.now()
+  });
+  console.debug(`Stored encrypted NEAR keypair for account recovery: ${accountId}`);
 
   if (!existingUser) {
     await webAuthnManager.registerUser(accountId, {
@@ -594,28 +629,40 @@ async function restoreUserData(webAuthnManager: any, accountId: string, publicKe
   }
 }
 
-async function restoreAuthenticators(webAuthnManager: any, accountId: string, contractAuthenticators: any[], vrfPublicKey: string) {
+async function restoreAuthenticators(
+  webAuthnManager: WebAuthnManager,
+  accountId: AccountId,
+  contractAuthenticators: {
+    credentialId: string,
+    authenticator: StoredAuthenticator
+  }[],
+  vrfPublicKey: string
+) {
   for (const { credentialId, authenticator } of contractAuthenticators) {
-    const credentialPublicKey = new Uint8Array(authenticator.credential_public_key);
+    const credentialPublicKey = authenticator.credentialPublicKey;
 
     // Fix transport processing: filter out undefined values and provide fallback
-    const rawTransports = authenticator.transports?.map((t: any) => t.transport) || [];
-    const validTransports = rawTransports.filter((transport: any) =>
+    const validTransports = authenticator.transports.filter((transport) =>
       transport !== undefined && transport !== null && typeof transport === 'string'
     );
 
     // If no valid transports, default to 'internal' for platform authenticators
-    const transports = validTransports.length > 0 ? validTransports : ['internal'];
+    const transports = validTransports?.length > 0 ? validTransports : ['internal'];
+
+    // Extract device number from contract authenticator data (now camelCase)
+    const deviceNumber = (authenticator as any).deviceNumber || 1; // Default to 1 if not found
+    console.log("Restoring authenticator", authenticator);
 
     await webAuthnManager.storeAuthenticator({
       nearAccountId: accountId,
       credentialId: credentialId,
       credentialPublicKey,
       transports,
-      name: `Recovered Authenticator`,
-      registered: authenticator.registered,
+      name: `Recovered Device ${deviceNumber} Passkey`,
+      registered: authenticator.registered.toISOString(),
       syncedAt: new Date().toISOString(),
-      vrfPublicKey
+      vrfPublicKey,
+      deviceNumber // Pass the device number from contract data
     });
   }
 }

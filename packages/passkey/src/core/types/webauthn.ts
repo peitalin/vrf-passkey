@@ -99,11 +99,12 @@ export interface PrfEvaluationResult {
 export interface StoredAuthenticator {
   credentialId: string;
   credentialPublicKey: Uint8Array;
-  transports?: AuthenticatorTransport[];
+  transports: AuthenticatorTransport[];
   userId: string;
   name?: string;
   registered: Date;
-  clientNearPublicKey?: string;
+  vrfPublicKeys?: string[];
+  deviceNumber?: number;
 }
 
 // =================================================================

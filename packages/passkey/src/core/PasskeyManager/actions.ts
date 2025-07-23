@@ -1,8 +1,5 @@
-import bs58 from 'bs58';
 import type { AccessKeyView } from '@near-js/types';
-
 import { DEFAULT_GAS_STRING } from '../../config';
-
 import { ActionParams } from '../types/signer-worker';
 import { VerifyAndSignTransactionResult } from '../types/webauthn';
 import { ActionType } from '../types/actions';
@@ -10,9 +7,8 @@ import type { ActionArgs } from '../types/actions';
 import type { ActionOptions, ActionResult } from '../types/passkeyManager';
 import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
-import type { WebAuthnManager } from '../WebAuthnManager';
 import type { NearClient } from '../NearClient';
-import type { ClientUserData } from '../types';
+import type { VRFInputData } from '../types/vrf-worker';
 import type { AccountId } from '../types/accountIds';
 
 /**
@@ -121,15 +117,15 @@ export async function getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr,
     throw new Error(`Access key not found or invalid for account ${nearAccountId} with public key ${nearPublicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`);
   }
   const nextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(1)).toString();
-  const txBlockHashBytes = Array.from(bs58.decode(txBlockInfo.header.hash));
   const txBlockHeight = txBlockInfo.header.height;
+  const txBlockHash = txBlockInfo.header.hash; // Keep original base58 string
 
   return {
     nearPublicKeyStr,
     accessKeyInfo,
     nextNonce,
-    txBlockHashBytes,
     txBlockHeight,
+    txBlockHash,
   };
 }
 
@@ -213,11 +209,11 @@ async function verifyVrfAuthAndSignTransaction(
   }
 
   // Generate VRF challenge
-  const vrfInputData = {
+  const vrfInputData: VRFInputData = {
     userId: nearAccountId,
     rpId: window.location.hostname,
     blockHeight: transactionContext.txBlockHeight,
-    blockHashBytes: transactionContext.txBlockHashBytes,
+    blockHash: transactionContext.txBlockHash, // Use original base58 string, not decoded bytes
     timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
@@ -318,7 +314,7 @@ async function verifyVrfAuthAndSignTransaction(
       nonce: transactionContext.nextNonce,
     }],
     // Common parameters
-    blockHashBytes: transactionContext.txBlockHashBytes,
+    blockHash: transactionContext.txBlockHash,
     contractId: webAuthnManager.configs.contractId,
     vrfChallenge: vrfChallenge,
     credential: credential,

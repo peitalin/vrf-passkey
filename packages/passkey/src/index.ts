@@ -68,18 +68,11 @@ export {
 // === ACCOUNT ID TYPE SAFETY ===
 export type {
   AccountId,
-  AccountIdDeviceSpecific
 } from './core/types/accountIds';
 
 export {
-  isDeviceSpecificAccountId,
-  isBaseAccountId,
-  extractBaseAccountId,
-  extractDeviceNumber,
-  validateBaseAccountId,
-  validateDeviceSpecificAccountId,
-  toBaseAccountId,
-  toDeviceSpecificAccountId
+  validateAccountId,
+  toAccountId
 } from './core/types/accountIds';
 
 // === UTILITIES ===

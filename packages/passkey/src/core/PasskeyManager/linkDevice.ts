@@ -5,9 +5,10 @@ import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
 import { getLoginState } from './login';
 import { executeAction, getNonceBlockHashAndHeight } from './actions';
-import { base64UrlEncode, base64UrlDecode } from '../../utils';
+import { base64UrlEncode } from '../../utils';
+import type { VRFInputData } from '../types/vrf-worker';
 import type { AccountId } from '../types/accountIds';
-import { extractBaseAccountId, validateBaseAccountId } from '../types/accountIds';
+import { toAccountId, validateAccountId } from '../types/accountIds';
 
 import type {
   DeviceLinkingQRData,
@@ -94,13 +95,12 @@ export class LinkDeviceFlow {
         const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
           nearAccountId: accountId,
           challenge: vrfChallenge.outputAs32Bytes(),
-          // No deviceNumber yet - will be determined when Device1 scans QR and creates mapping
         });
 
         // Derive NEAR keypair with proper account-specific salt
         const nearKeyResult = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
           credential,
-          nearAccountId: validateBaseAccountId(accountId)
+          nearAccountId: toAccountId(accountId)
         });
 
         if (!nearKeyResult.success || !nearKeyResult.publicKey) {
@@ -476,9 +476,6 @@ export class LinkDeviceFlow {
       return undefined;
     }
     const realAccountId = this.session.accountId;
-    // Extract base account ID for consistent PRF salt derivation across all devices
-    const baseAccountId = extractBaseAccountId(realAccountId);
-    console.log(`LinkDeviceFlow: Using base account ID: ${baseAccountId} (from device-specific: ${realAccountId})`);
 
     try {
       console.log(`LinkDeviceFlow: Processing VRF credentials for real account: ${realAccountId}`);
@@ -488,17 +485,17 @@ export class LinkDeviceFlow {
         console.log(`LinkDeviceFlow: Option F - Generating WebAuthn credential for ${realAccountId}`);
 
         // Generate VRF challenge for the real account (uses account ID as salt)
-        const vrfChallenge = await generateBootstrapVrfChallenge(this.context, baseAccountId);
+        const vrfChallenge = await generateBootstrapVrfChallenge(this.context, realAccountId);
 
         // Use device number that was discovered during polling
         const deviceNumber = this.session.deviceNumber;
         console.log(`LinkDeviceFlow: Using device number ${deviceNumber} for credential generation`);
 
         // Generate WebAuthn credentials with TouchID (now that we know the real account)
-        const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
-          nearAccountId: realAccountId,
-          challenge: vrfChallenge.outputAs32Bytes(),
+        const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentialsForLinkDevice({
+          nearAccountId: realAccountId, // Use base account ID for consistent PRF salts across devices
           deviceNumber, // Use device number discovered during polling
+          challenge: vrfChallenge.outputAs32Bytes(),
         });
 
         // Store credential and challenge in session for later cleanup
@@ -508,7 +505,7 @@ export class LinkDeviceFlow {
         // Derive VRF keypair from PRF output for storage
         const vrfDerivationResult = await this.context.webAuthnManager.deriveVrfKeypairFromPrf({
           credential: credential,
-          nearAccountId: baseAccountId // Use base account ID for PRF salt consistency
+          nearAccountId: realAccountId // Use base account ID for PRF salt consistency
         });
 
         if (!vrfDerivationResult.success || !vrfDerivationResult.encryptedVrfKeypair) {
@@ -520,7 +517,7 @@ export class LinkDeviceFlow {
         // === STEP 1: Generate NEAR keypair (deterministic, no transaction signing) ===
         // Use base account ID for consistent keypair derivation across devices
         const nearKeyResultStep1 = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
-          nearAccountId: baseAccountId, // Use base account ID for consistency
+          nearAccountId: realAccountId, // Use base account ID for consistency
           credential: credential,
           // No options - just generate the keypair, don't sign registration tx yet
         });
@@ -534,7 +531,7 @@ export class LinkDeviceFlow {
         // === STEP 2: Execute Key Replacement Transaction ===
         const {
           nextNonce,
-          txBlockHashBytes,
+          txBlockHash,
         } = await getNonceBlockHashAndHeight({
           nearClient: this.context.nearClient,
           nearPublicKeyStr: this.session.nearPublicKey, // Use temp key for nonce info
@@ -545,29 +542,28 @@ export class LinkDeviceFlow {
         await this.executeKeyReplacementTransaction(
           nearKeyResultStep1.publicKey,
           nextNonce,
-          txBlockHashBytes
+          txBlockHash
         );
 
         // === STEP 3: Get new key's actual nonce and sign registration transaction ===
         const {
           nextNonce: newKeyNonce,
-          txBlockHashBytes: newTxBlockHashBytes,
+          txBlockHash: newTxBlockHash,
         } = await getNonceBlockHashAndHeight({
           nearClient: this.context.nearClient,
           nearPublicKeyStr: nearKeyResultStep1.publicKey, // Use NEW key for its actual nonce
           nearAccountId: realAccountId
         });
-        console.log("newKeyNonce", newKeyNonce);
 
         // Generate the same keypair again (deterministic) but now with registration transaction
         const nearKeyResultStep3 = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
-          nearAccountId: baseAccountId, // Use base account ID for consistency
+          nearAccountId: realAccountId, // Use base account ID for consistency
           credential: credential,
           options: {
             vrfChallenge: vrfChallenge,
             contractId: this.context.webAuthnManager.configs.contractId,
             nonce: newKeyNonce, // ✅ Use NEW key's actual nonce
-            blockHashBytes: newTxBlockHashBytes,
+            blockHash: newTxBlockHash,
             // Pass the deterministic VRF public key for contract call
             // Note: deviceNumber removed - contract determines this automatically for device linking
             deterministicVrfPublicKey: vrfDerivationResult.vrfPublicKey,
@@ -613,17 +609,17 @@ export class LinkDeviceFlow {
         console.log(`LinkDeviceFlow: Option E - Regenerating credentials with device number for ${realAccountId}`);
 
         // Generate VRF challenge for the real account
-        const vrfChallenge = await generateBootstrapVrfChallenge(this.context, baseAccountId);
+        const vrfChallenge = await generateBootstrapVrfChallenge(this.context, realAccountId);
 
         // Use device number that was discovered during polling
         const deviceNumber = this.session.deviceNumber;
         console.log(`LinkDeviceFlow: Option E - Using device number ${deviceNumber} for credential regeneration`);
 
         // Regenerate WebAuthn credentials with proper device number
-        const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentials({
-          nearAccountId: realAccountId,
-          challenge: vrfChallenge.outputAs32Bytes(),
+        const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentialsForLinkDevice({
+          nearAccountId: realAccountId, // Use base account ID for consistent PRF salts across devices
           deviceNumber, // Use device number discovered during polling
+          challenge: vrfChallenge.outputAs32Bytes(),
         });
 
         // Store regenerated credential and challenge in session
@@ -633,7 +629,7 @@ export class LinkDeviceFlow {
         // For Option E, also derive VRF keypair from regenerated credential
         const vrfDerivationResult = await this.context.webAuthnManager.deriveVrfKeypairFromPrf({
           credential: credential,
-          nearAccountId: baseAccountId // Use base account ID for PRF salt consistency
+          nearAccountId: realAccountId // Use base account ID for PRF salt consistency
         });
 
         if (!vrfDerivationResult.success || !vrfDerivationResult.encryptedVrfKeypair) {
@@ -665,7 +661,7 @@ export class LinkDeviceFlow {
   private async executeKeyReplacementTransaction(
     newPublicKey: string,
     nextNonce: string,
-    txBlockHashBytes: number[]
+    txBlockHash: string
   ): Promise<void> {
     if (!this.session?.tempPrivateKey || !this.session?.accountId) {
       throw new Error('Missing temporary private key or account ID for key replacement');
@@ -700,7 +696,7 @@ export class LinkDeviceFlow {
         signerAccountId: accountId,
         receiverId: accountId,
         nonce: nextNonce,
-        blockHashBytes: Array.from(txBlockHashBytes),
+        blockHash: txBlockHash,
         actions
       });
 
@@ -927,7 +923,7 @@ export async function scanAndLinkDevice(
       accessKeyInfo,
       nextNonce,
       txBlockHeight,
-      txBlockHashBytes
+      txBlockHash
     } = await getNonceBlockHashAndHeight({
       nearClient: context.nearClient,
       nearPublicKeyStr: nearPublicKeyStr,
@@ -936,11 +932,11 @@ export async function scanAndLinkDevice(
 
     const nextNextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(2)).toString();
 
-    const vrfInputData = {
+    const vrfInputData: VRFInputData = {
       userId: device1AccountId,
       rpId: window.location.hostname,
       blockHeight: txBlockHeight,
-      blockHashBytes: txBlockHashBytes,
+      blockHash: txBlockHash,
       timestamp: Date.now()
     };
 
@@ -997,7 +993,7 @@ export async function scanAndLinkDevice(
         }
       ],
       // Common parameters
-      blockHashBytes: txBlockHashBytes,
+      blockHash: txBlockHash,
       contractId: context.webAuthnManager.configs.contractId,
       vrfChallenge: vrfChallenge,
       credential: credential,

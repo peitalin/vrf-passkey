@@ -57,9 +57,7 @@ impl WebAuthnContract {
     /// @view
     pub fn get_authenticators_by_user(&self, user_id: AccountId) -> Vec<(String, StoredAuthenticator)> {
         let mut result = Vec::new();
-        // Get the user's authenticator map (O(1))
         if let Some(user_authenticators) = self.authenticators.get(&user_id) {
-            // Iterate through the user's authenticators (O(k) where k = user's credentials)
             for (credential_id, authenticator) in user_authenticators.iter() {
                 result.push((credential_id.clone(), authenticator.clone()));
             }
@@ -258,20 +256,6 @@ impl WebAuthnContract {
             }
         }
         None
-    }
-
-    /// Get all authenticators for an account with their device numbers
-    pub fn get_all_authenticators_for_account(
-        &self,
-        account_id: AccountId,
-    ) -> Vec<(String, StoredAuthenticator)> {
-        // Return all authenticators with their device numbers
-        self.authenticators
-            .get(&account_id)
-            .map(|auth_map| {
-                auth_map.iter().map(|(id, auth)| (id.clone(), auth.clone())).collect()
-            })
-            .unwrap_or_default()
     }
 
     /////////////////////////////////

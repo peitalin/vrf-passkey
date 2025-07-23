@@ -2,7 +2,7 @@ import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { base64Decode, base64UrlDecode } from '../../utils/encoders';
 
 export interface RegisterCredentialsArgs {
-  nearAccountId: string,
+  nearAccountId: string,    // NEAR account ID for PRF salts and keypair derivation (always base account)
   challenge: Uint8Array<ArrayBuffer>,
   deviceNumber?: number, // Optional device number for device-specific user ID (0, 1, 2, etc.)
 }
@@ -163,20 +163,54 @@ export class TouchIdPrompt {
   }
 
   /**
-   * Generate WebAuthn registration credentials with PRF output for a new passkey
-   * @param nearAccountId - NEAR account ID to register
+   * Generate WebAuthn registration credentials for normal account registration
+   * @param nearAccountId - NEAR account ID (used for both WebAuthn user ID and PRF salts)
    * @param challenge - Random challenge bytes for the registration ceremony
-   * @param deviceNumber - Device number for device-specific user ID.
-   * e.g. bob.1.testnet, where 1 is the device number.
-   * For registration leave it blank if you want bob.testnet for the userID (device 0)
-   * This is mostly for device linking purposes: giving the 2nd device a unique passkey userId
-   * so that chrome passkey sync doesn't overwrite the old passkey
    * @returns Credential with PRF output
    */
   async generateRegistrationCredentials({
     nearAccountId,
+    challenge
+  }: {
+    nearAccountId: string,
+    challenge: Uint8Array<ArrayBuffer>
+  }): Promise<PublicKeyCredential> {
+    return this.generateRegistrationCredentialsInternal({
+      nearAccountId: nearAccountId,
+      challenge
+    });
+  }
+
+  /**
+   * Generate WebAuthn registration credentials for device linking
+   * @param nearAccountId - NEAR account ID for PRF salts (always base account like alice.testnet)
+   * @param challenge - Random challenge bytes for the registration ceremony
+   * @param deviceNumber - Device number for device-specific user ID
+   * @returns Credential with PRF output
+   */
+  async generateRegistrationCredentialsForLinkDevice({
+    nearAccountId,
     challenge,
-    deviceNumber // Only provide during device linking, not during registration
+    deviceNumber
+  }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
+    return this.generateRegistrationCredentialsInternal({
+      nearAccountId,
+      challenge,
+      deviceNumber
+    });
+  }
+
+  /**
+   * Internal method for generating WebAuthn registration credentials with PRF output
+   * @param nearAccountId - NEAR account ID for PRF salts and keypair derivation (always base account)
+   * @param challenge - Random challenge bytes for the registration ceremony
+   * @param deviceNumber - Device number for device-specific user ID.
+   * @returns Credential with PRF output
+   */
+  private async generateRegistrationCredentialsInternal({
+    nearAccountId,
+    challenge,
+    deviceNumber
   }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
     const credential = await navigator.credentials.create({
       publicKey: {
@@ -186,9 +220,11 @@ export class TouchIdPrompt {
           id: window.location.hostname
         },
         user: {
+          // CRITICAL: user.id must be device-specific or
+          // Chrome passkey sync will overwrite credentials between devices
           id: new TextEncoder().encode(generateDeviceSpecificUserId(nearAccountId, deviceNumber)),
           name: generateDeviceSpecificUserId(nearAccountId, deviceNumber),
-          displayName: generateDeviceSpecificUserId(nearAccountId, deviceNumber)
+          displayName: generateUserFriendlyDisplayName(nearAccountId, deviceNumber)
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' }, // ES256
@@ -203,6 +239,7 @@ export class TouchIdPrompt {
         extensions: {
           prf: {
             eval: {
+              // Always use NEAR account ID for PRF salts to ensure consistent keypair derivation across devices
               first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
               second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
@@ -217,30 +254,45 @@ export class TouchIdPrompt {
 
 /**
  * Generate device-specific user ID to prevent Chrome sync conflicts
- * Uses device number for device identification
+ * Creates technical identifiers with full account context
  *
- * @param nearAccountId - The NEAR account ID (e.g., "serp120.web3-authn.testnet")
- * @param deviceNumber - The device number (optional, 0 for device 1, 1 for device 2, etc.)
- * @returns Device-specific user ID:
- *   - Device 0 (first device): "serp120.web3-authn.testnet" (original account ID)
- *   - Device 1 (second device): "serp120.1.web3-authn.testnet"
- *   - Device 2 (third device): "serp120.2.web3-authn.testnet"
+ * @param nearAccountId - The NEAR account ID (e.g., "serp120.web3-authn-v2.testnet")
+ * @param deviceNumber - The device number (optional, undefined for device 1, 2 for device 2, etc.)
+ * @returns Technical identifier:
+ *   - Device 1: "serp120.web3-authn.testnet"
+ *   - Device 2: "serp120.web3-authn.testnet (2)"
+ *   - Device 3: "serp120.web3-authn.testnet (3)"
  */
 function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: number): string {
-  // If no device number provided or device number is 0, this is the first device (registration)
-  if (deviceNumber === undefined || deviceNumber === 0) {
+  // If no device number provided or device number is 1, this is the first device
+  if (deviceNumber === undefined || deviceNumber === 1) {
     return nearAccountId;
   }
 
-  // Add device number to account ID
-  if (nearAccountId.includes('.')) {
-    const parts = nearAccountId.split('.');
-    // Insert device number after the first part
-    // "serp120.web3-authn.testnet" -> "serp120.1.web3-authn.testnet"
-    parts.splice(1, 0, deviceNumber.toString());
-    return parts.join('.');
-  } else {
-    // Fallback for accounts without dots
-    return `${nearAccountId}.${deviceNumber}`;
+  // For additional devices, add device number in parentheses
+  return `${nearAccountId} (${deviceNumber})`;
+}
+
+/**
+ * Generate user-friendly display name for passkey manager UI
+ * Creates clean, intuitive names that users will see
+ *
+ * @param nearAccountId - The NEAR account ID (e.g., "serp120.web3-authn-v2.testnet")
+ * @param deviceNumber - The device number (optional, undefined for device 1, 2 for device 2, etc.)
+ * @returns User-friendly display name:
+ *   - Device 1: "serp120"
+ *   - Device 2: "serp120 (device 2)"
+ *   - Device 3: "serp120 (device 3)"
+ */
+function generateUserFriendlyDisplayName(nearAccountId: string, deviceNumber?: number): string {
+  // Extract the base username (everything before the first dot)
+  const baseUsername = nearAccountId.split('.')[0];
+
+  // If no device number provided or device number is 1, this is the first device
+  if (deviceNumber === undefined || deviceNumber === 1) {
+    return baseUsername;
   }
+
+  // For additional devices, add device number with friendly label
+  return `${baseUsername} (device ${deviceNumber})`;
 }

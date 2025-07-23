@@ -6,9 +6,9 @@ import { actionCreators, createTransaction, Signature } from '@near-js/transacti
 import type { PasskeyManagerContext } from '../PasskeyManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
-import type { AccountId, AccountIdDeviceSpecific } from '../types/accountIds';
-import { toDeviceSpecificAccountId, validateBaseAccountId } from '../types/accountIds';
+import type { AccountId } from '../types/accountIds';
 import { ActionType } from '../types/actions';
+import { validateAccountId } from '../types/accountIds';
 import {
   IndexedDBManager,
   type ClientUserData,
@@ -65,18 +65,8 @@ export class WebAuthnManager {
   // VRF MANAGER FUNCTIONS
   ///////////////////////////////////////
 
-  async generateVrfChallenge(inputData: {
-    userId: string;
-    rpId: string;
-    blockHeight: number;
-    blockHashBytes: number[];
-    timestamp?: number;
-  }): Promise<VRFChallenge> {
-    return this.vrfWorkerManager.generateVrfChallenge({
-      ...inputData,
-      blockHash: base64UrlEncode(new Uint8Array(inputData.blockHashBytes)),
-      timestamp: inputData.timestamp || Date.now()
-    });
+  async generateVrfChallenge(vrfInputData: VRFInputData): Promise<VRFChallenge> {
+    return this.vrfWorkerManager.generateVrfChallenge(vrfInputData);
   }
 
   /**
@@ -90,18 +80,12 @@ export class WebAuthnManager {
    */
   async generateVrfKeypair(
     saveInMemory: boolean,
-    vrfInputParams: {
-      userId: string;
-      rpId: string;
-      blockHeight: number;
-      blockHashBytes: number[];
-      timestamp: number;
-    }
+    vrfInputData: VRFInputData
   ): Promise<{
     vrfPublicKey: string;
     vrfChallenge: VRFChallenge;
   }> {
-    const result = await this.vrfWorkerManager.generateVrfKeypair(vrfInputParams, saveInMemory);
+    const result = await this.vrfWorkerManager.generateVrfKeypair(vrfInputData, saveInMemory);
     if (!result.vrfChallenge) {
       throw new Error('VRF challenge generation failed');
     }
@@ -124,17 +108,11 @@ export class WebAuthnManager {
   async deriveVrfKeypairFromPrf({
     credential,
     nearAccountId,
-    vrfInputParams
+    vrfInputData
   }: {
     credential: PublicKeyCredential;
     nearAccountId: AccountId;
-    vrfInputParams?: {
-      userId: string;
-      rpId: string;
-      blockHeight: number;
-      blockHashBytes: number[];
-      timestamp: number;
-    };
+    vrfInputData?: VRFInputData;
   }): Promise<{
     success: boolean;
     vrfPublicKey: string;
@@ -151,7 +129,7 @@ export class WebAuthnManager {
       const vrfResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
         prfOutput: dualPrfOutputs.aesPrfOutput,
         nearAccountId,
-        vrfInputParams
+        vrfInputData
       });
 
       console.debug(`Derived VRF public key: ${vrfResult.vrfPublicKey}`);
@@ -311,7 +289,7 @@ export class WebAuthnManager {
   }): Promise<void> {
     const authData = {
       ...authenticatorData,
-      nearAccountId: validateBaseAccountId(authenticatorData.nearAccountId),
+      nearAccountId: validateAccountId(authenticatorData.nearAccountId),
       deviceNumber: authenticatorData.deviceNumber || 1 // Default to device 1 (1-indexed)
     };
     return await IndexedDBManager.clientDB.storeAuthenticator(authData);
@@ -336,14 +314,12 @@ export class WebAuthnManager {
   async getLastUsedNearAccountId(): Promise<{
     nearAccountId: AccountId;
     deviceNumber: number;
-    accountIdDeviceSpecific: AccountIdDeviceSpecific;
   } | null> {
     const lastUser = await IndexedDBManager.clientDB.getLastUser();
     if (!lastUser) return null;
     return {
       nearAccountId: lastUser.nearAccountId,
       deviceNumber: lastUser.deviceNumber,
-      accountIdDeviceSpecific: toDeviceSpecificAccountId(lastUser.nearAccountId, lastUser.deviceNumber)
     };
   }
 
@@ -363,13 +339,11 @@ export class WebAuthnManager {
     credential: PublicKeyCredential;
     nearAccountId: AccountId;
     options?: {
-      vrfChallenge?: VRFChallenge;
-      contractId?: string;
-      nonce?: string;
-      blockHashBytes?: number[];
-      // Add VRF public key for registration transactions
-      // Note: deviceNumber removed for device linking - contract determines this automatically
-      deterministicVrfPublicKey?: string;
+      vrfChallenge: VRFChallenge;
+      deterministicVrfPublicKey: string; // Add VRF public key for registration transactions
+      contractId: string;
+      nonce: string;
+      blockHash: string;
     };
   }): Promise<{
     success: boolean;
@@ -449,7 +423,7 @@ export class WebAuthnManager {
    */
   async signTransactionsWithActions({
     transactions,
-    blockHashBytes,
+    blockHash,
     contractId,
     vrfChallenge,
     credential,
@@ -463,7 +437,7 @@ export class WebAuthnManager {
       nonce: string;
     }>,
     // Common parameters for all transactions
-    blockHashBytes: number[],
+    blockHash: string,
     contractId: string,
     vrfChallenge: VRFChallenge,
     credential: PublicKeyCredential,
@@ -500,7 +474,7 @@ export class WebAuthnManager {
     return await this.signerWorkerManager.signTransactionsWithActions(
       {
         transactions,
-        blockHashBytes,
+        blockHash,
         contractId,
         vrfChallenge,
         credential,
@@ -570,17 +544,11 @@ export class WebAuthnManager {
    */
   async dualVrfRegistrationFlow({
     nearAccountId,
-    vrfInputParams,
+    vrfInputData,
     onEvent,
   }: {
     nearAccountId: AccountId;
-    vrfInputParams: {
-      userId: string;
-      rpId: string;
-      blockHeight: number;
-      blockHashBytes: number[];
-      timestamp: number;
-    };
+    vrfInputData: VRFInputData;
     onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     bootstrapVrfPublicKey: string;
@@ -605,7 +573,7 @@ export class WebAuthnManager {
 
       // Step 1: Generate bootstrap VRF keypair (random) and VRF challenge
       console.debug('Step 1: Generating bootstrap VRF keypair + challenge');
-      const bootstrapResult = await this.generateVrfKeypair(true, vrfInputParams);
+      const bootstrapResult = await this.generateVrfKeypair(true, vrfInputData);
       const bootstrapVrfPublicKey = bootstrapResult.vrfPublicKey;
       const vrfChallenge = bootstrapResult.vrfChallenge;
 
@@ -622,7 +590,7 @@ export class WebAuthnManager {
       // Step 2: Single TouchID ceremony with VRF challenge → get dual PRF outputs
       console.debug('Step 2: TouchID ceremony with VRF challenge');
       const registrationCredential = await this.touchIdPrompt.generateRegistrationCredentials({
-        nearAccountId,
+        nearAccountId: nearAccountId,
         challenge: vrfChallenge.outputAs32Bytes(),
       });
 
@@ -992,7 +960,7 @@ export class WebAuthnManager {
     credentialId,
     vrfPublicKey,
     nonce,
-    blockHashBytes,
+    blockHash,
     vrfChallenge,
     credential,
     nearRpcUrl,
@@ -1003,7 +971,7 @@ export class WebAuthnManager {
     credentialId: string;
     vrfPublicKey: Uint8Array | number[];
     nonce: string;
-    blockHashBytes: number[];
+    blockHash: string;
     vrfChallenge: VRFChallenge;
     credential: PublicKeyCredential;
     nearRpcUrl: string;
@@ -1043,7 +1011,7 @@ export class WebAuthnManager {
           actions: [functionCallAction],
           nonce: nonce,
         }],
-        blockHashBytes: blockHashBytes,
+        blockHash: blockHash,
         contractId: contractId,
         vrfChallenge: vrfChallenge,
         credential: credential,
@@ -1062,7 +1030,7 @@ export class WebAuthnManager {
 
       return {
         signedTransaction: result[0].signedTransaction,
-        nearAccountId: validateBaseAccountId(result[0].nearAccountId),
+        nearAccountId: validateAccountId(result[0].nearAccountId),
         logs: result[0].logs
       };
 
@@ -1089,14 +1057,14 @@ export class WebAuthnManager {
     signerAccountId,
     receiverId,
     nonce,
-    blockHashBytes,
+    blockHash,
     actions
   }: {
     nearPrivateKey: string;
     signerAccountId: string;
     receiverId: string;
     nonce: string;
-    blockHashBytes: number[];
+    blockHash: string;
     actions: ActionParams[];
   }): Promise<{
     signedTransaction: SignedTransaction;
@@ -1107,7 +1075,7 @@ export class WebAuthnManager {
       signerAccountId,
       receiverId,
       nonce,
-      blockHashBytes,
+      blockHash,
       actions
     });
   }

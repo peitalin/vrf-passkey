@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { type ValidationResult, validateNearAccountId } from '../../utils/validation';
 import type { AccountId } from '../types/accountIds';
-import { toDeviceSpecificAccountId, validateBaseAccountId } from '../types/accountIds';
+import { validateAccountId } from '../types/accountIds';
 
 // === TYPE DEFINITIONS ===
 export interface ClientUserData {
@@ -60,7 +60,6 @@ interface AppStateEntry<T = any> {
 export interface LastUserAccountIdState {
   accountId: AccountId;
   deviceNumber: number;
-  accountIdDeviceSpecific: string; // For autofill login display purposes
 }
 
 interface PasskeyClientDBConfig {
@@ -74,7 +73,7 @@ interface PasskeyClientDBConfig {
 // === CONSTANTS ===
 const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 7, // Increment version for removing redundant nearAccountIdDevice index
+  dbVersion: 8, // Increment version for removing redundant nearAccountIdDevice index
   userStore: 'users',
   appStateStore: 'appState',
   authenticatorStore: 'authenticators'
@@ -186,7 +185,7 @@ export class PasskeyClientDBManager {
     }
 
     const db = await this.getDB();
-    const accountId = validateBaseAccountId(nearAccountId);
+    const accountId = validateAccountId(nearAccountId);
 
     // Find first device for this account (most common case)
     // Should only have one record per account per device
@@ -233,7 +232,7 @@ export class PasskeyClientDBManager {
     const now = Date.now();
 
     const userData: ClientUserData = {
-      nearAccountId: validateBaseAccountId(nearAccountId),
+      nearAccountId: validateAccountId(nearAccountId),
       deviceNumber: additionalData?.deviceNumber || 1, // Default to device 1 (1-indexed)
       registeredAt: now,
       lastLogin: now,
@@ -293,7 +292,6 @@ export class PasskeyClientDBManager {
     const lastUserState: LastUserAccountIdState = {
       accountId: userData.nearAccountId,
       deviceNumber: userData.deviceNumber,
-      accountIdDeviceSpecific: toDeviceSpecificAccountId(userData.nearAccountId, userData.deviceNumber)
     };
     await this.setAppState('lastUserAccountId', lastUserState);
   }
@@ -378,7 +376,7 @@ export class PasskeyClientDBManager {
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.authenticatorStore, 'readonly');
     const store = tx.objectStore(DB_CONFIG.authenticatorStore);
-    const accountId = validateBaseAccountId(nearAccountId);
+    const accountId = validateAccountId(nearAccountId);
 
     // Get all authenticators for this account across all devices
     const index = store.index('nearAccountId');
@@ -446,7 +444,7 @@ export class PasskeyClientDBManager {
         credentialPublicKey: auth.credentialPublicKey,
         transports,
         name: auth.name,
-        nearAccountId: validateBaseAccountId(nearAccountId),
+        nearAccountId: validateAccountId(nearAccountId),
         deviceNumber: auth.deviceNumber || 1, // Default to device 1 (1-indexed)
         registered: auth.registered,
         syncedAt: syncedAt,

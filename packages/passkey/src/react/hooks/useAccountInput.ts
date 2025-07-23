@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { PasskeyManager } from '../../core/PasskeyManager';
-import { toDeviceSpecificAccountId, validateBaseAccountId } from '../../core/types/accountIds';
+import { validateAccountId } from '../../core/types/accountIds';
 
 export interface AccountInputState {
   inputUsername: string;
@@ -126,7 +126,7 @@ export function useAccountInput({
     }
 
     try {
-      const hasCredential = await passkeyManager.hasPasskeyCredential(toDeviceSpecificAccountId(validateBaseAccountId(accountId), 1));
+      const hasCredential = await passkeyManager.hasPasskeyCredential(validateAccountId(accountId));
       setState(prevState => ({ ...prevState, accountExists: hasCredential }));
     } catch (error) {
       console.warn('Error checking credentials:', error);

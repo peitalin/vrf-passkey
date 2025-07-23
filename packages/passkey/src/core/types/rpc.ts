@@ -21,8 +21,8 @@ export interface TransactionContext {
   nearPublicKeyStr: string;
   accessKeyInfo: AccessKeyView;
   nextNonce: string;
-  txBlockHashBytes: number[];
   txBlockHeight: number;
+  txBlockHash: string;
 }
 
 export interface BlockInfo {

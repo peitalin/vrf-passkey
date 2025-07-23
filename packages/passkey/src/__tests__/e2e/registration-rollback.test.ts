@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
-import { validateBaseAccountId } from '../../core/types/accountIds';
+import { validateAccountId } from '../../core/types/accountIds';
 
 test.describe('PasskeyManager Registration Rollback Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -146,7 +146,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
         });
 
         // Attempt registration and capture events
-        const registrationResult = await passkeyManager.registerPasskey(validateBaseAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push({
               step: event.step,
@@ -244,7 +244,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
         const registrationEvents: any[] = [];
         let hasPreSignedDeleteTransaction = false;
 
-        const registrationResult = await passkeyManager.registerPasskey(validateBaseAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push({
               step: event.step,

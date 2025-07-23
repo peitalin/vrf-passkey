@@ -5,8 +5,7 @@ import type {
   LoginEvent,
 } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
-import type { AccountId, AccountIdDeviceSpecific } from '../types/accountIds';
-import { toDeviceSpecificAccountId } from '../types/accountIds';
+import type { AccountId } from '../types/accountIds';
 
 /**
  * Core login function that handles passkey authentication without React dependencies
@@ -268,7 +267,6 @@ export async function getRecentLogins(
   lastUsedAccountId: {
     nearAccountId: AccountId,
     deviceNumber: number,
-    accountIdDeviceSpecific: AccountIdDeviceSpecific
   } | null
 }> {
   const { webAuthnManager } = context;

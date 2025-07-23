@@ -105,20 +105,13 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   useEffect(() => {
     // Keep ref in sync with state
     isScanningRef.current = isScanning;
-    if (isScanning) {
-      console.log('QRCodeScanner: Scanning started');
-    }
   }, [isScanning]);
 
   // Auto-start scanning when modal opens
   useEffect(() => {
-    console.log('QRCodeScanner: Modal state changed:', { isOpen, scanMode });
-
     if (isOpen && scanMode === 'auto') {
-      console.log('QRCodeScanner: Starting camera scanning...');
       startScanning();
     } else if (!isOpen) {
-      console.log('QRCodeScanner: Modal closed, stopping scanning...');
       stopScanning();
     }
 
@@ -129,8 +122,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
   // Handle camera permission and start scanning
   const startScanning = async () => {
-    console.log('QRCodeScanner: Requesting camera access...');
-
     try {
       setError(null);
 
@@ -143,39 +134,30 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
           facingMode: selectedCamera ? undefined : 'environment'
         }
       };
-
       console.log('QRCodeScanner: Camera constraints:', constraints);
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('QRCodeScanner: Camera access granted, stream obtained');
       setStream(mediaStream);
 
       if (videoRef.current) {
-        console.log('QRCodeScanner: Setting video source and starting playback...');
         videoRef.current.srcObject = mediaStream;
         await videoRef.current.play();
-        console.log('QRCodeScanner: Video playback started');
       }
 
       // Set scanning to true AFTER video is ready and BEFORE starting the scan loop
-      console.log('QRCodeScanner: Setting isScanning to true...');
       setIsScanning(true);
       isScanningRef.current = true;
       scanStartTimeRef.current = Date.now();
 
       // Start automatic QR scanning with improved frame detection
-      console.log('QRCodeScanner: Starting frame scanning in 500ms...');
       setTimeout(() => {
-        console.log('QRCodeScanner: Timeout reached, starting scan loop...');
         // Use requestAnimationFrame to start the scanning loop
         const startScanLoop = () => {
-          console.log('QRCodeScanner: Starting scan loop frame...');
           requestAnimationFrame(scanFrame);
         };
         startScanLoop();
       }, 500);
 
     } catch (err: any) {
-      console.error('QRCodeScanner: Camera access error:', err);
       setError(`Camera access denied: ${err.message}`);
       onError?.(err);
       setIsScanning(false);
@@ -187,16 +169,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    // Reduced logging - only log every 60 frames (~6 seconds)
-    if (Math.random() < 0.016) {
-      console.log('QRCodeScanner: Scanning active...', {
-        hasVideo: !!video,
-        hasCanvas: !!canvas,
-        isOpen,
-        isScanning: isScanningRef.current
-      });
-    }
-
     if (!video || !canvas || !isOpen || !isScanningRef.current) {
       console.log('QRCodeScanner: scanFrame conditions not met - stopping scan loop');
       return;
@@ -205,7 +177,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     // Check for scanning timeout
     const elapsedTime = Date.now() - scanStartTimeRef.current;
     if (elapsedTime > SCAN_TIMEOUT_MS) {
-      console.log('QRCodeScanner: Scanning timeout reached after', elapsedTime, 'ms');
       setIsScanning(false);
       isScanningRef.current = false;
       setError('QR scanning timeout - no valid QR code found within 60 seconds. Please ensure the QR code is clearly visible and try again.');
@@ -224,15 +195,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // Only log frame details occasionally
-      if (Math.random() < 0.01) {
-        console.log('📷 QRCodeScanner: Scanning frame:', {
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-          readyState: video.readyState
-        });
-      }
-
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -244,247 +206,179 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         });
 
         if (code) {
-          console.log('QRCodeScanner: QR code detected!');
-          console.log('QRCodeScanner: Raw QR data:', code.data);
-          console.log('QRCodeScanner: QR location:', code.location);
           setIsScanning(false);
           isScanningRef.current = false;
           await handleQRDetected(code.data);
           return;
-        } else {
-          // Very infrequent scanning status log
-          if (Math.random() < 0.005) {
-            console.log('QRCodeScanner: Scanning... (no QR detected)');
-          }
         }
       } catch (err) {
         console.error('QRCodeScanner: QR scanning error:', err);
       }
-    } else {
-      console.log('QRCodeScanner: Video not ready:', {
-        readyState: video.readyState,
-        HAVE_ENOUGH_DATA: video.HAVE_ENOUGH_DATA
-      });
     }
 
     // Throttle to ~10 FPS to reduce CPU usage
     if (isScanningRef.current && isOpen) {
       animationRef.current = requestAnimationFrame(scanFrame);
-    } else {
-      console.log('QRCodeScanner: Not continuing scan loop, isScanning:', isScanningRef.current, 'isOpen:', isOpen);
     }
   };
 
   const handleQRDetected = async (qrData: string) => {
-    console.log('QRCodeScanner: QR code detected!');
-    console.log('QRCodeScanner: Raw data length:', qrData.length);
-    console.log('QRCodeScanner: Raw QR data (first 200 chars):', qrData.substring(0, 200));
-    console.log('QRCodeScanner: Full raw QR data:', qrData);
-
+    console.log('QRCodeScanner: QR detected -', { length: qrData.length, preview: qrData.substring(0, 100) });
     try {
       setIsProcessing(true);
 
-      // Parse the QR data
-      let parsedQRData: DeviceLinkingQRData;
-      try {
-        console.log('QRCodeScanner: Attempting to parse QR data as JSON...');
-        parsedQRData = JSON.parse(qrData);
-        console.log('QRCodeScanner: Successfully parsed QR data:', parsedQRData);
+      // Parse and validate QR data
+      const parsedQRData = parseAndValidateQRData(qrData);
+      console.log('QRCodeScanner: Valid QR data -', {
+        devicePublicKey: parsedQRData.devicePublicKey,
+        accountId: parsedQRData.accountId,
+        timestamp: new Date(parsedQRData.timestamp || 0).toISOString()
+      });
 
-        // Extract and log key components
-        console.log('QRCodeScanner: Extracted data components:');
-        console.log('  - Device Public Key:', parsedQRData.devicePublicKey);
-        console.log('  - Account ID:', parsedQRData.accountId || 'NOT PROVIDED');
-        console.log('  - Timestamp:', parsedQRData.timestamp, new Date(parsedQRData.timestamp || 0).toISOString());
-        console.log('  - Version:', parsedQRData.version || 'NOT PROVIDED');
-
-      } catch (error) {
-        console.error('QRCodeScanner: Failed to parse QR data as JSON:', error);
-        console.log('QRCodeScanner: Attempting to parse as other formats...');
-
-        // Try to detect if it's a different format
-        if (qrData.startsWith('http')) {
-          console.log('QRCodeScanner: Detected URL format:', qrData);
-          throw new Error('QR code contains a URL, not device linking data');
-        } else if (qrData.includes('ed25519:')) {
-          console.log('QRCodeScanner: Detected NEAR key format:', qrData);
-          throw new Error('QR code contains a NEAR key, not device linking data');
-        } else {
-          console.log('QRCodeScanner: Unknown QR format, raw content:', qrData);
-          throw new Error('Invalid QR code format - expected JSON device linking data');
-        }
-      }
-
-      // Validate the QR data structure
-      console.log('QRCodeScanner: Validating QR data structure...');
-
-      const validationErrors = [];
-      if (!parsedQRData.devicePublicKey) validationErrors.push('Missing devicePublicKey');
-      if (!parsedQRData.timestamp) validationErrors.push('Missing timestamp');
-
-      if (validationErrors.length > 0) {
-        console.error('QRCodeScanner: Invalid QR data structure:', {
-          errors: validationErrors,
-          hasDevicePublicKey: !!parsedQRData.devicePublicKey,
-          hasTimestamp: !!parsedQRData.timestamp,
-          hasAccountId: !!parsedQRData.accountId,
-          parsedQRData
-        });
-        throw new Error(`Invalid device linking QR code: ${validationErrors.join(', ')}`);
-      }
-
-      console.log('✅ QRCodeScanner: QR data validation passed');
-      console.log('✅ QRCodeScanner: Valid device linking QR detected with public key:', parsedQRData.devicePublicKey);
-
-      // Callback for manual handling
-      console.log('QRCodeScanner: Calling onQRCodeScanned callback...');
+      // Notify callback
       onQRCodeScanned?.(parsedQRData);
 
+      // Handle auto-linking if enabled
       if (autoLink) {
-        console.log('QRCodeScanner: Auto-linking enabled, starting device linking...');
-        // Use the scanAndLinkDevice method for automatic linking
-        const result = await passkeyManager.scanAndLinkDevice({
-          cameraId: selectedCamera,
-          fundingAmount,
-          onEvent: (event: any) => {
-            console.log('QRCodeScanner: Device linking event:', event);
-          },
-          onError: (error: any) => {
-            console.error('❌ QRCodeScanner: Device linking error:', error);
-            setError(error.message);
-            onError?.(error);
-          }
-        });
+        try {
+          const result = await passkeyManager.scanAndLinkDevice({
+            cameraId: selectedCamera,
+            fundingAmount,
+            onEvent: (event) => console.log('QRCodeScanner: Linking event -', event.phase),
+            onError: (error) => {
+              console.error('QRCodeScanner: Linking error -', error.message);
+              setError(error.message);
+              onError?.(error);
+            }
+          });
 
-        console.log('✅ QRCodeScanner: Device linking completed:', result);
-        onDeviceLinked?.(result);
-        console.log('QRCodeScanner: Closing scanner...');
-        onClose?.();
+          console.log('QRCodeScanner: Linking completed -', { success: !!result });
+          onDeviceLinked?.(result);
+        } catch (linkingError: any) {
+          console.error('QRCodeScanner: Device linking failed -', linkingError.message);
+          setError(linkingError.message || 'Failed to link device');
+          onError?.(linkingError);
+        } finally {
+          // Always stop scanning and close after QR detection and processing, regardless of success/failure
+          stopScanning();
+          onClose?.();
+        }
       } else {
-        console.log('QRCodeScanner: Auto-linking disabled, QR scanning complete');
+        console.log('QRCodeScanner: Manual mode - QR scanning complete');
+        // For manual mode, also stop scanning after successful QR detection
+        stopScanning();
       }
 
     } catch (err: any) {
-      console.error('❌ QRCodeScanner: Error processing QR code:', err);
+      console.error('QRCodeScanner: Processing failed -', err.message);
       setError(err.message || 'Failed to process QR code');
       onError?.(err);
+      // Stop scanning even if QR parsing failed
+      stopScanning();
     } finally {
       setIsProcessing(false);
-      console.log('QRCodeScanner: Processing complete');
     }
+  };
+
+  const parseAndValidateQRData = (qrData: string): DeviceLinkingQRData => {
+    // Parse JSON
+    let parsedData: DeviceLinkingQRData;
+    try {
+      parsedData = JSON.parse(qrData);
+    } catch {
+      // Detect common non-JSON formats
+      if (qrData.startsWith('http')) {
+        throw new Error('QR code contains a URL, not device linking data');
+      }
+      if (qrData.includes('ed25519:')) {
+        throw new Error('QR code contains a NEAR key, not device linking data');
+      }
+      throw new Error('Invalid QR code format - expected JSON device linking data');
+    }
+
+    // Validate required fields
+    const missing = [];
+    if (!parsedData.devicePublicKey) missing.push('devicePublicKey');
+    if (!parsedData.timestamp) missing.push('timestamp');
+    if (missing.length > 0) {
+      throw new Error(`Invalid device linking QR code: Missing ${missing.join(', ')}`);
+    }
+
+    return parsedData;
   };
 
   const stopScanning = () => {
-    console.log('QRCodeScanner: Stopping camera and cleaning up...');
+    // Reset state
     setIsScanning(false);
     isScanningRef.current = false;
-    scanStartTimeRef.current = 0; // Reset scan start time
+    scanStartTimeRef.current = 0;
 
-    // Cancel animation frame first to stop scanning loop
-    if (animationRef.current) {
-      console.log('QRCodeScanner: Canceling animation frame...');
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = undefined;
-    }
+    // Cancel animation and cleanup video
+    animationRef.current && (cancelAnimationFrame(animationRef.current), animationRef.current = undefined);
+    videoRef.current && (videoRef.current.pause(), videoRef.current.srcObject = null, videoRef.current.load());
 
-    // Stop video element and clear source
-    if (videoRef.current) {
-      console.log('QRCodeScanner: Pausing video and clearing source...');
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
-      // Force load to release the stream
-      videoRef.current.load();
-    }
+    // Stop camera tracks and cleanup
+    stream?.getTracks().forEach(track => {
+      track.readyState === 'live' && track.stop();
+      track.onended = track.onmute = track.onunmute = null;
+    });
+    setStream(null);
 
-    // Stop all camera tracks with enhanced cleanup
-    if (stream) {
-      console.log('QRCodeScanner: Stopping camera tracks...');
-      const tracks = stream.getTracks();
-      tracks.forEach((track, index) => {
-        console.log(`QRCodeScanner: Stopping track ${index}:`, track.kind, track.readyState, track.label);
-        if (track.readyState === 'live') {
-          track.stop();
-          console.log(`✅ QRCodeScanner: Track ${index} stopped, new state:`, track.readyState);
-        }
-      });
-
-      // Additional cleanup - remove all track listeners
-      tracks.forEach(track => {
-        track.onended = null;
-        track.onmute = null;
-        track.onunmute = null;
-      });
-
-      setStream(null);
-      console.log('✅ QRCodeScanner: All camera tracks stopped and stream cleared');
-    }
-
-    // Force garbage collection hint (browsers may ignore this)
-    if (window.gc) {
-      try {
-        window.gc();
-        console.log('QRCodeScanner: Garbage collection requested');
-      } catch (e) {
-        // Ignore - gc not available in production
-      }
-    }
-
-    console.log('✅ QRCodeScanner: Camera cleanup complete');
+    // Optional garbage collection hint
+    window.gc?.();
+    console.log('QRCodeScanner: Cleanup complete');
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+
     const file = event.target.files?.[0];
-    if (!file) {
-      console.log('QRCodeScanner: No file selected');
-      return;
-    }
+    if (!file) return;
+    isScanning && stopScanning(); // Stop camera scanning to prevent camera conflicts
 
-    console.log('QRCodeScanner: File selected for upload:', file.name, file.type, file.size);
-
-    // Stop camera scanning immediately to prevent conflicts
-    if (isScanning) {
-      console.log('QRCodeScanner: Stopping camera before file processing...');
-      stopScanning();
-    }
+    console.log('QRCodeScanner: File upload -', { name: file.name, type: file.type, size: file.size });
 
     try {
       setIsProcessing(true);
       setError(null);
 
-      // Always scan file directly first
-      console.log('QRCodeScanner: Scanning QR from uploaded file...');
+      // Dynamic import of qr-scanner for lazy loading
       const { scanQRCodeFromFile } = await import('../../utils/qr-scanner');
-      const qrData = await scanQRCodeFromFile(file);
-      console.log('✅ QRCodeScanner: Successfully scanned QR from file:', qrData);
+      const parsedQRData = await scanQRCodeFromFile(file);
 
-      // Validate the QR data
-      validateDeviceLinkingQRData(qrData);
-      console.log('✅ QRCodeScanner: QR data validation passed');
+      console.log('QRCodeScanner: Valid file QR -', {
+        devicePublicKey: parsedQRData.devicePublicKey,
+        accountId: parsedQRData.accountId
+      });
 
-      // Callback for manual handling
-      onQRCodeScanned?.(qrData);
+      onQRCodeScanned?.(parsedQRData);
 
-            if (autoLink) {
-        console.log('QRCodeScanner: Auto-linking mode - performing device linking...');
+      // Handle auto-linking if enabled
+      if (autoLink) {
+        const result = await passkeyManager.scanAndLinkDevice({
+          cameraId: selectedCamera,
+          fundingAmount,
+          onEvent: (event) => console.log('QRCodeScanner: File linking event -', event.phase),
+          onError: (error) => {
+            console.error('QRCodeScanner: File linking error -', error.message);
+            setError(error.message);
+            onError?.(error);
+          }
+        });
 
-        // For auto-linking with file upload, we need to handle this manually since
-        // scanAndLinkDevice is designed for camera scanning only
-        // TODO: This would require implementing device linking with pre-scanned QR data
-        // For now, just report the QR data and ask user to use camera mode for auto-linking
-        console.log('️QRCodeScanner: Auto-linking with file upload not yet supported');
-        setError('Auto-linking with file upload is not yet supported. Please use camera mode for auto-linking, or scan manually.');
-        onError?.(new Error('Auto-linking with file upload not supported'));
+        console.log('QRCodeScanner: File linking completed -', { success: !!result });
+        onDeviceLinked?.(result);
+        stopScanning();
+        onClose?.();
       } else {
-        console.log('QRCodeScanner: Manual QR scanning mode - file processing complete');
+        console.log('QRCodeScanner: Manual mode - file processing complete');
       }
 
     } catch (err: any) {
-      console.error('❌ QRCodeScanner: Error processing file upload:', err);
+      console.error('QRCodeScanner: File processing failed -', err.message);
       setError(err.message || 'Failed to scan QR code from file');
       onError?.(err);
     } finally {
       setIsProcessing(false);
-      console.log('QRCodeScanner: File upload processing complete');
     }
   };
 
@@ -495,11 +389,11 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     const selectedCameraDevice = cameras.find(camera => camera.deviceId === deviceId);
     if (selectedCameraDevice) {
       const label = selectedCameraDevice.label.toLowerCase();
-      const isNewCameraFront = label.includes('front') ||
-                              label.includes('user') ||
-                              label.includes('selfie') ||
-                              label.includes('facetime') ||
-                              label.includes('facing front');
+      const isNewCameraFront = label.includes('front')
+                            || label.includes('user')
+                            || label.includes('selfie')
+                            || label.includes('facetime')
+                            || label.includes('facing front');
       setIsFrontCamera(isNewCameraFront);
     }
 
@@ -511,11 +405,8 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   };
 
   const handleClose = () => {
-    console.log('❌ QRCodeScanner: Close button clicked, cleaning up...');
     stopScanning();
-    console.log('❌ QRCodeScanner: Calling onClose callback...');
     onClose?.();
-    console.log('✅ QRCodeScanner: Close handling complete');
   };
 
   // Don't render if not open
