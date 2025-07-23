@@ -558,7 +558,7 @@ export interface ContractStoredAuthenticator {
   transports: AuthenticatorTransport[];
   registered: string; // Contract returns timestamp as string
   vrf_public_keys?: string[];
-  device_number?: number;
+  device_number: number; // Always present from contract
 }
 
 async function syncContractAuthenticators(
@@ -575,20 +575,23 @@ async function syncContractAuthenticators(
     console.log("Contract: Authenticators result", authenticatorsResult);
 
     if (authenticatorsResult && Array.isArray(authenticatorsResult)) {
-      return authenticatorsResult.map(([credentialId, contractAuthenticator]) => ({
-        credentialId,
-        authenticator: {
+      return authenticatorsResult.map(([credentialId, contractAuthenticator]) => {
+        console.log(`Contract authenticator device_number for ${credentialId}:`, contractAuthenticator.device_number);
+        return {
           credentialId,
-          credentialPublicKey: new Uint8Array(contractAuthenticator.credential_public_key),
-          transports: contractAuthenticator.transports,
-          userId: accountId,
-          name: `Device ${contractAuthenticator.device_number || 1} Authenticator`,
-          registered: new Date(parseInt(contractAuthenticator.registered as string)),
-          // Store additional contract-specific data
-          deviceNumber: contractAuthenticator.device_number || 1,
-          vrfPublicKeys: contractAuthenticator.vrf_public_keys
-        }
-      }));
+          authenticator: {
+            credentialId,
+            credentialPublicKey: new Uint8Array(contractAuthenticator.credential_public_key),
+            transports: contractAuthenticator.transports,
+            userId: accountId,
+            name: `Device ${contractAuthenticator.device_number} Authenticator`,
+            registered: new Date(parseInt(contractAuthenticator.registered as string)),
+            // Store the actual device number from contract (no fallback)
+            deviceNumber: contractAuthenticator.device_number,
+            vrfPublicKeys: contractAuthenticator.vrf_public_keys
+          }
+        };
+      });
     }
     return [];
   } catch (error: any) {
@@ -659,8 +662,8 @@ async function restoreAuthenticators(
     const transports = validTransports?.length > 0 ? validTransports : ['internal'];
 
     // Extract device number from contract authenticator data (now camelCase)
-    const deviceNumber = (authenticator as any).deviceNumber || 1; // Default to 1 if not found
-    console.log("Restoring authenticator", authenticator);
+    const deviceNumber = authenticator.deviceNumber;
+    console.log("Restoring authenticator with device number:", deviceNumber, authenticator);
 
     await webAuthnManager.storeAuthenticator({
       nearAccountId: accountId,
@@ -676,7 +679,7 @@ async function restoreAuthenticators(
   }
 }
 
-async function getRecoveryLoginState(webAuthnManager: any, accountId: string) {
+async function getRecoveryLoginState(webAuthnManager: WebAuthnManager, accountId: string) {
   const loginState = await webAuthnManager.checkVrfStatus();
   const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
   return {
