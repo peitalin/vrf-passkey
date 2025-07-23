@@ -9,7 +9,7 @@ export function LinkDeviceShowQR() {
       nearPublicKey,
       nearAccountId
     },
-    createDeviceLinkingFlow,
+    startDeviceLinkingFlow,
     scanAndLinkDevice,
   } = usePasskeyContext();
 
@@ -36,7 +36,7 @@ export function LinkDeviceShowQR() {
       toast.loading('Generating QR code...', { id: 'device-link' });
 
       console.log('Creating new device linking flow...');
-      const flow = createDeviceLinkingFlow({
+      const flow = startDeviceLinkingFlow({
         onEvent: (event) => {
           switch (event.phase) {
             case 'qr-code-generated':

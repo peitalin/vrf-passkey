@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { WEBAUTHN_CONTRACT_ID } from '../config';
-import { useNearClient, type NearClient } from '@web3authn/passkey/react';
+import { useNearClient } from '@web3authn/passkey/react';
 
 export interface GreetingResult {
   success: boolean;
@@ -21,7 +21,7 @@ let lastGlobalFetchTime = 0;
 const MIN_FETCH_INTERVAL = 1000; // 1 second minimum between fetches
 
 export const useSetGreeting = (): SetGreetingHook => {
-  const nearClient: NearClient = useNearClient();
+  const nearClient = useNearClient();
   const [onchainGreeting, setOnchainGreeting] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +58,13 @@ export const useSetGreeting = (): SetGreetingHook => {
     setError(null);
 
     try {
-      const result = await nearClient.view({
+      const result = await nearClient.view<string>({
         account: WEBAUTHN_CONTRACT_ID,
         method: 'get_greeting',
         args: {}
       });
 
-      const greeting = result as string;
+      const greeting = result;
       console.log('✅ Greeting fetched successfully:', greeting);
       setOnchainGreeting(greeting);
 
