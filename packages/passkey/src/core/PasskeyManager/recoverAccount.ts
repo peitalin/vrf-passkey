@@ -1,4 +1,4 @@
-import type { ActionOptions, ActionResult } from '../types/passkeyManager';
+import type { ActionOptions, ActionResult, OperationHooks } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
@@ -453,7 +453,12 @@ async function deriveVrfKeypair(
 /**
  * Handle recovery error
  */
-function handleRecoveryError(accountId: AccountId, errorMessage: string, onError: any, hooks: any): RecoveryResult {
+function handleRecoveryError(
+  accountId: AccountId,
+  errorMessage: string,
+  onError?: (error: Error) => void,
+  hooks?: OperationHooks
+): RecoveryResult {
   console.error('[recoverAccount] Error:', errorMessage);
   onError?.(new Error(errorMessage));
 
