@@ -27,6 +27,7 @@ import { IndexedDBManager } from '../IndexedDBManager';
 import { KeyPair } from '@near-js/crypto';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import type { VRFChallenge } from '../types/webauthn';
+import { generateDeviceSpecificUserId } from '../WebAuthnManager/touchIdPrompt';
 
 const TRANSACTION_FINALIZATION_DELAY = 1000;
 
@@ -406,19 +407,15 @@ export class LinkDeviceFlow {
       }
 
       // Issue 1 Fix: Log device number to debug the issue
-      console.log(">>>>>> Device2 authenticator storage - Device Number:", this.session.deviceNumber);
+      console.log("Device2 authenticator storage - Device Number:", this.session.deviceNumber);
       if (this.session.deviceNumber === undefined || this.session.deviceNumber === null) {
-        console.error(">>>>>> Device number is undefined/null! This should be 2 for device2");
         throw new Error('Device number not available - cannot determine device-specific account ID');
       }
 
       // Generate device-specific account ID for storage
-      const deviceSpecificAccountId = this.generateDeviceSpecificAccountId(accountId, this.session.deviceNumber);
-      console.log(">>>>>> deviceSpecificAccountId to REGISTER: ", deviceSpecificAccountId);
-      console.log(">>>>>> Using device number: ", this.session.deviceNumber, " (assigned by contract for this device)");
-
+      const deviceSpecificAccountId = generateDeviceSpecificUserId(accountId, this.session.deviceNumber);
+      console.log("Using device number: ", this.session.deviceNumber, " (assigned by contract for this device)");
       console.log(`LinkDeviceFlow: Storing authenticator data for device-specific account: ${deviceSpecificAccountId}`);
-
       // Store user data for the device-specific account
       await webAuthnManager.storeUserData({
         nearAccountId: accountId, // Use device-specific account ID
@@ -714,29 +711,6 @@ export class LinkDeviceFlow {
     } catch (error) {
       console.error(`LinkDeviceFlow: Key replacement transaction failed:`, error);
       throw new Error(`Key replacement failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Generate device-specific account ID for storage
-   * Similar to generateDeviceSpecificUserId but for account storage keys
-   */
-  private generateDeviceSpecificAccountId(nearAccountId: AccountId, deviceNumber?: number): string {
-    // If no device number provided or device number is 0, this is the first device
-    if (deviceNumber === undefined || deviceNumber === 0) {
-      return nearAccountId;
-    }
-
-    // Add device number to account ID
-    if (nearAccountId.includes('.')) {
-      const parts = nearAccountId.split('.');
-      // Insert device number after the first part
-      // "serp124.web3-authn-v2.testnet" -> "serp124.1.web3-authn-v2.testnet"
-      parts.splice(1, 0, deviceNumber.toString());
-      return parts.join('.');
-    } else {
-      // Fallback for accounts without dots
-      return `${nearAccountId}.${deviceNumber}`;
     }
   }
 

@@ -4,7 +4,7 @@ import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
 import { generateBootstrapVrfChallenge } from './registration';
-import { base58Decode } from '../../utils/encoders';
+import { base58Decode, base64UrlEncode } from '../../utils/encoders';
 import { NearClient } from '../NearClient';
 import { WebAuthnManager } from '../WebAuthnManager';
 import { IndexedDBManager } from '../IndexedDBManager';
@@ -505,8 +505,17 @@ async function performAccountRecovery({
     // 2. Restore user data to IndexedDB (including encrypted NEAR keypair)
     await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair, encryptedKeypair);
 
-    // 3. Restore authenticator data to IndexedDB
-    await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
+    // 3. Filter to only restore the specific authenticator used for recovery
+    const credentialIdUsed = base64UrlEncode(new Uint8Array(credential.rawId));
+    const matchingAuthenticator = contractAuthenticators.find(auth => auth.credentialId === credentialIdUsed);
+
+    if (matchingAuthenticator) {
+      console.debug(`Restoring only the authenticator used for recovery: ${credentialIdUsed}`);
+      await restoreAuthenticators(webAuthnManager, accountId, [matchingAuthenticator], vrfChallenge.vrfPublicKey);
+    } else {
+      console.warn(`No matching authenticator found for credential ${credentialIdUsed}, restoring all authenticators as fallback`);
+      await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
+    }
 
     // 4. Unlock VRF keypair in memory for immediate login
     const vrfUnlockResult = await webAuthnManager.unlockVRFKeypair({

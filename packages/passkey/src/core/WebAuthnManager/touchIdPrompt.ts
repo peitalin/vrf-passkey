@@ -263,7 +263,7 @@ export class TouchIdPrompt {
  *   - Device 2: "serp120.web3-authn.testnet (2)"
  *   - Device 3: "serp120.web3-authn.testnet (3)"
  */
-function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: number): string {
+export function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: number): string {
   // If no device number provided or device number is 1, this is the first device
   if (deviceNumber === undefined || deviceNumber === 1) {
     return nearAccountId;
