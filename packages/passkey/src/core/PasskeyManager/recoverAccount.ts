@@ -382,8 +382,8 @@ export async function recoverAccount(
  * Get credential (reuse existing or create new)
  */
 async function getOrCreateCredential(
-  webAuthnManager: any,
-  accountId: string,
+  webAuthnManager: WebAuthnManager,
+  accountId: AccountId,
   reuseCredential?: PublicKeyCredential
 ): Promise<PublicKeyCredential> {
   if (reuseCredential) {
@@ -453,7 +453,7 @@ async function deriveVrfKeypair(
 /**
  * Handle recovery error
  */
-function handleRecoveryError(accountId: string, errorMessage: string, onError: any, hooks: any): RecoveryResult {
+function handleRecoveryError(accountId: AccountId, errorMessage: string, onError: any, hooks: any): RecoveryResult {
   console.error('[recoverAccount] Error:', errorMessage);
   onError?.(new Error(errorMessage));
 
@@ -679,7 +679,7 @@ async function restoreAuthenticators(
   }
 }
 
-async function getRecoveryLoginState(webAuthnManager: WebAuthnManager, accountId: string) {
+async function getRecoveryLoginState(webAuthnManager: WebAuthnManager, accountId: AccountId) {
   const loginState = await webAuthnManager.checkVrfStatus();
   const isVrfActive = loginState.active && loginState.nearAccountId === accountId;
   return {
