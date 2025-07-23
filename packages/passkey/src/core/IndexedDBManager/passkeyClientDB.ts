@@ -252,11 +252,17 @@ export class PasskeyClientDBManager {
   async updateUser(nearAccountId: AccountId, updates: Partial<ClientUserData>): Promise<void> {
     const user = await this.getUser(nearAccountId);
     if (user) {
+      // CHANGE: Debug device number issue in updateUser
+      console.log("DEBUG updateUser: existing user deviceNumber =", user.deviceNumber);
+      console.log("DEBUG updateUser: updates =", updates);
+
       const updatedUser = {
         ...user,
         ...updates,
         lastUpdated: Date.now()
       };
+
+      console.log("DEBUG updateUser: final updatedUser deviceNumber =", updatedUser.deviceNumber);
       await this.storeUser(updatedUser); // This will update the app state lastUserAccountId
     }
   }
@@ -285,6 +291,10 @@ export class PasskeyClientDBManager {
       throw new Error(`Cannot store user with invalid account ID: ${validation.error}`);
     }
 
+    // CHANGE: Debug device number issue in lastUserAccountId
+    console.log("DEBUG storeUser: storing user with deviceNumber =", userData.deviceNumber,
+                "for account", userData.nearAccountId);
+
     const db = await this.getDB();
     await db.put(DB_CONFIG.userStore, userData);
 
@@ -293,6 +303,8 @@ export class PasskeyClientDBManager {
       accountId: userData.nearAccountId,
       deviceNumber: userData.deviceNumber,
     };
+
+    console.log("DEBUG storeUser: setting lastUserAccountId to deviceNumber =", userData.deviceNumber);
     await this.setAppState('lastUserAccountId', lastUserState);
   }
 
@@ -315,6 +327,12 @@ export class PasskeyClientDBManager {
       aes_gcm_nonce_b64u: string;
     };
   }): Promise<void> {
+
+    // CHANGE: Debug device number issue - log what device number is being stored
+    console.log("DEBUG storeWebAuthnUserData: received deviceNumber =", userData.deviceNumber);
+    if (userData.deviceNumber === undefined) {
+      console.warn("WARNING: deviceNumber is undefined in storeWebAuthnUserData, will default to 1");
+    }
     const validation = this.validateNearAccountId(userData.nearAccountId);
     if (!validation.valid) {
       throw new Error(`Cannot store WebAuthn data for invalid account ID: ${validation.error}`);
@@ -323,18 +341,25 @@ export class PasskeyClientDBManager {
     // Get existing user data or create new
     let existingUser = await this.getUser(userData.nearAccountId);
     if (!existingUser) {
+      const deviceNumberToUse = userData.deviceNumber || 1;
+      console.log("DEBUG: Creating new user with deviceNumber =", deviceNumberToUse,
+                  "(original =", userData.deviceNumber, ")");
       existingUser = await this.registerUser(userData.nearAccountId, {
-        deviceNumber: userData.deviceNumber || 1 // Use provided device number or default to 1
+        deviceNumber: deviceNumberToUse // Use provided device number or default to 1
       });
     }
 
     // Update with WebAuthn-specific data (including VRF credentials)
+    const finalDeviceNumber = userData.deviceNumber || existingUser.deviceNumber;
+    console.log("DEBUG: Updating user with deviceNumber =", finalDeviceNumber,
+                "(provided =", userData.deviceNumber, ", existing =", existingUser.deviceNumber, ")");
+
     await this.updateUser(userData.nearAccountId, {
       clientNearPublicKey: userData.clientNearPublicKey,
       prfSupported: userData.prfSupported,
       passkeyCredential: userData.passkeyCredential,
       encryptedVrfKeypair: userData.encryptedVrfKeypair,
-      deviceNumber: userData.deviceNumber || existingUser.deviceNumber, // Use provided device number or keep existing
+      deviceNumber: finalDeviceNumber, // Use provided device number or keep existing
       lastUpdated: userData.lastUpdated || Date.now()
     });
   }

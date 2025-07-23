@@ -507,20 +507,25 @@ async function performAccountRecovery({
     // 1. Sync on-chain authenticator data
     const contractAuthenticators = await syncContractAuthenticators(nearClient, configs.contractId, accountId);
 
-    // 2. Restore user data to IndexedDB (including encrypted NEAR keypair)
-    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair, encryptedKeypair);
-
-    // 3. Filter to only restore the specific authenticator used for recovery
+    // 2. Find the matching authenticator to get the correct device number
     const credentialIdUsed = base64UrlEncode(new Uint8Array(credential.rawId));
     const matchingAuthenticator = contractAuthenticators.find(auth => auth.credentialId === credentialIdUsed);
 
-    if (matchingAuthenticator) {
-      console.debug(`Restoring only the authenticator used for recovery: ${credentialIdUsed}`);
-      await restoreAuthenticators(webAuthnManager, accountId, [matchingAuthenticator], vrfChallenge.vrfPublicKey);
-    } else {
-      console.warn(`No matching authenticator found for credential ${credentialIdUsed}, restoring all authenticators as fallback`);
-      await restoreAuthenticators(webAuthnManager, accountId, contractAuthenticators, vrfChallenge.vrfPublicKey);
+    if (!matchingAuthenticator) {
+      throw new Error(`Could not find authenticator for credential ${credentialIdUsed}`);
     }
+
+    const deviceNumber = matchingAuthenticator.authenticator.deviceNumber;
+    if (deviceNumber === undefined) {
+      throw new Error(`Device number not found for authenticator ${credentialIdUsed}`);
+    }
+
+    // 3. Restore user data to IndexedDB with correct device number
+    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair, encryptedKeypair, deviceNumber);
+
+    // 4. Restore only the authenticator used for recovery
+    console.debug(`Restoring only the authenticator used for recovery: ${credentialIdUsed}`);
+    await restoreAuthenticators(webAuthnManager, accountId, [matchingAuthenticator], vrfChallenge.vrfPublicKey);
 
     // 4. Unlock VRF keypair in memory for immediate login
     const vrfUnlockResult = await webAuthnManager.unlockVRFKeypair({
@@ -613,7 +618,8 @@ async function restoreUserData(
   encryptedNearKeypair: {
     encryptedPrivateKey: string;
     iv: string
-  }
+  },
+  deviceNumber: number
 ) {
   const existingUser = await webAuthnManager.getUser(accountId);
 
@@ -626,12 +632,16 @@ async function restoreUserData(
   });
   console.debug(`Stored encrypted NEAR keypair for account recovery: ${accountId}`);
 
+  // CHANGE: Pass the correct device number to both user registration and storage
+  console.log("DEBUG restoreUserData: using deviceNumber =", deviceNumber, "for account", accountId);
+
   if (!existingUser) {
     await webAuthnManager.registerUser(accountId, {
       clientNearPublicKey: publicKey,
       prfSupported: true,
       lastUpdated: Date.now(),
       encryptedVrfKeypair,
+      deviceNumber,
     });
   } else {
     await webAuthnManager.storeUserData({
@@ -641,7 +651,8 @@ async function restoreUserData(
       prfSupported: existingUser.prfSupported ?? true,
       deterministicKey: true,
       passkeyCredential: existingUser.passkeyCredential,
-      encryptedVrfKeypair
+      encryptedVrfKeypair,
+      deviceNumber
     });
   }
 }
