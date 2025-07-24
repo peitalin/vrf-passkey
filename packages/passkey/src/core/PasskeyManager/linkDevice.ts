@@ -346,6 +346,13 @@ export class LinkDeviceFlow {
       // This will generate the credential for Option F flow
       const migrateKeysResult = await this.migrateKeysAndCredentials();
 
+      console.log('LinkDeviceFlow: completeRegistration received migrateKeysResult:', {
+        hasResult: !!migrateKeysResult,
+        hasCredential: !!migrateKeysResult?.credential,
+        credentialType: migrateKeysResult?.credential?.type,
+        hasPrfOutput: !!migrateKeysResult?.credential?.getClientExtensionResults()?.prf?.results?.first
+      });
+
       // Store authenticator data locally on Device2
       // Device1 already handled the contract registration and AddKey transaction
       await this.storeDeviceAuthenticator(migrateKeysResult);
@@ -370,12 +377,93 @@ export class LinkDeviceFlow {
         message: 'Device linking completed successfully!'
       });
 
+      // CHANGE: Auto-login for Device2 after successful device linking
+      console.log('LinkDeviceFlow: Starting auto-login attempt...');
+      try {
+        await this.attemptAutoLogin(migrateKeysResult);
+        console.log('LinkDeviceFlow: Auto-login completed successfully');
+      } catch (loginError: any) {
+        console.warn('Auto-login failed after device linking:', loginError.message);
+        console.warn('Auto-login error details:', loginError);
+        // Don't fail the whole linking process if auto-login fails
+      }
+
     } catch (error: any) {
       this.session.status = 'failed';
       this.phase = 'error';
       this.error = error;
       this.stopPolling();
       throw error;
+    }
+  }
+
+  /**
+   * Device2: Attempt auto-login after successful device linking
+   */
+  private async attemptAutoLogin(migrateKeysResult: {
+    encryptedVrfKeypair: EncryptedVRFKeypair;
+    vrfPublicKey: string;
+    nearPublicKey: string;
+    credential: PublicKeyCredential;
+    vrfChallenge?: VRFChallenge;
+  } | undefined): Promise<void> {
+    console.log('LinkDeviceFlow: attemptAutoLogin called with:', {
+      hasSession: !!this.session,
+      accountId: this.session?.accountId,
+      hasCredential: !!this.session?.credential,
+      hasMigrateKeysResult: !!migrateKeysResult
+    });
+
+    if (!this.session || !this.session.accountId || !this.session.credential || !migrateKeysResult) {
+      const missing = [];
+      if (!this.session) missing.push('session');
+      if (!this.session?.accountId) missing.push('accountId');
+      if (!this.session?.credential) missing.push('credential');
+      if (!migrateKeysResult) missing.push('migrateKeysResult');
+      throw new Error(`Missing required data for auto-login: ${missing.join(', ')}`);
+    }
+
+    this.options?.onEvent?.({
+      step: 4,
+      phase: 'registration',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Attempting automatic login...'
+    });
+
+    console.log('LinkDeviceFlow: Calling unlockVRFKeypair with:', {
+      nearAccountId: this.session.accountId,
+      hasEncryptedVrfKeypair: !!migrateKeysResult.encryptedVrfKeypair,
+      hasCredential: !!this.session.credential,
+      credentialType: this.session.credential?.type,
+      hasPrfOutput: !!this.session.credential?.getClientExtensionResults()?.prf?.results?.first
+    });
+
+    // Check if credential has PRF output
+    const prfOutput = this.session.credential?.getClientExtensionResults()?.prf?.results?.first;
+    if (!prfOutput) {
+      throw new Error('Credential does not have PRF output - cannot unlock VRF keypair');
+    }
+
+    // Unlock VRF keypair for immediate login
+    const vrfUnlockResult = await this.context.webAuthnManager.unlockVRFKeypair({
+      nearAccountId: this.session.accountId,
+      encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair,
+      credential: this.session.credential,
+    });
+
+    console.log('LinkDeviceFlow: VRF unlock result:', vrfUnlockResult);
+
+    if (vrfUnlockResult.success) {
+      this.options?.onEvent?.({
+        step: 4,
+        phase: 'registration',
+        status: 'success',
+        timestamp: Date.now(),
+        message: `Successfully logged in to ${this.session.accountId}!`
+      });
+    } else {
+      throw new Error(vrfUnlockResult.error || 'VRF unlock failed');
     }
   }
 
@@ -495,6 +583,13 @@ export class LinkDeviceFlow {
           challenge: vrfChallenge.outputAs32Bytes(),
         });
 
+        console.log('LinkDeviceFlow: Generated credential for auto-login:', {
+          hasCredential: !!credential,
+          credentialType: credential?.type,
+          hasPrfOutput: !!credential?.getClientExtensionResults()?.prf?.results?.first,
+          prfOutputLength: credential?.getClientExtensionResults()?.prf?.results?.first?.byteLength
+        });
+
         // Store credential and challenge in session for later cleanup
         this.session.credential = credential;
         this.session.vrfChallenge = vrfChallenge;
@@ -593,13 +688,21 @@ export class LinkDeviceFlow {
         }
 
         // Return all derived values - no more session state confusion!
-        return {
+        const result = {
           encryptedVrfKeypair: vrfDerivationResult.encryptedVrfKeypair,
           vrfPublicKey: vrfDerivationResult.vrfPublicKey,
           nearPublicKey: nearKeyResultStep1.publicKey,
           credential: credential,
           vrfChallenge: vrfChallenge
         };
+
+        console.log('LinkDeviceFlow: Option F returning result with credential:', {
+          hasCredential: !!result.credential,
+          credentialType: result.credential?.type,
+          hasPrfOutput: !!result.credential?.getClientExtensionResults()?.prf?.results?.first
+        });
+
+        return result;
 
       } else {
         // === OPTION E: Regenerate credential with device number ===
@@ -636,13 +739,21 @@ export class LinkDeviceFlow {
         console.log(`LinkDeviceFlow: Option E - VRF credentials properly derived for ${realAccountId}`);
 
         // Return all derived values - clean and explicit!
-        return {
+        const result = {
           encryptedVrfKeypair: vrfDerivationResult.encryptedVrfKeypair,
           vrfPublicKey: vrfDerivationResult.vrfPublicKey,
           nearPublicKey: this.session.nearPublicKey, // For Option E, use existing NEAR public key
           credential: credential, // Use regenerated credential with device number
           vrfChallenge: vrfChallenge // Use regenerated VRF challenge
         };
+
+        console.log('LinkDeviceFlow: Option E returning result with credential:', {
+          hasCredential: !!result.credential,
+          credentialType: result.credential?.type,
+          hasPrfOutput: !!result.credential?.getClientExtensionResults()?.prf?.results?.first
+        });
+
+        return result;
       }
 
     } catch (error) {
@@ -992,9 +1103,57 @@ export async function scanAndLinkDevice(
     }
 
     // Broadcast both transactions
-    const addKeyTxResult = await context.nearClient.sendTransaction(transactionResults[0].signedTransaction);
-    const contractTxResult = await context.nearClient.sendTransaction(transactionResults[1].signedTransaction);
+    let addKeyTxResult, contractTxResult;
+    try {
+      console.log('LinkDeviceFlow: Broadcasting AddKey transaction...');
+      console.log('LinkDeviceFlow: AddKey transaction details:', {
+        receiverId: transactionResults[0].signedTransaction.transaction.receiverId,
+        actions: JSON.parse(transactionResults[0].signedTransaction.transaction.actionsJson || '[]'),
+        transactionKeys: Object.keys(transactionResults[0].signedTransaction.transaction),
+        fullTransaction: JSON.stringify(transactionResults[0].signedTransaction.transaction, null, 2)
+      });
 
+      addKeyTxResult = await context.nearClient.sendTransaction(transactionResults[0].signedTransaction);
+      console.log('LinkDeviceFlow: AddKey transaction result:', addKeyTxResult?.transaction?.hash);
+
+            // Check if contract mapping transaction is valid before attempting to broadcast
+      const contractTx = transactionResults[1].signedTransaction;
+      if (!contractTx?.transaction?.receiverId) {
+        console.warn('LinkDeviceFlow: Contract mapping transaction has invalid receiverId, skipping...');
+        contractTxResult = undefined;
+      } else {
+        console.log('LinkDeviceFlow: Broadcasting contract mapping transaction...');
+        console.log('LinkDeviceFlow: Contract mapping transaction details:', {
+          receiverId: contractTx.transaction.receiverId,
+          actions: JSON.parse(contractTx.transaction.actionsJson || '[]').length
+        });
+
+        // Add timeout to prevent hanging
+        const contractTxPromise = context.nearClient.sendTransaction(contractTx);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Contract mapping transaction timeout after 30 seconds')), 30000);
+        });
+
+        try {
+          contractTxResult = await Promise.race([contractTxPromise, timeoutPromise]);
+          console.log('LinkDeviceFlow: Contract mapping transaction result:', contractTxResult?.transaction?.hash);
+        } catch (contractError: any) {
+          console.warn('LinkDeviceFlow: Contract mapping transaction failed, but AddKey succeeded:', contractError.message);
+          // Don't fail the entire flow if contract mapping fails - AddKey is the critical transaction
+          contractTxResult = undefined;
+        }
+      }
+    } catch (txError: any) {
+      console.error('LinkDeviceFlow: AddKey transaction broadcasting failed:', txError);
+      console.error('LinkDeviceFlow: Transaction error details:', {
+        message: txError.message,
+        stack: txError.stack,
+        name: txError.name
+      });
+      throw new Error(`AddKey transaction broadcasting failed: ${txError.message}`);
+    }
+
+    console.log('LinkDeviceFlow: Sending step 5 event...');
     onEvent?.({
       step: 5,
       phase: 'authorization',
@@ -1003,6 +1162,7 @@ export async function scanAndLinkDevice(
       message: `Both transactions signed and broadcasted successfully!`
     });
 
+    console.log('LinkDeviceFlow: Sending step 6 event...');
     onEvent?.({
       step: 6,
       phase: 'registration',
@@ -1011,7 +1171,8 @@ export async function scanAndLinkDevice(
       message: `Device2's key added to ${device1AccountId} successfully!`
     });
 
-    return {
+    console.log('LinkDeviceFlow: Preparing return result...');
+    const result = {
       success: true,
       devicePublicKey: qrData.devicePublicKey,
       transactionId: addKeyTxResult?.transaction?.hash || contractTxResult?.transaction?.hash || 'unknown',
@@ -1019,7 +1180,13 @@ export async function scanAndLinkDevice(
       linkedToAccount: device1AccountId // Include which account the key was added to
     };
 
+    console.log('LinkDeviceFlow: Returning result:', result);
+    return result;
+
   } catch (error: any) {
+    console.error('LinkDeviceFlow: scanAndLinkDevice caught error:', error);
+    console.error('LinkDeviceFlow: Error stack:', error.stack);
+
     const errorMessage = `Failed to scan and link device: ${error.message}`;
     onError?.(new Error(errorMessage));
 

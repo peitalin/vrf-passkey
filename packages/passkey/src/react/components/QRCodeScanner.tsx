@@ -241,10 +241,13 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       // Handle auto-linking if enabled
       if (autoLink) {
         try {
+          console.log('QRCodeScanner: Starting device linking...');
+          console.log('QRCodeScanner: About to call scanAndLinkDevice...');
+
           const result = await passkeyManager.scanAndLinkDevice({
             cameraId: selectedCamera,
             fundingAmount,
-            onEvent: (event) => console.log('QRCodeScanner: Linking event -', event.phase),
+            onEvent: (event) => console.log('QRCodeScanner: Linking event -', event.phase, event.message),
             onError: (error) => {
               console.error('QRCodeScanner: Linking error -', error.message);
               setError(error.message);
@@ -252,30 +255,32 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
             }
           });
 
-          console.log('QRCodeScanner: Linking completed -', { success: !!result });
+          console.log('QRCodeScanner: scanAndLinkDevice returned successfully');
+          console.log('QRCodeScanner: Device linking completed successfully -', { success: !!result, result });
           onDeviceLinked?.(result);
         } catch (linkingError: any) {
           console.error('QRCodeScanner: Device linking failed -', linkingError.message);
+          console.error('QRCodeScanner: Device linking error details:', linkingError);
           setError(linkingError.message || 'Failed to link device');
           onError?.(linkingError);
-        } finally {
-          // Always stop scanning and close after QR detection and processing, regardless of success/failure
-          stopScanning();
-          onClose?.();
         }
       } else {
         console.log('QRCodeScanner: Manual mode - QR scanning complete');
-        // For manual mode, also stop scanning after successful QR detection
-        stopScanning();
       }
-
     } catch (err: any) {
       console.error('QRCodeScanner: Processing failed -', err.message);
       setError(err.message || 'Failed to process QR code');
       onError?.(err);
-      // Stop scanning even if QR parsing failed
-      stopScanning();
     } finally {
+      // Always stop scanning and close after QR detection and processing, regardless of success/failure
+      console.log('QRCodeScanner: Finally block - cleaning up camera and closing scanner...');
+      stopScanning();
+      console.log('QRCodeScanner: Calling onClose callback...');
+      if (onClose) {
+        onClose();
+      } else {
+        console.warn('QRCodeScanner: No onClose callback provided');
+      }
       setIsProcessing(false);
     }
   };
@@ -308,21 +313,39 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   };
 
   const stopScanning = () => {
+    console.log('QRCodeScanner: stopScanning called - cleaning up camera...');
+
     // Reset state
     setIsScanning(false);
     isScanningRef.current = false;
     scanStartTimeRef.current = 0;
 
     // Cancel animation and cleanup video
-    animationRef.current && (cancelAnimationFrame(animationRef.current), animationRef.current = undefined);
-    videoRef.current && (videoRef.current.pause(), videoRef.current.srcObject = null, videoRef.current.load());
+    if (animationRef.current) {
+      console.log('QRCodeScanner: Cancelling animation frame');
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = undefined;
+    }
+
+    if (videoRef.current) {
+      console.log('QRCodeScanner: Cleaning up video element');
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+      videoRef.current.load();
+    }
 
     // Stop camera tracks and cleanup
-    stream?.getTracks().forEach(track => {
-      track.readyState === 'live' && track.stop();
-      track.onended = track.onmute = track.onunmute = null;
-    });
-    setStream(null);
+    if (stream) {
+      console.log('QRCodeScanner: Stopping camera tracks');
+      stream.getTracks().forEach(track => {
+        if (track.readyState === 'live') {
+          console.log('QRCodeScanner: Stopping track:', track.kind, track.label);
+          track.stop();
+        }
+        track.onended = track.onmute = track.onunmute = null;
+      });
+      setStream(null);
+    }
 
     // Optional garbage collection hint
     window.gc?.();

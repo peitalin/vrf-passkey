@@ -630,10 +630,7 @@ async function restoreUserData(
     iv: encryptedNearKeypair.iv,
     timestamp: Date.now()
   });
-  console.debug(`Stored encrypted NEAR keypair for account recovery: ${accountId}`);
-
-  // CHANGE: Pass the correct device number to both user registration and storage
-  console.log("DEBUG restoreUserData: using deviceNumber =", deviceNumber, "for account", accountId);
+  console.log("restoreUserData: using deviceNumber =", deviceNumber, "for account", accountId);
 
   if (!existingUser) {
     await webAuthnManager.registerUser(accountId, {

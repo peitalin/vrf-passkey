@@ -18,11 +18,21 @@ import {
   RpcQueryRequest,
   FinalityReference,
 } from "@near-js/types";
-import { Signature, Transaction } from "@near-js/transactions";
 import { PublicKey } from "@near-js/crypto";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
-import { Provider } from "@near-js/providers";
+// import { Provider } from "@near-js/providers";
+import {
+  EncryptionResult,
+  RegistrationCheckResult,
+  RegistrationResult,
+  KeyActionResult,
+  TransactionSignResult,
+  RecoverKeypairResult,
+  WasmTransaction,
+  WasmSignature,
+  WasmSignedTransaction,
+} from "../wasm_signer_worker/wasm_signer_worker.js";
 
 interface ContractResult<T> extends QueryResponseKind {
   result?: T | string | number | any;
@@ -38,33 +48,33 @@ export enum RpcCallType {
 }
 
 export class SignedTransaction {
-    transaction: Transaction;
-    signature: Signature;
-    borsh_bytes: number[];
+  transaction: WasmTransaction;
+  signature: WasmSignature;
+  borsh_bytes: number[];
 
-    constructor({ transaction, signature, borsh_bytes }: {
-      transaction: Transaction;
-      signature: Signature;
-      borsh_bytes: number[];
-    }) {
-      this.transaction = transaction;
-      this.signature = signature;
-      this.borsh_bytes = borsh_bytes;
-    }
+  constructor(data: {
+    transaction: WasmTransaction;
+    signature: WasmSignature;
+    borsh_bytes: number[]
+  }) {
+    this.transaction = data.transaction;
+    this.signature = data.signature;
+    this.borsh_bytes = data.borsh_bytes;
+  }
 
-    encode(): Uint8Array {
-        // If borsh_bytes are already available, use them
-        return new Uint8Array(this.borsh_bytes);
-    }
+  encode(): Uint8Array {
+    // If borsh_bytes are already available, use them
+    return new Uint8Array(this.borsh_bytes);
+  }
 
-    base64Encode(): string {
-        return base64Encode(this.encode());
-    }
+  base64Encode(): string {
+    return base64Encode(this.encode());
+  }
 
-    static decode(bytes: Uint8Array): SignedTransaction {
-        // This would need borsh deserialization
-        throw new Error('SignedTransaction.decode(): borsh deserialization not implemented');
-    }
+  static decode(bytes: Uint8Array): SignedTransaction {
+    // This would need borsh deserialization
+    throw new Error('SignedTransaction.decode(): borsh deserialization not implemented');
+  }
 }
 
 /**

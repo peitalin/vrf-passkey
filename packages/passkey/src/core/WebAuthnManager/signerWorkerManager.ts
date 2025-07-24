@@ -287,12 +287,12 @@ export class SignerWorkerManager {
       }
       console.info('WebAuthnManager: Encrypted key stored and verified in IndexedDB');
 
-      // Convert optional WASM signed transaction to SignedTransaction object
+      // Use WASM signed transaction directly - just map borshBytes to borsh_bytes
       let signedTransaction: SignedTransaction | undefined = undefined;
       if (wasmResult.signedTransaction) {
         signedTransaction = new SignedTransaction({
-          transaction: jsonTryParse(wasmResult.signedTransaction.transactionJson),
-          signature: jsonTryParse(wasmResult.signedTransaction.signatureJson),
+          transaction: wasmResult.signedTransaction.transaction,
+          signature: wasmResult.signedTransaction.signature,
           borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
         });
       }
@@ -559,16 +559,20 @@ export class SignerWorkerManager {
           verified: wasmResult.verified,
           registrationInfo: wasmResult.registrationInfo,
           logs: wasmResult.logs,
-          signedTransaction: new SignedTransaction({
-            transaction: jsonTryParse(wasmResult.signedTransaction?.transactionJson),
-            signature: jsonTryParse(wasmResult.signedTransaction?.signatureJson),
-            borsh_bytes: Array.from(wasmResult.signedTransaction?.borshBytes || [])
-          }),
-          preSignedDeleteTransaction: new SignedTransaction({
-            transaction: jsonTryParse(wasmResult.preSignedDeleteTransaction?.transactionJson),
-            signature: jsonTryParse(wasmResult.preSignedDeleteTransaction?.signatureJson),
-            borsh_bytes: Array.from(wasmResult.preSignedDeleteTransaction?.borshBytes || [])
-          })
+          signedTransaction: wasmResult.signedTransaction
+            ? new SignedTransaction({
+                transaction: wasmResult.signedTransaction.transaction,
+                signature: wasmResult.signedTransaction.signature,
+                borsh_bytes: Array.from(wasmResult.signedTransaction.borshBytes || [])
+              })
+            : new SignedTransaction({ transaction: {} as any, signature: {} as any, borsh_bytes: [] }),
+          preSignedDeleteTransaction: wasmResult.preSignedDeleteTransaction
+            ? new SignedTransaction({
+                transaction: wasmResult.preSignedDeleteTransaction.transaction,
+                signature: wasmResult.preSignedDeleteTransaction.signature,
+                borsh_bytes: Array.from(wasmResult.preSignedDeleteTransaction.borshBytes || [])
+              })
+            : new SignedTransaction({ transaction: {} as any, signature: {} as any, borsh_bytes: [] })
         };
       } else {
         console.error('WebAuthnManager: On-chain user registration transaction failed:', response);
@@ -712,16 +716,17 @@ export class SignerWorkerManager {
         throw new Error(`Expected ${transactions.length} signed transactions but received ${signedTransactions.length}`);
       }
 
-      // Process results for each transaction
+      // Process results for each transaction using WASM types directly
       const results = signedTransactions.map((signedTx, index) => {
-        if (!signedTx || !signedTx.transactionJson || !signedTx.signatureJson) {
+        if (!signedTx || !signedTx.transaction || !signedTx.signature) {
           throw new Error(`Incomplete signed transaction data received for transaction ${index + 1}`);
         }
+        console.log('signedTx', signedTx);
 
         return {
           signedTransaction: new SignedTransaction({
-            transaction: jsonTryParse(signedTx.transactionJson),
-            signature: jsonTryParse(signedTx.signatureJson),
+            transaction: signedTx.transaction,
+            signature: signedTx.signature,
             borsh_bytes: Array.from(signedTx.borshBytes || [])
           }),
           nearAccountId: transactions[index].nearAccountId,
@@ -902,14 +907,14 @@ export class SignerWorkerManager {
       }
 
       const signedTx = signedTransactions[0];
-      if (!signedTx || !signedTx.transactionJson || !signedTx.signatureJson) {
+      if (!signedTx || !signedTx.transaction || !signedTx.signature) {
         throw new Error('Incomplete signed transaction data received');
       }
 
       const result = {
         signedTransaction: new SignedTransaction({
-          transaction: jsonTryParse(signedTx.transactionJson),
-          signature: jsonTryParse(signedTx.signatureJson),
+          transaction: signedTx.transaction,
+          signature: signedTx.signature,
           borsh_bytes: Array.from(signedTx.borshBytes || [])
         }),
         logs: wasmResult.logs

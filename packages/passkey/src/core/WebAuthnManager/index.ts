@@ -1,9 +1,3 @@
-// Core dependencies
-import { KeyPairEd25519, PublicKey } from '@near-js/crypto';
-import { actionCreators, createTransaction, Signature } from '@near-js/transactions';
-
-// Internal types
-import type { PasskeyManagerContext } from '../PasskeyManager';
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { AccountId } from '../types/accountIds';
@@ -21,7 +15,7 @@ import {
 import { SignerWorkerManager } from './signerWorkerManager';
 import { VrfWorkerManager } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
-import { base64UrlEncode, base64UrlDecode, base58Decode, toWasmByteArray } from '../../utils/encoders';
+import { base64UrlEncode } from '../../utils/encoders';
 import {
   type UserData,
   type ActionParams,
@@ -865,91 +859,6 @@ export class WebAuthnManager {
     }
   }
 
-  ///////////////////////////////////////
-  // KEY MANAGEMENT METHODS (Add New Devices to Accounts)
-  ///////////////////////////////////////
-
-  /**
-   * Add a new device key to an existing account using the AddKey action
-   * This enables multi-device access by adding the current device as an additional access key
-   *
-   * @param params Configuration for adding device key
-   * @returns Transaction result with transaction ID
-   */
-  async signAddKeyToDevice({
-    context,
-    accountId,
-    newDevicePublicKey,
-    importedPrivateKey,
-    accessKeyPermission = 'FullAccess',
-  }: {
-    context: PasskeyManagerContext,
-    accountId: string,
-    newDevicePublicKey: string,
-    importedPrivateKey: string,
-    accessKeyPermission?: 'FullAccess' | { receiver_id: string; method_names: string[]; allowance?: string },
-  }): Promise<VerifyAndSignTransactionResult> {
-    const { nearClient } = context;
-    try {
-      console.debug('WebAuthnManager: Starting add device key operation');
-
-      // Step 1: Create KeyPair from imported private key
-      const keyPair = new KeyPairEd25519(importedPrivateKey);
-      const publicKeyStr = keyPair.getPublicKey().toString();
-
-      // Step 2: Fetch nonce and block hash for the account
-      const [accessKeyInfo, transactionBlockInfo] = await Promise.all([
-        nearClient.viewAccessKey(accountId, publicKeyStr),
-        nearClient.viewBlock({ finality: 'final' })
-      ]);
-
-      const nonce = BigInt(accessKeyInfo.nonce) + BigInt(1);
-      const blockHashString = transactionBlockInfo.header.hash;
-
-      // Step 3: Create AddKey action
-      const addKeyAction = actionCreators.addKey(
-        PublicKey.fromString(newDevicePublicKey),
-        accessKeyPermission === 'FullAccess'
-          ? actionCreators.fullAccessKey()
-          : actionCreators.functionCallAccessKey(
-              accessKeyPermission.receiver_id,
-              accessKeyPermission.method_names,
-              accessKeyPermission.allowance ? BigInt(accessKeyPermission.allowance) : undefined
-            )
-      );
-
-      // Step 4: Create and sign transaction
-      const transaction = createTransaction(
-        accountId,           // signerId
-        keyPair.getPublicKey(), // signer public key
-        accountId,           // receiverId
-        nonce,               // nonce
-        [addKeyAction],      // actions
-        base58Decode(blockHashString) // blockHash
-      );
-
-      // Sign the transaction manually using the keyPair
-      const serializedTx = transaction.encode();
-      const signature: Signature = keyPair.sign(serializedTx) as any;
-
-      console.debug('WebAuthnManager: Add device key operation completed successfully');
-
-      return {
-        signedTransaction: new SignedTransaction({
-          transaction: transaction,
-          signature: signature,
-          borsh_bytes: Array.from(serializedTx)
-        }),
-        nearAccountId: accountId,
-        logs: ['Transaction signed with imported private key']
-      };
-
-    } catch (error: any) {
-      console.error('WebAuthnManager: Add device key error:', error);
-      throw new Error(`Add device key failed: ${error.message}`);
-    }
-  }
-
   /**
    * Add VRF public key to authenticator (for recovery scenarios)
    * This enables adding new VRF keys to the FIFO queue on the contract
@@ -1049,7 +958,8 @@ export class WebAuthnManager {
   }
 
   /**
-   * Sign transaction with raw private key (for key replacement in device linking)
+   * Sign transaction with raw private key
+   * for key replacement in device linking
    * No TouchID/PRF required - uses provided private key directly
    */
   async signTransactionWithKeyPair({

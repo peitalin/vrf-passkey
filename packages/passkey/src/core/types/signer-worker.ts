@@ -1,8 +1,8 @@
 import { base64UrlEncode } from "../../utils/encoders";
 import type { VRFChallenge, onProgressEvents } from "./webauthn";
 import { ActionType } from "./actions";
-import type { Transaction, Signature } from '@near-js/transactions';
 import type { SignedTransaction } from '../NearClient';
+import type { TransactionStruct, SignatureStruct } from './rpc';
 
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // These are the source of truth generated from Rust structs via wasm-bindgen
@@ -12,7 +12,7 @@ export type WasmRecoverKeypairResult = InstanceType<typeof wasmModule.RecoverKey
 export type WasmRegistrationResult = InstanceType<typeof wasmModule.RegistrationResult>;
 export type WasmRegistrationCheckResult = InstanceType<typeof wasmModule.RegistrationCheckResult>;
 export type WasmRegistrationInfo = InstanceType<typeof wasmModule.RegistrationInfoStruct>;
-export type WasmJsonSignedTransaction = InstanceType<typeof wasmModule.JsonSignedTransactionStruct>;
+export type WasmSignedTransaction = InstanceType<typeof wasmModule.WasmSignedTransaction>;
 export type WasmTransactionSignResult = InstanceType<typeof wasmModule.TransactionSignResult>;
 export type WasmDecryptPrivateKeyResult = InstanceType<typeof wasmModule.DecryptPrivateKeyResult>;
 export type WasmEncryptionResult = InstanceType<typeof wasmModule.EncryptionResult>;

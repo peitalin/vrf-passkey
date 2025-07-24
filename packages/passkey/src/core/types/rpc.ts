@@ -1,10 +1,28 @@
 import { AccessKeyView, TxExecutionStatus } from "@near-js/types";
-import { ClientUserData } from "../IndexedDBManager";
+import { ActionArgs } from "./actions";
 
 export const DEFAULT_WAIT_STATUS = {
   executeAction: "EXECUTED_OPTIMISTIC" as TxExecutionStatus,
   // See default finality settings:
   // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
+}
+
+// Transaction and Signature types - defined as TypeScript interfaces since they're handled as JSON
+export interface TransactionStruct {
+  signerAccount: string;
+  publicKey: {
+    keyType: number;
+    keyData: number[];
+  };
+  nonce: number;
+  receiverAccount: string;
+  blockHash: number[];
+  actions: any[]; // Actions are complex, handled as JSON
+}
+
+export interface SignatureStruct {
+  keyType: number;
+  signatureData: number[];
 }
 
 export interface NearRpcCallParams {
