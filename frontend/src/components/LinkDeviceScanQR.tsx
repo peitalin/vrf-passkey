@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePasskeyContext } from '@web3authn/passkey/react'
 import toast from 'react-hot-toast'
 import type { LastTxDetails } from '../types'
@@ -22,6 +22,11 @@ export function LinkDeviceScanQR() {
     showScanner: boolean;
   }>({ mode: 'idle', isProcessing: false, showScanner: false });
 
+  // Debug state changes
+  useEffect(() => {
+    console.log('LinkDeviceScanQR: State changed:', deviceLinkingState);
+  }, [deviceLinkingState]);
+
   // Device linking handlers
   const onLinkDeviceAsDevice1 = async () => {
     if (!isLoggedIn) {
@@ -33,6 +38,7 @@ export function LinkDeviceScanQR() {
   };
 
   const handleDeviceLinked = (result: any) => {
+    console.log('LinkDeviceScanQR: Device linked successfully:', result);
     toast.success(`Device linked successfully to ${result.linkedToAccount}!`);
     setDeviceLinkingState({ mode: 'idle', isProcessing: false, showScanner: false });
   };
@@ -44,6 +50,7 @@ export function LinkDeviceScanQR() {
   };
 
   const onCancelDeviceLinking = () => {
+    console.log('LinkDeviceScanQR: onCancelDeviceLinking called - closing scanner');
     setDeviceLinkingState({ mode: 'idle', isProcessing: false, showScanner: false });
     toast.dismiss();
   };
