@@ -1,11 +1,8 @@
-
-use serde::Deserialize;
-use serde_json;
-use bs58;
-
 use log::info;
 use wasm_bindgen::prelude::*;
-use serde::Serialize;
+use serde_json;
+use serde::{Serialize, Deserialize};
+use bs58;
 
 use crate::encoders::base64_url_decode;
 use crate::http::{
@@ -35,9 +32,23 @@ use crate::types::wasm_to_json::{
     WasmSignedTransaction
 };
 
-// === HANDLER FUNCTIONS ===
+// ******************************************************************************
+// *                                                                            *
+// *                    HANDLER 1: DERIVE KEYPAIR AND ENCRYPT                   *
+// *                                                                            *
+// ******************************************************************************
 
-/// Handle derive keypair and optionally sign transaction request
+/// **Handles:** `WorkerRequestType::DeriveNearKeypairAndEncrypt`
+/// This is the primary handler for new device setup and linking. It performs the following operations:
+/// 1. Derives Ed25519 keypair from PRF output using HKDF with account-specific salt
+/// 2. Encrypts the private key using AES-GCM with AES PRF output
+/// 3. Optionally signs a device registration transaction for linking devices
+///
+/// # Arguments
+/// * `request` - Contains dual PRF outputs, account ID, WebAuthn credential, and optional registration transaction
+///
+/// # Returns
+/// * `EncryptionResult` - Contains derived public key, encrypted private key data, and optional signed transaction
 pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeypairPayload) -> Result<EncryptionResult, String> {
 
     info!("RUST: WASM binding - starting structured dual PRF keypair derivation with optional transaction signing");
@@ -142,7 +153,24 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
     ))
 }
 
-/// Handle recover keypair request
+// ******************************************************************************
+// *                                                                            *
+// *                   HANDLER 2: RECOVER KEYPAIR FROM PASSKEY                  *
+// *                                                                            *
+// ******************************************************************************
+
+/// Recovers a NEAR keypair from an existing WebAuthn authentication credential with dual PRF outputs.
+/// **Handles:** `WorkerRequestType::RecoverKeypairFromPasskey`
+///
+/// This handler is used when a user wants to recover access to their account using an existing passkey.
+/// It extracts PRF outputs from the authentication response and regenerates the same keypair that was
+/// originally created during registration.
+///
+/// # Arguments
+/// * `request` - Contains authentication credential with PRF outputs and optional account ID hint
+///
+/// # Returns
+/// * `RecoverKeypairResult` - Contains recovered public key, re-encrypted private key data, and account hint
 pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayload) -> Result<RecoverKeypairResult, String> {
 
     // Extract PRF outputs
@@ -181,7 +209,22 @@ pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayl
     ))
 }
 
-/// Handle check can register user request
+// ******************************************************************************
+// *                                                                            *
+// *                     HANDLER 3: CHECK CAN REGISTER USER                     *
+// *                                                                            *
+// ******************************************************************************
+
+/// **Handles:** `WorkerRequestType::CheckCanRegisterUser`
+/// This handler performs preliminary validation before full registration. It verifies the VRF challenge,
+/// validates the WebAuthn registration credential, and checks contract-specific registration requirements
+/// without actually committing the registration.
+///
+/// # Arguments
+/// * `request` - Contains VRF challenge, registration credential, and contract details
+///
+/// # Returns
+/// * `RegistrationCheckResult` - Contains verification status, registration info, and optional pre-signed transaction
 pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPayload) -> Result<RegistrationCheckResult, String> {
 
     // Use VrfChallenge directly instead of converting
@@ -244,7 +287,22 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
     ))
 }
 
-/// Handle sign verify and register user request
+// ******************************************************************************
+// *                                                                            *
+// *                  HANDLER 4: SIGN VERIFY AND REGISTER USER                  *
+// *                                                                            *
+// ******************************************************************************
+
+/// **Handles:** `WorkerRequestType::SignVerifyAndRegisterUser`
+/// This handler performs the full registration flow including contract verification, private key
+/// decryption, transaction signing, and optional pre-signed transaction generation for account recovery.
+/// It sends progress updates throughout the multi-step process.
+///
+/// # Arguments
+/// * `parsed_payload` - Contains all registration data including VRF challenge, credentials, and transaction details
+///
+/// # Returns
+/// * `RegistrationResult` - Contains final verification status, signed transactions, and registration metadata
 pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerifyAndRegisterUserPayload) -> Result<RegistrationResult, String> {
 
     let vrf_challenge = &parsed_payload.vrf_challenge;
@@ -409,7 +467,22 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     Ok(result)
 }
 
-/// Handle decrypt private key request
+// ******************************************************************************
+// *                                                                            *
+// *                  HANDLER 5: DECRYPT PRIVATE KEY WITH PRF                   *
+// *                                                                            *
+// ******************************************************************************
+
+/// **Handles:** `WorkerRequestType::DecryptPrivateKeyWithPrf`
+/// This handler takes encrypted private key data and an AES PRF output to decrypt and return
+/// the private key in NEAR-compatible format. Used when applications need direct access to
+/// the private key for signing operations outside of the worker context.
+///
+/// # Arguments
+/// * `request` - Contains account ID, PRF output, and encrypted private key data with IV
+///
+/// # Returns
+/// * `DecryptPrivateKeyResult` - Contains decrypted private key in NEAR format and account ID
 pub async fn handle_decrypt_private_key_with_prf_msg(request: DecryptKeyPayload) -> Result<DecryptPrivateKeyResult, String> {
 
     // Use the core function to decrypt and get SigningKey
@@ -442,7 +515,22 @@ pub async fn handle_decrypt_private_key_with_prf_msg(request: DecryptKeyPayload)
     Ok(result)
 }
 
-// Handle batch transaction signing with shared VRF challenge
+// ******************************************************************************
+// *                                                                            *
+// *                 HANDLER 6: SIGN TRANSACTIONS WITH ACTIONS                  *
+// *                                                                            *
+// ******************************************************************************
+
+/// **Handles:** `WorkerRequestType::SignTransactionsWithActions`
+/// This handler processes multiple transactions in a single batch, performing contract verification
+/// once and then signing all transactions with the same decrypted private key. It provides detailed
+/// progress updates and comprehensive error handling for each transaction in the batch.
+///
+/// # Arguments
+/// * `tx_batch_request` - Contains verification data, decryption parameters, and array of transaction requests
+///
+/// # Returns
+/// * `TransactionSignResult` - Contains success status, transaction hashes, signed transactions, and detailed logs
 pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTransactionsWithActionsPayload) -> Result<TransactionSignResult, String> {
 
     // Validate input
@@ -591,7 +679,22 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
     Ok(result)
 }
 
-/// Handle extract COSE public key request
+// ******************************************************************************
+// *                                                                            *
+// *                    HANDLER 7: EXTRACT COSE PUBLIC KEY                      *
+// *                                                                            *
+// ******************************************************************************
+
+/// **Handles:** `WorkerRequestType::ExtractCosePublicKey`
+/// This handler parses a WebAuthn attestation object and extracts the COSE-formatted public key
+/// for cryptographic operations. Used during registration to obtain the authenticator's public key
+/// in a standardized format.
+///
+/// # Arguments
+/// * `request` - Contains base64url-encoded attestation object
+///
+/// # Returns
+/// * `CoseExtractionResult` - Contains extracted COSE public key bytes
 pub async fn handle_extract_cose_public_key_msg(request: ExtractCosePayload) -> Result<CoseExtractionResult, String> {
 
     info!("RUST: WASM binding - extracting COSE public key from attestation object");
@@ -608,8 +711,25 @@ pub async fn handle_extract_cose_public_key_msg(request: ExtractCosePayload) -> 
     Ok(result)
 }
 
-/// Handle sign transaction with keypair request (for key replacement)
-/// This function signs a transaction using a provided private key without requiring TouchID/PRF
+// ******************************************************************************
+// *                                                                            *
+// *                 HANDLER 8: SIGN TRANSACTION WITH KEYPAIR                   *
+// *                                                                            *
+// ******************************************************************************
+
+/// Signs a transaction using a provided private key without requiring WebAuthn authentication.
+///
+/// **Handles:** `WorkerRequestType::SignTransactionWithKeyPair`
+///
+/// This handler is used for key replacement operations where the application already has access
+/// to a private key and needs to sign transactions directly. It bypasses the normal WebAuthn
+/// authentication flow and signs transactions immediately.
+///
+/// # Arguments
+/// * `request` - Contains NEAR private key, transaction details, and action parameters
+///
+/// # Returns
+/// * `TransactionSignResult` - Contains signed transaction, transaction hash, and operation logs
 pub async fn handle_sign_transaction_with_keypair_msg(request: SignTransactionWithKeyPairPayload) -> Result<TransactionSignResult, String> {
 
     let mut logs: Vec<String> = Vec::new();
@@ -684,7 +804,24 @@ pub async fn handle_sign_transaction_with_keypair_msg(request: SignTransactionWi
     ))
 }
 
-/// Sign NEAR transactions with actions implementation (verification already done)
+// ******************************************************************************
+// *                                                                            *
+// *                         INTERNAL IMPLEMENTATION                            *
+// *                                                                            *
+// ******************************************************************************
+
+/// Internal implementation for batch transaction signing after verification is complete.
+/// This function handles the actual signing logic for multiple transactions using a shared
+/// decrypted private key. It processes each transaction individually, provides detailed logging
+/// for each step, and handles errors gracefully while continuing with remaining transactions.
+///
+/// # Arguments
+/// * `tx_requests` - Array of transaction payloads to sign
+/// * `decryption` - Shared decryption parameters for private key access
+/// * `logs` - Existing log entries to append to
+///
+/// # Returns
+/// * `TransactionSignResult` - Contains batch signing results with individual transaction details
 async fn sign_near_transactions_with_actions_impl(
     tx_requests: Vec<TransactionPayload>,
     decryption: &Decryption,

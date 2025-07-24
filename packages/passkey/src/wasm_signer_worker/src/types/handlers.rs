@@ -9,186 +9,42 @@ use crate::types::webauthn::{
     SerializedRegistrationCredential,
 };
 
-// === REQUEST PAYLOAD TYPES ===
+// ******************************************************************************
+// *                                                                            *
+// *                    HANDLER 1: DERIVE KEYPAIR AND ENCRYPT                   *
+// *                                                                            *
+// ******************************************************************************
 
-// Registration transaction-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationTxData {
-    #[wasm_bindgen(getter_with_clone)]
-    pub signer_account_id: String,
-    pub nonce: u64,
-    #[wasm_bindgen(getter_with_clone)]
-    pub block_hash_bytes: Vec<u8>,
-    pub device_number: u8,
-}
-
-#[wasm_bindgen]
-impl RegistrationTxData {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        signer_account_id: String,
-        nonce: u64,
-        block_hash_bytes: Vec<u8>,
-        device_number: u8,
-    ) -> RegistrationTxData {
-        RegistrationTxData {
-            signer_account_id,
-            nonce,
-            block_hash_bytes,
-            device_number,
-        }
-    }
-}
-
-// Improved registration request with grouped parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationRequest {
-    #[wasm_bindgen(getter_with_clone)]
-    pub verification: Verification,
-    #[wasm_bindgen(getter_with_clone)]
-    pub decryption: Decryption,
-    #[wasm_bindgen(getter_with_clone)]
-    pub transaction: RegistrationTxData,
-}
-
-#[wasm_bindgen]
-impl RegistrationRequest {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verification: Verification,
-        decryption: Decryption,
-        transaction: RegistrationTxData,
-    ) -> RegistrationRequest {
-        RegistrationRequest {
-            verification,
-            decryption,
-            transaction,
-        }
-    }
-}
-
-// === EXECUTE ACTIONS TRANSACTION SIGNING REQUESTS ===
-
-// Improved transaction signing request with grouped parameters for batch transactions
-#[derive(Debug, Clone, Deserialize)]
-pub struct SignTransactionsWithActionsPayload {
-    pub verification: VerificationPayload,
-    pub decryption: DecryptionPayload,
-    #[serde(rename = "txSigningRequests")]
-    pub tx_signing_requests: Vec<TransactionPayload>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct VerificationPayload {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    pub near_rpc_url: String,
-    #[serde(rename = "vrfChallenge")]
-    pub vrf_challenge: VrfChallenge,
-    pub credential: SerializedCredential,
-}
-// Contract verification parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct Verification {
-    #[wasm_bindgen(getter_with_clone)]
-    pub contract_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub near_rpc_url: String,
-}
-#[wasm_bindgen]
-impl Verification {
-    #[wasm_bindgen(constructor)]
-    pub fn new(contract_id: String, near_rpc_url: String) -> Verification {
-        Verification {
-            contract_id,
-            near_rpc_url,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DecryptionPayload {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DualPrfOutputsStruct {
     #[serde(rename = "aesPrfOutput")]
     pub aes_prf_output: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    pub encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    pub encrypted_private_key_iv: String,
-}
-// Decryption-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct Decryption {
-    #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_iv: String,
-}
-#[wasm_bindgen]
-impl Decryption {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        aes_prf_output: String,
-        encrypted_private_key_data: String,
-        encrypted_private_key_iv: String,
-    ) -> Decryption {
-        Decryption {
-            aes_prf_output,
-            encrypted_private_key_data,
-            encrypted_private_key_iv,
-        }
-    }
+    #[serde(rename = "ed25519PrfOutput")]
+    pub ed25519_prf_output: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TransactionPayload {
-    #[serde(rename = "nearAccountId")]
-    pub near_account_id: String,
-    #[serde(rename = "receiverId")]
-    pub receiver_id: String,
-    pub actions: String, // JSON string
+#[derive(Deserialize, Debug, Clone)]
+pub struct LinkDeviceRegistrationTransaction {
+    #[serde(rename = "vrfChallenge")]
+    pub vrf_challenge: VrfChallenge,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
     pub nonce: String,
     #[serde(rename = "blockHashBytes")]
     pub block_hash_bytes: Vec<u8>,
+    #[serde(rename = "deterministicVrfPublicKey")]
+    pub deterministic_vrf_public_key: String,
 }
-// Transaction-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct TxData {
-    #[wasm_bindgen(getter_with_clone)]
-    pub signer_account_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub receiver_account_id: String,
-    pub nonce: u64,
-    #[wasm_bindgen(getter_with_clone)]
-    pub block_hash_bytes: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub actions_json: String,
-}
-#[wasm_bindgen]
-impl TxData {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        signer_account_id: String,
-        receiver_account_id: String,
-        nonce: u64,
-        block_hash_bytes: Vec<u8>,
-        actions_json: String,
-    ) -> TxData {
-        TxData {
-            signer_account_id,
-            receiver_account_id,
-            nonce,
-            block_hash_bytes,
-            actions_json,
-        }
-    }
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct DeriveKeypairPayload {
+    #[serde(rename = "dualPrfOutputs")]
+    pub dual_prf_outputs: DualPrfOutputsStruct,
+    #[serde(rename = "nearAccountId")]
+    pub near_account_id: String,
+    pub credential: SerializedRegistrationCredential,
+    #[serde(rename = "registrationTransaction")]
+    pub registration_transaction: Option<LinkDeviceRegistrationTransaction>,
 }
 
 #[wasm_bindgen]
@@ -229,42 +85,11 @@ impl EncryptionResult {
     }
 }
 
-// === KEYPAIR DERIVATION REQUESTS ===
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct LinkDeviceRegistrationTransaction {
-    #[serde(rename = "vrfChallenge")]
-    pub vrf_challenge: VrfChallenge,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    pub block_hash_bytes: Vec<u8>,
-    // Add VRF public key for device linking registration
-    #[serde(rename = "deterministicVrfPublicKey")]
-    pub deterministic_vrf_public_key: String, // Base64-encoded string from TypeScript
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct DeriveKeypairPayload {
-    #[serde(rename = "dualPrfOutputs")]
-    pub dual_prf_outputs: DualPrfOutputsStruct,
-    #[serde(rename = "nearAccountId")]
-    pub near_account_id: String,
-    // WebAuthn registration credential for device linking
-    pub credential: SerializedRegistrationCredential,
-    // Optional device linking registration transaction
-    #[serde(rename = "registrationTransaction")]
-    pub registration_transaction: Option<LinkDeviceRegistrationTransaction>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DualPrfOutputsStruct {
-    #[serde(rename = "aesPrfOutput")]
-    pub aes_prf_output: String,
-    #[serde(rename = "ed25519PrfOutput")]
-    pub ed25519_prf_output: String,
-}
+// ******************************************************************************
+// *                                                                            *
+// *                   HANDLER 2: RECOVER KEYPAIR FROM PASSKEY                 *
+// *                                                                            *
+// ******************************************************************************
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct RecoverKeypairPayload {
@@ -272,67 +97,6 @@ pub struct RecoverKeypairPayload {
     #[serde(rename = "accountIdHint")]
     pub account_id_hint: Option<String>,
 }
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct DecryptKeyPayload {
-    #[serde(rename = "nearAccountId")]
-    pub near_account_id: String,
-    #[serde(rename = "prfOutput")]
-    pub prf_output: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    pub encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    pub encrypted_private_key_iv: String,
-}
-
-// === REGISTRATION REQUESTS ===
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct CheckCanRegisterUserPayload {
-    #[serde(rename = "vrfChallenge")]
-    pub vrf_challenge: VrfChallenge,
-    pub credential: SerializedRegistrationCredential,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    pub near_rpc_url: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct SignVerifyAndRegisterUserPayload {
-    #[serde(rename = "vrfChallenge")]
-    pub vrf_challenge: VrfChallenge,
-    pub credential: SerializedRegistrationCredential,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    pub near_rpc_url: String,
-    #[serde(rename = "nearAccountId")]
-    pub near_account_id: String,
-    pub nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    pub block_hash_bytes: Vec<u8>,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    pub encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    pub encrypted_private_key_iv: String,
-    #[serde(rename = "prfOutput")]
-    pub prf_output: String,
-    #[serde(rename = "deterministicVrfPublicKey")]
-    pub deterministic_vrf_public_key: Option<String>,
-    #[serde(rename = "deviceNumber")]
-    pub device_number: Option<u8>, // Device number for multi-device support (defaults to 1)
-}
-
-// === COSE REQUESTS ===
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct ExtractCosePayload {
-    #[serde(rename = "attestationObjectBase64url")]
-    pub attestation_object_base64url: String,
-}
-
-// === RECOVERY REQUESTS ===
 
 #[wasm_bindgen]
 #[derive(Debug, Clone, Serialize)]
@@ -361,7 +125,300 @@ impl RecoverKeypairResult {
     }
 }
 
-// Decryption types
+// ******************************************************************************
+// *                                                                            *
+// *                     HANDLER 3: CHECK CAN REGISTER USER                     *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CheckCanRegisterUserPayload {
+    #[serde(rename = "vrfChallenge")]
+    pub vrf_challenge: VrfChallenge,
+    pub credential: SerializedRegistrationCredential,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    #[serde(rename = "nearRpcUrl")]
+    pub near_rpc_url: String,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RegistrationCheckRequest {
+    #[wasm_bindgen(getter_with_clone)]
+    pub contract_id: String,
+    #[wasm_bindgen(getter_with_clone)]
+    pub near_rpc_url: String,
+}
+
+#[wasm_bindgen]
+impl RegistrationCheckRequest {
+    #[wasm_bindgen(constructor)]
+    pub fn new(contract_id: String, near_rpc_url: String) -> RegistrationCheckRequest {
+        RegistrationCheckRequest {
+            contract_id,
+            near_rpc_url,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrationInfoStruct {
+    #[wasm_bindgen(getter_with_clone, js_name = "credentialId")]
+    pub credential_id: Vec<u8>,
+    #[wasm_bindgen(getter_with_clone, js_name = "credentialPublicKey")]
+    pub credential_public_key: Vec<u8>,
+    #[wasm_bindgen(getter_with_clone, js_name = "userId")]
+    pub user_id: String,
+    #[wasm_bindgen(getter_with_clone, js_name = "vrfPublicKey")]
+    pub vrf_public_key: Option<Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl RegistrationInfoStruct {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        credential_id: Vec<u8>,
+        credential_public_key: Vec<u8>,
+        user_id: String,
+        vrf_public_key: Option<Vec<u8>>,
+    ) -> RegistrationInfoStruct {
+        RegistrationInfoStruct {
+            credential_id,
+            credential_public_key,
+            user_id,
+            vrf_public_key,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RegistrationCheckResult {
+    pub verified: bool,
+    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
+    pub registration_info: Option<RegistrationInfoStruct>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub logs: Vec<String>,
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
+    pub signed_transaction: Option<WasmSignedTransaction>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub error: Option<String>,
+}
+
+#[wasm_bindgen]
+impl RegistrationCheckResult {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        verified: bool,
+        registration_info: Option<RegistrationInfoStruct>,
+        logs: Vec<String>,
+        signed_transaction: Option<WasmSignedTransaction>,
+        error: Option<String>,
+    ) -> RegistrationCheckResult {
+        RegistrationCheckResult {
+            verified,
+            registration_info,
+            logs,
+            signed_transaction,
+            error,
+        }
+    }
+}
+
+// ******************************************************************************
+// *                                                                            *
+// *                  HANDLER 4: SIGN VERIFY AND REGISTER USER                  *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct SignVerifyAndRegisterUserPayload {
+    #[serde(rename = "vrfChallenge")]
+    pub vrf_challenge: VrfChallenge,
+    pub credential: SerializedRegistrationCredential,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    #[serde(rename = "nearRpcUrl")]
+    pub near_rpc_url: String,
+    #[serde(rename = "nearAccountId")]
+    pub near_account_id: String,
+    pub nonce: String,
+    #[serde(rename = "blockHashBytes")]
+    pub block_hash_bytes: Vec<u8>,
+    #[serde(rename = "encryptedPrivateKeyData")]
+    pub encrypted_private_key_data: String,
+    #[serde(rename = "encryptedPrivateKeyIv")]
+    pub encrypted_private_key_iv: String,
+    #[serde(rename = "prfOutput")]
+    pub prf_output: String,
+    #[serde(rename = "deterministicVrfPublicKey")]
+    pub deterministic_vrf_public_key: Option<String>,
+    #[serde(rename = "deviceNumber")]
+    pub device_number: Option<u8>,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Deserialize)]
+pub struct Verification {
+    #[wasm_bindgen(getter_with_clone)]
+    pub contract_id: String,
+    #[wasm_bindgen(getter_with_clone)]
+    pub near_rpc_url: String,
+}
+
+#[wasm_bindgen]
+impl Verification {
+    #[wasm_bindgen(constructor)]
+    pub fn new(contract_id: String, near_rpc_url: String) -> Verification {
+        Verification {
+            contract_id,
+            near_rpc_url,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Deserialize)]
+pub struct Decryption {
+    #[wasm_bindgen(getter_with_clone)]
+    pub aes_prf_output: String,
+    #[wasm_bindgen(getter_with_clone)]
+    pub encrypted_private_key_data: String,
+    #[wasm_bindgen(getter_with_clone)]
+    pub encrypted_private_key_iv: String,
+}
+
+#[wasm_bindgen]
+impl Decryption {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        aes_prf_output: String,
+        encrypted_private_key_data: String,
+        encrypted_private_key_iv: String,
+    ) -> Decryption {
+        Decryption {
+            aes_prf_output,
+            encrypted_private_key_data,
+            encrypted_private_key_iv,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RegistrationTxData {
+    #[wasm_bindgen(getter_with_clone)]
+    pub signer_account_id: String,
+    pub nonce: u64,
+    #[wasm_bindgen(getter_with_clone)]
+    pub block_hash_bytes: Vec<u8>,
+    pub device_number: u8,
+}
+
+#[wasm_bindgen]
+impl RegistrationTxData {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        signer_account_id: String,
+        nonce: u64,
+        block_hash_bytes: Vec<u8>,
+        device_number: u8,
+    ) -> RegistrationTxData {
+        RegistrationTxData {
+            signer_account_id,
+            nonce,
+            block_hash_bytes,
+            device_number,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RegistrationRequest {
+    #[wasm_bindgen(getter_with_clone)]
+    pub verification: Verification,
+    #[wasm_bindgen(getter_with_clone)]
+    pub decryption: Decryption,
+    #[wasm_bindgen(getter_with_clone)]
+    pub transaction: RegistrationTxData,
+}
+
+#[wasm_bindgen]
+impl RegistrationRequest {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        verification: Verification,
+        decryption: Decryption,
+        transaction: RegistrationTxData,
+    ) -> RegistrationRequest {
+        RegistrationRequest {
+            verification,
+            decryption,
+            transaction,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RegistrationResult {
+    pub verified: bool,
+    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
+    pub registration_info: Option<RegistrationInfoStruct>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub logs: Vec<String>,
+    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
+    pub signed_transaction: Option<WasmSignedTransaction>,
+    #[wasm_bindgen(getter_with_clone, js_name = "preSignedDeleteTransaction")]
+    pub pre_signed_delete_transaction: Option<WasmSignedTransaction>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub error: Option<String>,
+}
+
+#[wasm_bindgen]
+impl RegistrationResult {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        verified: bool,
+        registration_info: Option<RegistrationInfoStruct>,
+        logs: Vec<String>,
+        signed_transaction: Option<WasmSignedTransaction>,
+        pre_signed_delete_transaction: Option<WasmSignedTransaction>,
+        error: Option<String>,
+    ) -> RegistrationResult {
+        RegistrationResult {
+            verified,
+            registration_info,
+            logs,
+            signed_transaction,
+            pre_signed_delete_transaction,
+            error,
+        }
+    }
+}
+
+// ******************************************************************************
+// *                                                                            *
+// *                  HANDLER 5: DECRYPT PRIVATE KEY WITH PRF                   *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct DecryptKeyPayload {
+    #[serde(rename = "nearAccountId")]
+    pub near_account_id: String,
+    #[serde(rename = "prfOutput")]
+    pub prf_output: String,
+    #[serde(rename = "encryptedPrivateKeyData")]
+    pub encrypted_private_key_data: String,
+    #[serde(rename = "encryptedPrivateKeyIv")]
+    pub encrypted_private_key_iv: String,
+}
+
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct DecryptPrivateKeyRequest {
@@ -414,42 +471,86 @@ impl DecryptPrivateKeyResult {
     }
 }
 
-// Registration types
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationCheckRequest {
-    #[wasm_bindgen(getter_with_clone)]
+// ******************************************************************************
+// *                                                                            *
+// *                 HANDLER 6: SIGN TRANSACTIONS WITH ACTIONS                  *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SignTransactionsWithActionsPayload {
+    pub verification: VerificationPayload,
+    pub decryption: DecryptionPayload,
+    #[serde(rename = "txSigningRequests")]
+    pub tx_signing_requests: Vec<TransactionPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VerificationPayload {
+    #[serde(rename = "contractId")]
     pub contract_id: String,
-    #[wasm_bindgen(getter_with_clone)]
+    #[serde(rename = "nearRpcUrl")]
     pub near_rpc_url: String,
+    #[serde(rename = "vrfChallenge")]
+    pub vrf_challenge: VrfChallenge,
+    pub credential: SerializedCredential,
 }
 
-#[wasm_bindgen]
-impl RegistrationCheckRequest {
-    #[wasm_bindgen(constructor)]
-    pub fn new(contract_id: String, near_rpc_url: String) -> RegistrationCheckRequest {
-        RegistrationCheckRequest {
-            contract_id,
-            near_rpc_url,
-        }
-    }
+#[derive(Debug, Clone, Deserialize)]
+pub struct DecryptionPayload {
+    #[serde(rename = "aesPrfOutput")]
+    pub aes_prf_output: String,
+    #[serde(rename = "encryptedPrivateKeyData")]
+    pub encrypted_private_key_data: String,
+    #[serde(rename = "encryptedPrivateKeyIv")]
+    pub encrypted_private_key_iv: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignTransactionWithKeyPairPayload {
-    #[serde(rename = "nearPrivateKey")]
-    pub near_private_key: String, // ed25519:... format
-    #[serde(rename = "signerAccountId")]
-    pub signer_account_id: String,
+#[derive(Debug, Clone, Deserialize)]
+pub struct TransactionPayload {
+    #[serde(rename = "nearAccountId")]
+    pub near_account_id: String,
     #[serde(rename = "receiverId")]
     pub receiver_id: String,
+    pub actions: String, // JSON string
     pub nonce: String,
     #[serde(rename = "blockHashBytes")]
     pub block_hash_bytes: Vec<u8>,
-    pub actions: String, // JSON string of ActionParams[]
 }
 
-// === TRANSACTION RESULT TYPES ===
+#[wasm_bindgen]
+#[derive(Debug, Clone, Deserialize)]
+pub struct TxData {
+    #[wasm_bindgen(getter_with_clone)]
+    pub signer_account_id: String,
+    #[wasm_bindgen(getter_with_clone)]
+    pub receiver_account_id: String,
+    pub nonce: u64,
+    #[wasm_bindgen(getter_with_clone)]
+    pub block_hash_bytes: Vec<u8>,
+    #[wasm_bindgen(getter_with_clone)]
+    pub actions_json: String,
+}
+
+#[wasm_bindgen]
+impl TxData {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        signer_account_id: String,
+        receiver_account_id: String,
+        nonce: u64,
+        block_hash_bytes: Vec<u8>,
+        actions_json: String,
+    ) -> TxData {
+        TxData {
+            signer_account_id,
+            receiver_account_id,
+            nonce,
+            block_hash_bytes,
+            actions_json,
+        }
+    }
+}
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -530,111 +631,18 @@ impl KeyActionResult {
     }
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegistrationInfoStruct {
-    #[wasm_bindgen(getter_with_clone, js_name = "credentialId")]
-    pub credential_id: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone, js_name = "credentialPublicKey")]
-    pub credential_public_key: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone, js_name = "userId")]
-    pub user_id: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "vrfPublicKey")]
-    pub vrf_public_key: Option<Vec<u8>>,
+// ******************************************************************************
+// *                                                                            *
+// *                    HANDLER 7: EXTRACT COSE PUBLIC KEY                      *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ExtractCosePayload {
+    #[serde(rename = "attestationObjectBase64url")]
+    pub attestation_object_base64url: String,
 }
 
-#[wasm_bindgen]
-impl RegistrationInfoStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        credential_id: Vec<u8>,
-        credential_public_key: Vec<u8>,
-        user_id: String,
-        vrf_public_key: Option<Vec<u8>>,
-    ) -> RegistrationInfoStruct {
-        RegistrationInfoStruct {
-            credential_id,
-            credential_public_key,
-            user_id,
-            vrf_public_key,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationCheckResult {
-    pub verified: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
-    pub registration_info: Option<RegistrationInfoStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<WasmSignedTransaction>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RegistrationCheckResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verified: bool,
-        registration_info: Option<RegistrationInfoStruct>,
-        logs: Vec<String>,
-        signed_transaction: Option<WasmSignedTransaction>,
-        error: Option<String>,
-    ) -> RegistrationCheckResult {
-        RegistrationCheckResult {
-            verified,
-            registration_info,
-            logs,
-            signed_transaction,
-            error,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationResult {
-    pub verified: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
-    pub registration_info: Option<RegistrationInfoStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<WasmSignedTransaction>,
-    #[wasm_bindgen(getter_with_clone, js_name = "preSignedDeleteTransaction")]
-    pub pre_signed_delete_transaction: Option<WasmSignedTransaction>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RegistrationResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verified: bool,
-        registration_info: Option<RegistrationInfoStruct>,
-        logs: Vec<String>,
-        signed_transaction: Option<WasmSignedTransaction>,
-        pre_signed_delete_transaction: Option<WasmSignedTransaction>,
-        error: Option<String>,
-    ) -> RegistrationResult {
-        RegistrationResult {
-            verified,
-            registration_info,
-            logs,
-            signed_transaction,
-            pre_signed_delete_transaction,
-            error,
-        }
-    }
-}
-
-/// Response for COSE extraction with just the result
 #[wasm_bindgen]
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -644,7 +652,31 @@ pub struct CoseExtractionResult {
     pub cose_public_key_bytes: Vec<u8>,
 }
 
-// === CUSTOM TO_JSON IMPLEMENTATIONS ===
+// ******************************************************************************
+// *                                                                            *
+// *                 HANDLER 8: SIGN TRANSACTION WITH KEYPAIR                   *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SignTransactionWithKeyPairPayload {
+    #[serde(rename = "nearPrivateKey")]
+    pub near_private_key: String, // ed25519:... format
+    #[serde(rename = "signerAccountId")]
+    pub signer_account_id: String,
+    #[serde(rename = "receiverId")]
+    pub receiver_id: String,
+    pub nonce: String,
+    #[serde(rename = "blockHashBytes")]
+    pub block_hash_bytes: Vec<u8>,
+    pub actions: String, // JSON string of ActionParams[]
+}
+
+// ******************************************************************************
+// *                                                                            *
+// *                      CUSTOM TO_JSON IMPLEMENTATIONS                        *
+// *                                                                            *
+// ******************************************************************************
 
 impl crate::types::ToJson for EncryptionResult {
     fn to_json(&self) -> Result<serde_json::Value, String> {
