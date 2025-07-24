@@ -1,12 +1,17 @@
 // === NEAR BLOCKCHAIN TYPES ===
 // WASM-compatible structs that mirror near-primitives
 
-use borsh::{BorshSerialize, BorshDeserialize};
 use serde::{Serialize, Deserialize};
+use borsh::{BorshSerialize, BorshDeserialize};
 use sha2::{Sha256, Digest};
-use base64::Engine;
+use serde_bytes;
+use wasm_bindgen::prelude::*;
+use crate::types::ToJson;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+// === CORE NEAR TYPES ===
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountId(pub String);
 
 impl AccountId {
@@ -26,10 +31,12 @@ impl std::str::FromStr for AccountId {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicKey {
     pub key_type: u8, // 0 for ED25519
-    pub key_data: [u8; 32],
+    #[serde(with = "serde_bytes")]
+    pub key_data: [u8; 32], // Fixed: back to [u8; 32] for proper borsh serialization
 }
 
 impl PublicKey {
@@ -39,12 +46,19 @@ impl PublicKey {
             key_data: *bytes,
         }
     }
+
+    // WASM-friendly getter that returns Vec<u8>
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.key_data.to_vec()
+    }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Signature {
     pub key_type: u8, // 0 for ED25519
-    pub signature_data: [u8; 64],
+    #[serde(with = "serde_bytes")]
+    pub signature_data: [u8; 64], // Fixed: back to [u8; 64] for proper borsh serialization
 }
 
 impl Signature {
@@ -54,14 +68,25 @@ impl Signature {
             signature_data: *bytes,
         }
     }
+
+    // WASM-friendly getter that returns Vec<u8>
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.signature_data.to_vec()
+    }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CryptoHash(pub [u8; 32]);
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CryptoHash(#[serde(with = "serde_bytes")] pub [u8; 32]); // [u8; 32] for proper borsh serialization
 
 impl CryptoHash {
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         CryptoHash(bytes)
+    }
+
+    // WASM-friendly getter that returns Vec<u8>
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
     }
 }
 
@@ -69,18 +94,24 @@ pub type Nonce = u64;
 pub type Gas = u64;
 pub type Balance = u128;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FunctionCallAction {
     pub method_name: String,
+    #[serde(with = "serde_bytes")]
     pub args: Vec<u8>,
     pub gas: Gas,
     pub deposit: Balance,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Action {
     CreateAccount,
-    DeployContract { code: Vec<u8> },
+    DeployContract {
+        #[serde(with = "serde_bytes")]
+        code: Vec<u8>
+    },
     FunctionCall(Box<FunctionCallAction>),
     Transfer { deposit: Balance },
     Stake { stake: Balance, public_key: PublicKey },
@@ -89,26 +120,31 @@ pub enum Action {
     DeleteAccount { beneficiary_id: AccountId },
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccessKey {
     pub nonce: Nonce,
     pub permission: AccessKeyPermission,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
     FullAccess,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FunctionCallPermission {
     pub allowance: Option<Balance>,
     pub receiver_id: String,
     pub method_names: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+// Internal Transaction representation for borsh serialization
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Transaction {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -132,9 +168,28 @@ impl Transaction {
         hash_array.copy_from_slice(&hash_bytes);
         (CryptoHash::from_bytes(hash_array), bytes.len() as u64)
     }
+
+    // WASM-friendly getters
+    pub fn get_signer_id(&self) -> String {
+        self.signer_id.0.clone()
+    }
+
+    pub fn get_receiver_id(&self) -> String {
+        self.receiver_id.0.clone()
+    }
+
+    pub fn get_block_hash(&self) -> Vec<u8> {
+        self.block_hash.to_vec()
+    }
+
+    pub fn get_actions_json(&self) -> Result<String, String> {
+        serde_json::to_string(&self.actions)
+            .map_err(|e| format!("Failed to serialize actions: {}", e))
+    }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,
@@ -147,209 +202,38 @@ impl SignedTransaction {
             signature,
         }
     }
+
+    /// Convert to borsh bytes for transmission
+    pub fn to_borsh_bytes(&self) -> Result<Vec<u8>, String> {
+        borsh::to_vec(self).map_err(|e| format!("Failed to serialize to borsh: {}", e))
+    }
+
+    /// Create from borsh bytes
+    pub fn from_borsh_bytes(bytes: &[u8]) -> Result<Self, String> {
+        borsh::from_slice(bytes).map_err(|e| format!("Failed to deserialize from borsh: {}", e))
+    }
 }
 
-// === JSON-SERIALIZABLE TRANSACTION TYPES FOR WORKER RESPONSES ===
+// === TO_JSON IMPLEMENTATIONS ===
+// All NEAR types now use the default ToJson implementation since they have Serialize + camelCase
+// This eliminates manual camelCase conversions and reduces code duplication
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonPublicKey {
-    pub key_type: u8,
-    pub key_data: String, // base64-encoded
-}
+// Helper method to create JsonSignedTransaction with borsh bytes
+impl SignedTransaction {
+    /// Create a JSON-serializable version with optional borsh bytes
+    pub fn to_json_with_borsh(&self, borsh_bytes: Option<Vec<u8>>) -> Result<serde_json::Value, String> {
+        let mut json_map = match self.to_json()? {
+            serde_json::Value::Object(map) => map,
+            _ => return Err("Expected a JSON object".to_string()),
+        };
 
-impl From<&PublicKey> for JsonPublicKey {
-    fn from(pk: &PublicKey) -> Self {
-        JsonPublicKey {
-            key_type: pk.key_type,
-            key_data: base64::engine::general_purpose::STANDARD.encode(&pk.key_data),
+        if let Some(bytes) = borsh_bytes {
+            let json_bytes = bytes.iter().map(|&b| serde_json::Value::Number(b.into())).collect();
+            json_map.insert(
+                "borshBytes".to_string(),
+                serde_json::Value::Array(json_bytes)
+            );
         }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonSignature {
-    pub key_type: u8,
-    pub signature_data: String, // base64-encoded
-}
-
-impl From<&Signature> for JsonSignature {
-    fn from(sig: &Signature) -> Self {
-        JsonSignature {
-            key_type: sig.key_type,
-            signature_data: base64::engine::general_purpose::STANDARD.encode(&sig.signature_data),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonCryptoHash {
-    pub hash: String, // base64-encoded
-}
-
-impl From<&CryptoHash> for JsonCryptoHash {
-    fn from(hash: &CryptoHash) -> Self {
-        JsonCryptoHash {
-            hash: base64::engine::general_purpose::STANDARD.encode(&hash.0),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonFunctionCallAction {
-    pub method_name: String,
-    pub args: String, // base64-encoded
-    pub gas: String,
-    pub deposit: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "actionType")]
-pub enum JsonAction {
-    CreateAccount,
-    DeployContract { code: String }, // base64-encoded
-    FunctionCall(JsonFunctionCallAction),
-    Transfer { deposit: String },
-    Stake { stake: String, public_key: JsonPublicKey },
-    AddKey { public_key: JsonPublicKey, access_key: JsonAccessKey },
-    DeleteKey { public_key: JsonPublicKey },
-    DeleteAccount { beneficiary_id: String },
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonAccessKey {
-    pub nonce: u64,
-    pub permission: JsonAccessKeyPermission,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "permissionType")]
-pub enum JsonAccessKeyPermission {
-    FunctionCall(JsonFunctionCallPermission),
-    FullAccess,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonFunctionCallPermission {
-    pub allowance: Option<String>,
-    pub receiver_id: String,
-    pub method_names: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonTransaction {
-    pub signer_id: String,
-    pub public_key: JsonPublicKey,
-    pub nonce: u64,
-    pub receiver_id: String,
-    pub block_hash: JsonCryptoHash,
-    pub actions: Vec<JsonAction>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct JsonSignedTransaction {
-    pub transaction: JsonTransaction,
-    pub signature: JsonSignature,
-    /// Raw borsh-serialized bytes for transaction broadcasting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub borsh_bytes: Option<Vec<u8>>,
-}
-
-impl JsonSignedTransaction {
-    /// Create a JSON-serializable SignedTransaction from the Borsh-serialized bytes
-    pub fn from_borsh_bytes(signed_tx_bytes: &[u8]) -> Result<Self, String> {
-        // Deserialize the SignedTransaction from Borsh
-        let signed_tx: SignedTransaction = borsh::from_slice(signed_tx_bytes)
-            .map_err(|e| format!("Failed to deserialize SignedTransaction: {}", e))?;
-
-        // Convert to JSON-serializable format and include original bytes
-        let mut json_tx = JsonSignedTransaction::from(&signed_tx);
-        json_tx.borsh_bytes = Some(signed_tx_bytes.to_vec());
-        Ok(json_tx)
-    }
-
-    /// Get the raw borsh bytes for transaction broadcasting
-    pub fn get_borsh_bytes(&self) -> Option<&[u8]> {
-        self.borsh_bytes.as_deref()
-    }
-}
-
-impl From<&SignedTransaction> for JsonSignedTransaction {
-    fn from(signed_tx: &SignedTransaction) -> Self {
-        JsonSignedTransaction {
-            transaction: JsonTransaction::from(&signed_tx.transaction),
-            signature: JsonSignature::from(&signed_tx.signature),
-            borsh_bytes: None, // Only set when created from borsh bytes
-        }
-    }
-}
-
-impl From<&Transaction> for JsonTransaction {
-    fn from(tx: &Transaction) -> Self {
-        JsonTransaction {
-            signer_id: tx.signer_id.0.clone(),
-            public_key: JsonPublicKey::from(&tx.public_key),
-            nonce: tx.nonce,
-            receiver_id: tx.receiver_id.0.clone(),
-            block_hash: JsonCryptoHash::from(&tx.block_hash),
-            actions: tx.actions.iter().map(JsonAction::from).collect(),
-        }
-    }
-}
-
-impl From<&Action> for JsonAction {
-    fn from(action: &Action) -> Self {
-        match action {
-            Action::CreateAccount => JsonAction::CreateAccount,
-            Action::DeployContract { code } => JsonAction::DeployContract {
-                code: base64::engine::general_purpose::STANDARD.encode(code),
-            },
-            Action::FunctionCall(fc) => JsonAction::FunctionCall(JsonFunctionCallAction {
-                method_name: fc.method_name.clone(),
-                args: base64::engine::general_purpose::STANDARD.encode(&fc.args),
-                gas: fc.gas.to_string(),
-                deposit: fc.deposit.to_string(),
-            }),
-            Action::Transfer { deposit } => JsonAction::Transfer {
-                deposit: deposit.to_string(),
-            },
-            Action::Stake { stake, public_key } => JsonAction::Stake {
-                stake: stake.to_string(),
-                public_key: JsonPublicKey::from(public_key),
-            },
-            Action::AddKey { public_key, access_key } => JsonAction::AddKey {
-                public_key: JsonPublicKey::from(public_key),
-                access_key: JsonAccessKey::from(access_key),
-            },
-            Action::DeleteKey { public_key } => JsonAction::DeleteKey {
-                public_key: JsonPublicKey::from(public_key),
-            },
-            Action::DeleteAccount { beneficiary_id } => JsonAction::DeleteAccount {
-                beneficiary_id: beneficiary_id.0.clone(),
-            },
-        }
-    }
-}
-
-impl From<&AccessKey> for JsonAccessKey {
-    fn from(access_key: &AccessKey) -> Self {
-        JsonAccessKey {
-            nonce: access_key.nonce,
-            permission: JsonAccessKeyPermission::from(&access_key.permission),
-        }
-    }
-}
-
-impl From<&AccessKeyPermission> for JsonAccessKeyPermission {
-    fn from(permission: &AccessKeyPermission) -> Self {
-        match permission {
-            AccessKeyPermission::FunctionCall(fc) => {
-                JsonAccessKeyPermission::FunctionCall(JsonFunctionCallPermission {
-                    allowance: fc.allowance.map(|a| a.to_string()),
-                    receiver_id: fc.receiver_id.clone(),
-                    method_names: fc.method_names.clone(),
-                })
-            }
-            AccessKeyPermission::FullAccess => JsonAccessKeyPermission::FullAccess,
-        }
+        Ok(serde_json::Value::Object(json_map))
     }
 }

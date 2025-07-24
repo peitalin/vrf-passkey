@@ -4,7 +4,20 @@ use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
 use serde_json::Value;
 use serde::{Serialize, Deserialize};
 use log::{info, debug, warn};
-use crate::encoders::base64_standard_encode;
+
+use crate::encoders::{base64_standard_encode, base64_url_decode};
+use crate::types::VrfChallenge;
+use crate::types::{
+    WebAuthnRegistrationCredential,
+    WebAuthnRegistrationResponse,
+    WebAuthnAuthenticationCredential,
+    WebAuthnAuthenticationResponse,
+};
+
+pub const VERIFY_AUTHENTICATION_RESPONSE_METHOD: &str = "verify_authentication_response";
+pub const CHECK_CAN_REGISTER_USER_METHOD: &str = "check_can_register_user";
+pub const VERIFY_AND_REGISTER_USER_METHOD: &str = "verify_and_register_user";
+
 
 // Helper functions for testing
 #[cfg(test)]
@@ -134,30 +147,25 @@ pub struct ContractRegistrationResult {
 }
 
 impl ContractRegistrationResult {
-    /// Convert borsh bytes to JsonSignedTransactionStruct
-    fn unwrap_signed_transaction_from_bytes(borsh_bytes: Option<&Vec<u8>>) -> Option<crate::handlers::JsonSignedTransactionStruct> {
+    /// Convert borsh bytes to JSON-serializable SignedTransaction
+    fn unwrap_signed_transaction_from_bytes(borsh_bytes: Option<&Vec<u8>>) -> Option<serde_json::Value> {
         if let Some(signed_tx_bytes) = borsh_bytes {
-            if let Ok(json_signed_tx) = crate::types::JsonSignedTransaction::from_borsh_bytes(signed_tx_bytes) {
-                Some(crate::handlers::JsonSignedTransactionStruct::new(
-                    serde_json::to_string(&json_signed_tx.transaction).unwrap_or_default(),
-                    serde_json::to_string(&json_signed_tx.signature).unwrap_or_default(),
-                    json_signed_tx.borsh_bytes
-                ))
-            } else {
-                None
-            }
+            // Deserialize the SignedTransaction from Borsh
+            let signed_tx: crate::types::SignedTransaction = borsh::from_slice(signed_tx_bytes).ok()?;
+            // Convert to JSON with borsh bytes included
+            signed_tx.to_json_with_borsh(Some(signed_tx_bytes.to_vec())).ok()
         } else {
             None
         }
     }
 
-    /// Convert signed transaction borsh bytes to JsonSignedTransactionStruct
-    pub fn unwrap_signed_transaction(&self) -> Option<crate::handlers::JsonSignedTransactionStruct> {
+    /// Convert signed transaction borsh bytes to JSON
+    pub fn unwrap_signed_transaction(&self) -> Option<serde_json::Value> {
         Self::unwrap_signed_transaction_from_bytes(self.signed_transaction_borsh.as_ref())
     }
 
-    /// Convert pre-signed delete transaction borsh bytes to JsonSignedTransactionStruct
-    pub fn unwrap_pre_signed_delete_transaction(&self) -> Option<crate::handlers::JsonSignedTransactionStruct> {
+    /// Convert pre-signed delete transaction borsh bytes to JSON
+    pub fn unwrap_pre_signed_delete_transaction(&self) -> Option<serde_json::Value> {
         Self::unwrap_signed_transaction_from_bytes(self.pre_signed_delete_transaction.as_ref())
     }
 }
@@ -182,55 +190,27 @@ pub struct VrfData {
     pub block_hash: Vec<u8>,
 }
 
-/// WebAuthn authentication data for contract verification
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct WebAuthnAuthenticationCredential {
-    pub id: String,
-    #[serde(rename = "rawId")]
-    pub raw_id: String,
-    pub response: WebAuthnAuthenticationResponse,
-    #[serde(rename = "authenticatorAttachment")]
-    pub authenticator_attachment: Option<String>,
-    #[serde(rename = "type")]
-    pub auth_type: String,
-}
+impl TryFrom<&VrfChallenge> for VrfData {
+    type Error = wasm_bindgen::JsValue;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct WebAuthnAuthenticationResponse {
-    #[serde(rename = "clientDataJSON")]
-    pub client_data_json: String,
-    #[serde(rename = "authenticatorData")]
-    pub authenticator_data: String,
-    pub signature: String,
-    #[serde(rename = "userHandle")]
-    pub user_handle: Option<String>,
+    fn try_from(vrf_challenge: &VrfChallenge) -> Result<Self, Self::Error> {
+        Ok(VrfData {
+            vrf_input_data: base64_url_decode(&vrf_challenge.vrf_input)
+                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF input: {}", e)))?,
+            vrf_output: base64_url_decode(&vrf_challenge.vrf_output)
+                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF output: {}", e)))?,
+            vrf_proof: base64_url_decode(&vrf_challenge.vrf_proof)
+                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF proof: {}", e)))?,
+            public_key: base64_url_decode(&vrf_challenge.vrf_public_key)
+                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF public key: {}", e)))?,
+            user_id: vrf_challenge.user_id.clone(),
+            rp_id: vrf_challenge.rp_id.clone(),
+            block_height: vrf_challenge.block_height,
+            block_hash: base64_url_decode(&vrf_challenge.block_hash)
+                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode block hash: {}", e)))?,
+        })
+    }
 }
-
-/// WebAuthn registration data for contract verification
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct WebAuthnRegistrationCredential {
-    pub id: String,
-    #[serde(rename = "rawId")]
-    pub raw_id: String,
-    pub response: WebAuthnRegistrationResponse,
-    #[serde(rename = "authenticatorAttachment")]
-    pub authenticator_attachment: Option<String>,
-    #[serde(rename = "type")]
-    pub reg_type: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct WebAuthnRegistrationResponse {
-    #[serde(rename = "clientDataJSON")]
-    pub client_data_json: String,
-    #[serde(rename = "attestationObject")]
-    pub attestation_object: String,
-    pub transports: Option<Vec<String>>,
-}
-
-const VERIFY_AUTHENTICATION_RESPONSE_METHOD: &str = "verify_authentication_response";
-const CHECK_CAN_REGISTER_USER_METHOD: &str = "check_can_register_user";
-pub const VERIFY_AND_REGISTER_USER_METHOD: &str = "verify_and_register_user";
 
 /// Perform contract verification via NEAR RPC directly from WASM
 pub async fn perform_contract_verification_wasm(

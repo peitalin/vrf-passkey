@@ -24,6 +24,54 @@ use crate::types::worker_messages::{
     SignerWorkerResponse
 };
 
+/////////////////////////////
+/// === RE-EXPORTED TYPES ===
+/////////////////////////////
+
+pub use types::handlers::{
+    // Registration
+    RegistrationTxData,
+    RegistrationRequest,
+    // Execute Actions
+    SignTransactionsWithActionsPayload,
+    VerificationPayload,
+    DecryptionPayload,
+    TransactionPayload,
+    Decryption,
+    TxData,
+    Verification,
+    // Registration Check
+    RegistrationCheckRequest,
+    // Encryption
+    EncryptionResult,
+    RecoverKeypairResult,
+    DecryptPrivateKeyRequest,
+    DecryptPrivateKeyResult,
+    TransactionSignResult,
+    KeyActionResult,
+    RegistrationInfoStruct,
+    RegistrationCheckResult,
+    RegistrationResult,
+    CoseExtractionResult,
+};
+
+// Re-export NEAR types for TypeScript usage
+pub use types::near::{Transaction, PublicKey, Signature, SignedTransaction};
+// Re-export progress types for auto-generation
+pub use types::progress::{
+    ProgressMessageType,
+    ProgressStep,
+    ProgressStatus,
+    WorkerProgressMessage,
+};
+// Re-export WASM-friendly wrapper types for TypeScript usage
+pub use types::wasm_to_json::{
+    WasmPublicKey,
+    WasmSignature,
+    WasmTransaction,
+    WasmSignedTransaction,
+};
+
 // === CONSOLE LOGGING ===
 
 #[cfg(target_arch = "wasm32")]
@@ -116,44 +164,6 @@ pub fn send_progress_message(message_type: u32, step: u32, message: &str, _data:
     }
 }
 
-// Re-export public structs from handlers
-pub use handlers::{
-    Decryption,
-    TxData,
-    Verification,
-    BatchSigningPayload,
-    VerificationPayload,
-    DecryptionPayload,
-    TransactionPayload,
-    DualPrfOutputs,
-    EncryptionResult,
-    WebAuthnRegistrationCredentialStruct,
-    WebAuthnAuthenticationCredentialStruct,
-    WebAuthnAuthenticationCredentialRecoveryStruct,
-    VrfChallengeStruct,
-    RecoverKeypairResult,
-    DecryptPrivateKeyRequest,
-    DecryptPrivateKeyResult,
-    RegistrationCheckRequest,
-    RegistrationTxData,
-    RegistrationRequest,
-    TransactionSignResult,
-    KeyActionResult,
-    RegistrationInfoStruct,
-    RegistrationCheckResult,
-    RegistrationResult,
-    CoseExtractionResult,
-    JsonSignedTransactionStruct,
-};
-
-// Re-export progress types for auto-generation
-pub use types::progress::{
-    ProgressMessageType,
-    ProgressStep,
-    ProgressStatus,
-    WorkerProgressMessage,
-};
-
 // === MESSAGE HANDLER FUNCTIONS ===
 
 /// Unified message handler for all signer worker operations
@@ -203,7 +213,7 @@ pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue
             result.to_json()
         },
         WorkerRequestType::SignTransactionsWithActions => {
-            let request = msg.parse_payload::<BatchSigningPayload>(request_type)?;
+            let request = msg.parse_payload::<SignTransactionsWithActionsPayload>(request_type)?;
             let result = handlers::handle_sign_transactions_with_actions_msg(request).await?;
             result.to_json()
         },

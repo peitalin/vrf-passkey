@@ -1,4 +1,4 @@
-// === WORKER MESSAGE & RESPONSE TYPES ===
+// === WORKER MESSAGES: REQUEST & RESPONSE TYPES ===
 // Enums and message structures for worker communication
 
 use serde::{Serialize, Deserialize};

@@ -7,9 +7,12 @@ use crate::actions::{ActionParams, get_action_handler};
 use crate::encoders::base64_url_decode;
 use crate::http::{
     VrfData,
-    WebAuthnRegistrationCredential,
     perform_contract_verification_wasm,
     ContractRegistrationResult,
+    VERIFY_AND_REGISTER_USER_METHOD,
+};
+use crate::types::{
+    WebAuthnRegistrationCredential,
 };
 
 
@@ -110,9 +113,9 @@ pub fn calculate_transaction_hash(signed_tx_bytes: &[u8]) -> String {
 /// Decrypts the key first using PRF, then builds and signs the transaction
 pub async fn sign_registration_tx_wasm(
     contract_id: &str,
-    vrf_data: crate::http::VrfData,
+    vrf_data: VrfData,
     deterministic_vrf_public_key: Option<&str>, // Optional deterministic VRF key for dual registration
-    webauthn_registration_credential: crate::http::WebAuthnRegistrationCredential,
+    webauthn_registration_credential: WebAuthnRegistrationCredential,
     signer_account_id: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
@@ -120,7 +123,7 @@ pub async fn sign_registration_tx_wasm(
     nonce: u64,
     block_hash_bytes: &[u8],
     device_number: Option<u8>, // Device number for multi-device support (defaults to 1)
-) -> Result<crate::http::ContractRegistrationResult, String> {
+) -> Result<ContractRegistrationResult, String> {
     use log::info;
     use log::debug;
 
@@ -154,13 +157,13 @@ pub async fn sign_registration_tx_wasm(
 
     // Step 4: Create FunctionCall action using existing infrastructure
     let action_params = vec![crate::actions::ActionParams::FunctionCall {
-        method_name: crate::http::VERIFY_AND_REGISTER_USER_METHOD.to_string(),
+        method_name: VERIFY_AND_REGISTER_USER_METHOD.to_string(),
         args: contract_args.to_string(),
         gas: crate::config::VERIFY_REGISTRATION_GAS.to_string(),
         deposit: "0".to_string(),
     }];
 
-    info!("RUST: Building FunctionCall action for {}", crate::http::VERIFY_AND_REGISTER_USER_METHOD);
+    info!("RUST: Building FunctionCall action for {}", VERIFY_AND_REGISTER_USER_METHOD);
 
     // Step 5: Build actions using existing infrastructure
     let actions = build_actions_from_params(action_params)
@@ -209,7 +212,7 @@ pub async fn sign_registration_tx_wasm(
     info!("RUST: Registration transaction: {} bytes, Delete transaction: {} bytes",
                  signed_registration_tx_bytes.len(), signed_delete_tx_bytes.len());
 
-    Ok(crate::http::ContractRegistrationResult {
+    Ok(ContractRegistrationResult {
         success: true,
         verified: true, // We assume verification will succeed since we built the transaction correctly
         error: None,
@@ -225,14 +228,14 @@ pub async fn sign_registration_tx_wasm(
 /// and need to register the device's authenticator on-chain
 pub async fn sign_link_device_registration_tx(
     contract_id: &str,
-    vrf_data: crate::http::VrfData,
+    vrf_data: VrfData,
     deterministic_vrf_public_key: Vec<u8>,
-    webauthn_registration: crate::http::WebAuthnRegistrationCredential,
+    webauthn_registration: WebAuthnRegistrationCredential,
     signer_account_id: &str,
     private_key: &str, // Already derived private key (not encrypted)
     nonce: u64,
     block_hash_bytes: &[u8],
-) -> Result<crate::http::ContractRegistrationResult, String> {
+) -> Result<ContractRegistrationResult, String> {
     use ed25519_dalek::SigningKey;
     use bs58;
 
@@ -289,7 +292,7 @@ pub async fn sign_link_device_registration_tx(
         .map_err(|e| format!("Failed to sign transaction: {}", e))?;
 
     // Return a simplified registration result with the signed transaction
-    Ok(crate::http::ContractRegistrationResult {
+    Ok(ContractRegistrationResult {
         success: true,
         verified: true, // Assume success for now
         registration_info: None, // Not needed for device linking

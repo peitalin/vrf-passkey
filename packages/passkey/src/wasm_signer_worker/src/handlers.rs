@@ -1,22 +1,15 @@
-// === HANDLER FUNCTIONS ===
-// All worker message handler functions
 
 use serde::Deserialize;
 use serde_json;
 use bs58;
+
 use log::info;
 use wasm_bindgen::prelude::*;
 use serde::Serialize;
-use ed25519_dalek::SigningKey;
 
-// Import necessary types and functions from other modules
-use crate::types::*;
-use crate::types::{VrfChallengePayload, SerializedCredential};
 use crate::encoders::base64_url_decode;
 use crate::http::{
     VrfData,
-    WebAuthnAuthenticationCredential,
-    WebAuthnRegistrationCredential,
     perform_contract_verification_wasm,
     check_can_register_user_wasm,
 };
@@ -27,843 +20,20 @@ use crate::transaction::{
     calculate_transaction_hash,
 };
 use crate::actions::ActionParams;
-use crate::types::JsonSignedTransaction;
+use crate::types::*;
 use crate::types::progress::{
-    ProgressMessageType, ProgressStep,
+    ProgressMessageType,
+    ProgressStep,
     send_progress_message,
     send_completion_message,
     send_error_message
 };
-
-
-// Decryption-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct Decryption {
-    #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_iv: String,
-}
-
-#[wasm_bindgen]
-impl Decryption {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        aes_prf_output: String,
-        encrypted_private_key_data: String,
-        encrypted_private_key_iv: String,
-    ) -> Decryption {
-        Decryption {
-            aes_prf_output,
-            encrypted_private_key_data,
-            encrypted_private_key_iv,
-        }
-    }
-}
-
-// Transaction-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct TxData {
-    #[wasm_bindgen(getter_with_clone)]
-    pub signer_account_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub receiver_account_id: String,
-    pub nonce: u64,
-    #[wasm_bindgen(getter_with_clone)]
-    pub block_hash_bytes: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub actions_json: String,
-}
-
-#[wasm_bindgen]
-impl TxData {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        signer_account_id: String,
-        receiver_account_id: String,
-        nonce: u64,
-        block_hash_bytes: Vec<u8>,
-        actions_json: String,
-    ) -> TxData {
-        TxData {
-            signer_account_id,
-            receiver_account_id,
-            nonce,
-            block_hash_bytes,
-            actions_json,
-        }
-    }
-}
-
-// Contract verification parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct Verification {
-    #[wasm_bindgen(getter_with_clone)]
-    pub contract_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub near_rpc_url: String,
-}
-
-#[wasm_bindgen]
-impl Verification {
-    #[wasm_bindgen(constructor)]
-    pub fn new(contract_id: String, near_rpc_url: String) -> Verification {
-        Verification {
-            contract_id,
-            near_rpc_url,
-        }
-    }
-}
-
-// Improved transaction signing request with grouped parameters for batch transactions
-#[derive(Debug, Clone, Deserialize)]
-pub struct BatchSigningPayload {
-    pub verification: VerificationPayload,
-    pub decryption: DecryptionPayload,
-    #[serde(rename = "txSigningRequests")]
-    pub tx_signing_requests: Vec<TransactionPayload>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct VerificationPayload {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "nearRpcUrl")]
-    pub near_rpc_url: String,
-    #[serde(rename = "vrfChallenge")]
-    pub vrf_challenge: VrfChallengePayload,
-    pub credential: SerializedCredential,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DecryptionPayload {
-    #[serde(rename = "aesPrfOutput")]
-    pub aes_prf_output: String,
-    #[serde(rename = "encryptedPrivateKeyData")]
-    pub encrypted_private_key_data: String,
-    #[serde(rename = "encryptedPrivateKeyIv")]
-    pub encrypted_private_key_iv: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TransactionPayload {
-    #[serde(rename = "nearAccountId")]
-    pub near_account_id: String,
-    #[serde(rename = "receiverId")]
-    pub receiver_id: String,
-    pub actions: String, // JSON string
-    pub nonce: String,
-    #[serde(rename = "blockHashBytes")]
-    pub block_hash_bytes: Vec<u8>,
-}
-
-// === STRUCTURED WASM-BINDGEN TYPES FOR ALL FUNCTIONS ===
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DualPrfOutputs {
-    #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub ed25519_prf_output: String,
-}
-
-#[wasm_bindgen]
-impl DualPrfOutputs {
-    #[wasm_bindgen(constructor)]
-    pub fn new(aes_prf_output: String, ed25519_prf_output: String) -> DualPrfOutputs {
-        DualPrfOutputs {
-            aes_prf_output,
-            ed25519_prf_output,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EncryptionResult {
-    #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
-    pub near_account_id: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "publicKey")]
-    pub public_key: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "encryptedData")]
-    pub encrypted_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub iv: String,
-    pub stored: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<JsonSignedTransactionStruct>,
-}
-
-#[wasm_bindgen]
-impl EncryptionResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        near_account_id: String,
-        public_key: String,
-        encrypted_data: String,
-        iv: String,
-        stored: bool,
-        signed_transaction: Option<JsonSignedTransactionStruct>
-    ) -> EncryptionResult {
-        EncryptionResult {
-            near_account_id,
-            public_key,
-            encrypted_data,
-            iv,
-            stored,
-            signed_transaction,
-        }
-    }
-}
-
-// WebAuthn credential types for structured input
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct WebAuthnRegistrationCredentialStruct {
-    #[wasm_bindgen(getter_with_clone)]
-    pub id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub raw_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub credential_type: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub authenticator_attachment: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub client_data_json: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub attestation_object: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub transports: Option<Vec<String>>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub ed25519_prf_output: Option<String>, // For recovery
-}
-
-#[wasm_bindgen]
-impl WebAuthnRegistrationCredentialStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        id: String,
-        raw_id: String,
-        credential_type: String,
-        authenticator_attachment: Option<String>,
-        client_data_json: String,
-        attestation_object: String,
-        transports: Option<Vec<String>>,
-        ed25519_prf_output: Option<String>,
-    ) -> WebAuthnRegistrationCredentialStruct {
-        WebAuthnRegistrationCredentialStruct {
-            id,
-            raw_id,
-            credential_type,
-            authenticator_attachment,
-            client_data_json,
-            attestation_object,
-            transports,
-            ed25519_prf_output,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct WebAuthnAuthenticationCredentialStruct {
-    #[wasm_bindgen(getter_with_clone)]
-    pub id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub raw_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub credential_type: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub authenticator_attachment: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub client_data_json: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub authenticator_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub signature: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub user_handle: Option<String>,
-}
-
-#[wasm_bindgen]
-impl WebAuthnAuthenticationCredentialStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        id: String,
-        raw_id: String,
-        credential_type: String,
-        authenticator_attachment: Option<String>,
-        client_data_json: String,
-        authenticator_data: String,
-        signature: String,
-        user_handle: Option<String>,
-    ) -> WebAuthnAuthenticationCredentialStruct {
-        WebAuthnAuthenticationCredentialStruct {
-            id,
-            raw_id,
-            credential_type,
-            authenticator_attachment,
-            client_data_json,
-            authenticator_data,
-            signature,
-            user_handle,
-        }
-    }
-}
-
-/// Authentication credential struct specifically for account recovery with dual PRF outputs
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct WebAuthnAuthenticationCredentialRecoveryStruct {
-    #[wasm_bindgen(getter_with_clone)]
-    pub id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub raw_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub credential_type: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub authenticator_attachment: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub client_data_json: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub authenticator_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub signature: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub user_handle: Option<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,      // For encryption/decryption
-    #[wasm_bindgen(getter_with_clone)]
-    pub ed25519_prf_output: String,  // For key derivation
-}
-
-#[wasm_bindgen]
-impl WebAuthnAuthenticationCredentialRecoveryStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        id: String,
-        raw_id: String,
-        credential_type: String,
-        authenticator_attachment: Option<String>,
-        client_data_json: String,
-        authenticator_data: String,
-        signature: String,
-        user_handle: Option<String>,
-        aes_prf_output: String,
-        ed25519_prf_output: String,
-    ) -> WebAuthnAuthenticationCredentialRecoveryStruct {
-        WebAuthnAuthenticationCredentialRecoveryStruct {
-            id,
-            raw_id,
-            credential_type,
-            authenticator_attachment,
-            client_data_json,
-            authenticator_data,
-            signature,
-            user_handle,
-            aes_prf_output,
-            ed25519_prf_output,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-pub struct VrfChallengeStruct {
-    #[wasm_bindgen(getter_with_clone)]
-    pub vrf_input: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub vrf_output: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub vrf_proof: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub vrf_public_key: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub user_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub rp_id: String,
-    pub block_height: u64,
-    #[wasm_bindgen(getter_with_clone)]
-    pub block_hash: String,
-}
-
-#[wasm_bindgen]
-impl VrfChallengeStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        vrf_input: String,
-        vrf_output: String,
-        vrf_proof: String,
-        vrf_public_key: String,
-        user_id: String,
-        rp_id: String,
-        block_height: u64,
-        block_hash: String,
-    ) -> VrfChallengeStruct {
-        VrfChallengeStruct {
-            vrf_input,
-            vrf_output,
-            vrf_proof,
-            vrf_public_key,
-            user_id,
-            rp_id,
-            block_height,
-            block_hash,
-        }
-    }
-}
-
-// Recovery types
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecoverKeypairResult {
-    #[wasm_bindgen(getter_with_clone, js_name = "publicKey")]
-    pub public_key: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "encryptedData")]
-    pub encrypted_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub iv: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "accountIdHint")]
-    pub account_id_hint: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RecoverKeypairResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(public_key: String, encrypted_data: String, iv: String, account_id_hint: Option<String>) -> RecoverKeypairResult {
-        RecoverKeypairResult {
-            public_key,
-            encrypted_data,
-            iv,
-            account_id_hint,
-        }
-    }
-}
-
-// Decryption types
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct DecryptPrivateKeyRequest {
-    #[wasm_bindgen(getter_with_clone)]
-    pub near_account_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_data: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub encrypted_private_key_iv: String,
-}
-
-#[wasm_bindgen]
-impl DecryptPrivateKeyRequest {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        near_account_id: String,
-        aes_prf_output: String,
-        encrypted_private_key_data: String,
-        encrypted_private_key_iv: String,
-    ) -> DecryptPrivateKeyRequest {
-        DecryptPrivateKeyRequest {
-            near_account_id,
-            aes_prf_output,
-            encrypted_private_key_data,
-            encrypted_private_key_iv,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DecryptPrivateKeyResult {
-    #[wasm_bindgen(getter_with_clone, js_name = "privateKey")]
-    pub private_key: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
-    pub near_account_id: String,
-}
-
-#[wasm_bindgen]
-impl DecryptPrivateKeyResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(private_key: String, near_account_id: String) -> DecryptPrivateKeyResult {
-        DecryptPrivateKeyResult {
-            private_key,
-            near_account_id,
-        }
-    }
-}
-
-// Registration types
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationCheckRequest {
-    #[wasm_bindgen(getter_with_clone)]
-    pub contract_id: String,
-    #[wasm_bindgen(getter_with_clone)]
-    pub near_rpc_url: String,
-}
-
-#[wasm_bindgen]
-impl RegistrationCheckRequest {
-    #[wasm_bindgen(constructor)]
-    pub fn new(contract_id: String, near_rpc_url: String) -> RegistrationCheckRequest {
-        RegistrationCheckRequest {
-            contract_id,
-            near_rpc_url,
-        }
-    }
-}
-
-// Registration transaction-specific parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationTxData {
-    #[wasm_bindgen(getter_with_clone)]
-    pub signer_account_id: String,
-    pub nonce: u64,
-    #[wasm_bindgen(getter_with_clone)]
-    pub block_hash_bytes: Vec<u8>,
-    pub device_number: u8,
-}
-
-#[wasm_bindgen]
-impl RegistrationTxData {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        signer_account_id: String,
-        nonce: u64,
-        block_hash_bytes: Vec<u8>,
-        device_number: u8,
-    ) -> RegistrationTxData {
-        RegistrationTxData {
-            signer_account_id,
-            nonce,
-            block_hash_bytes,
-            device_number,
-        }
-    }
-}
-
-// Improved registration request with grouped parameters
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct RegistrationRequest {
-    #[wasm_bindgen(getter_with_clone)]
-    pub verification: Verification,
-    #[wasm_bindgen(getter_with_clone)]
-    pub decryption: Decryption,
-    #[wasm_bindgen(getter_with_clone)]
-    pub transaction: RegistrationTxData,
-}
-
-#[wasm_bindgen]
-impl RegistrationRequest {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verification: Verification,
-        decryption: Decryption,
-        transaction: RegistrationTxData,
-    ) -> RegistrationRequest {
-        RegistrationRequest {
-            verification,
-            decryption,
-            transaction,
-        }
-    }
-}
-
-// === STRUCTURED FUNCTION IMPLEMENTATIONS ===
-
-// Transaction result types
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransactionSignResult {
-    pub success: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "transactionHashes")]
-    pub transaction_hashes: Option<Vec<String>>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransactions")]
-    pub signed_transactions: Option<Vec<JsonSignedTransactionStruct>>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl TransactionSignResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        success: bool,
-        transaction_hashes: Option<Vec<String>>,
-        signed_transactions: Option<Vec<JsonSignedTransactionStruct>>,
-        logs: Vec<String>,
-        error: Option<String>,
-    ) -> TransactionSignResult {
-        TransactionSignResult {
-            success,
-            transaction_hashes,
-            signed_transactions,
-            logs,
-            error,
-        }
-    }
-
-    /// Helper function to create a failed TransactionSignResult
-    pub fn failed(logs: Vec<String>, error_msg: String) -> TransactionSignResult {
-        TransactionSignResult::new(
-            false,
-            None, // No transaction hashes
-            None, // No signed transactions
-            logs,
-            Some(error_msg),
-        )
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyActionResult {
-    pub success: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "transactionHash")]
-    pub transaction_hash: Option<String>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<JsonSignedTransactionStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl KeyActionResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        success: bool,
-        transaction_hash: Option<String>,
-        signed_transaction: Option<JsonSignedTransactionStruct>,
-        logs: Vec<String>,
-        error: Option<String>,
-    ) -> KeyActionResult {
-        KeyActionResult {
-            success,
-            transaction_hash,
-            signed_transaction,
-            logs,
-            error,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegistrationInfoStruct {
-    #[wasm_bindgen(getter_with_clone, js_name = "credentialId")]
-    pub credential_id: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone, js_name = "credentialPublicKey")]
-    pub credential_public_key: Vec<u8>,
-    #[wasm_bindgen(getter_with_clone, js_name = "userId")]
-    pub user_id: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "vrfPublicKey")]
-    pub vrf_public_key: Option<Vec<u8>>,
-}
-
-#[wasm_bindgen]
-impl RegistrationInfoStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        credential_id: Vec<u8>,
-        credential_public_key: Vec<u8>,
-        user_id: String,
-        vrf_public_key: Option<Vec<u8>>,
-    ) -> RegistrationInfoStruct {
-        RegistrationInfoStruct {
-            credential_id,
-            credential_public_key,
-            user_id,
-            vrf_public_key,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegistrationCheckResult {
-    pub verified: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
-    pub registration_info: Option<RegistrationInfoStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<JsonSignedTransactionStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RegistrationCheckResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verified: bool,
-        registration_info: Option<RegistrationInfoStruct>,
-        logs: Vec<String>,
-        signed_transaction: Option<JsonSignedTransactionStruct>,
-        error: Option<String>,
-    ) -> RegistrationCheckResult {
-        RegistrationCheckResult {
-            verified,
-            registration_info,
-            logs,
-            signed_transaction,
-            error,
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegistrationResult {
-    pub verified: bool,
-    #[wasm_bindgen(getter_with_clone, js_name = "registrationInfo")]
-    pub registration_info: Option<RegistrationInfoStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub logs: Vec<String>,
-    #[wasm_bindgen(getter_with_clone, js_name = "signedTransaction")]
-    pub signed_transaction: Option<JsonSignedTransactionStruct>,
-    #[wasm_bindgen(getter_with_clone, js_name = "preSignedDeleteTransaction")]
-    pub pre_signed_delete_transaction: Option<JsonSignedTransactionStruct>,
-    #[wasm_bindgen(getter_with_clone)]
-    pub error: Option<String>,
-}
-
-#[wasm_bindgen]
-impl RegistrationResult {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        verified: bool,
-        registration_info: Option<RegistrationInfoStruct>,
-        logs: Vec<String>,
-        signed_transaction: Option<JsonSignedTransactionStruct>,
-        pre_signed_delete_transaction: Option<JsonSignedTransactionStruct>,
-        error: Option<String>,
-    ) -> RegistrationResult {
-        RegistrationResult {
-            verified,
-            registration_info,
-            logs,
-            signed_transaction,
-            pre_signed_delete_transaction,
-            error,
-        }
-    }
-}
-
-/// Response for COSE extraction with just the result
-#[wasm_bindgen]
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CoseExtractionResult {
-    #[wasm_bindgen(getter_with_clone, js_name = "cosePublicKeyBytes")]
-    #[serde(rename = "cosePublicKeyBytes")]
-    pub cose_public_key_bytes: Vec<u8>,
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsonSignedTransactionStruct {
-    #[wasm_bindgen(getter_with_clone, js_name = "transactionJson")]
-    pub transaction_json: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "signatureJson")]
-    pub signature_json: String,
-    #[wasm_bindgen(getter_with_clone, js_name = "borshBytes")]
-    pub borsh_bytes: Option<Vec<u8>>,
-}
-
-#[wasm_bindgen]
-impl JsonSignedTransactionStruct {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        transaction_json: String,
-        signature_json: String,
-        borsh_bytes: Option<Vec<u8>>,
-    ) -> JsonSignedTransactionStruct {
-        JsonSignedTransactionStruct {
-            transaction_json,
-            signature_json,
-            borsh_bytes,
-        }
-    }
-}
-
-// === STRUCT CONVERSIONS ===
-
-impl TryFrom<&VrfChallengeStruct> for VrfData {
-    type Error = wasm_bindgen::JsValue;
-
-    fn try_from(vrf_challenge: &VrfChallengeStruct) -> Result<Self, Self::Error> {
-        Ok(VrfData {
-            vrf_input_data: base64_url_decode(&vrf_challenge.vrf_input)
-                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF input: {}", e)))?,
-            vrf_output: base64_url_decode(&vrf_challenge.vrf_output)
-                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF output: {}", e)))?,
-            vrf_proof: base64_url_decode(&vrf_challenge.vrf_proof)
-                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF proof: {}", e)))?,
-            public_key: base64_url_decode(&vrf_challenge.vrf_public_key)
-                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode VRF public key: {}", e)))?,
-            user_id: vrf_challenge.user_id.clone(),
-            rp_id: vrf_challenge.rp_id.clone(),
-            block_height: vrf_challenge.block_height,
-            block_hash: base64_url_decode(&vrf_challenge.block_hash)
-                .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to decode block hash: {}", e)))?,
-        })
-    }
-}
-
-impl From<&WebAuthnAuthenticationCredentialStruct> for WebAuthnAuthenticationCredential {
-    fn from(credential: &WebAuthnAuthenticationCredentialStruct) -> Self {
-        WebAuthnAuthenticationCredential {
-            id: credential.id.clone(),
-            raw_id: credential.raw_id.clone(),
-            response: crate::http::WebAuthnAuthenticationResponse {
-                client_data_json: credential.client_data_json.clone(),
-                authenticator_data: credential.authenticator_data.clone(),
-                signature: credential.signature.clone(),
-                user_handle: credential.user_handle.clone(),
-            },
-            authenticator_attachment: credential.authenticator_attachment.clone(),
-            auth_type: credential.credential_type.clone(),
-        }
-    }
-}
-
-impl From<&WebAuthnRegistrationCredentialStruct> for WebAuthnRegistrationCredential {
-    fn from(credential: &WebAuthnRegistrationCredentialStruct) -> Self {
-        WebAuthnRegistrationCredential {
-            id: credential.id.clone(),
-            raw_id: credential.raw_id.clone(),
-            response: crate::http::WebAuthnRegistrationResponse {
-                client_data_json: credential.client_data_json.clone(),
-                attestation_object: credential.attestation_object.clone(),
-                transports: credential.transports.clone(),
-            },
-            authenticator_attachment: credential.authenticator_attachment.clone(),
-            reg_type: credential.credential_type.clone(),
-        }
-    }
-}
+use crate::types::wasm_to_json::{
+    WasmPublicKey,
+    WasmSignature,
+    WasmTransaction,
+    WasmSignedTransaction
+};
 
 // === HANDLER FUNCTIONS ===
 
@@ -886,12 +56,12 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
 
     info!("RUST: Structured dual PRF keypair derivation successful");
 
-    // Check if we should also sign a verify_and_register_user transaction
-    let signed_transaction = if let Some(registration_tx) = &request.registration_transaction {
+    // Handle optional transaction signing if registration transaction is provided
+    let signed_transaction_wasm = if let Some(registration_tx) = &request.registration_transaction {
 
         info!("RUST: Optional transaction signing requested - deriving private key for signing");
         // Re-derive the private key from the same PRF output for signing (before it's encrypted)
-        let (near_private_key, near_public_key) = crate::crypto::derive_ed25519_key_from_prf_output(
+        let (near_private_key, _near_public_key) = crate::crypto::derive_ed25519_key_from_prf_output(
             &internal_dual_prf_outputs.ed25519_prf_output_base64,
             &request.near_account_id
         ).map_err(|e| format!("Failed to re-derive keypair for signing: {}", e))?;
@@ -900,27 +70,18 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
         let parsed_nonce = registration_tx.nonce.parse::<u64>()
             .map_err(|e| format!("Invalid nonce format: {}", e))?;
 
-        // Convert VrfChallengePayload to VrfChallengeStruct for internal functions
-        let vrf_challenge_struct = VrfChallengeStruct::new(
-            registration_tx.vrf_challenge.vrf_input.clone(),
-            registration_tx.vrf_challenge.vrf_output.clone(),
-            registration_tx.vrf_challenge.vrf_proof.clone(),
-            registration_tx.vrf_challenge.vrf_public_key.clone(),
-            registration_tx.vrf_challenge.user_id.clone(),
-            registration_tx.vrf_challenge.rp_id.clone(),
-            registration_tx.vrf_challenge.block_height,
-            registration_tx.vrf_challenge.block_hash.clone(),
-        );
+        // Use VrfChallenge directly instead of converting
+        let vrf_challenge_struct = &registration_tx.vrf_challenge;
 
         // Convert to VrfData using the existing conversion
-        let vrf_data = VrfData::try_from(&vrf_challenge_struct)
+        let vrf_data = VrfData::try_from(vrf_challenge_struct)
             .map_err(|e| format!("Failed to convert VRF challenge: {:?}", e))?;
 
         // Convert the SerializedRegistrationCredential to WebAuthnRegistrationCredential
         let webauthn_registration = WebAuthnRegistrationCredential {
             id: request.credential.id.clone(),
             raw_id: request.credential.raw_id.clone(),
-            response: crate::http::WebAuthnRegistrationResponse {
+            response: WebAuthnRegistrationResponse {
                 client_data_json: request.credential.response.client_data_json.clone(),
                 attestation_object: request.credential.response.attestation_object.clone(),
                 transports: Some(request.credential.response.transports.clone()),
@@ -945,15 +106,17 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
             &registration_tx.block_hash_bytes,
         ).await {
             Ok(registration_result) => {
-                let signed_transaction = registration_result.unwrap_signed_transaction();
-                if signed_transaction.is_some() {
-                    info!("RUST: Transaction signing successful");
-                } else if registration_result.signed_transaction_borsh.is_some() {
-                    info!("RUST: Failed to decode signed transaction");
-                } else {
-                    info!("RUST: No signed transaction returned from registration");
+                let signed_tx_result = registration_result.unwrap_signed_transaction();
+                // Convert the result to SignedTransaction
+                match signed_tx_result {
+                    Some(json_value) => {
+                        // Parse the JSON value back to SignedTransaction
+                        let signed_tx: crate::types::SignedTransaction = serde_json::from_value(json_value)
+                            .map_err(|e| format!("Failed to parse signed transaction: {}", e))?;
+                        Some(WasmSignedTransaction::from(&signed_tx))
+                    }
+                    None => None
                 }
-                signed_transaction
             }
             Err(e) => {
                 info!("RUST: Transaction signing failed: {}", e);
@@ -965,14 +128,17 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
         None
     };
 
+    // Convert signed transaction to WASM wrapper if present
+    let signed_transaction_struct = signed_transaction_wasm;
+
     // Return structured result with optional signed transaction
     Ok(EncryptionResult::new(
-        request.near_account_id.clone(),
+        request.near_account_id,
         public_key,
         encrypted_result.encrypted_near_key_data_b64u,
         encrypted_result.aes_gcm_nonce_b64u,
-        true, // Assuming storage success for consistency with JSON version
-        signed_transaction,
+        true, // stored = true since we're storing in WASM
+        signed_transaction_struct,
     ))
 }
 
@@ -1018,17 +184,8 @@ pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayl
 /// Handle check can register user request
 pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPayload) -> Result<RegistrationCheckResult, String> {
 
-    // Convert payload to WASM structs
-    let vrf_challenge = VrfChallengeStruct::new(
-        request.vrf_challenge.vrf_input,
-        request.vrf_challenge.vrf_output,
-        request.vrf_challenge.vrf_proof,
-        request.vrf_challenge.vrf_public_key,
-        request.vrf_challenge.user_id,
-        request.vrf_challenge.rp_id,
-        request.vrf_challenge.block_height,
-        request.vrf_challenge.block_hash,
-    );
+    // Use VrfChallenge directly instead of converting
+    let vrf_challenge = &request.vrf_challenge;
 
     let credential = WebAuthnRegistrationCredentialStruct::new(
         request.credential.id,
@@ -1047,7 +204,7 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
     );
 
     // Convert structured types using From implementations
-    let vrf_data = VrfData::try_from(&vrf_challenge)
+    let vrf_data = VrfData::try_from(vrf_challenge)
         .map_err(|e| format!("Failed to convert VRF challenge: {:?}", e))?;
     let webauthn_registration = WebAuthnRegistrationCredential::from(&credential);
 
@@ -1061,7 +218,14 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
     .map_err(|e| format!("Registration check failed: {}", e))?;
 
     // Create structured response
-    let signed_transaction = registration_result.unwrap_signed_transaction();
+    let signed_transaction_wasm = match registration_result.unwrap_signed_transaction() {
+        Some(json_value) => {
+            let signed_tx: crate::types::SignedTransaction = serde_json::from_value(json_value.clone())
+                .map_err(|e| format!("Failed to parse signed transaction: {}", e))?;
+            Some(WasmSignedTransaction::from(&signed_tx))
+        }
+        None => None
+    };
 
     let registration_info = registration_result.registration_info
         .map(|info| RegistrationInfoStruct::new(
@@ -1075,7 +239,7 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
         registration_result.verified,
         registration_info,
         registration_result.logs,
-        signed_transaction,
+        signed_transaction_wasm,
         registration_result.error,
     ))
 }
@@ -1083,17 +247,7 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
 /// Handle sign verify and register user request
 pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerifyAndRegisterUserPayload) -> Result<RegistrationResult, String> {
 
-    // Convert payload to WASM structs
-    let vrf_challenge = VrfChallengeStruct::new(
-        parsed_payload.vrf_challenge.vrf_input,
-        parsed_payload.vrf_challenge.vrf_output,
-        parsed_payload.vrf_challenge.vrf_proof,
-        parsed_payload.vrf_challenge.vrf_public_key,
-        parsed_payload.vrf_challenge.user_id,
-        parsed_payload.vrf_challenge.rp_id,
-        parsed_payload.vrf_challenge.block_height,
-        parsed_payload.vrf_challenge.block_hash,
-    );
+    let vrf_challenge = &parsed_payload.vrf_challenge;
 
     let credential = WebAuthnRegistrationCredentialStruct::new(
         parsed_payload.credential.id,
@@ -1139,7 +293,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     );
 
     // Convert structured types using From implementations
-    let vrf_data = VrfData::try_from(&vrf_challenge)
+    let vrf_data = VrfData::try_from(vrf_challenge)
         .map_err(|e| format!("Failed to convert VRF challenge: {:?}", e))?;
     let webauthn_registration = WebAuthnRegistrationCredential::from(&credential);
 
@@ -1196,8 +350,22 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     );
 
     // Create structured response with embedded borsh bytes
-    let signed_transaction = registration_result.unwrap_signed_transaction();
-    let pre_signed_delete_transaction = registration_result.unwrap_pre_signed_delete_transaction();
+    let signed_transaction_wasm = match registration_result.unwrap_signed_transaction() {
+        Some(json_value) => {
+            let signed_tx: crate::types::SignedTransaction = serde_json::from_value(json_value.clone())
+                .map_err(|e| format!("Failed to parse signed transaction: {}", e))?;
+            Some(WasmSignedTransaction::from(&signed_tx))
+        }
+        None => None
+    };
+    let pre_signed_delete_transaction_wasm = match registration_result.unwrap_pre_signed_delete_transaction() {
+        Some(json_value) => {
+            let signed_tx: crate::types::SignedTransaction = serde_json::from_value(json_value.clone())
+                .map_err(|e| format!("Failed to parse pre-signed transaction: {}", e))?;
+            Some(WasmSignedTransaction::from(&signed_tx))
+        }
+        None => None
+    };
 
     let registration_info = registration_result.registration_info
         .map(|info| RegistrationInfoStruct::new(
@@ -1233,8 +401,8 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
         registration_result.verified,
         registration_info,
         registration_result.logs,
-        signed_transaction,
-        pre_signed_delete_transaction,
+        signed_transaction_wasm,
+        pre_signed_delete_transaction_wasm,
         registration_result.error,
     );
 
@@ -1275,49 +443,40 @@ pub async fn handle_decrypt_private_key_with_prf_msg(request: DecryptKeyPayload)
 }
 
 // Handle batch transaction signing with shared VRF challenge
-pub async fn handle_sign_transactions_with_actions_msg(batch_request: BatchSigningPayload) -> Result<TransactionSignResult, String> {
+pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTransactionsWithActionsPayload) -> Result<TransactionSignResult, String> {
 
     // Validate input
-    if batch_request.tx_signing_requests.is_empty() {
+    if tx_batch_request.tx_signing_requests.is_empty() {
         return Err("No transactions provided".to_string());
     }
 
     let mut logs: Vec<String> = Vec::new();
-    logs.push(format!("Processing {} transactions", batch_request.tx_signing_requests.len()));
+    logs.push(format!("Processing {} transactions", tx_batch_request.tx_signing_requests.len()));
 
     // Send initial progress message
     send_progress_message(
         ProgressMessageType::SigningProgress,
         ProgressStep::Preparation,
         "Starting batch transaction verification and signing...",
-        Some(&serde_json::json!({"step": 1, "total": 4, "transaction_count": batch_request.tx_signing_requests.len()}).to_string())
+        Some(&serde_json::json!({"step": 1, "total": 4, "transaction_count": tx_batch_request.tx_signing_requests.len()}).to_string())
     );
 
-    // Convert the BatchSigningPayload types to internal types
-    let vrf_challenge = VrfChallengeStruct::new(
-        batch_request.verification.vrf_challenge.vrf_input,
-        batch_request.verification.vrf_challenge.vrf_output,
-        batch_request.verification.vrf_challenge.vrf_proof,
-        batch_request.verification.vrf_challenge.vrf_public_key,
-        batch_request.verification.vrf_challenge.user_id,
-        batch_request.verification.vrf_challenge.rp_id,
-        batch_request.verification.vrf_challenge.block_height,
-        batch_request.verification.vrf_challenge.block_hash,
-    );
+    let vrf_challenge = &tx_batch_request.verification.vrf_challenge;
+    let credential = tx_batch_request.verification.credential;
 
     let credential = WebAuthnAuthenticationCredentialStruct::new(
-        batch_request.verification.credential.id,
-        batch_request.verification.credential.raw_id,
-        batch_request.verification.credential.credential_type,
-        batch_request.verification.credential.authenticator_attachment,
-        batch_request.verification.credential.response.client_data_json,
-        batch_request.verification.credential.response.authenticator_data,
-        batch_request.verification.credential.response.signature,
-        batch_request.verification.credential.response.user_handle,
+        credential.id,
+        credential.raw_id,
+        credential.credential_type,
+        credential.authenticator_attachment,
+        credential.response.client_data_json,
+        credential.response.authenticator_data,
+        credential.response.signature,
+        credential.response.user_handle,
     );
 
     // Step 1: Contract verification (once for the entire batch)
-    logs.push(format!("Starting contract verification for {}", batch_request.verification.contract_id));
+    logs.push(format!("Starting contract verification for {}", tx_batch_request.verification.contract_id));
 
     // Send verification progress
     send_progress_message(
@@ -1327,15 +486,15 @@ pub async fn handle_sign_transactions_with_actions_msg(batch_request: BatchSigni
         Some(&serde_json::json!({"step": 2, "total": 4}).to_string())
     );
 
-    // Convert structured types using From implementations
-    let vrf_data = VrfData::try_from(&vrf_challenge)
+    // Convert structured types
+    let vrf_data = VrfData::try_from(vrf_challenge)
         .map_err(|e| format!("Failed to convert VRF data: {:?}", e))?;
     let webauthn_auth = WebAuthnAuthenticationCredential::from(&credential);
 
     // Perform contract verification once for the entire batch
     let verification_result = match perform_contract_verification_wasm(
-        &batch_request.verification.contract_id,
-        &batch_request.verification.near_rpc_url,
+        &tx_batch_request.verification.contract_id,
+        &tx_batch_request.verification.near_rpc_url,
         vrf_data,
         webauthn_auth,
     ).await {
@@ -1390,27 +549,27 @@ pub async fn handle_sign_transactions_with_actions_msg(batch_request: BatchSigni
     logs.push("Contract verification successful".to_string());
 
     // Step 2: Batch transaction signing (verification already done once)
-    logs.push(format!("Signing {} transactions in secure WASM context...", batch_request.tx_signing_requests.len()));
+    logs.push(format!("Signing {} transactions in secure WASM context...", tx_batch_request.tx_signing_requests.len()));
 
     // Send signing progress
     send_progress_message(
         ProgressMessageType::SigningProgress,
         ProgressStep::TransactionSigning,
         "Decrypting private key and signing transactions...",
-        Some(&serde_json::json!({"step": 3, "total": 4, "transaction_count": batch_request.tx_signing_requests.len()}).to_string())
+        Some(&serde_json::json!({"step": 3, "total": 4, "transaction_count": tx_batch_request.tx_signing_requests.len()}).to_string())
     );
 
     // Create shared decryption object
     let decryption = Decryption::new(
-        batch_request.decryption.aes_prf_output.clone(),
-        batch_request.decryption.encrypted_private_key_data.clone(),
-        batch_request.decryption.encrypted_private_key_iv.clone(),
+        tx_batch_request.decryption.aes_prf_output.clone(),
+        tx_batch_request.decryption.encrypted_private_key_data.clone(),
+        tx_batch_request.decryption.encrypted_private_key_iv.clone(),
     );
 
     // Process all transactions using the shared verification and decryption
-    let tx_count = batch_request.tx_signing_requests.len();
+    let tx_count = tx_batch_request.tx_signing_requests.len();
     let result = sign_near_transactions_with_actions_impl(
-        batch_request.tx_signing_requests,
+        tx_batch_request.tx_signing_requests,
         &decryption,
         logs,
     ).await?;
@@ -1508,22 +667,18 @@ pub async fn handle_sign_transaction_with_keypair_msg(request: SignTransactionWi
     // Calculate transaction hash from signed transaction bytes (before moving the bytes)
     let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
 
-    // Create structured transaction result
-    let signed_tx_struct = JsonSignedTransaction::from_borsh_bytes(&signed_tx_bytes)
-        .map_err(|e| format!("Failed to decode signed transaction: {}", e))?;
+    // Create SignedTransaction from signed bytes
+    let signed_tx = crate::types::SignedTransaction::from_borsh_bytes(&signed_tx_bytes)
+        .map_err(|e| format!("Failed to deserialize SignedTransaction: {}", e))?;
 
-    let result_struct = JsonSignedTransactionStruct::new(
-        serde_json::to_string(&signed_tx_struct.transaction).unwrap_or_default(),
-        serde_json::to_string(&signed_tx_struct.signature).unwrap_or_default(),
-        Some(signed_tx_bytes),
-    );
+    let signed_tx_wasm = WasmSignedTransaction::from(&signed_tx);
 
     logs.push("Transaction signing completed successfully".to_string());
 
     Ok(TransactionSignResult::new(
         true,
         Some(vec![transaction_hash]),
-        Some(vec![result_struct]),
+        Some(vec![signed_tx_wasm]),
         logs,
         None,
     ))
@@ -1556,7 +711,7 @@ async fn sign_near_transactions_with_actions_impl(
     logs.push("Private key decrypted successfully".to_string());
 
     // Process each transaction
-    let mut signed_transactions = Vec::new();
+    let mut signed_transactions_wasm = Vec::new();
     let mut transaction_hashes = Vec::new();
 
     for (index, tx_data) in tx_requests.iter().enumerate() {
@@ -1621,34 +776,29 @@ async fn sign_near_transactions_with_actions_impl(
 
         // Calculate transaction hash from signed transaction bytes (before moving the bytes)
         let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
+        logs.push(format!("Transaction {}: Hash calculated - {}", index + 1, transaction_hash));
 
-        // Create structured transaction result
-        let signed_tx_struct = match JsonSignedTransaction::from_borsh_bytes(&signed_tx_bytes) {
-            Ok(json_tx) => {
-                JsonSignedTransactionStruct::new(
-                    serde_json::to_string(&json_tx.transaction).unwrap_or_default(),
-                    serde_json::to_string(&json_tx.signature).unwrap_or_default(),
-                    Some(signed_tx_bytes),
-                )
-            }
-            Err(e) => {
-                let error_msg = format!("Transaction {}: Failed to decode signed transaction: {}", index + 1, e);
+        // Create SignedTransaction from signed bytes
+        let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes)
+            .map_err(|e| {
+                let error_msg = format!("Transaction {}: Failed to deserialize SignedTransaction: {}", index + 1, e);
                 logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
+                error_msg
+            })?;
 
-        signed_transactions.push(signed_tx_struct);
+        let signed_tx_wasm = WasmSignedTransaction::from(&signed_tx);
+
+        signed_transactions_wasm.push(signed_tx_wasm);
         transaction_hashes.push(transaction_hash);
     }
 
-    logs.push(format!("All {} transactions signed successfully", tx_requests.len()));
+    logs.push(format!("All {} transactions signed successfully", signed_transactions_wasm.len()));
     info!("RUST: Batch signing completed successfully");
 
     Ok(TransactionSignResult::new(
         true,
         Some(transaction_hashes),
-        Some(signed_transactions),
+        Some(signed_transactions_wasm),
         logs,
         None,
     ))
