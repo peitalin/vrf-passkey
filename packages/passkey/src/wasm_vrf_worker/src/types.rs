@@ -13,7 +13,7 @@ pub struct VRFKeypairData {
 #[derive(Serialize, Deserialize)]
 pub struct EncryptedVRFKeypair {
     pub encrypted_vrf_data_b64u: String,
-    pub aes_gcm_nonce_b64u: String,
+    pub chacha20_nonce_b64u: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

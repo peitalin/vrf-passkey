@@ -6,7 +6,14 @@ use serde_json;
 // Import existing types, functions, and constants from other modules
 use crate::types::{VRFInputData, EncryptedVRFKeypair, VRFWorkerMessage, VRFWorkerResponse};
 use crate::utils::{base64_url_encode, base64_url_decode};
-use crate::config::{AES_KEY_SIZE, AES_NONCE_SIZE, VRF_SEED_SIZE, VRF_DOMAIN_SEPARATOR, HKDF_AES_KEY_INFO, HKDF_VRF_KEYPAIR_INFO};
+use crate::config::{
+    CHACHA20_KEY_SIZE,
+    CHACHA20_NONCE_SIZE,
+    VRF_SEED_SIZE,
+    VRF_DOMAIN_SEPARATOR,
+    HKDF_CHACHA20_KEY_INFO,
+    HKDF_VRF_KEYPAIR_INFO
+};
 
 // Test helper functions
 fn create_test_prf_output() -> Vec<u8> {
@@ -56,14 +63,14 @@ fn test_vrf_data_structures_serialization() {
     // Test EncryptedVRFKeypair serialization/deserialization
     let encrypted_keypair = EncryptedVRFKeypair {
         encrypted_vrf_data_b64u: base64_url_encode(&vec![1u8; 64]),
-        aes_gcm_nonce_b64u: base64_url_encode(&vec![2u8; 12]),
+        chacha20_nonce_b64u: base64_url_encode(&vec![2u8; 12]),
     };
 
     let json_str = serde_json::to_string(&encrypted_keypair).expect("Should serialize EncryptedVRFKeypair");
     let deserialized: EncryptedVRFKeypair = serde_json::from_str(&json_str).expect("Should deserialize EncryptedVRFKeypair");
 
     assert_eq!(encrypted_keypair.encrypted_vrf_data_b64u, deserialized.encrypted_vrf_data_b64u);
-    assert_eq!(encrypted_keypair.aes_gcm_nonce_b64u, deserialized.aes_gcm_nonce_b64u);
+    assert_eq!(encrypted_keypair.chacha20_nonce_b64u, deserialized.chacha20_nonce_b64u);
 
     println!("✅ VRF data structures serialization test passed");
 }
@@ -124,8 +131,8 @@ fn test_base64_encoding_consistency() {
 #[test]
 fn test_configuration_constants() {
     // Test that configuration constants are properly defined
-    assert_eq!(AES_KEY_SIZE, 32, "AES key size should be 32 bytes");
-    assert_eq!(AES_NONCE_SIZE, 12, "AES nonce size should be 12 bytes");
+    assert_eq!(CHACHA20_KEY_SIZE, 32, "ChaCha20 key size should be 32 bytes");
+    assert_eq!(CHACHA20_NONCE_SIZE, 12, "ChaCha20 nonce size should be 12 bytes");
     assert_eq!(VRF_SEED_SIZE, 32, "VRF seed size should be 32 bytes");
 
     // Test domain separator consistency
@@ -133,9 +140,9 @@ fn test_configuration_constants() {
     assert!(VRF_DOMAIN_SEPARATOR.len() > 10, "Domain separator should be sufficiently long");
 
     // Test HKDF info strings
-    assert!(!HKDF_AES_KEY_INFO.is_empty(), "HKDF AES info should not be empty");
+    assert!(!HKDF_CHACHA20_KEY_INFO.is_empty(), "HKDF ChaCha20 info should not be empty");
     assert!(!HKDF_VRF_KEYPAIR_INFO.is_empty(), "HKDF VRF info should not be empty");
-    assert_ne!(HKDF_AES_KEY_INFO, HKDF_VRF_KEYPAIR_INFO, "HKDF info strings should be different");
+    assert_ne!(HKDF_CHACHA20_KEY_INFO, HKDF_VRF_KEYPAIR_INFO, "HKDF info strings should be different");
 
     println!("✅ Configuration constants test passed");
 }
@@ -145,20 +152,20 @@ fn test_account_id_salt_generation() {
     // Test the salt generation logic that's used for PRF key derivation
     let account_id = create_test_account_id();
 
-    let aes_salt = format!("aes-gcm-salt:{}", account_id);
+    let chacha20_salt = format!("chacha20-salt:{}", account_id);
     let ed25519_salt = format!("ed25519-salt:{}", account_id);
 
-    assert_ne!(aes_salt, ed25519_salt, "AES and Ed25519 salts should be different");
-    assert!(aes_salt.contains(&account_id), "AES salt should contain account ID");
+    assert_ne!(chacha20_salt, ed25519_salt, "AES and Ed25519 salts should be different");
+    assert!(chacha20_salt.contains(&account_id), "AES salt should contain account ID");
     assert!(ed25519_salt.contains(&account_id), "Ed25519 salt should contain account ID");
-    assert!(aes_salt.starts_with("aes-gcm-salt:"), "AES salt should have correct prefix");
+    assert!(chacha20_salt.starts_with("chacha20-salt:"), "AES salt should have correct prefix");
     assert!(ed25519_salt.starts_with("ed25519-salt:"), "Ed25519 salt should have correct prefix");
 
     // Test with different account IDs produce different salts
     let different_account = "different-account.testnet";
-    let different_aes_salt = format!("aes-gcm-salt:{}", different_account);
+    let different_chacha20_salt = format!("chacha20-salt:{}", different_account);
 
-    assert_ne!(aes_salt, different_aes_salt, "Different accounts should produce different salts");
+    assert_ne!(chacha20_salt, different_chacha20_salt, "Different accounts should produce different salts");
 
     println!("✅ Account ID salt generation test passed");
 }

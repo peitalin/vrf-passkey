@@ -7,13 +7,10 @@ use crate::actions::{ActionParams, get_action_handler};
 use crate::encoders::base64_url_decode;
 use crate::http::{
     VrfData,
-    perform_contract_verification_wasm,
     ContractRegistrationResult,
     VERIFY_AND_REGISTER_USER_METHOD,
 };
-use crate::types::{
-    WebAuthnRegistrationCredential,
-};
+use crate::types::WebAuthnRegistrationCredential;
 
 
 /// Build a transaction with multiple actions

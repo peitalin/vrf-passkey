@@ -7,8 +7,8 @@ use bs58;
 use crate::encoders::base64_url_decode;
 use crate::http::{
     VrfData,
-    perform_contract_verification_wasm,
-    check_can_register_user_wasm,
+    verify_authentication_response_rpc_call,
+    check_can_register_user_rpc_call,
 };
 use crate::transaction::{
     sign_transaction,
@@ -55,7 +55,7 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
 
     // Convert wasm-bindgen types to internal types
     let internal_dual_prf_outputs = crate::types::DualPrfOutputs {
-        aes_prf_output_base64: request.dual_prf_outputs.aes_prf_output,
+        chacha20_prf_output_base64: request.dual_prf_outputs.chacha20_prf_output,
         ed25519_prf_output_base64: request.dual_prf_outputs.ed25519_prf_output,
     };
 
@@ -147,7 +147,7 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
         request.near_account_id,
         public_key,
         encrypted_result.encrypted_near_key_data_b64u,
-        encrypted_result.aes_gcm_nonce_b64u,
+        encrypted_result.chacha20_nonce_b64u,
         true, // stored = true since we're storing in WASM
         signed_transaction_struct,
     ))
@@ -174,7 +174,7 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
 pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayload) -> Result<RecoverKeypairResult, String> {
 
     // Extract PRF outputs
-    let aes_prf_output = request.credential.client_extension_results.prf.results.first
+    let chacha20_prf_output = request.credential.client_extension_results.prf.results.first
         .ok_or_else(|| "Missing AES PRF output (first) in credential".to_string())?;
     let ed25519_prf_output = request.credential.client_extension_results.prf.results.second
         .ok_or_else(|| "Missing Ed25519 PRF output (second) in credential".to_string())?;
@@ -194,7 +194,7 @@ pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayl
     // Encrypt the private key with the AES PRF output (correct usage)
     let encryption_result = crate::crypto::encrypt_private_key_with_prf(
         &private_key,
-        &aes_prf_output,
+        &chacha20_prf_output,
         account_id,
     ).map_err(|e| format!("Failed to encrypt private key with AES PRF: {}", e))?;
 
@@ -204,7 +204,7 @@ pub async fn handle_recover_keypair_from_passkey_msg(request: RecoverKeypairPayl
     Ok(RecoverKeypairResult::new(
         public_key,
         encryption_result.encrypted_near_key_data_b64u,
-        encryption_result.aes_gcm_nonce_b64u, // IV
+        encryption_result.chacha20_nonce_b64u, // IV
         Some(account_id.to_string())
     ))
 }
@@ -252,7 +252,7 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
     let webauthn_registration = WebAuthnRegistrationCredential::from(&credential);
 
     // Call the http module function
-    let registration_result = check_can_register_user_wasm(
+    let registration_result = check_can_register_user_rpc_call(
         &check_request.contract_id,
         vrf_data,
         webauthn_registration,
@@ -360,7 +360,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     let signer_account_id = &registration_request.transaction.signer_account_id;
     let encrypted_private_key_data = &registration_request.decryption.encrypted_private_key_data;
     let encrypted_private_key_iv = &registration_request.decryption.encrypted_private_key_iv;
-    let aes_prf_output = &registration_request.decryption.aes_prf_output;
+    let chacha20_prf_output = &registration_request.decryption.chacha20_prf_output;
     let nonce = registration_request.transaction.nonce;
     let block_hash_bytes = &registration_request.transaction.block_hash_bytes;
     let device_number = registration_request.transaction.device_number;
@@ -382,7 +382,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
         signer_account_id,
         encrypted_private_key_data,
         encrypted_private_key_iv,
-        aes_prf_output,
+        chacha20_prf_output,
         nonce,
         block_hash_bytes,
         Some(device_number), // Pass device number for multi-device support
@@ -580,7 +580,7 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
     let webauthn_auth = WebAuthnAuthenticationCredential::from(&credential);
 
     // Perform contract verification once for the entire batch
-    let verification_result = match perform_contract_verification_wasm(
+    let verification_result = match verify_authentication_response_rpc_call(
         &tx_batch_request.verification.contract_id,
         &tx_batch_request.verification.near_rpc_url,
         vrf_data,
@@ -649,7 +649,7 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
     // Create shared decryption object
     let decryption = Decryption::new(
-        tx_batch_request.decryption.aes_prf_output.clone(),
+        tx_batch_request.decryption.chacha20_prf_output.clone(),
         tx_batch_request.decryption.encrypted_private_key_data.clone(),
         tx_batch_request.decryption.encrypted_private_key_iv.clone(),
     );
@@ -840,7 +840,7 @@ async fn sign_near_transactions_with_actions_impl(
     let first_transaction = &tx_requests[0];
     let signing_key = crate::crypto::decrypt_private_key_with_prf(
         &first_transaction.near_account_id,
-        &decryption.aes_prf_output,
+        &decryption.chacha20_prf_output,
         &decryption.encrypted_private_key_data,
         &decryption.encrypted_private_key_iv,
     ).map_err(|e| format!("Decryption failed: {}", e))?;

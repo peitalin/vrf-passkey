@@ -163,7 +163,7 @@ fn test_registration_info_serialization() {
 }
 
 #[test]
-fn test_parse_view_registration_response_success() {
+fn test_parse_check_can_register_response_success() {
     let _mock_rpc_response = json!({
         "result": {
             "result": [118, 101, 114, 105, 102, 105, 101, 100, 58, 116, 114, 117, 101], // "verified:true" as bytes
@@ -188,7 +188,7 @@ fn test_parse_view_registration_response_success() {
         }
     });
 
-    let result = parse_view_registration_response(mock_response_with_bytes).unwrap();
+    let result = parse_check_can_register_response(mock_response_with_bytes).unwrap();
     assert_eq!(result.success, true);
     assert_eq!(result.verified, true);
     assert_eq!(result.logs.len(), 2);
@@ -196,14 +196,14 @@ fn test_parse_view_registration_response_success() {
 }
 
 #[test]
-fn test_parse_view_registration_response_with_error() {
+fn test_parse_check_can_register_response_with_error() {
     let mock_error_response = json!({
         "error": {
             "message": "Contract call failed"
         }
     });
 
-    let result = parse_view_registration_response(mock_error_response).unwrap();
+    let result = parse_check_can_register_response(mock_error_response).unwrap();
     assert_eq!(result.success, false);
     assert_eq!(result.verified, false);
     assert!(result.error.is_some());
@@ -211,14 +211,14 @@ fn test_parse_view_registration_response_with_error() {
 }
 
 #[test]
-fn test_parse_view_registration_response_missing_result() {
+fn test_parse_check_can_register_response_missing_result() {
     let mock_invalid_response = json!({
         "jsonrpc": "2.0",
         "id": "test"
         // Missing "result" field
     });
 
-    let result = parse_view_registration_response(mock_invalid_response);
+    let result = parse_check_can_register_response(mock_invalid_response);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("Missing result in RPC response"));
 }

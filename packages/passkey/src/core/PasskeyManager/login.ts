@@ -122,7 +122,7 @@ async function handleLoginUnlockVRF(
       }
       if (
         !userData.encryptedVrfKeypair?.encrypted_vrf_data_b64u ||
-        !userData.encryptedVrfKeypair?.aes_gcm_nonce_b64u
+        !userData.encryptedVrfKeypair?.chacha20_nonce_b64u
       ) {
         throw new Error('No VRF credentials found. Please register an account.');
       }

@@ -14,12 +14,12 @@ export interface AuthenticateCredentialsArgs {
 }
 
 /**
- * Generate AES-GCM salt using account-specific HKDF for encryption key derivation
+ * Generate ChaCha20Poly1305 salt using account-specific HKDF for encryption key derivation
  * @param nearAccountId - NEAR account ID to scope the salt to
- * @returns 32-byte Uint8Array salt for AES-GCM key derivation
+ * @returns 32-byte Uint8Array salt for ChaCha20Poly1305 key derivation
  */
-export function generateAesGcmSalt(nearAccountId: string): Uint8Array {
-  const saltString = `aes-gcm-salt:${nearAccountId}`;
+export function generateChaCha20Salt(nearAccountId: string): Uint8Array {
+  const saltString = `chacha20-salt:${nearAccountId}`;
   const salt = new Uint8Array(32);
   const saltBytes = new TextEncoder().encode(saltString);
   salt.set(saltBytes.slice(0, 32));
@@ -41,7 +41,7 @@ export function generateEd25519Salt(nearAccountId: string): Uint8Array {
 
 /**
  * Generate account-specific PRF salt for WebAuthn (legacy single PRF)
- * @deprecated Use generateAesGcmSalt and generateEd25519Salt for dual PRF
+ * @deprecated Use generateChaCha20Salt and generateEd25519Salt for dual PRF
  * @param nearAccountId - NEAR account ID to include in the salt
  * @returns 32-byte Uint8Array account-specific salt
  */
@@ -101,7 +101,7 @@ export class TouchIdPrompt {
         extensions: {
           prf: {
             eval: {
-              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              first: generateChaCha20Salt(nearAccountId),  // ChaCha20Poly1305 encryption keys
               second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }
@@ -148,7 +148,7 @@ export class TouchIdPrompt {
         extensions: {
           prf: {
             eval: {
-              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              first: generateChaCha20Salt(nearAccountId),  // ChaCha20Poly1305 encryption keys
               second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }
@@ -240,7 +240,7 @@ export class TouchIdPrompt {
           prf: {
             eval: {
               // Always use NEAR account ID for PRF salts to ensure consistent keypair derivation across devices
-              first: generateAesGcmSalt(nearAccountId),    // AES-GCM encryption keys
+              first: generateChaCha20Salt(nearAccountId),    // ChaCha20Poly1305 encryption keys
               second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }

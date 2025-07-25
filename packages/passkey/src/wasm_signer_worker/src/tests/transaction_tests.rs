@@ -4,32 +4,32 @@ use crate::crypto::*;
 use crate::transaction::*;
 
 // Helper function for tests - creates deterministic keypair for testing using account-specific encryption
-fn create_test_keypair_with_prf(prf_output_b64: &str) -> (String, EncryptedDataAesGcmResponse) {
+fn create_test_keypair_with_prf(prf_output_b64: &str) -> (String, EncryptedDataChaCha20Response) {
     // Use deterministic function with account-specific derivation
     let test_account = "test.testnet";
     let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, test_account).unwrap();
 
     // Encrypt the key using account-specific HKDF (matches decrypt_private_key_with_prf)
-    let encryption_key = derive_aes_gcm_key_from_prf(prf_output_b64, test_account).unwrap();
-    let encrypted_result = encrypt_data_aes_gcm(&private_key, &encryption_key).unwrap();
+    let encryption_key = derive_chacha20_key_from_prf(prf_output_b64, test_account).unwrap();
+    let encrypted_result = encrypt_data_chacha20(&private_key, &encryption_key).unwrap();
 
     (public_key, encrypted_result)
 }
 
 #[test]
-fn test_account_specific_aes_key_derivation() {
+fn test_account_specific_chacha20_key_derivation() {
     // Test account-specific AES key derivation
     let prf_output_b64 = "dGVzdC1wcmYtb3V0cHV0LWZyb20td2ViYXV0aG4";
     let account_id = "test.testnet";
-    let key = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
+    let key = derive_chacha20_key_from_prf(prf_output_b64, account_id).unwrap();
     assert_eq!(key.len(), 32);
 
     // Should be deterministic for same account
-    let key2 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
+    let key2 = derive_chacha20_key_from_prf(prf_output_b64, account_id).unwrap();
     assert_eq!(key, key2);
 
     // Should be different for different accounts
-    let key3 = derive_aes_gcm_key_from_prf(prf_output_b64, "different.testnet").unwrap();
+    let key3 = derive_chacha20_key_from_prf(prf_output_b64, "different.testnet").unwrap();
     assert_ne!(key, key3);
 }
 
@@ -38,11 +38,11 @@ fn test_encryption_decryption_roundtrip() {
     let key = vec![0u8; 32]; // Test key
     let plaintext = "Hello, WebAuthn PRF!";
 
-    let encrypted = encrypt_data_aes_gcm(plaintext, &key).unwrap();
+    let encrypted = encrypt_data_chacha20(plaintext, &key).unwrap();
 
-    let decrypted = decrypt_data_aes_gcm(
+    let decrypted = decrypt_data_chacha20(
         &encrypted.encrypted_near_key_data_b64u,
-        &encrypted.aes_gcm_nonce_b64u,
+        &encrypted.chacha20_nonce_b64u,
         &key
     ).unwrap();
 
@@ -100,12 +100,12 @@ fn test_private_key_decryption_with_prf() {
     // Create a test keypair and encrypt it
     let (public_key, encrypted_result) = create_test_keypair_with_prf(prf_output_b64);
 
-    // Test decryption - fix parameter order: (near_account_id, aes_prf_output, encrypted_data, iv)
+    // Test decryption - fix parameter order: (near_account_id, chacha20_prf_output, encrypted_data, iv)
     let _decrypted_key = decrypt_private_key_with_prf(
         account_id,
         prf_output_b64,
         &encrypted_result.encrypted_near_key_data_b64u,
-        &encrypted_result.aes_gcm_nonce_b64u,
+        &encrypted_result.chacha20_nonce_b64u,
     ).unwrap();
 
     // The decrypted signing key should be valid (we can't easily check the exact format without exposing internals)
@@ -115,13 +115,13 @@ fn test_private_key_decryption_with_prf() {
 
 #[test]
 fn test_dual_prf_key_derivation() {
-    let aes_prf = "dGVzdC1hZXMtcHJmLW91dHB1dA";
+    let chacha20_prf = "dGVzdC1hZXMtcHJmLW91dHB1dA";
     let ed25519_prf = "dGVzdC1lZDI1NTE5LXByZi1vdXRwdXQ";
     let account_id = "test.testnet";
 
     // Test AES key derivation (account-specific)
-    let aes_key = derive_aes_gcm_key_from_prf(aes_prf, account_id).unwrap();
-    assert_eq!(aes_key.len(), 32);
+    let chacha20_key = derive_chacha20_key_from_prf(chacha20_prf, account_id).unwrap();
+    assert_eq!(chacha20_key.len(), 32);
 
     // Test Ed25519 key derivation
     let (ed25519_private, ed25519_public) = derive_ed25519_key_from_prf_output(ed25519_prf, account_id).unwrap();
@@ -130,7 +130,7 @@ fn test_dual_prf_key_derivation() {
 
     // Test combined dual PRF derivation
     let dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: aes_prf.to_string(),
+        chacha20_prf_output_base64: chacha20_prf.to_string(),
         ed25519_prf_output_base64: ed25519_prf.to_string(),
     };
 
@@ -142,18 +142,18 @@ fn test_dual_prf_key_derivation() {
 
 #[test]
 fn test_dual_prf_key_isolation() {
-    let aes_prf = "dGVzdC1hZXMtcHJmLW91dHB1dA";
+    let chacha20_prf = "dGVzdC1hZXMtcHJmLW91dHB1dA";
     let ed25519_prf = "dGVzdC1lZDI1NTE5LXByZi1vdXRwdXQ";
     let account_id = "test.testnet";
 
     // Derive keys separately
-    let _aes_key = derive_aes_gcm_key_from_prf(aes_prf, account_id).unwrap();
+    let _chacha20_key = derive_chacha20_key_from_prf(chacha20_prf, account_id).unwrap();
 
     let (_ed25519_private, _ed25519_public) = derive_ed25519_key_from_prf_output(ed25519_prf, account_id).unwrap();
 
     // Keys should be completely independent - changing one PRF shouldn't affect the other
-    let different_aes_prf = "ZGlmZmVyZW50LWFlcy1wcmYtb3V0cHV0";
-    let _aes_key_different = derive_aes_gcm_key_from_prf(different_aes_prf, account_id).unwrap();
+    let different_chacha20_prf = "ZGlmZmVyZW50LWFlcy1wcmYtb3V0cHV0";
+    let _chacha20_key_different = derive_chacha20_key_from_prf(different_chacha20_prf, account_id).unwrap();
 
     // Should still be able to derive Ed25519 key with original PRF
     let (_ed25519_private2, _ed25519_public2) = derive_ed25519_key_from_prf_output(ed25519_prf, account_id).unwrap();
@@ -168,11 +168,11 @@ fn test_dual_prf_edge_cases() {
     let minimal_prf = "YQ"; // base64 for "a"
 
     // These should fail gracefully
-    assert!(derive_aes_gcm_key_from_prf(empty_prf, account_id).is_err());
+    assert!(derive_chacha20_key_from_prf(empty_prf, account_id).is_err());
     assert!(derive_ed25519_key_from_prf_output(empty_prf, account_id).is_err());
 
     // Minimal PRF should still work (base64 padding is handled)
-    assert!(derive_aes_gcm_key_from_prf(minimal_prf, account_id).is_ok());
+    assert!(derive_chacha20_key_from_prf(minimal_prf, account_id).is_ok());
     assert!(derive_ed25519_key_from_prf_output(minimal_prf, account_id).is_ok());
 }
 
@@ -419,15 +419,15 @@ fn test_near_keypair_from_prf_flow() {
     let (private_key, public_key) = derive_ed25519_key_from_prf_output(prf_output_b64, account_id).unwrap();
 
     // Encrypt the private key
-    let encryption_key = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
-    let encrypted_result = encrypt_data_aes_gcm(&private_key, &encryption_key).unwrap();
+    let encryption_key = derive_chacha20_key_from_prf(prf_output_b64, account_id).unwrap();
+    let encrypted_result = encrypt_data_chacha20(&private_key, &encryption_key).unwrap();
 
-    // Decrypt and verify - fix parameter order: (near_account_id, aes_prf_output, encrypted_data, iv)
+    // Decrypt and verify - fix parameter order: (near_account_id, chacha20_prf_output, encrypted_data, iv)
     let _decrypted_key = decrypt_private_key_with_prf(
         account_id,
         prf_output_b64,
         &encrypted_result.encrypted_near_key_data_b64u,
-        &encrypted_result.aes_gcm_nonce_b64u,
+        &encrypted_result.chacha20_nonce_b64u,
     ).unwrap();
 
     // The signing key should be valid for the same public key

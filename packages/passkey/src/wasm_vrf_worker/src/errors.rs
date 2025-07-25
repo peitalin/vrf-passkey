@@ -227,18 +227,6 @@ impl std::error::Error for VrfCryptoError {}
 impl std::error::Error for MessageError {}
 
 // Conversion helpers for common error types
-impl From<base64::DecodeError> for VrfWorkerError {
-    fn from(err: base64::DecodeError) -> Self {
-        VrfWorkerError::SerializationError(SerializationError::Base64Error(err.to_string()))
-    }
-}
-
-impl From<bincode::Error> for VrfWorkerError {
-    fn from(err: bincode::Error) -> Self {
-        VrfWorkerError::SerializationError(SerializationError::KeypairDataSerialization(err.to_string()))
-    }
-}
-
 impl From<serde_json::Error> for VrfWorkerError {
     fn from(err: serde_json::Error) -> Self {
         VrfWorkerError::MessageParsingError(MessageError::JsonParsingFailed(err.to_string()))

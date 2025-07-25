@@ -101,8 +101,10 @@ pub fn error(s: &str) {
 }
 
 #[wasm_bindgen]
-pub fn init_panic_hook() {
+pub fn init_worker() {
     console_error_panic_hook::set_once();
+    // Initialize WASM logger for better debugging
+    wasm_logger::init(wasm_logger::Config::default());
 }
 
 // === PROGRESS MESSAGING ===
@@ -171,7 +173,7 @@ pub fn send_progress_message(message_type: u32, step: u32, message: &str, _data:
 /// for better type safety and performance
 #[wasm_bindgen]
 pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue> {
-    console_error_panic_hook::set_once();
+    init_worker();
 
     // Parse the JSON message
     let msg: SignerWorkerMessage = serde_json::from_str(message_json)

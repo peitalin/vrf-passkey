@@ -17,8 +17,8 @@ use crate::types::webauthn::{
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DualPrfOutputsStruct {
-    #[serde(rename = "aesPrfOutput")]
-    pub aes_prf_output: String,
+    #[serde(rename = "chacha20PrfOutput")]
+    pub chacha20_prf_output: String,
     #[serde(rename = "ed25519PrfOutput")]
     pub ed25519_prf_output: String,
 }
@@ -284,7 +284,7 @@ impl Verification {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Decryption {
     #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
+    pub chacha20_prf_output: String,
     #[wasm_bindgen(getter_with_clone)]
     pub encrypted_private_key_data: String,
     #[wasm_bindgen(getter_with_clone)]
@@ -295,12 +295,12 @@ pub struct Decryption {
 impl Decryption {
     #[wasm_bindgen(constructor)]
     pub fn new(
-        aes_prf_output: String,
+        chacha20_prf_output: String,
         encrypted_private_key_data: String,
         encrypted_private_key_iv: String,
     ) -> Decryption {
         Decryption {
-            aes_prf_output,
+            chacha20_prf_output,
             encrypted_private_key_data,
             encrypted_private_key_iv,
         }
@@ -425,7 +425,7 @@ pub struct DecryptPrivateKeyRequest {
     #[wasm_bindgen(getter_with_clone)]
     pub near_account_id: String,
     #[wasm_bindgen(getter_with_clone)]
-    pub aes_prf_output: String,
+    pub chacha20_prf_output: String,
     #[wasm_bindgen(getter_with_clone)]
     pub encrypted_private_key_data: String,
     #[wasm_bindgen(getter_with_clone)]
@@ -437,13 +437,13 @@ impl DecryptPrivateKeyRequest {
     #[wasm_bindgen(constructor)]
     pub fn new(
         near_account_id: String,
-        aes_prf_output: String,
+        chacha20_prf_output: String,
         encrypted_private_key_data: String,
         encrypted_private_key_iv: String,
     ) -> DecryptPrivateKeyRequest {
         DecryptPrivateKeyRequest {
             near_account_id,
-            aes_prf_output,
+            chacha20_prf_output,
             encrypted_private_key_data,
             encrypted_private_key_iv,
         }
@@ -498,8 +498,8 @@ pub struct VerificationPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DecryptionPayload {
-    #[serde(rename = "aesPrfOutput")]
-    pub aes_prf_output: String,
+    #[serde(rename = "chacha20PrfOutput")]
+    pub chacha20_prf_output: String,
     #[serde(rename = "encryptedPrivateKeyData")]
     pub encrypted_private_key_data: String,
     #[serde(rename = "encryptedPrivateKeyIv")]

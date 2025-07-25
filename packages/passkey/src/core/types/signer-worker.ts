@@ -32,7 +32,7 @@ export { WorkerRequestType, WorkerResponseType };
  */
 export interface DualPrfOutputs {
   /** Base64-encoded PRF output from prf.results.first for AES-GCM encryption */
-  aesPrfOutput: string;
+  chacha20PrfOutput: string;
   /** Base64-encoded PRF output from prf.results.second for Ed25519 signing */
   ed25519PrfOutput: string;
 }
@@ -45,7 +45,7 @@ export interface DualPrfOutputs {
  */
 export interface Decryption {
   /** Base64-encoded PRF output for AES-GCM decryption */
-  aesPrfOutput: string;
+  chacha20PrfOutput: string;
   /** Base64url-encoded encrypted private key data */
   encryptedPrivateKeyData: string;
   /** Base64url-encoded AES-GCM nonce */
@@ -95,7 +95,7 @@ export interface UserData {
   };
   encryptedVrfKeypair?: {
     encrypted_vrf_data_b64u: string;
-    aes_gcm_nonce_b64u: string;
+    chacha20_nonce_b64u: string;
   };
 }
 
@@ -430,14 +430,14 @@ export interface WebAuthnRegistrationCredential {
  * @returns Base64url-encoded AES PRF output
  * @throws Error if AES PRF output is not available
  */
-export function extractAesPrfOutput(credential: PublicKeyCredential): { aesPrfOutput: string } {
+export function extractAesPrfOutput(credential: PublicKeyCredential): { chacha20PrfOutput: string } {
   const extensions = credential.getClientExtensionResults();
-  const aesPrfOutput = extensions.prf?.results?.first as ArrayBuffer;
-  if (!aesPrfOutput) {
-    throw new Error('AES PRF output required but not available - ensure first PRF output is present');
+  const chacha20PrfOutput = extensions.prf?.results?.first as ArrayBuffer;
+  if (!chacha20PrfOutput) {
+    throw new Error('PRF output required but not available - ensure first PRF output is present');
   }
   return {
-    aesPrfOutput: base64UrlEncode(aesPrfOutput),
+    chacha20PrfOutput: base64UrlEncode(chacha20PrfOutput),
   };
 }
 
@@ -450,15 +450,15 @@ export function extractAesPrfOutput(credential: PublicKeyCredential): { aesPrfOu
  */
 export function extractDualPrfOutputs(credential: PublicKeyCredential): DualPrfOutputs {
   const extensions = credential.getClientExtensionResults();
-  const aesPrfOutput = extensions.prf?.results?.first;
+  const chacha20PrfOutput = extensions.prf?.results?.first;
   const ed25519PrfOutput = extensions.prf?.results?.second;
 
-  if (!aesPrfOutput || !ed25519PrfOutput) {
+  if (!chacha20PrfOutput || !ed25519PrfOutput) {
     throw new Error('Dual PRF outputs required but not available - ensure both first and second PRF outputs are present');
   }
 
   return {
-    aesPrfOutput: base64UrlEncode(aesPrfOutput as ArrayBuffer),
+    chacha20PrfOutput: base64UrlEncode(chacha20PrfOutput as ArrayBuffer),
     ed25519PrfOutput: base64UrlEncode(ed25519PrfOutput as ArrayBuffer)
   };
 }
@@ -540,10 +540,10 @@ export function serializeCredentialWithPRF<C extends SerializableCredential>(
  */
 export function takeAesPrfOutput(credential: SerializableCredential): ({
   credentialWithoutPrf: SerializableCredential,
-  aesPrfOutput: string
+  chacha20PrfOutput: string
 }) {
-  const aesPrfOutput = credential.clientExtensionResults?.prf?.results?.first;
-  if (!aesPrfOutput) {
+  const chacha20PrfOutput = credential.clientExtensionResults?.prf?.results?.first;
+  if (!chacha20PrfOutput) {
     throw new Error('PRF output missing from credential.clientExtensionResults: required for secure key decryption');
   }
 
@@ -561,7 +561,7 @@ export function takeAesPrfOutput(credential: SerializableCredential): ({
     }
   };
 
-  return { credentialWithoutPrf, aesPrfOutput };
+  return { credentialWithoutPrf, chacha20PrfOutput };
 }
 
 // === ACTION TYPES ===

@@ -233,11 +233,11 @@ export class SignerWorkerManager {
 
       // Extract dual PRF outputs from serialized credential (same as decryption phase)
       const dualPrfOutputs = {
-        aesPrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.first!,
+        chacha20PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.first!,
         ed25519PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.second!
       };
 
-      if (!dualPrfOutputs.aesPrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
+      if (!dualPrfOutputs.chacha20PrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
         throw new Error('Dual PRF outputs missing from serialized credential');
       }
 
@@ -364,7 +364,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.DecryptPrivateKeyWithPrf,
           payload: {
             nearAccountId: nearAccountId,
-            prfOutput: dualPrfOutputs.aesPrfOutput, // Use AES PRF output for decryption
+            prfOutput: dualPrfOutputs.chacha20PrfOutput, // Use AES PRF output for decryption
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv
           }
@@ -425,7 +425,8 @@ export class SignerWorkerManager {
       });
 
       if (!isCheckRegistrationSuccess(response)) {
-        throw Error("isCheckRegistrationSuccess failed")
+        const errorDetails = isWorkerError(response) ? response.payload.error : 'Unknown worker error';
+        throw new Error(`Registration check failed: ${errorDetails}`);
       }
 
       console.info('WebAuthnManager: User can be registered on-chain');
@@ -541,7 +542,7 @@ export class SignerWorkerManager {
             // Pass encrypted key data from IndexedDB
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv,
-            prfOutput: dualPrfOutputs.aesPrfOutput,
+            prfOutput: dualPrfOutputs.chacha20PrfOutput,
             // Add missing nearRpcUrl field
             nearRpcUrl,
             deterministicVrfPublicKey,
@@ -654,7 +655,7 @@ export class SignerWorkerManager {
       // Extract dual PRF outputs from credential
       const dualPrfOutputs = extractDualPrfOutputs(credential);
 
-      if (!dualPrfOutputs.aesPrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
+      if (!dualPrfOutputs.chacha20PrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
         throw new Error('Failed to extract PRF outputs from credential');
       }
 
@@ -681,7 +682,7 @@ export class SignerWorkerManager {
               credential: serializeCredentialWithPRF(credential)
             },
             decryption: {
-              aesPrfOutput: dualPrfOutputs.aesPrfOutput,
+              chacha20PrfOutput: dualPrfOutputs.chacha20PrfOutput,
               encryptedPrivateKeyData: encryptedKeyData.encryptedData,
               encryptedPrivateKeyIv: encryptedKeyData.iv
             },

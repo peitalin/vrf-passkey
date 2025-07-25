@@ -2,7 +2,6 @@ use serde::{Serialize};
 use wasm_bindgen::prelude::*;
 
 // === WASM-FRIENDLY WRAPPER TYPES ===
-// Using serde-wasm-bindgen approach for complex types
 
 // Trait for converting response types to JSON
 pub trait ToJson {

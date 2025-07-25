@@ -11,7 +11,7 @@ export interface VRFKeypairData {
 
 export interface EncryptedVRFKeypair {
   encrypted_vrf_data_b64u: string;
-  aes_gcm_nonce_b64u: string;
+  chacha20_nonce_b64u: string;
 }
 
 export interface VRFInputData {

@@ -1,38 +1,36 @@
-use aes_gcm::Aes256Gcm;
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::aead::generic_array::GenericArray;
-use ed25519_dalek::{SigningKey};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use getrandom::getrandom;
 use hkdf::Hkdf;
 use bs58;
 use sha2::Sha256;
 use log::{info, debug};
-use crate::encoders::{base64_url_decode, base64_url_encode};
 
+use crate::encoders::{base64_url_decode, base64_url_encode};
 use crate::error::KdfError;
-use crate::types::EncryptedDataAesGcmResponse;
+use crate::types::EncryptedDataChaCha20Response;
 use crate::config::{
-    aes_salt_for_account,
+    chacha_salt_for_account,
     near_key_salt_for_account,
-    AES_ENCRYPTION_INFO,
-    ED25519_DUAL_PRF_INFO,
-    AES_KEY_SIZE,
-    AES_GCM_NONCE_SIZE,
+    CHACHA20_NONCE_SIZE,
+    CHACHA20_KEY_SIZE,
+    CHACHA20_ENCRYPTION_INFO,
     ED25519_PRIVATE_KEY_SIZE,
+    ED25519_HKDF_KEY_INFO,
     ERROR_EMPTY_PRF_OUTPUT,
     ERROR_INVALID_KEY_SIZE,
 };
 
 // === UTILITY FUNCTIONS ===
 
-/// Derive account-specific AES-GCM encryption key from PRF output using HKDF
-/// This provides domain separation for different accounts and is the ONLY AES derivation function
+/// Derive account-specific ChaCha20Poly1305 encryption key from PRF output using HKDF
+/// This provides domain separation for different accounts and is the ONLY ChaCha20 derivation function
 /// Used for both encryption during registration and decryption during operations
-pub(crate) fn derive_aes_gcm_key_from_prf(
+pub(crate) fn derive_chacha20_key_from_prf(
     prf_output_base64: &str,
     near_account_id: &str,
 ) -> Result<Vec<u8>, KdfError> {
-    info!("Deriving account-specific AES key from PRF output using HKDF");
+    info!("Deriving account-specific ChaCha20 key from PRF output using HKDF");
 
     // 1. Decode PRF output from base64
     let prf_output = base64_url_decode(prf_output_base64)?;
@@ -41,64 +39,66 @@ pub(crate) fn derive_aes_gcm_key_from_prf(
         return Err(KdfError::InvalidInput(ERROR_EMPTY_PRF_OUTPUT.to_string()));
     }
 
-    // 2. Create account-specific salt for AES key derivation (different from Ed25519)
-    let aes_salt = aes_salt_for_account(near_account_id);
-    let salt_bytes = aes_salt.as_bytes();
+    // 2. Create account-specific salt for ChaCha20 key derivation (different from Ed25519)
+    let chacha20_salt = chacha_salt_for_account(near_account_id);
+    let salt_bytes = chacha20_salt.as_bytes();
 
     // 3. Use HKDF with account-specific domain separation
     let hk = Hkdf::<Sha256>::new(Some(salt_bytes), &prf_output);
-    let mut aes_key = vec![0u8; AES_KEY_SIZE];
+    let mut chacha20_key = vec![0u8; CHACHA20_KEY_SIZE];
 
-    let info = AES_ENCRYPTION_INFO.as_bytes();
-    hk.expand(info, &mut aes_key)
+    let info = CHACHA20_ENCRYPTION_INFO.as_bytes();
+    hk.expand(info, &mut chacha20_key)
         .map_err(|_| KdfError::HkdfError)?;
 
-    info!("Successfully derived account-specific AES key ({} bytes) for {}", aes_key.len(), near_account_id);
-    Ok(aes_key)
+    info!("Successfully derived account-specific ChaCha20 key ({} bytes) for {}", chacha20_key.len(), near_account_id);
+    Ok(chacha20_key)
 }
 
-// === AES-GCM ENCRYPTION/DECRYPTION ===
+// === CHACHA20POLY1305 ENCRYPTION/DECRYPTION ===
 
-/// Encrypt data using AES-256-GCM
-pub(crate) fn encrypt_data_aes_gcm(plain_text_data_str: &str, key_bytes: &[u8]) -> Result<EncryptedDataAesGcmResponse, String> {
-    if key_bytes.len() != AES_KEY_SIZE {
+/// Encrypt data using ChaCha20Poly1305
+pub(crate) fn encrypt_data_chacha20(plain_text_data_str: &str, key_bytes: &[u8]) -> Result<EncryptedDataChaCha20Response, String> {
+    if key_bytes.len() != CHACHA20_KEY_SIZE {
         return Err(ERROR_INVALID_KEY_SIZE.to_string());
     }
-    let key_ga = GenericArray::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key_ga);
 
-    let mut aes_gcm_nonce_bytes = [0u8; 12];
-    getrandom(&mut aes_gcm_nonce_bytes)
-        .map_err(|e| format!("Failed to generate IV: {}", e))?;
-    let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
+    let key = chacha20poly1305::Key::from_slice(key_bytes);
+    let cipher = ChaCha20Poly1305::new(key);
+
+    let mut nonce_bytes = [0u8; 12];
+    getrandom(&mut nonce_bytes)
+        .map_err(|e| format!("Failed to generate nonce: {}", e))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher.encrypt(nonce, plain_text_data_str.as_bytes())
         .map_err(|e| format!("Encryption error: {}", e))?;
 
-    Ok(EncryptedDataAesGcmResponse {
+    Ok(EncryptedDataChaCha20Response {
         encrypted_near_key_data_b64u: base64_url_encode(&ciphertext),
-        aes_gcm_nonce_b64u: base64_url_encode(&aes_gcm_nonce_bytes),
+        chacha20_nonce_b64u: base64_url_encode(&nonce_bytes),
     })
 }
 
-/// Decrypt data using AES-256-GCM
-pub(crate) fn decrypt_data_aes_gcm(
+/// Decrypt data using ChaCha20Poly1305
+pub(crate) fn decrypt_data_chacha20(
     encrypted_data_b64u: &str,
-    aes_gcm_nonce_b64u: &str,
+    chacha20_nonce_b64u: &str,
     key_bytes: &[u8],
 ) -> Result<String, String> {
-    if key_bytes.len() != AES_KEY_SIZE {
+    if key_bytes.len() != CHACHA20_KEY_SIZE {
         return Err(ERROR_INVALID_KEY_SIZE.to_string());
     }
-    let key_ga = GenericArray::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key_ga);
 
-    let aes_gcm_nonce_bytes = base64_url_decode(aes_gcm_nonce_b64u)
-        .map_err(|e| format!("Base64 decode error for AES-GCM nonce: {}", e))?;
-    if aes_gcm_nonce_bytes.len() != AES_GCM_NONCE_SIZE {
-        return Err(format!("Decryption AES-GCM nonce must be {} bytes.", AES_GCM_NONCE_SIZE));
+    let key = chacha20poly1305::Key::from_slice(key_bytes);
+    let cipher = ChaCha20Poly1305::new(key);
+
+    let nonce_bytes = base64_url_decode(chacha20_nonce_b64u)
+        .map_err(|e| format!("Base64 decode error for ChaCha20 nonce: {}", e))?;
+    if nonce_bytes.len() != CHACHA20_NONCE_SIZE {
+        return Err(format!("Decryption ChaCha20 nonce must be {} bytes.", CHACHA20_NONCE_SIZE));
     }
-    let nonce = GenericArray::from_slice(&aes_gcm_nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
     let encrypted_data = base64_url_decode(encrypted_data_b64u)
         .map_err(|e| format!("Base64 decode error for encrypted data: {}", e))?;
@@ -127,7 +127,7 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
         return Err(KdfError::InvalidInput(ERROR_EMPTY_PRF_OUTPUT.to_string()));
     }
 
-    // Create account-specific salt for Ed25519 key derivation (different from AES)
+    // Create account-specific salt for Ed25519 key derivation (different from ChaCha20)
     let ed25519_salt = near_key_salt_for_account(account_id);
     let salt_bytes = ed25519_salt.as_bytes();
 
@@ -135,12 +135,12 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
     let hk = Hkdf::<Sha256>::new(Some(salt_bytes), &prf_output);
     let mut ed25519_key_material = [0u8; ED25519_PRIVATE_KEY_SIZE];
 
-    let info = ED25519_DUAL_PRF_INFO.as_bytes();
+    let info = ED25519_HKDF_KEY_INFO.as_bytes();
     hk.expand(info, &mut ed25519_key_material)
         .map_err(|_| KdfError::HkdfError)?;
 
     // Create Ed25519 signing key from derived material
-    let signing_key = SigningKey::from_bytes(&ed25519_key_material);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&ed25519_key_material);
     let verifying_key = signing_key.verifying_key();
 
     // Convert to NEAR format (64 bytes: 32-byte seed + 32-byte public key)
@@ -163,17 +163,17 @@ pub(crate) fn derive_ed25519_key_from_prf_output(
 }
 
 /// Dual PRF workflow
-/// Derives both AES and Ed25519 keys from separate PRF outputs and encrypts the Ed25519 key
+/// Derives both ChaCha20 and Ed25519 keys from separate PRF outputs and encrypts the Ed25519 key
 pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
     dual_prf_outputs: &crate::types::DualPrfOutputs,
     account_id: &str,
-) -> Result<(String, EncryptedDataAesGcmResponse), KdfError> {
+) -> Result<(String, EncryptedDataChaCha20Response), KdfError> {
     info!("Starting complete dual PRF workflow");
 
-    // 1. Derive account-specific AES key from first PRF output (prf.results.first)
+    // 1. Derive account-specific ChaCha20 key from first PRF output (prf.results.first)
     // Use same account-specific method as decryption for consistency
-    let aes_key = derive_aes_gcm_key_from_prf(&dual_prf_outputs.aes_prf_output_base64, account_id)?;
-    info!("Derived account-specific AES key from first PRF output");
+    let chacha20_key = derive_chacha20_key_from_prf(&dual_prf_outputs.chacha20_prf_output_base64, account_id)?;
+    info!("Derived account-specific ChaCha20 key from first PRF output");
 
     // 2. Derive Ed25519 key from second PRF output (prf.results.second)
     let (near_private_key, near_public_key) = derive_ed25519_key_from_prf_output(
@@ -182,8 +182,8 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
     )?;
     info!("Derived Ed25519 key from second PRF output");
 
-    // 3. Encrypt the Ed25519 private key using the account-specific AES key
-    let encrypted_response = encrypt_data_aes_gcm(&near_private_key, &aes_key)
+    // 3. Encrypt the Ed25519 private key using the account-specific ChaCha20 key
+    let encrypted_response = encrypt_data_chacha20(&near_private_key, &chacha20_key)
         .map_err(|e| KdfError::EncryptionError(e))?;
 
     info!("Dual PRF workflow completed successfully");
@@ -194,20 +194,20 @@ pub(crate) fn derive_and_encrypt_keypair_from_dual_prf(
 /// Now uses account-specific HKDF for secure key derivation
 pub fn decrypt_private_key_with_prf(
     near_account_id: &str,
-    aes_prf_output: &str,
+    chacha20_prf_output: &str,
     encrypted_private_key_data: &str,
     encrypted_private_key_iv: &str,
-) -> Result<SigningKey, String> {
+) -> Result<ed25519_dalek::SigningKey, String> {
     info!("Decrypting private key with PRF using account-specific HKDF");
 
-    let aes_key = derive_aes_gcm_key_from_prf(aes_prf_output, near_account_id)
+    let chacha20_key = derive_chacha20_key_from_prf(chacha20_prf_output, near_account_id)
         .map_err(|e| format!("Account-specific key derivation failed: {}", e))?;
 
-    // 2. Decrypt private key using AES-GCM
-    let decrypted_private_key_str = decrypt_data_aes_gcm(
+    // 2. Decrypt private key using ChaCha20Poly1305
+    let decrypted_private_key_str = decrypt_data_chacha20(
         encrypted_private_key_data,
         encrypted_private_key_iv,
-        &aes_key,
+        &chacha20_key,
     )?;
 
     // 3. Parse private key (remove ed25519: prefix if present)
@@ -238,7 +238,7 @@ pub fn decrypt_private_key_with_prf(
     // 6. Create SigningKey from the 32-byte seed
     let mut key_array = [0u8; 32];
     key_array.copy_from_slice(&seed_bytes);
-    let signing_key = SigningKey::from_bytes(&key_array);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_array);
 
     info!("Successfully decrypted private key");
     Ok(signing_key)
@@ -250,15 +250,15 @@ pub fn encrypt_private_key_with_prf(
     private_key_bytes: &str,
     prf_output_base64: &str,
     near_account_id: &str,
-) -> Result<EncryptedDataAesGcmResponse, String> {
+) -> Result<EncryptedDataChaCha20Response, String> {
     info!("Encrypting private key with PRF output for account: {}", near_account_id);
 
-    // Derive AES key from PRF output using account-specific HKDF
-    let aes_key_bytes = derive_aes_gcm_key_from_prf(prf_output_base64, near_account_id)
-        .map_err(|e| format!("Failed to derive AES key from PRF: {}", e))?;
+    // Derive ChaCha20 key from PRF output using account-specific HKDF
+    let chacha20_key_bytes = derive_chacha20_key_from_prf(prf_output_base64, near_account_id)
+        .map_err(|e| format!("Failed to derive ChaCha20 key from PRF: {}", e))?;
 
     // Encrypt the private key
-    let encrypted_result = encrypt_data_aes_gcm(private_key_bytes, &aes_key_bytes)
+    let encrypted_result = encrypt_data_chacha20(private_key_bytes, &chacha20_key_bytes)
         .map_err(|e| format!("Failed to encrypt private key: {}", e))?;
 
     info!("Private key encrypted successfully");

@@ -69,8 +69,8 @@ const DEFAULT_TEST_CONFIG = {
   nearNetwork: 'testnet' as const,
   relayerAccount: 'web3-authn-v2.testnet',
   contractId: 'web3-authn-v2.testnet',
-  // nearRpcUrl: 'https://rpc.testnet.near.org',
-  nearRpcUrl: 'https://free.rpc.fastnear.com',
+  nearRpcUrl: 'https://rpc.testnet.near.org',
+  // nearRpcUrl: 'https://free.rpc.fastnear.com',
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
@@ -371,6 +371,18 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
         console.error('Failed to import base64UrlDecode fallback:', encoderError);
       }
     }
+
+    // Ensure validateAccountId is available globally for tests
+    if (typeof (window as any).validateAccountId === 'undefined') {
+      try {
+        // @ts-ignore
+        const { validateAccountId } = await import('/sdk/esm/index.js');
+        (window as any).validateAccountId = validateAccountId;
+        console.log('validateAccountId made available globally for tests');
+      } catch (accountIdError) {
+        console.error('Failed to import validateAccountId fallback:', accountIdError);
+      }
+    }
   });
 
   console.log('Step 5 Complete: Global fallbacks in place');
@@ -589,7 +601,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  first: createMockPRFOutput('aes-gcm-test-seed', accountId, 32),
+                  first: createMockPRFOutput('chacha20-test-seed', accountId, 32),
                   second: createMockPRFOutput('ed25519-test-seed', accountId, 32)
                 }
               };
@@ -648,9 +660,9 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           }
         } else if (prfRequested?.eval?.first) {
           // Extract from PRF salt when no allowCredentials (recovery flow)
-          const aesSalt = new Uint8Array(prfRequested.eval.first);
-          const saltText = new TextDecoder().decode(aesSalt);
-          const saltMatch = saltText.match(/aes-gcm-salt:(.+)$/);
+          const chacha20Salt = new Uint8Array(prfRequested.eval.first);
+          const saltText = new TextDecoder().decode(chacha20Salt);
+          const saltMatch = saltText.match(/chacha20-salt:(.+)$/);
           if (saltMatch && saltMatch[1]) {
             accountId = saltMatch[1];
           }
@@ -751,7 +763,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
             const results: any = {};
             if (prfRequested) {
               console.log('[AUTH PRF DEBUG] Generating PRF outputs for account:', accountId);
-              const firstPRF = createMockPRFOutput('aes-gcm-test-seed', accountId, 32);
+              const firstPRF = createMockPRFOutput('chacha20-test-seed', accountId, 32);
               const secondPRF = createMockPRFOutput('ed25519-test-seed', accountId, 32);
               console.log('[AUTH PRF DEBUG] First PRF (AES):', Array.from(new Uint8Array(firstPRF)).slice(0, 8), '...');
               console.log('[AUTH PRF DEBUG] Second PRF (Ed25519):', Array.from(new Uint8Array(secondPRF)).slice(0, 8), '...');

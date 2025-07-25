@@ -106,7 +106,7 @@ impl TryFrom<&VrfChallenge> for VrfData {
 }
 
 /// Perform contract verification via NEAR RPC directly from WASM
-pub async fn perform_contract_verification_wasm(
+pub async fn verify_authentication_response_rpc_call(
     contract_id: &str,
     rpc_url: &str,
     vrf_data: VrfData,
@@ -138,7 +138,6 @@ pub async fn perform_contract_verification_wasm(
     // Execute the request using shared helper
     let result = execute_rpc_request(rpc_url, &rpc_body).await?;
 
-    info!("RUST: Received RPC response");
     // Parse RPC response
     if let Some(error) = result.get("error") {
         let error_msg = error.get("message")
@@ -217,7 +216,7 @@ pub async fn perform_contract_verification_wasm(
 
 /// Check if user can register (VIEW FUNCTION - uses query RPC)
 /// This function validates VRF + WebAuthn but does NOT store any data
-pub async fn check_can_register_user_wasm(
+pub async fn check_can_register_user_rpc_call(
     contract_id: &str,
     vrf_data: VrfData,
     webauthn_registration_credential: WebAuthnRegistrationCredential,
@@ -251,7 +250,7 @@ pub async fn check_can_register_user_wasm(
     let response_result = execute_rpc_request(rpc_url, &rpc_body).await?;
 
     // Parse the response for view function
-    parse_view_registration_response(response_result)
+    parse_check_can_register_response(response_result)
 }
 
 /// Shared HTTP request execution logic
@@ -328,7 +327,7 @@ async fn execute_rpc_request(rpc_url: &str, rpc_body: &serde_json::Value) -> Res
 }
 
 /// Parse response for view-only registration check
-pub fn parse_view_registration_response(result: serde_json::Value) -> Result<ContractRegistrationResult, String> {
+pub fn parse_check_can_register_response(result: serde_json::Value) -> Result<ContractRegistrationResult, String> {
     info!("RUST: Received registration check RPC response");
 
     // Parse RPC response
@@ -389,7 +388,7 @@ pub fn parse_view_registration_response(result: serde_json::Value) -> Result<Con
 
     // Since this is a view function, we don't get actual registration_info
     // Return minimal info if verification succeeds to maintain API compatibility
-    let _registration_info = if verified {
+    let registration_info = if verified {
         Some(RegistrationInfo {
             credential_id: vec![], // Empty since this is view-only verification
             credential_public_key: vec![], // Empty since this is view-only verification
@@ -415,7 +414,7 @@ pub fn parse_view_registration_response(result: serde_json::Value) -> Result<Con
         verified,
         error: if verified { None } else { Some("Contract registration check failed".to_string()) },
         logs,
-        registration_info: None,
+        registration_info: registration_info,
         signed_transaction_borsh: None, // View functions don't have transactions
         pre_signed_delete_transaction: None, // View functions don't have transactions
     })

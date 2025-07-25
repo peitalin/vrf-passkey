@@ -10,8 +10,8 @@ use vrf_wasm::ecvrf::ECVRFKeyPair;
 use vrf_wasm::vrf::{VRFKeyPair, VRFProof};
 use vrf_wasm::traits::WasmRngFromSeed;
 use zeroize::ZeroizeOnDrop;
-use aes_gcm::{Aes256Gcm, Nonce, KeyInit};
-use aes_gcm::aead::Aead;
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
 use getrandom::getrandom;
@@ -322,30 +322,30 @@ impl VRFKeyManager {
         encrypted_vrf_keypair: EncryptedVRFKeypair,
         prf_key: Vec<u8>,
     ) -> Result<ECVRFKeyPair, String> {
-        // Use HKDF-SHA256 to derive AES key from PRF key for better security
-        debug!("Deriving AES key using HKDF-SHA256");
+        // Use HKDF-SHA256 to derive ChaCha20 key from PRF key for better security
+        debug!("Deriving ChaCha20 key using HKDF-SHA256");
 
         let hk = Hkdf::<Sha256>::new(None, &prf_key);
-        let mut aes_key = [0u8; AES_KEY_SIZE];
-        hk.expand(HKDF_AES_KEY_INFO, &mut aes_key)
+        let mut chacha20_key = [0u8; CHACHA20_KEY_SIZE];
+        hk.expand(HKDF_CHACHA20_KEY_INFO, &mut chacha20_key)
             .map_err(|_| VrfWorkerError::HkdfDerivationFailed(HkdfError::KeyDerivationFailed).to_string())?;
 
         // Decode encrypted data and IV
         let encrypted_data = base64_url_decode(&encrypted_vrf_keypair.encrypted_vrf_data_b64u)
             .map_err(|e| format!("Failed to decode encrypted data: {}", e))?;
-        let iv_nonce_bytes = base64_url_decode(&encrypted_vrf_keypair.aes_gcm_nonce_b64u)
+        let iv_nonce_bytes = base64_url_decode(&encrypted_vrf_keypair.chacha20_nonce_b64u)
             .map_err(|e| format!("Failed to decode IV: {}", e))?;
 
-        if iv_nonce_bytes.len() != AES_NONCE_SIZE {
+        if iv_nonce_bytes.len() != CHACHA20_NONCE_SIZE {
             return Err(VrfWorkerError::InvalidIvLength {
-                expected: AES_NONCE_SIZE,
+                expected: CHACHA20_NONCE_SIZE,
                 actual: iv_nonce_bytes.len()
             }.to_string());
         }
 
-        // Decrypt the VRF keypair using derived AES key
-        let cipher = Aes256Gcm::new_from_slice(&aes_key)
-            .map_err(|e| format!("Failed to create cipher: {}", e))?;
+        // Decrypt the VRF keypair using derived ChaCha20 key
+        let key = chacha20poly1305::Key::from_slice(&chacha20_key);
+        let cipher = ChaCha20Poly1305::new(key);
         let nonce = Nonce::from_slice(&iv_nonce_bytes);
 
         let decrypted_data = cipher
@@ -430,19 +430,19 @@ impl VRFKeyManager {
 
     /// Enhanced VRF keypair generation with explicit control over memory storage and challenge generation
     fn encrypt_vrf_keypair(&self, data: &[u8], key: &[u8]) -> Result<serde_json::Value, String> {
-        debug!("Deriving AES key using HKDF-SHA256 for encryption");
+        debug!("Deriving ChaCha20 key using HKDF-SHA256 for encryption");
 
-        // Use HKDF-SHA256 to derive AES key from PRF key for better security
+        // Use HKDF-SHA256 to derive ChaCha20 key from PRF key for better security
         let hk = Hkdf::<Sha256>::new(None, key);
-        let mut aes_key = [0u8; AES_KEY_SIZE];
-        hk.expand(HKDF_AES_KEY_INFO, &mut aes_key)
+        let mut chacha20_key = [0u8; CHACHA20_KEY_SIZE];
+        hk.expand(HKDF_CHACHA20_KEY_INFO, &mut chacha20_key)
             .map_err(|_| error_messages::HKDF_KEY_DERIVATION_FAILED.to_string())?;
 
-        let cipher = Aes256Gcm::new_from_slice(&aes_key)
-            .map_err(|e| format!("Failed to create cipher: {}", e))?;
+        let key_slice = chacha20poly1305::Key::from_slice(&chacha20_key);
+        let cipher = ChaCha20Poly1305::new(key_slice);
 
         // Generate cryptographically secure random IV/nonce
-        let mut iv_nonce_bytes = [0u8; AES_NONCE_SIZE];
+        let mut iv_nonce_bytes = [0u8; CHACHA20_NONCE_SIZE];
         getrandom(&mut iv_nonce_bytes)
             .map_err(|e| format!("Failed to generate secure IV: {}", e))?;
         let nonce = Nonce::from_slice(&iv_nonce_bytes);
@@ -452,7 +452,7 @@ impl VRFKeyManager {
 
         Ok(serde_json::json!({
             "encrypted_vrf_data_b64u": base64_url_encode(&ciphertext),
-            "aes_gcm_nonce_b64u": base64_url_encode(&iv_nonce_bytes)
+            "chacha20_nonce_b64u": base64_url_encode(&iv_nonce_bytes)
         }))
     }
 }

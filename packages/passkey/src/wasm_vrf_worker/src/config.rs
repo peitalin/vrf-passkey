@@ -22,9 +22,9 @@ pub const LOG_INCLUDE_LEVEL: bool = true;
 /// Used to ensure VRF challenges are domain-specific and cannot be replayed across different contexts
 pub const VRF_DOMAIN_SEPARATOR: &[u8] = b"web3_authn_vrf_challenge_v1";
 
-/// HKDF info string for AES key derivation from PRF output
-/// Used for both VRF keypair encryption and general AES operations
-pub const HKDF_AES_KEY_INFO: &[u8] = b"vrf-aes-key";
+/// HKDF info string for ChaCha20 key derivation from PRF output
+/// Used for both VRF keypair encryption and general ChaCha20 operations
+pub const HKDF_CHACHA20_KEY_INFO: &[u8] = b"vrf-chacha20-key";
 
 /// HKDF info string for VRF keypair derivation from PRF output
 /// Used for deterministic VRF keypair generation during account recovery
@@ -32,11 +32,11 @@ pub const HKDF_VRF_KEYPAIR_INFO: &[u8] = b"vrf-keypair-derivation-v1";
 
 // === ENCRYPTION PARAMETERS ===
 
-/// AES-GCM key size in bytes (256 bits)
-pub const AES_KEY_SIZE: usize = 32;
+/// ChaCha20Poly1305 key size in bytes (256 bits)
+pub const CHACHA20_KEY_SIZE: usize = 32;
 
-/// AES-GCM nonce/IV size in bytes (96 bits)
-pub const AES_NONCE_SIZE: usize = 12;
+/// ChaCha20Poly1305 nonce/IV size in bytes (96 bits)
+pub const CHACHA20_NONCE_SIZE: usize = 12;
 
 /// VRF seed size in bytes for deterministic generation (256 bits)
 pub const VRF_SEED_SIZE: usize = 32;
@@ -58,7 +58,7 @@ pub mod vrf_challenge_fields {
 /// JSON field names for encrypted VRF keypair data
 pub mod encrypted_keypair_fields {
     pub const ENCRYPTED_VRF_DATA: &str = "encrypted_vrf_data_b64u";
-    pub const AES_GCM_NONCE: &str = "aes_gcm_nonce_b64u";
+    pub const CHACHA20_NONCE: &str = "chacha20_nonce_b64u";
 }
 
 /// JSON field names for worker messages
@@ -104,7 +104,7 @@ pub mod error_messages {
     pub const PRF_OUTPUT_EMPTY: &str = "PRF output cannot be empty";
     pub const HKDF_KEY_DERIVATION_FAILED: &str = "HKDF key derivation failed";
     pub const HKDF_VRF_SEED_DERIVATION_FAILED: &str = "HKDF VRF seed derivation failed";
-    pub const INVALID_IV_LENGTH: &str = "Invalid IV length for AES-GCM";
+    pub const INVALID_IV_LENGTH: &str = "Invalid IV length for ChaCha20Poly1305";
     pub const FAILED_TO_STRINGIFY: &str = "Failed to stringify message";
     pub const MESSAGE_NOT_STRING: &str = "Message is not a string";
     pub const FAILED_TO_SERIALIZE: &str = "failed to serialize";
@@ -129,14 +129,14 @@ pub mod log_messages {
     pub const LOGGING_OUT: &str = "VRF WASM Web Worker: Logging out and securely clearing VRF keypair";
     pub const KEYPAIR_CLEARED: &str = "VRF WASM Web Worker: VRF keypair cleared with automatic zeroization";
     pub const SESSION_CLEARED: &str = "VRF WASM Web Worker: Session cleared securely with automatic zeroization";
-    pub const DERIVING_AES_KEY: &str = "VRF WASM Web Worker: Deriving AES key using HKDF-SHA256";
+    pub const DERIVING_CHACHA20_KEY: &str = "VRF WASM Web Worker: Deriving ChaCha20 key using HKDF-SHA256";
     pub const KEYPAIR_RESTORED: &str = "VRF WASM Web Worker: VRF keypair successfully restored from bincode";
     pub const GENERATING_SECURE_KEYPAIR: &str = "VRF WASM Web Worker: Generating VRF keypair with secure randomness";
     pub const SECURE_KEYPAIR_GENERATED: &str = "VRF WASM Web Worker: VRF keypair generated successfully";
     pub const DETERMINISTIC_KEYPAIR_GENERATED: &str = "VRF WASM Web Worker: Deterministic VRF keypair generated successfully";
     pub const ENCRYPTING_KEYPAIR_DATA: &str = "VRF WASM Web Worker: Encrypting VRF keypair data";
     pub const KEYPAIR_DATA_ENCRYPTED: &str = "VRF WASM Web Worker: VRF keypair encrypted successfully";
-    pub const DERIVING_AES_FOR_ENCRYPTION: &str = "VRF WASM Web Worker: Deriving AES key using HKDF-SHA256 for encryption";
+    pub const DERIVING_CHACHA20_FOR_ENCRYPTION: &str = "VRF WASM Web Worker: Deriving ChaCha20 key using HKDF-SHA256 for encryption";
 }
 
 // === DISPLAY TRUNCATION ===

@@ -154,7 +154,9 @@ export async function registerPasskey(
         throw new Error('Failed to generate NEAR keypair with PRF');
       }
       if (!canRegisterUserResult.verified) {
-        throw new Error(`Web3Authn contract registration check failed: ${canRegisterUserResult.error}`);
+        console.error(canRegisterUserResult);
+        const errorMessage = canRegisterUserResult.error || 'User verification failed - account may already exist or contract is unreachable';
+        throw new Error(`Web3Authn contract registration check failed: ${errorMessage}`);
       }
       return {
         encryptedVrfResult,

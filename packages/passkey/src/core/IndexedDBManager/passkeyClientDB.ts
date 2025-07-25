@@ -25,7 +25,7 @@ export interface ClientUserData {
   // VRF credentials for stateless authentication
   encryptedVrfKeypair?: {
     encrypted_vrf_data_b64u: string;
-    aes_gcm_nonce_b64u: string;
+    chacha20_nonce_b64u: string;
   };
 
   // User preferences
@@ -324,7 +324,7 @@ export class PasskeyClientDBManager {
     };
     encryptedVrfKeypair?: {
       encrypted_vrf_data_b64u: string;
-      aes_gcm_nonce_b64u: string;
+      chacha20_nonce_b64u: string;
     };
   }): Promise<void> {
 

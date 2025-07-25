@@ -3,91 +3,91 @@ use crate::crypto::*;
 use crate::types::DualPrfOutputs;
 
 #[test]
-fn test_account_specific_aes_key_edge_cases() {
+fn test_account_specific_chacha20_key_edge_cases() {
     // Test with empty PRF output
     let empty_prf = "";
     let account_id = "test.testnet";
-    let result = derive_aes_gcm_key_from_prf(empty_prf, account_id);
+    let result = derive_chacha20_key_from_prf(empty_prf, account_id);
     assert!(result.is_err());
 
     // Test with invalid base64
     let invalid_b64 = "not_valid_base64!!!";
-    let result = derive_aes_gcm_key_from_prf(invalid_b64, account_id);
+    let result = derive_chacha20_key_from_prf(invalid_b64, account_id);
     assert!(result.is_err());
 
     // Test with short PRF output
     let short_prf = "YQ"; // base64 for "a"
-    let result = derive_aes_gcm_key_from_prf(short_prf, account_id);
+    let result = derive_chacha20_key_from_prf(short_prf, account_id);
     assert!(result.is_ok()); // Should work with HKDF expansion
 
     // Test with different accounts producing different keys
     let test_prf = "dGVzdC1wcmYtb3V0cHV0";
-    let key1 = derive_aes_gcm_key_from_prf(test_prf, "account1.testnet").unwrap();
-    let key2 = derive_aes_gcm_key_from_prf(test_prf, "account2.testnet").unwrap();
+    let key1 = derive_chacha20_key_from_prf(test_prf, "account1.testnet").unwrap();
+    let key2 = derive_chacha20_key_from_prf(test_prf, "account2.testnet").unwrap();
     assert_ne!(key1, key2);
 }
 
 #[test]
-fn test_encrypt_decrypt_aes_gcm_edge_cases() {
+fn test_encrypt_decrypt_chacha20_edge_cases() {
     let key = vec![0u8; 32];
 
     // Test empty string
-    let encrypted = encrypt_data_aes_gcm("", &key).unwrap();
-    let decrypted = decrypt_data_aes_gcm(
+    let encrypted = encrypt_data_chacha20("", &key).unwrap();
+    let decrypted = decrypt_data_chacha20(
         &encrypted.encrypted_near_key_data_b64u,
-        &encrypted.aes_gcm_nonce_b64u,
+        &encrypted.chacha20_nonce_b64u,
         &key
     ).unwrap();
     assert_eq!(decrypted, "");
 
     // Test large string
     let large_data = "x".repeat(10000);
-    let encrypted = encrypt_data_aes_gcm(&large_data, &key).unwrap();
-    let decrypted = decrypt_data_aes_gcm(
+    let encrypted = encrypt_data_chacha20(&large_data, &key).unwrap();
+    let decrypted = decrypt_data_chacha20(
         &encrypted.encrypted_near_key_data_b64u,
-        &encrypted.aes_gcm_nonce_b64u,
+        &encrypted.chacha20_nonce_b64u,
         &key
     ).unwrap();
     assert_eq!(decrypted, large_data);
 
     // Test Unicode data
     let unicode_data = "Hello 世界 🌍 مرحبا עולם";
-    let encrypted = encrypt_data_aes_gcm(unicode_data, &key).unwrap();
-    let decrypted = decrypt_data_aes_gcm(
+    let encrypted = encrypt_data_chacha20(unicode_data, &key).unwrap();
+    let decrypted = decrypt_data_chacha20(
         &encrypted.encrypted_near_key_data_b64u,
-        &encrypted.aes_gcm_nonce_b64u,
+        &encrypted.chacha20_nonce_b64u,
         &key
     ).unwrap();
     assert_eq!(decrypted, unicode_data);
 }
 
 #[test]
-fn test_decrypt_aes_gcm_invalid_data() {
+fn test_decrypt_chacha20_invalid_data() {
     let key = vec![0u8; 32];
 
     // Test with invalid base64url data
-    let result = decrypt_data_aes_gcm("invalid_base64!!!", "dmFsaWRfbm9uY2U", &key);
+    let result = decrypt_data_chacha20("invalid_base64!!!", "dmFsaWRfbm9uY2U", &key);
             assert!(result.is_err());
 
     // Test with invalid nonce
-    let result = decrypt_data_aes_gcm("dGVzdA", "invalid_nonce!!!", &key);
+    let result = decrypt_data_chacha20("dGVzdA", "invalid_nonce!!!", &key);
     assert!(result.is_err());
 
     // Test with wrong key
-    let encrypted = encrypt_data_aes_gcm("test", &key).unwrap();
+    let encrypted = encrypt_data_chacha20("test", &key).unwrap();
     let wrong_key = vec![1u8; 32];
-    let result = decrypt_data_aes_gcm(
+    let result = decrypt_data_chacha20(
         &encrypted.encrypted_near_key_data_b64u,
-        &encrypted.aes_gcm_nonce_b64u,
+        &encrypted.chacha20_nonce_b64u,
         &wrong_key
     );
     assert!(result.is_err());
 
     // Test with corrupted ciphertext
-    let encrypted = encrypt_data_aes_gcm("test", &key).unwrap();
+    let encrypted = encrypt_data_chacha20("test", &key).unwrap();
     let mut corrupted_data = encrypted.encrypted_near_key_data_b64u;
     corrupted_data.push('x'); // Corrupt the data
-    let result = decrypt_data_aes_gcm(&corrupted_data, &encrypted.aes_gcm_nonce_b64u, &key);
+    let result = decrypt_data_chacha20(&corrupted_data, &encrypted.chacha20_nonce_b64u, &key);
     assert!(result.is_err());
 }
 
@@ -125,12 +125,12 @@ fn test_base64_url_decode_edge_cases() {
     let account_id = "test.testnet";
 
     // This will internally use base64_url_decode
-    let result = derive_aes_gcm_key_from_prf(prf_output_b64, account_id);
+    let result = derive_chacha20_key_from_prf(prf_output_b64, account_id);
     assert!(result.is_ok());
 
     // Test invalid base64 (should fail in base64_url_decode)
     let invalid_b64 = "invalid!!!";
-    let result = derive_aes_gcm_key_from_prf(invalid_b64, account_id);
+    let result = derive_chacha20_key_from_prf(invalid_b64, account_id);
     assert!(result.is_err());
 }
 
@@ -141,8 +141,8 @@ fn test_encryption_key_consistency() {
 
     // Test that the same inputs always produce the same key
     for _ in 0..10 {
-        let key1 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
-        let key2 = derive_aes_gcm_key_from_prf(prf_output_b64, account_id).unwrap();
+        let key1 = derive_chacha20_key_from_prf(prf_output_b64, account_id).unwrap();
+        let key2 = derive_chacha20_key_from_prf(prf_output_b64, account_id).unwrap();
         assert_eq!(key1, key2);
     }
 }
@@ -175,20 +175,20 @@ fn test_near_key_format_validation() {
 }
 
 #[test]
-fn test_derive_account_specific_aes_key() {
+fn test_derive_account_specific_chacha20_key() {
     let prf_output = "dGVzdC1wcmYtb3V0cHV0LWFhYWFhYWFhYWFhYQ";
     let account_id = "test.testnet";
 
     // Test normal operation
-    let key = derive_aes_gcm_key_from_prf(prf_output, account_id).unwrap();
+    let key = derive_chacha20_key_from_prf(prf_output, account_id).unwrap();
     assert_eq!(key.len(), 32);
 
     // Test deterministic behavior
-    let key2 = derive_aes_gcm_key_from_prf(prf_output, account_id).unwrap();
+    let key2 = derive_chacha20_key_from_prf(prf_output, account_id).unwrap();
     assert_eq!(key, key2);
 
     // Test different accounts produce different keys
-    let key3 = derive_aes_gcm_key_from_prf(prf_output, "different.testnet").unwrap();
+    let key3 = derive_chacha20_key_from_prf(prf_output, "different.testnet").unwrap();
     assert_ne!(key, key3);
 }
 
@@ -216,7 +216,7 @@ fn test_derive_ed25519_key_from_prf_output() {
 #[test]
 fn test_derive_and_encrypt_keypair_from_dual_prf() {
     let dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "dGVzdC1hZXMtcHJmLW91dHB1dA".to_string(),
+        chacha20_prf_output_base64: "dGVzdC1hZXMtcHJmLW91dHB1dA".to_string(),
         ed25519_prf_output_base64: "dGVzdC1lZDI1NTE5LXByZi1vdXRwdXQ".to_string(),
     };
     let account_id = "test.testnet";
@@ -225,7 +225,7 @@ fn test_derive_and_encrypt_keypair_from_dual_prf() {
     let (public_key, encrypted_data) = derive_and_encrypt_keypair_from_dual_prf(&dual_prf, account_id).unwrap();
     assert!(public_key.starts_with("ed25519:"));
     assert!(!encrypted_data.encrypted_near_key_data_b64u.is_empty());
-    assert!(!encrypted_data.aes_gcm_nonce_b64u.is_empty());
+    assert!(!encrypted_data.chacha20_nonce_b64u.is_empty());
 
     // Test deterministic behavior
     let (public_key2, _encrypted_data2) = derive_and_encrypt_keypair_from_dual_prf(&dual_prf, account_id).unwrap();
@@ -239,20 +239,20 @@ fn test_derive_and_encrypt_keypair_from_dual_prf() {
 #[test]
 fn test_dual_prf_key_isolation() {
     let dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "dGVzdC1hZXMtcHJmLW91dHB1dA".to_string(),
+        chacha20_prf_output_base64: "dGVzdC1hZXMtcHJmLW91dHB1dA".to_string(),
         ed25519_prf_output_base64: "dGVzdC1lZDI1NTE5LXByZi1vdXRwdXQ".to_string(),
     };
     let account_id = "test.testnet";
 
     // Derive AES key separately
-    let _aes_key = derive_aes_gcm_key_from_prf(&dual_prf.aes_prf_output_base64, account_id).unwrap();
+    let _chacha20_key = derive_chacha20_key_from_prf(&dual_prf.chacha20_prf_output_base64, account_id).unwrap();
 
     // Derive Ed25519 key separately
     let (_ed25519_private, _ed25519_public) = derive_ed25519_key_from_prf_output(&dual_prf.ed25519_prf_output_base64, account_id).unwrap();
 
     // Test that changing AES PRF doesn't affect Ed25519 derivation
     let modified_dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "ZGlmZmVyZW50LWFlcy1wcmYtb3V0cHV0".to_string(),
+        chacha20_prf_output_base64: "ZGlmZmVyZW50LWFlcy1wcmYtb3V0cHV0".to_string(),
         ed25519_prf_output_base64: dual_prf.ed25519_prf_output_base64.clone(),
     };
 
@@ -269,7 +269,7 @@ fn test_dual_prf_edge_cases() {
 
     // Test with minimal PRF outputs
     let minimal_dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "YQ".to_string(), // base64 for "a"
+        chacha20_prf_output_base64: "YQ".to_string(), // base64 for "a"
         ed25519_prf_output_base64: "YQ".to_string(),
     };
 
@@ -278,7 +278,7 @@ fn test_dual_prf_edge_cases() {
 
     // Test with empty PRF outputs (should fail)
     let empty_dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "".to_string(),
+        chacha20_prf_output_base64: "".to_string(),
         ed25519_prf_output_base64: "".to_string(),
     };
 
@@ -287,7 +287,7 @@ fn test_dual_prf_edge_cases() {
 
     // Test with invalid base64 (should fail)
     let invalid_dual_prf = DualPrfOutputs {
-        aes_prf_output_base64: "invalid!!!".to_string(),
+        chacha20_prf_output_base64: "invalid!!!".to_string(),
         ed25519_prf_output_base64: "dGVzdA".to_string(),
     };
 

@@ -3,8 +3,7 @@
 //! This module consolidates all base64 encoding and decoding functionality
 //! used throughout the wasm_signer_worker module.
 
-use base64ct::{Base64UrlUnpadded, Encoding};
-use base64::prelude::*;
+use base64ct::{Base64, Base64UrlUnpadded, Encoding};
 
 // === BASE64URL (URL-SAFE, NO PADDING) ===
 
@@ -30,13 +29,13 @@ pub fn base64_url_encode(data: &[u8]) -> String {
 /// Encode bytes to a standard base64 string
 /// Used for JSON payloads and HTTP operations where standard base64 is expected.
 pub fn base64_standard_encode(data: &[u8]) -> String {
-    BASE64_STANDARD.encode(data)
+    Base64::encode_string(data)
 }
 
 /// Decode a standard base64 string
 /// Used for JSON payloads and HTTP operations.
 pub fn base64_standard_decode(input: &str) -> Result<Vec<u8>, String> {
-    BASE64_STANDARD.decode(input)
+    Base64::decode_vec(input)
         .map_err(|e| format!("Base64 decode error: {}", e))
 }
 

@@ -121,7 +121,7 @@ export class WebAuthnManager {
       // Use the first PRF output for VRF keypair derivation (AES PRF output)
       // This ensures deterministic derivation: same PRF + same account = same VRF keypair
       const vrfResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
-        prfOutput: dualPrfOutputs.aesPrfOutput,
+        prfOutput: dualPrfOutputs.chacha20PrfOutput,
         nearAccountId,
         vrfInputData
       });
@@ -551,7 +551,7 @@ export class WebAuthnManager {
     registrationCredential: PublicKeyCredential;
     encryptedBootstrapVrfKeypair: EncryptedVRFKeypair;
     dualPrfOutputs: {
-      aesPrfOutput: string;
+      chacha20PrfOutput: string;
       ed25519PrfOutput: string;
     };
   }> {

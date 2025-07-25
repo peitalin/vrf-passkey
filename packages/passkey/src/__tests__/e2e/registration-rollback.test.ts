@@ -10,7 +10,12 @@
 
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
-import { validateAccountId } from '../../core/types/accountIds';
+// validateAccountId is available globally from the dynamic SDK import
+
+// Declare global validateAccountId function available from dynamic SDK import
+declare global {
+  function validateAccountId(accountId: string): string;
+}
 
 test.describe('PasskeyManager Registration Rollback Verification', () => {
   test.beforeEach(async ({ page }) => {

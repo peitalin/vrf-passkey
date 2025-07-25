@@ -39,7 +39,7 @@ pub fn handle_unlock_vrf_keypair(
                 Ok(keypair) => {
                     debug!("Successfully parsed EncryptedVRFKeypair");
                     debug!("  - encrypted_vrf_data_b64u length: {}", keypair.encrypted_vrf_data_b64u.len());
-                    debug!("  - aes_gcm_nonce_b64u length: {}", keypair.aes_gcm_nonce_b64u.len());
+                    debug!("  - chacha20_nonce_b64u length: {}", keypair.chacha20_nonce_b64u.len());
                 },
                 Err(e) => error!("Failed to parse EncryptedVRFKeypair: {}", e),
             }

@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 #[serde(rename_all = "camelCase")]
 pub struct DualPrfOutputs {
     /// Base64-encoded PRF output from prf.results.first for AES-GCM encryption
-    pub aes_prf_output_base64: String,
+    pub chacha20_prf_output_base64: String,
     /// Base64-encoded PRF output from prf.results.second for Ed25519 signing
     pub ed25519_prf_output_base64: String,
 }
@@ -25,7 +25,7 @@ pub struct DualPrfDeriveKeypairRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct EncryptedDataAesGcmResponse {
+pub struct EncryptedDataChaCha20Response {
     pub encrypted_near_key_data_b64u: String,
-    pub aes_gcm_nonce_b64u: String,
+    pub chacha20_nonce_b64u: String,
 }
