@@ -241,7 +241,22 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
    * @returns LinkDeviceFlow
    */
   const startDeviceLinkingFlow = (options?: StartDeviceLinkingOptionsDevice2) => {
-    return passkeyManager.startDeviceLinkingFlow(options);
+    return passkeyManager.startDeviceLinkingFlow({
+      ...options,
+      onEvent: (event) => {
+        // Call original event handler
+        options?.onEvent?.(event);
+
+        console.log('Device linking event received:', { phase: event.phase, status: event.status, message: event.message });
+
+        // Update React state when auto-login completes successfully
+        if (event.phase === 'registration' && event.status === 'success') {
+          console.log('Device linking auto-login completed - refreshing login state...');
+          // Refresh login state to update React context after successful auto-login
+          refreshLoginState()
+        }
+      }
+    });
   }
 
   /**

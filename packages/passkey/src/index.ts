@@ -69,9 +69,7 @@ export {
 export type {
   AccountId,
 } from './core/types/accountIds';
-
 export {
-  validateAccountId,
   toAccountId
 } from './core/types/accountIds';
 

@@ -2,7 +2,7 @@ import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import type { AccountId } from '../types/accountIds';
 import { ActionType } from '../types/actions';
-import { validateAccountId } from '../types/accountIds';
+import { toAccountId } from '../types/accountIds';
 import {
   IndexedDBManager,
   type ClientUserData,
@@ -283,7 +283,7 @@ export class WebAuthnManager {
   }): Promise<void> {
     const authData = {
       ...authenticatorData,
-      nearAccountId: validateAccountId(authenticatorData.nearAccountId),
+      nearAccountId: toAccountId(authenticatorData.nearAccountId),
       deviceNumber: authenticatorData.deviceNumber || 1 // Default to device 1 (1-indexed)
     };
     return await IndexedDBManager.clientDB.storeAuthenticator(authData);
@@ -939,7 +939,7 @@ export class WebAuthnManager {
 
       return {
         signedTransaction: result[0].signedTransaction,
-        nearAccountId: validateAccountId(result[0].nearAccountId),
+        nearAccountId: toAccountId(result[0].nearAccountId),
         logs: result[0].logs
       };
 

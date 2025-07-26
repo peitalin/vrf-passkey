@@ -372,15 +372,15 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
       }
     }
 
-    // Ensure validateAccountId is available globally for tests
-    if (typeof (window as any).validateAccountId === 'undefined') {
+    // Ensure toAccountId is available globally for tests
+    if (typeof (window as any).toAccountId === 'undefined') {
       try {
         // @ts-ignore
-        const { validateAccountId } = await import('/sdk/esm/index.js');
-        (window as any).validateAccountId = validateAccountId;
-        console.log('validateAccountId made available globally for tests');
+        const { toAccountId } = await import('/sdk/esm/index.js');
+        (window as any).toAccountId = toAccountId;
+        console.log('toAccountId made available globally for tests');
       } catch (accountIdError) {
-        console.error('Failed to import validateAccountId fallback:', accountIdError);
+        console.error('Failed to import toAccountId fallback:', accountIdError);
       }
     }
   });

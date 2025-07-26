@@ -5,7 +5,7 @@
 
 import type { DeviceLinkingQRData } from '../core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../core/PasskeyManager/linkDevice';
+import { validateDeviceLinkingQRData } from '../core/PasskeyManager/scanDevice';
 
 // Lazy import type for jsQR
 type JsQR = (data: Uint8ClampedArray, width: number, height: number, options?: any) => any;

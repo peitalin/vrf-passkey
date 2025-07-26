@@ -3,6 +3,7 @@ import type { PasskeyManagerContext } from './index';
 import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { validateNearAccountId } from '../../utils/validation';
+import { toAccountId } from '../types/accountIds';
 import { generateBootstrapVrfChallenge } from './registration';
 import { base58Decode, base64UrlEncode } from '../../utils/encoders';
 import { NearClient } from '../NearClient';
@@ -87,13 +88,14 @@ export class AccountRecoveryFlow {
    * Phase 1: Discover available accounts
    * Returns safe display data without exposing credentials to UI
    */
-  async discover(accountId: AccountId): Promise<PasskeyOptionWithoutCredential[]> {
+  async discover(accountId: string): Promise<PasskeyOptionWithoutCredential[]> {
+    const nearAccountId = toAccountId(accountId);
     try {
       this.phase = 'discovering';
       console.debug('AccountRecoveryFlow: Discovering available accounts...');
 
       // Get full options with credentials, requires TouchID prompt
-      this.availableAccounts = await getRecoverableAccounts(this.context, accountId);
+      this.availableAccounts = await getRecoverableAccounts(this.context, nearAccountId);
 
       if (this.availableAccounts.length === 0) {
         // throw new Error('No recoverable accounts found for this passkey');

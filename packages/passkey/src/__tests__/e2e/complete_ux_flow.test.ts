@@ -13,13 +13,9 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
 import { ActionType } from '../../core/types/actions';
-// validateAccountId is available globally from the dynamic SDK import
+// toAccountId is available globally from the dynamic SDK import
 import { BUILD_PATHS } from '@build-paths';
 
-// Declare global validateAccountId function available from dynamic SDK import
-declare global {
-  function validateAccountId(accountId: string): string;
-}
 
 test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
@@ -70,6 +66,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
           passkeyManager,
           generateTestAccountId
         } = (window as any).testUtils as TestUtils;
+      const { toAccountId } = (window as any);
 
         // =================================================================
         // PHASE 1: REGISTRATION & LOGIN FLOW
@@ -81,7 +78,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
         // Registration
         const registrationEvents: any[] = [];
-        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(toAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push(event);
             console.log(`Registration [${event.step}]: ${event.phase} - ${event.message}`);
@@ -184,7 +181,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         }
 
         const loginEvents: any[] = [];
-        const loginResult = await passkeyManager.loginPasskey(validateAccountId(testAccountId), {
+        const loginResult = await passkeyManager.loginPasskey(toAccountId(testAccountId), {
           onEvent: (event: any) => {
             loginEvents.push(event);
             console.log(`Login [${event.step}]: ${event.phase} - ${event.message}`);
@@ -220,7 +217,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
         try {
           transferResult = await passkeyManager.executeAction(
-            validateAccountId(testAccountId),
+            toAccountId(testAccountId),
             {
               type: actionType.Transfer, // Use the passed ActionType
               receiverId: receiverAccountId,
@@ -250,7 +247,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         console.log('=== PHASE 3: RECOVERY FLOW ===');
 
         const recoveryEvents: any[] = [];
-        const recoveryResult = await passkeyManager.recoverAccountWithAccountId(validateAccountId(testAccountId), {
+        const recoveryResult = await passkeyManager.recoverAccountWithAccountId(toAccountId(testAccountId), {
           onEvent: (event: any) => {
             recoveryEvents.push(event);
             console.log(`Recovery [${event.step}]: ${event.phase} - ${event.message}`);
@@ -265,7 +262,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         // =================================================================
         console.log('=== FINAL STATE VERIFICATION ===');
 
-        const finalLoginState = await passkeyManager.getLoginState(validateAccountId(testAccountId));
+        const finalLoginState = await passkeyManager.getLoginState(toAccountId(testAccountId));
         const recentLogins = await passkeyManager.getRecentLogins();
 
         return {

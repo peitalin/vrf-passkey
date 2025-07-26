@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { type ValidationResult, validateNearAccountId } from '../../utils/validation';
 import type { AccountId } from '../types/accountIds';
-import { validateAccountId } from '../types/accountIds';
+import { toAccountId } from '../types/accountIds';
 
 // === TYPE DEFINITIONS ===
 export interface ClientUserData {
@@ -185,7 +185,7 @@ export class PasskeyClientDBManager {
     }
 
     const db = await this.getDB();
-    const accountId = validateAccountId(nearAccountId);
+    const accountId = toAccountId(nearAccountId);
 
     // Find first device for this account (most common case)
     // Should only have one record per account per device
@@ -232,7 +232,7 @@ export class PasskeyClientDBManager {
     const now = Date.now();
 
     const userData: ClientUserData = {
-      nearAccountId: validateAccountId(nearAccountId),
+      nearAccountId: toAccountId(nearAccountId),
       deviceNumber: additionalData?.deviceNumber || 1, // Default to device 1 (1-indexed)
       registeredAt: now,
       lastLogin: now,
@@ -401,7 +401,7 @@ export class PasskeyClientDBManager {
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.authenticatorStore, 'readonly');
     const store = tx.objectStore(DB_CONFIG.authenticatorStore);
-    const accountId = validateAccountId(nearAccountId);
+    const accountId = toAccountId(nearAccountId);
 
     // Get all authenticators for this account across all devices
     const index = store.index('nearAccountId');
@@ -469,7 +469,7 @@ export class PasskeyClientDBManager {
         credentialPublicKey: auth.credentialPublicKey,
         transports,
         name: auth.name,
-        nearAccountId: validateAccountId(nearAccountId),
+        nearAccountId: toAccountId(nearAccountId),
         deviceNumber: auth.deviceNumber || 1, // Default to device 1 (1-indexed)
         registered: auth.registered,
         syncedAt: syncedAt,

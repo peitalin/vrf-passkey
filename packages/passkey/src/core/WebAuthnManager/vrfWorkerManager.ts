@@ -16,7 +16,7 @@ import { VRFChallenge } from '../types/webauthn';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode, base58Decode } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
-import { AccountId, validateAccountId } from '../types/accountIds';
+import { AccountId, toAccountId } from '../types/accountIds';
 
 export interface VrfWorkerManagerConfig {
   vrfWorkerUrl?: string;
@@ -308,7 +308,7 @@ export class VrfWorkerManager {
       if (response.success && response.data) {
         return {
           active: response.data.active,
-          nearAccountId: this.currentVrfAccountId ? validateAccountId(this.currentVrfAccountId) : null,
+          nearAccountId: this.currentVrfAccountId ? toAccountId(this.currentVrfAccountId) : null,
           sessionDuration: response.data.sessionDuration
         };
       }

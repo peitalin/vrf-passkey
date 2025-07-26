@@ -10,12 +10,8 @@
 
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, type TestUtils } from '../setup';
-// validateAccountId is available globally from the dynamic SDK import
+// toAccountId is available globally from the dynamic SDK import
 
-// Declare global validateAccountId function available from dynamic SDK import
-declare global {
-  function validateAccountId(accountId: string): string;
-}
 
 test.describe('PasskeyManager Registration Rollback Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -135,6 +131,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
   test('Registration Rollback - Event Monitoring for Presigned Delete Transaction', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils as TestUtils;
+      const { toAccountId } = (window as any);
       const testAccountId = generateTestAccountId();
 
       console.log(`Testing registration rollback event monitoring for: ${testAccountId}`);
@@ -151,7 +148,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
         });
 
         // Attempt registration and capture events
-        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(toAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push({
               step: event.step,
@@ -240,6 +237,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
 
     const result = await page.evaluate(async () => {
       const { passkeyManager, generateTestAccountId, verifyAccountExists } = (window as any).testUtils as TestUtils;
+      const { toAccountId } = (window as any);
 
       const testAccountId = generateTestAccountId();
       console.log(`Testing comprehensive rollback scenario for: ${testAccountId}`);
@@ -249,7 +247,7 @@ test.describe('PasskeyManager Registration Rollback Verification', () => {
         const registrationEvents: any[] = [];
         let hasPreSignedDeleteTransaction = false;
 
-        const registrationResult = await passkeyManager.registerPasskey(validateAccountId(testAccountId), {
+        const registrationResult = await passkeyManager.registerPasskey(toAccountId(testAccountId), {
           onEvent: (event: any) => {
             registrationEvents.push({
               step: event.step,

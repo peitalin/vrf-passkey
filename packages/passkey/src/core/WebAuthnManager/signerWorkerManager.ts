@@ -51,7 +51,7 @@ import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
 import { jsonTryParse } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
-import { AccountId, validateAccountId } from "../types/accountIds";
+import { AccountId, toAccountId } from "../types/accountIds";
 
 // === CONFIGURATION ===
 const CONFIG = {
@@ -299,7 +299,7 @@ export class SignerWorkerManager {
 
       return {
         success: true,
-        nearAccountId: validateAccountId(wasmResult.nearAccountId),
+        nearAccountId: toAccountId(wasmResult.nearAccountId),
         publicKey: wasmResult.publicKey,
         signedTransaction
       };
@@ -379,7 +379,7 @@ export class SignerWorkerManager {
       const wasmResult = response.payload as wasmModule.DecryptPrivateKeyResult;
       return {
         decryptedPrivateKey: wasmResult.privateKey,
-        nearAccountId: validateAccountId(wasmResult.nearAccountId)
+        nearAccountId: toAccountId(wasmResult.nearAccountId)
       };
     } catch (error: any) {
       console.error('WebAuthnManager: Dual PRF private key decryption error:', error);

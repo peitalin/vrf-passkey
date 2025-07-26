@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { usePasskeyContext } from '../context';
 import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../../core/PasskeyManager/linkDevice';
+import type { DeviceLinkingSSEEvent } from '../../core/types/passkeyManager';
 
 
-interface QRCodeScannerProps {
+export interface QRCodeScannerProps {
   onQRCodeScanned?: (qrData: DeviceLinkingQRData) => void;
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
+  onEvent?: (event: DeviceLinkingSSEEvent) => void;
   autoLink?: boolean;
   fundingAmount?: string;
   isOpen?: boolean;
@@ -22,6 +23,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   onDeviceLinked,
   onError,
   onClose,
+  onEvent,
   autoLink = true,
   fundingAmount = '0.1',
   isOpen = true,
@@ -115,9 +117,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       stopScanning();
     }
 
-    return () => {
-      stopScanning();
-    };
+    return () => { stopScanning() };
   }, [isOpen, scanMode]);
 
   // Handle camera permission and start scanning
@@ -179,8 +179,8 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     if (elapsedTime > SCAN_TIMEOUT_MS) {
       setIsScanning(false);
       isScanningRef.current = false;
-      setError('QR scanning timeout - no valid QR code found within 60 seconds. Please ensure the QR code is clearly visible and try again.');
-      onError?.(new Error('QR scanning timeout after 60 seconds'));
+      setError(`QR scanning timeout - no valid QR code found within ${SCAN_TIMEOUT_MS / 1000} seconds. Please ensure the QR code is clearly visible and try again.`);
+      onError?.(new Error(`QR scanning timeout after ${SCAN_TIMEOUT_MS / 1000} seconds`));
       return;
     }
 
@@ -242,12 +242,14 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       if (autoLink) {
         try {
           console.log('QRCodeScanner: Starting device linking...');
-          console.log('QRCodeScanner: About to call scanAndLinkDevice...');
 
           const result = await passkeyManager.scanAndLinkDevice({
             cameraId: selectedCamera,
             fundingAmount,
-            onEvent: (event) => console.log('QRCodeScanner: Linking event -', event.phase, event.message),
+            onEvent: (event) => {
+              onEvent?.(event);
+              console.log('QRCodeScanner: Linking event -', event.phase, event.message);
+            },
             onError: (error) => {
               console.error('QRCodeScanner: Linking error -', error.message);
               setError(error.message);
@@ -274,6 +276,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     } finally {
       // Always stop scanning and close after QR detection and processing, regardless of success/failure
       console.log('QRCodeScanner: Finally block - cleaning up camera and closing scanner...');
+      setIsProcessing(false);
       stopScanning();
       console.log('QRCodeScanner: Calling onClose callback...');
       if (onClose) {
@@ -281,7 +284,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       } else {
         console.warn('QRCodeScanner: No onClose callback provided');
       }
-      setIsProcessing(false);
     }
   };
 
@@ -380,7 +382,10 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         const result = await passkeyManager.scanAndLinkDevice({
           cameraId: selectedCamera,
           fundingAmount,
-          onEvent: (event) => console.log('QRCodeScanner: File linking event -', event.phase),
+          onEvent: (event) => {
+            onEvent?.(event);
+            console.log('QRCodeScanner: File linking event -', event.phase);
+          },
           onError: (error) => {
             console.error('QRCodeScanner: File linking error -', error.message);
             setError(error.message);
