@@ -9,17 +9,11 @@ import { LinkDeviceScanQR } from '../components/LinkDeviceScanQR';
 export function HomePage() {
   const [lastTxDetails, setLastTxDetails] = useState<LastTxDetails | null>(null);
 
-  const {
-    loginState: {
-      isLoggedIn,
-      nearPublicKey,
-      nearAccountId
-    },
-  } = usePasskeyContext();
+  const { loginState } = usePasskeyContext();
 
   return (
     <main>
-      {isLoggedIn ? (
+      {loginState.isLoggedIn ? (
         <div className="homepage-content">
           <GreetingMenu onTransactionUpdate={setLastTxDetails} />
           <TransactionDetails lastTxDetails={lastTxDetails} />

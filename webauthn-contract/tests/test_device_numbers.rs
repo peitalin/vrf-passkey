@@ -3,8 +3,6 @@ mod device_number_tests {
     use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::{testing_env, AccountId};
     use webauthn_contract::{WebAuthnContract, StoredAuthenticator};
-    use base64::engine::general_purpose::URL_SAFE as BASE64_URL_ENGINE;
-    use base64::Engine;
     use near_sdk::bs58;
 
     fn get_context(predecessor: AccountId) -> VMContextBuilder {

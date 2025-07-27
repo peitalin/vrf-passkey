@@ -81,8 +81,7 @@ export function LinkDeviceScanQR() {
 
       <QRCodeScanner
         isOpen={deviceLinkingState.showScanner}
-        autoLink={true}
-        fundingAmount="0.06"
+        fundingAmount="0.05"
         onDeviceLinked={handleDeviceLinked}
         onError={handleError}
         onClose={onCancelDeviceLinking}
@@ -90,35 +89,32 @@ export function LinkDeviceScanQR() {
           switch (event.phase) {
             case 'qr-code-generated':
               if (event.status === 'progress') {
-                toast.loading('Generating QR code...', { id: 'registration' });
-              }
-              break;
-            case 'addkey-detected':
-              if (event.status === 'progress') {
-                toast.loading('Adding key...', { id: 'registration' });
+                toast.loading('Generating QR code...', { id: 'device-linking' });
               }
               break;
             case 'scanning':
               if (event.status === 'progress') {
-                toast.loading('Scanning QR code...', { id: 'registration' });
+                toast.loading('Scanning QR code...', { id: 'device-linking' });
               }
               break;
             case 'authorization':
               if (event.status === 'progress') {
-                toast.loading('Authorizing...', { id: 'registration' });
+                toast.loading('Authorizing...', { id: 'device-linking' });
               }
               break;
             case 'registration':
               if (event.status === 'progress') {
-                toast.loading('Registering device...', { id: 'registration' });
+                toast.loading('Registering device...', { id: 'device-linking' });
               }
               break;
             case 'registration-error':
-              toast.error(event.error || 'Registration failed', { id: 'registration' });
+              if (event.status === 'error') {
+                toast.error(event.message || 'Registration failed', { id: 'device-linking' });
+              }
               break;
             default:
               if (event.status === 'progress') {
-                toast.loading(event.message || 'Processing...', { id: 'registration' });
+                toast.loading(event.message || 'Processing...', { id: 'device-linking' });
               }
           }
         }}
