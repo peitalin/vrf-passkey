@@ -108,7 +108,7 @@ export function PasskeyLoginMenu() {
         onError: (error) => console.error('Recovery error:', error)
       });
 
-      const options = await flow.discover(targetAccountId as AccountId);
+      const options = await flow.discover(targetAccountId);
       const result = await flow.recover(options[0]);
 
       if (result.success) {

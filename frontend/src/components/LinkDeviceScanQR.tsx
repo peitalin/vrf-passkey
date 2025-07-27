@@ -82,10 +82,46 @@ export function LinkDeviceScanQR() {
       <QRCodeScanner
         isOpen={deviceLinkingState.showScanner}
         autoLink={true}
-        fundingAmount="0.1"
+        fundingAmount="0.06"
         onDeviceLinked={handleDeviceLinked}
         onError={handleError}
         onClose={onCancelDeviceLinking}
+        onEvent={(event) => {
+          switch (event.phase) {
+            case 'qr-code-generated':
+              if (event.status === 'progress') {
+                toast.loading('Generating QR code...', { id: 'registration' });
+              }
+              break;
+            case 'addkey-detected':
+              if (event.status === 'progress') {
+                toast.loading('Adding key...', { id: 'registration' });
+              }
+              break;
+            case 'scanning':
+              if (event.status === 'progress') {
+                toast.loading('Scanning QR code...', { id: 'registration' });
+              }
+              break;
+            case 'authorization':
+              if (event.status === 'progress') {
+                toast.loading('Authorizing...', { id: 'registration' });
+              }
+              break;
+            case 'registration':
+              if (event.status === 'progress') {
+                toast.loading('Registering device...', { id: 'registration' });
+              }
+              break;
+            case 'registration-error':
+              toast.error(event.error || 'Registration failed', { id: 'registration' });
+              break;
+            default:
+              if (event.status === 'progress') {
+                toast.loading(event.message || 'Processing...', { id: 'registration' });
+              }
+          }
+        }}
       />
     </>
   );
