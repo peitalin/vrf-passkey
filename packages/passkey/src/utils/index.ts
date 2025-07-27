@@ -1,5 +1,6 @@
 export * from './encoders';
 export * from './validation';
+export * from './deviceDetection';
 
 /**
  * Shortens a string by keeping a fixed number of characters at the start and end,

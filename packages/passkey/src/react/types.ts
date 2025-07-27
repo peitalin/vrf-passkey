@@ -130,10 +130,10 @@ export interface PasskeyContextType {
     reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
   // Account recovery functions
-  startAccountRecoveryFlow: (options?: ActionOptions) => AccountRecoveryFlow;
+  startAccountRecoveryFlow: (options: ActionOptions) => AccountRecoveryFlow;
   // Device linking functions
-  startDeviceLinkingFlow: (options?: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
-  scanAndLinkDevice: (options?: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
+  startDeviceLinkingFlow: (options: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
+  scanAndLinkDevice: (options: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;

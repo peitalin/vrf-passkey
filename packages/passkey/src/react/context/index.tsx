@@ -264,7 +264,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
    * @param options - DeviceLinkingOptionsDevice1
    * @returns LinkDeviceResult
    */
-  const scanAndLinkDevice = async (options?: ScanAndLinkDeviceOptionsDevice1) => {
+  const scanAndLinkDevice = async (options: ScanAndLinkDeviceOptionsDevice1) => {
     return await passkeyManager.scanAndLinkDevice(options);
   }
 

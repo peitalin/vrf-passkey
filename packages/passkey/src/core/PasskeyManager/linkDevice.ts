@@ -21,7 +21,7 @@ import type {
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import QRCode from 'qrcode';
 // jsQR will be dynamically imported when needed
-import { scanQRCodeFromCamera } from '../../utils/qr-scanner';
+import { scanQRCodeFromCamera } from '../../utils/qrScanner';
 import type { ActionParams } from '../types/signer-worker';
 import { IndexedDBManager } from '../IndexedDBManager';
 import { KeyPair } from '@near-js/crypto';
@@ -61,7 +61,7 @@ async function generateQRCodeDataURL(data: string): Promise<string> {
  */
 export class LinkDeviceFlow {
   private context: PasskeyManagerContext;
-  private options?: StartDeviceLinkingOptionsDevice2;
+  private options: StartDeviceLinkingOptionsDevice2;
   private session: DeviceLinkingSession | null = null;
   private phase: 'idle' | 'generating' | 'waiting' | 'registering' | 'complete' | 'error' = 'idle';
   private error?: Error;
@@ -70,7 +70,7 @@ export class LinkDeviceFlow {
   private KEY_POLLING_INTERVAL = 4000;
   private readonly instanceId = Math.random().toString(36).substring(2, 8);
 
-  constructor(context: PasskeyManagerContext, options?: StartDeviceLinkingOptionsDevice2) {
+  constructor(context: PasskeyManagerContext, options: StartDeviceLinkingOptionsDevice2) {
     this.context = context;
     this.options = options;
     console.log(`LinkDeviceFlow[${this.instanceId}]: New instance created`);

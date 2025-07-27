@@ -7,12 +7,18 @@ export { useNearClient } from './hooks/useNearClient';
 export type { NearClient } from '../core/NearClient';
 export { useAccountInput } from './hooks/useAccountInput';
 export { useRelayer } from './hooks/useRelayer';
+export { useQRCamera } from './hooks/useQRCamera';
+export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
+export { useDeviceLinking } from './hooks/useDeviceLinking';
+export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/useDeviceLinking';
+export { useQRFileUpload } from './hooks/useQRFileUpload';
+export type { UseQRFileUploadOptions, UseQRFileUploadReturn } from './hooks/useQRFileUpload';
 export { TxExecutionStatus } from '../core/types/actions';
 
 // === REACT COMPONENTS ===
 export { ProfileButton } from './components/ProfileSettingsButton';
-// Lazy-loaded QR Scanner (jsQR library ~234kB)
-export { QRCodeScanner } from './components/QRCodeScanner.lazy';
+// QR Scanner (jsQR library lazy-loaded in qrScanner.ts utility)
+export { QRCodeScanner } from './components/QRCodeScanner';
 
 // === TYPES ===
 export type {

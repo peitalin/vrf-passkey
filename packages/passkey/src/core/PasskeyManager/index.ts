@@ -18,12 +18,13 @@ import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import { ActionType, type ActionArgs } from '../types/actions';
 import type {
+  DeviceLinkingQRData,
   LinkDeviceResult,
   StartDeviceLinkingOptionsDevice2,
   ScanAndLinkDeviceOptionsDevice1
 } from '../types/linkDevice';
 import { LinkDeviceFlow } from './linkDevice';
-import { scanAndLinkDevice } from './scanDevice';
+import { scanAndLinkDevice, linkDeviceWithQRData } from './scanDevice';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -186,15 +187,25 @@ export class PasskeyManager {
    * const state = flow.getState();
    * ```
    */
-  startDeviceLinkingFlow(options?: StartDeviceLinkingOptionsDevice2): LinkDeviceFlow {
+  startDeviceLinkingFlow(options: StartDeviceLinkingOptionsDevice2): LinkDeviceFlow {
     return new LinkDeviceFlow(this.getContext(), options);
   }
 
   /**
    * Device1: Scan QR code and execute AddKey transaction (convenience method)
    */
-  async scanAndLinkDevice(options?: ScanAndLinkDeviceOptionsDevice1): Promise<LinkDeviceResult> {
+  async scanAndLinkDevice(options: ScanAndLinkDeviceOptionsDevice1): Promise<LinkDeviceResult> {
     return scanAndLinkDevice(this.getContext(), options);
+  }
+
+  /**
+   * Device1: Link device using pre-scanned QR data (skips QR scanning step)
+   */
+  async linkDeviceWithQRData(
+    qrData: DeviceLinkingQRData,
+    options: Omit<ScanAndLinkDeviceOptionsDevice1, 'cameraId' | 'cameraConfigs'>
+  ): Promise<LinkDeviceResult> {
+    return linkDeviceWithQRData(this.getContext(), qrData, options);
   }
 
   /**

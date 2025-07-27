@@ -7,38 +7,24 @@ import { getNonceBlockHashAndHeight } from './actions';
 import type { VRFInputData } from '../types/vrf-worker';
 import type {
   DeviceLinkingQRData,
-  DeviceLinkingSession,
-  DeviceLinkingStatus,
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
-  StartDeviceLinkingOptionsDevice2
 } from '../types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
-import QRCode from 'qrcode';
 // jsQR will be dynamically imported when needed
-import { scanQRCodeFromCamera } from '../../utils/qr-scanner';
+import { scanQRCodeFromCamera } from '../../utils/qrScanner';
 
 /**
- * Device1 (original device): Scan QR code and execute AddKey transaction
+ * Device1 (original device): Link device using pre-scanned QR data
  */
-export async function scanAndLinkDevice(
+export async function linkDeviceWithQRData(
   context: PasskeyManagerContext,
-  options?: ScanAndLinkDeviceOptionsDevice1
+  qrData: DeviceLinkingQRData,
+  options: Omit<ScanAndLinkDeviceOptionsDevice1, 'cameraId' | 'cameraConfigs'>
 ): Promise<LinkDeviceResult> {
   const { onEvent, onError } = options || {};
 
   try {
-    onEvent?.({
-      step: 1,
-      phase: 'scanning',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Scanning QR code...'
-    });
-
-    // 1. Scan QR code
-    const qrData = await scanQRCodeFromCamera(options?.cameraId, options?.cameraConfigs);
-
     onEvent?.({
       step: 2,
       phase: 'scanning',
@@ -47,7 +33,7 @@ export async function scanAndLinkDevice(
       message: 'Validating QR data...'
     });
 
-    // 2. Validate QR data
+    // Validate QR data
     validateDeviceLinkingQRData(qrData);
 
     onEvent?.({
@@ -76,7 +62,7 @@ export async function scanAndLinkDevice(
     });
 
     // 4. Execute batched transaction: AddKey + Contract notification
-    const fundingAmount = options?.fundingAmount || '0.1'; // Default funding amount
+    const fundingAmount = options.fundingAmount;
 
     // Parse the device public key for AddKey action
     const devicePublicKey = qrData.devicePublicKey;
@@ -85,7 +71,6 @@ export async function scanAndLinkDevice(
     }
 
     // Execute two transactions with one PRF - reuse VRF challenge and credential
-
     onEvent?.({
       step: 4,
       phase: 'authorization',
@@ -93,8 +78,6 @@ export async function scanAndLinkDevice(
       timestamp: Date.now(),
       message: `Performing TouchID authentication for device linking...`
     });
-
-    // Device1 account is already validated above
 
     const userData = await context.webAuthnManager.getUser(device1AccountId);
     const nearPublicKeyStr = userData?.clientNearPublicKey;
@@ -112,8 +95,7 @@ export async function scanAndLinkDevice(
       nearPublicKeyStr: nearPublicKeyStr,
       nearAccountId: device1AccountId
     });
-
-    const nextNextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(2)).toString();
+    const nextNextNonce = (BigInt(nextNonce) + BigInt(1)).toString();
 
     const vrfInputData: VRFInputData = {
       userId: device1AccountId,
@@ -338,5 +320,39 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
   // Account ID is optional - Device2 discovers it from contract logs
   if (qrData.accountId) {
     validateNearAccountId(qrData.accountId);
+  }
+}
+
+/**
+ * Device1 (original device): Scan QR code and execute AddKey transaction (convenience method)
+ */
+export async function scanAndLinkDevice(
+  context: PasskeyManagerContext,
+  options: ScanAndLinkDeviceOptionsDevice1
+): Promise<LinkDeviceResult> {
+  const { onEvent, onError } = options || {};
+
+  try {
+    onEvent?.({
+      step: 1,
+      phase: 'scanning',
+      status: 'progress',
+      timestamp: Date.now(),
+      message: 'Scanning QR code...'
+    });
+
+    // 1. Scan QR code
+    const qrData = await scanQRCodeFromCamera(options.cameraId, options.cameraConfigs);
+
+    // 2. Use the extracted linking function with the scanned QR data
+    return await linkDeviceWithQRData(context, qrData, {
+      fundingAmount: options.fundingAmount,
+      onEvent,
+      onError
+    });
+
+  } catch (error: any) {
+    onError?.(error);
+    throw error;
   }
 }
