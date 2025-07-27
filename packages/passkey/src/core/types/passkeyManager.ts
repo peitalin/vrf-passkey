@@ -59,7 +59,8 @@ export interface DeviceLinkingSSEEvent extends BaseSSEEvent {
   | 'authorization'
   | 'registration'
   | 'registration-error'
-  | 'device-linking';
+  | 'device-linking'
+  | 'error';
 }
 
 // Registration Event Types

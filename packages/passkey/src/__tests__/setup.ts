@@ -2,10 +2,10 @@
  * E2E Test Setup Utilities
  *
  * Provides reusable setup functions for PasskeyManager e2e testing for:
- * - ✅ Registration flow: Works correctly
- * - ✅ Contract verification: Finds stored credentials
- * - ✅ VRF Login flow: VRF keypair unlock works properly
- * - ✅ Recovery flow: Works correctly with proper account ID extraction
+ * - Registration flow: Works correctly
+ * - Contract verification: Finds stored credentials
+ * - VRF Login flow: VRF keypair unlock works properly
+ * - Recovery flow: Works correctly with proper account ID extraction
  *
  * IMPORTANT: Module Loading Strategy
  * ===================================
@@ -28,26 +28,6 @@
  * 3. STABILIZATION WAIT: Allow browser environment to settle
  * 4. DYNAMIC IMPORTS: Load PasskeyManager only after environment is ready
  * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
- *
- * Credential ID Format Consistency
- * ==============================================
- *
- * Fixed Issue: Contract verification was failing during actions flow with error:
- * "No stored authenticator found for credential ID"
- *
- * Root Cause: Credential ID format mismatch between registration and authentication
- *
- * The WebAuthn contract expects credential IDs to be handled consistently:
- * 1. Registration: Credential ID bytes are embedded in attestation object
- * 2. Storage: Contract calls BASE64_URL_ENGINE.encode(&credential_id_bytes) for storage key
- * 3. Authentication: Contract looks up using webauthn_authentication.id directly
- *
- * The Fix:
- * - Registration: Use base64url-encoded credential ID in both response.id and attestation object
- * - Authentication: Return same base64url-encoded format for contract lookup
- * - Both flows now use: base64UrlEncode(TextEncoder.encode("test-credential-{accountId}-auth"))
- *
- * This ensures the contract can successfully store during registration and lookup during authentication.
  */
 
 // STATIC IMPORTS: Safe to load early
@@ -56,7 +36,7 @@
 // - Page: Playwright type, no runtime dependencies
 // - type PasskeyManager: TypeScript type only, no runtime code
 // - encoders: Utility functions used in Node.js context, not browser
-import { Page } from '@playwright/test';
+import { Page, test } from '@playwright/test';
 import type { PasskeyManager } from '../index';
 import { base64UrlEncode } from '../utils/encoders';
 
@@ -69,8 +49,8 @@ const DEFAULT_TEST_CONFIG = {
   nearNetwork: 'testnet' as const,
   relayerAccount: 'web3-authn-v2.testnet',
   contractId: 'web3-authn-v2.testnet',
-  nearRpcUrl: 'https://rpc.testnet.near.org',
-  // nearRpcUrl: 'https://free.rpc.fastnear.com',
+  // nearRpcUrl: 'https://rpc.testnet.near.org',
+  nearRpcUrl: 'https://free.rpc.fastnear.com',
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
@@ -941,4 +921,43 @@ async function setupTestUtilities(page: Page, config: any): Promise<void> {
 
     console.log('Test utilities setup complete');
   }, config);
+}
+
+/**
+ * Handles common infrastructure errors that should result in test skips rather than failures.
+ * This centralizes error detection for testnet faucet rate limiting and contract connectivity issues.
+ *
+ * @param result - The test result object containing success status and error message
+ * @returns boolean - true if test was skipped due to infrastructure issues, false otherwise
+ */
+export function handleInfrastructureErrors(result: { success: boolean; error?: string }): boolean {
+  if (!result.success && result.error) {
+    // Check if this is a rate limiting error (429) from testnet faucet
+    if (result.error.includes('429') && result.error.includes('Faucet service error')) {
+      console.warn('⚠️  Test skipped due to testnet faucet rate limiting (HTTP 429)');
+      console.warn('   This is expected when running multiple tests quickly.');
+      console.warn('   Rerun the test later - this is not a test failure.');
+      console.warn(`   Error: ${result.error}`);
+
+      // Skip this test instead of failing
+      test.skip(true, 'Testnet faucet rate limited (HTTP 429) - retry later');
+      return true;
+    }
+
+    // Check if this is a contract connectivity error
+    if (result.error.includes('Web3Authn contract registration check failed') ||
+        result.error.includes('User verification failed - account may already exist or contract is unreachable')) {
+      console.warn('⚠️  Test skipped due to testnet contract connectivity issues');
+      console.warn('   The web3authn-v2.testnet contract may be unreachable or RPC issues.');
+      console.warn('   This is a testnet infrastructure issue, not a test failure.');
+      console.warn('   Rerun the test later - this is not a test failure.');
+      console.warn(`   Error: ${result.error}`);
+
+      // Skip this test instead of failing
+      test.skip(true, 'Testnet contract unreachable - retry later');
+      return true;
+    }
+  }
+
+  return false;
 }

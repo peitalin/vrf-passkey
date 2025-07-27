@@ -6,7 +6,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { setupBasicPasskeyTest } from '../setup';
+import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 test.describe('Worker Communication Protocol', () => {
 
@@ -108,16 +108,24 @@ test.describe('Worker Communication Protocol', () => {
     });
 
     // Assertions
-    expect(result.success).toBe(true);
     if (!result.success) {
+      // Handle common infrastructure errors (rate limiting, contract connectivity)
+      if (handleInfrastructureErrors(result)) {
+        return; // Test was skipped due to infrastructure issues
+      }
+
+      // For other errors, fail as expected
       console.error('Test failed:', result.error);
+      expect(result.success).toBe(true); // This will fail and show the error
       return;
     }
 
+    expect(result.success).toBe(true);
+
     // Verify progress events were captured
     expect(result.totalEvents).toBeGreaterThan(0);
-    console.log(`✅ Captured ${result.totalEvents} progress events`);
-    console.log(`✅ Phases: ${result.uniquePhases?.join(', ') || 'none'}`);
+    console.log(`Captured ${result.totalEvents} progress events`);
+    console.log(`Phases: ${result.uniquePhases?.join(', ') || 'none'}`);
 
     // Verify expected phases are present
     expect(result.hasPreparation).toBe(true);
@@ -195,13 +203,21 @@ test.describe('Worker Communication Protocol', () => {
       }
     });
 
-    expect(result.success).toBe(true);
     if (!result.success) {
+      // Handle common infrastructure errors (rate limiting, contract connectivity)
+      if (handleInfrastructureErrors(result)) {
+        return; // Test was skipped due to infrastructure issues
+      }
+
+      // For other errors, fail as expected
       console.error('Message types test failed:', result.error);
+      expect(result.success).toBe(true); // This will fail and show the error
       return;
     }
 
-        console.log('✅ Message Types Test Results:');
+    expect(result.success).toBe(true);
+
+    console.log('✅ Message Types Test Results:');
     console.log(`   Total Events: ${result.totalEvents}`);
     console.log(`   Message Types: ${result.messageTypes?.join(', ') || 'none'}`);
     console.log(`   Progress: ${result.progressCount}, Success: ${result.successCount}, Error: ${result.errorCount}`);

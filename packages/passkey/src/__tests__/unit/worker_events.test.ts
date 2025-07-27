@@ -43,22 +43,6 @@ function runTests(): void {
   assert(typeof validMsg.timestamp === 'number', 'timestamp should be number');
   assert(validMsg.data === undefined || typeof validMsg.data === 'string', 'data should be string or undefined');
   console.log('Message structure validation working correctly\n');
-
-  // Test 3: Documentation and Flow
-  console.log('Test 3: Documentation and Flow');
-  console.log('   Progress Flow: Rust WASM → send_typed_progress_message() → TypeScript → Main Thread');
-  console.log('   Result Flow: Rust WASM → handle_signer_message() return → TypeScript → Main Thread');
-  console.log('   Type Safety: Auto-generated types from Rust wasm-bindgen ensure consistency');
-  console.log('  Communication flow documented\n');
-
-  console.log('Worker Communication Protocol Tests Passed!');
-  console.log('  Basic message validation working');
-  console.log('  Message structure validated');
-  console.log('  Communication flow documented');
-  console.log('\nNOTE: Full type-safe testing will be available after WASM build');
-  console.log('   Auto-generated types: ProgressMessageType, ProgressStep, ProgressStatus, WorkerProgressMessage');
-  console.log('   Location: dist/types/wasm_signer_worker.d.ts (after npm run build)');
-  console.log('\nProgress messaging regression protection in place!');
 }
 
 // Export for testing in Node.js

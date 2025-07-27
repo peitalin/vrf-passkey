@@ -11,6 +11,9 @@
 
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import { BUILD_PATHS } from '@build-paths';
+import type { VrfWorkerManager } from '../../core/WebAuthnManager/vrfWorkerManager';
+import type { AccountId } from '../../core/types/accountIds';
 
 // Test configuration
 const TEST_CONFIG = {
@@ -19,10 +22,11 @@ const TEST_CONFIG = {
     userId: 'vrf-test-account.testnet',
     rpId: 'localhost',
     blockHeight: 12345,
-    blockHashBytes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+    blockHash: '11111111111111111111111111111111111111111111', // Simple valid base58 string (all 1s, decodes to zeros)
     timestamp: Date.now()
   },
-  MOCK_PRF_OUTPUT: 'dGVzdC1wcmYtb3V0cHV0LTMyLWJ5dGVzLWZvci10ZXN0aW5n' // base64url: 'test-prf-output-32-bytes-for-testing'
+  MOCK_PRF_OUTPUT: 'dGVzdC1wcmYtb3V0cHV0LTMyLWJ5dGVzLWZvci10ZXN0aW5n', // base64url: 'test-prf-output-32-bytes-for-testing'
+  VRF_WORKER_URL: BUILD_PATHS.TEST_WORKERS.VRF
 };
 
 test.describe('VRF Worker Manager Integration Test', () => {
@@ -34,7 +38,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
   });
 
   test('VRF Worker Manager - Debug Error Logging', async ({ page }) => {
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (testConfig) => {
       try {
         console.log('=== DEBUG TEST START ===');
         console.log('Current URL:', window.location.href);
@@ -42,15 +46,12 @@ test.describe('VRF Worker Manager Integration Test', () => {
         // Import VrfWorkerManager directly from its built module
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-        console.log('VrfWorkerManager imported successfully');
-
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: testConfig.VRF_WORKER_URL,
           workerTimeout: 15000,
           debug: true
-        });
+        }) as VrfWorkerManager;
         console.log('VrfWorkerManager created successfully');
-
         await vrfWorkerManager.initialize();
         console.log('VrfWorkerManager initialized successfully');
 
@@ -67,7 +68,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
           fullError: String(error)
         };
       }
-    });
+    }, TEST_CONFIG);
 
     console.log('Test result:', result);
     // Don't add expectations - just log the result
@@ -78,20 +79,18 @@ test.describe('VRF Worker Manager Integration Test', () => {
   ////////////////////////////////////
 
   test('VRF Worker Manager - Initialization and Communication', async ({ page }) => {
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (testConfig) => {
       try {
         // Import VRF Worker Manager from built SDK
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-
         console.log('Testing VRF Worker Manager initialization...');
-
         // Create VRF Worker Manager with test configuration
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: testConfig.VRF_WORKER_URL,
           workerTimeout: 15000,
           debug: true
-        });
+        }) as VrfWorkerManager;
 
         // Test initialization
         await vrfWorkerManager.initialize();
@@ -114,7 +113,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
           stack: error.stack
         };
       }
-    });
+    }, TEST_CONFIG);
 
     // Verify initialization succeeded
     expect(result.success).toBe(true);
@@ -137,10 +136,8 @@ test.describe('VRF Worker Manager Integration Test', () => {
       try {
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-
         console.log('Testing VRF bootstrap keypair generation...');
-
-        const vrfWorkerManager = new VrfWorkerManager();
+        const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
         // Generate bootstrap VRF keypair (used during registration)
@@ -190,6 +187,14 @@ test.describe('VRF Worker Manager Integration Test', () => {
       }
     }, TEST_CONFIG);
 
+    // Debug: Log result details if test fails
+    if (!result.success) {
+      console.log('=== BOOTSTRAP TEST FAILURE DEBUG ===');
+      console.log('Error:', result.error);
+      console.log('Full result:', JSON.stringify(result, null, 2));
+      console.log('=== END DEBUG ===');
+    }
+
     // Verify bootstrap keypair generation
     expect(result.success).toBe(true);
     expect(result.hasValidPublicKey).toBe(true);
@@ -211,26 +216,24 @@ test.describe('VRF Worker Manager Integration Test', () => {
       try {
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-
         console.log('Testing deterministic VRF keypair derivation from PRF...');
-
-        const vrfWorkerManager = new VrfWorkerManager();
+        const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
         // Derive deterministic VRF keypair from PRF output (used during recovery)
         console.log('Deriving VRF keypair from PRF output...');
         const derivedResult1 = await vrfWorkerManager.deriveVrfKeypairFromSeed({
           prfOutput: testConfig.MOCK_PRF_OUTPUT,
-          nearAccountId: testConfig.ACCOUNT_ID,
-          vrfInputParams: testConfig.VRF_INPUT_PARAMS
+          nearAccountId: testConfig.ACCOUNT_ID as AccountId,
+          vrfInputData: testConfig.VRF_INPUT_PARAMS
         });
 
         // Derive again with same PRF output to test deterministic behavior
         console.log('Deriving VRF keypair again with same PRF...');
         const derivedResult2 = await vrfWorkerManager.deriveVrfKeypairFromSeed({
           prfOutput: testConfig.MOCK_PRF_OUTPUT,
-          nearAccountId: testConfig.ACCOUNT_ID,
-          vrfInputParams: testConfig.VRF_INPUT_PARAMS
+          nearAccountId: testConfig.ACCOUNT_ID as AccountId,
+          vrfInputData: testConfig.VRF_INPUT_PARAMS
         });
 
         // Verify deterministic behavior
@@ -238,17 +241,32 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const sameVrfOutput = derivedResult1.vrfChallenge?.vrfOutput === derivedResult2.vrfChallenge?.vrfOutput;
         const sameVrfProof = derivedResult1.vrfChallenge?.vrfProof === derivedResult2.vrfChallenge?.vrfProof;
 
-        // Test with different PRF output
+        // Test with different PRF output - ensure it's exactly 32 bytes when decoded
         console.log('Testing with different PRF output...');
-        const differentPrfOutput = 'ZGlmZmVyZW50LXByZi1vdXRwdXQtMzItYnl0ZXMtdGVzdA'; // different base64url
+        const differentPrfBytes = new TextEncoder().encode('different-prf-output-32-bytes!!');
+        const differentPrfOutput = btoa(String.fromCharCode(...differentPrfBytes))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=/g, '');
+
+        console.log(`Original PRF: ${testConfig.MOCK_PRF_OUTPUT}`);
+        console.log(`Different PRF: ${differentPrfOutput}`);
+
         const derivedResult3 = await vrfWorkerManager.deriveVrfKeypairFromSeed({
           prfOutput: differentPrfOutput,
-          nearAccountId: testConfig.ACCOUNT_ID,
-          vrfInputParams: testConfig.VRF_INPUT_PARAMS
+          nearAccountId: testConfig.ACCOUNT_ID as AccountId,
+          vrfInputData: testConfig.VRF_INPUT_PARAMS
         });
 
         const differentPublicKey = derivedResult1.vrfPublicKey !== derivedResult3.vrfPublicKey;
         const differentVrfOutput = derivedResult1.vrfChallenge?.vrfOutput !== derivedResult3.vrfChallenge?.vrfOutput;
+
+        console.log(`VRF Public Key 1: ${derivedResult1.vrfPublicKey?.substring(0, 20)}...`);
+        console.log(`VRF Public Key 3: ${derivedResult3.vrfPublicKey?.substring(0, 20)}...`);
+        console.log(`VRF Output 1: ${derivedResult1.vrfChallenge?.vrfOutput?.substring(0, 20)}...`);
+        console.log(`VRF Output 3: ${derivedResult3.vrfChallenge?.vrfOutput?.substring(0, 20)}...`);
+        console.log(`Different public keys: ${differentPublicKey}`);
+        console.log(`Different VRF outputs: ${differentVrfOutput}`);
 
         return {
           success: true,
@@ -260,7 +278,9 @@ test.describe('VRF Worker Manager Integration Test', () => {
           hasEncryptedKeypair1: !!derivedResult1.encryptedVrfKeypair,
           hasEncryptedKeypair2: !!derivedResult2.encryptedVrfKeypair,
           vrfPublicKey1: derivedResult1.vrfPublicKey.substring(0, 20) + '...',
-          vrfPublicKey3: derivedResult3.vrfPublicKey.substring(0, 20) + '...'
+          vrfPublicKey3: derivedResult3.vrfPublicKey.substring(0, 20) + '...',
+          vrfOutput1: derivedResult1.vrfChallenge?.vrfOutput?.substring(0, 20) + '...' || 'none',
+          vrfOutput3: derivedResult3.vrfChallenge?.vrfOutput?.substring(0, 20) + '...' || 'none'
         };
 
       } catch (error: any) {
@@ -279,6 +299,17 @@ test.describe('VRF Worker Manager Integration Test', () => {
     expect(result.samePublicKey).toBe(true);
     expect(result.sameVrfOutput).toBe(true);
     expect(result.sameVrfProof).toBe(true);
+
+    // Debug: Log result details if test fails
+    if (!result.differentVrfOutput) {
+      console.log('=== DETERMINISTIC TEST FAILURE DEBUG ===');
+      console.log('VRF Output 1:', result.vrfOutput1);
+      console.log('VRF Output 3:', result.vrfOutput3);
+      console.log('Different public keys:', result.differentPublicKey);
+      console.log('Different VRF outputs:', result.differentVrfOutput);
+      console.log('Full result:', JSON.stringify(result, null, 2));
+      console.log('=== END DEBUG ===');
+    }
 
     // Verify different PRF → different results
     expect(result.differentPublicKey).toBe(true);
@@ -306,7 +337,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
 
         console.log('Testing VRF session management...');
 
-        const vrfWorkerManager = new VrfWorkerManager();
+        const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
         // Check initial status (should be inactive)
@@ -351,16 +382,16 @@ test.describe('VRF Worker Manager Integration Test', () => {
     expect(result.sessionLifecycleWorking).toBe(true);
 
     // Verify initial status
-    expect(result.initialStatus.active).toBe(false);
-    expect(result.initialStatus.nearAccountId).toBe(null);
+    expect(result?.initialStatus?.active).toBe(false);
+    expect(result?.initialStatus?.nearAccountId).toBe(null);
 
     // Verify active status
-    expect(result.activeStatus.active).toBe(true);
-    expect(result.activeStatus.nearAccountId).toBe(TEST_CONFIG.ACCOUNT_ID);
+    expect(result?.activeStatus?.active).toBe(true);
+    expect(result?.activeStatus?.nearAccountId).toBe(TEST_CONFIG.ACCOUNT_ID);
 
     // Verify cleared status
-    expect(result.clearedStatus.active).toBe(false);
-    expect(result.clearedStatus.nearAccountId).toBe(null);
+    expect(result?.clearedStatus?.active).toBe(false);
+    expect(result?.clearedStatus?.nearAccountId).toBe(null);
 
     console.log('✅ VRF session management test passed');
     console.log(`   Session lifecycle: inactive → active → inactive`);
@@ -380,7 +411,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
 
         console.log('Testing VRF challenge generation with active session...');
 
-        const vrfWorkerManager = new VrfWorkerManager();
+        const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
         // First, activate session by generating a VRF keypair
@@ -393,7 +424,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
           userId: testConfig.ACCOUNT_ID,
           rpId: 'localhost',
           blockHeight: 67890,
-          blockHash: base64UrlEncode(new Uint8Array(testConfig.VRF_INPUT_PARAMS.blockHashBytes)),
+          blockHash: testConfig.VRF_INPUT_PARAMS.blockHash,
           timestamp: Date.now()
         };
 
@@ -476,10 +507,8 @@ test.describe('VRF Worker Manager Integration Test', () => {
       try {
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-
         console.log('Testing VRF Worker Manager error handling...');
-
-        const vrfWorkerManager = new VrfWorkerManager();
+        const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
         const testResults = {
@@ -515,7 +544,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
         try {
           await vrfWorkerManager.deriveVrfKeypairFromSeed({
             prfOutput: 'this-is-not-valid-base64url!@#$%',
-            nearAccountId: testConfig.ACCOUNT_ID
+            nearAccountId: testConfig.ACCOUNT_ID as AccountId
           });
           console.log('ERROR: Invalid PRF derivation should have failed but succeeded!');
         } catch (error: any) {
@@ -530,7 +559,7 @@ test.describe('VRF Worker Manager Integration Test', () => {
         try {
           await vrfWorkerManager.deriveVrfKeypairFromSeed({
             prfOutput: '',
-            nearAccountId: testConfig.ACCOUNT_ID
+            nearAccountId: testConfig.ACCOUNT_ID as AccountId
           });
           console.log('ERROR: Empty PRF derivation should have failed but succeeded!');
         } catch (error: any) {
@@ -577,11 +606,9 @@ test.describe('VRF Worker Manager Integration Test', () => {
       try {
         // @ts-ignore - Runtime import path
         const { VrfWorkerManager } = await import('/sdk/esm/core/WebAuthnManager/vrfWorkerManager.js');
-
         console.log('=== VRF RESPONSE STRUCTURE DEBUG ===');
-
         const vrfWorkerManager = new VrfWorkerManager({
-          vrfWorkerUrl: '/sdk/workers/web3authn-vrf.worker.js',
+          vrfWorkerUrl: testConfig.VRF_WORKER_URL,
           workerTimeout: 15000,
           debug: true
         });

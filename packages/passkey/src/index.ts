@@ -112,3 +112,22 @@ export {
 
 // === ERROR TYPES ===
 export type { PasskeyErrorDetails } from './core/types/errors';
+
+// === SERVER PACKAGE ===
+// Core NEAR Account Service for server-side operations
+export {
+  NearAccountService,
+  getServerConfig,
+  validateServerConfig,
+  getTestServerConfig
+} from './server';
+
+export type {
+  ServerConfig,
+  AccountCreationRequest,
+  AccountCreationResult,
+  CreateAccountAndRegisterRequest,
+  CreateAccountAndRegisterResult,
+  ContractVrfData,
+  WebAuthnRegistrationCredential
+} from './server';
