@@ -4,10 +4,13 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import config from './config';
-import { nearAccountService } from './accountService';
+import { NearAccountService, getServerConfig } from '@web3authn/passkey/server';
 import routes from './routes';
 
 const app: Express = express();
+
+// Create NearAccountService instance
+const nearAccountService = new NearAccountService(getServerConfig());
 
 // Middleware
 app.use(express.json());
@@ -35,3 +38,6 @@ app.listen(config.port, () => {
     console.error("AccountService initial check failed (non-blocking server start):", err);
   });
 });
+
+// Export for use in routes
+export { nearAccountService };

@@ -50,10 +50,10 @@ function TransactionComponent() {
 
 ## Documentation Files
 
-### [📋 Registration Flow](./registration-flow.md)
+### [Registration Flow](./registration-flow.md)
 Complete registration process documentation including step-by-step flow, TypeScript interfaces, and implementation examples.
 
-## 🚀 Registration System
+## Registration System
 
 The registration system uses numbered steps (1-6) with Server-Sent Events (SSE) for real-time progress updates:
 
@@ -72,7 +72,7 @@ The registration system uses numbered steps (1-6) with Server-Sent Events (SSE) 
 - **Error Resilience**: Non-fatal errors in steps 4-5 don't prevent usage
 - **Real-time Progress**: Numbered steps enable precise progress tracking
 
-## 🔐 Transaction Signing System
+## Transaction Signing System
 
 All NEAR transaction signing happens inside WASM workers for enhanced security and performance.
 

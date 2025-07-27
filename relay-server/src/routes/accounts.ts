@@ -1,14 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { nearAccountService } from '../accountService';
-import type { RegistrationSSEEvent, CreateAccountAndRegisterRequest, CreateAccountAndRegisterResult } from '../types';
+import { nearAccountService } from '../index';
+import type { CreateAccountAndRegisterRequest } from '@web3authn/passkey/server';
 
 const router = Router();
-
-interface RequestParams {
-  accountId: string;
-  publicKey: string;
-  initialBalance: string;
-}
 
 /**
  * POST /create_account_and_register_user
@@ -34,15 +28,6 @@ router.post('/create_account_and_register_user', async (req: Request<any, any, C
       hasVrfData: !!req.body.vrf_data,
       hasWebAuthnRegistration: !!req.body.webauthn_registration
     });
-
-    // Add detailed logging for debugging the WebAuthn credential structure
-    console.log('=== DEBUG: WebAuthn Credential Structure ===');
-    console.log('webauthn_registration keys:', Object.keys(req.body.webauthn_registration || {}));
-    console.log('webauthn_registration.response keys:', Object.keys(req.body.webauthn_registration?.response || {}));
-    console.log('webauthn_registration.response.clientDataJSON type:', typeof req.body.webauthn_registration?.response?.clientDataJSON);
-    console.log('webauthn_registration.response.attestationObject type:', typeof req.body.webauthn_registration?.response?.attestationObject);
-    console.log('webauthn_registration sample:', JSON.stringify(req.body.webauthn_registration, null, 2));
-    console.log('=== END DEBUG ===');
 
     const { new_account_id, new_public_key, vrf_data, webauthn_registration, deterministic_vrf_public_key } = req.body;
 
@@ -86,47 +71,5 @@ router.post('/create_account_and_register_user', async (req: Request<any, any, C
     });
   }
 });
-
-/**
- * POST /accounts/create-account
- * Create a new account directly using relay server authority (simple JSON response)
- *
- * Body: JSON with accountId, publicKey, and optional initialBalance
- * {
- *   "accountId": "user.near",
- *   "publicKey": "ed25519:ABC123...",
- *   "initialBalance": "20000000000000000000000" // Optional, in yoctoNEAR (defaults to 0.02 NEAR)
- * }
- *
- * Returns: JSON response with success/error status
- * For real-time progress updates, use /accounts/create-account-sse instead
- */
-router.post('/accounts/create-account', async (req: Request<any, any, RequestParams>, res: Response) => {
-  try {
-    console.log('POST /accounts/create-account', req.body);
-    const { accountId, publicKey } = req.body;
-    if (!accountId || typeof accountId !== 'string') throw new Error('Missing or invalid accountId');
-    if (!publicKey || typeof publicKey !== 'string') throw new Error('Missing or invalid publicKey');
-
-    const result = await nearAccountService.createAccount({ accountId, publicKey });
-
-    // Return the result directly - don't throw if unsuccessful
-    if (result.success) {
-      res.status(200).json(result);
-    } else {
-      // Return error response with appropriate HTTP status code
-      console.error('Account creation failed:', result.error);
-      res.status(400).json(result); // Use 400 for client errors like "account already exists"
-    }
-
-  } catch (error: any) {
-    console.error('Account creation failed:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Unknown server error'
-    });
-  }
-});
-
 
 export default router;

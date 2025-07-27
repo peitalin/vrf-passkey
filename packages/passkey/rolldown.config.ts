@@ -61,6 +61,39 @@ export default defineConfig([
     },
     plugins: []
   },
+  // Server ESM build
+  {
+    input: 'src/server/index.ts',
+    output: {
+      dir: `${BUILD_PATHS.BUILD.ESM}/server`,
+      format: 'esm',
+      preserveModules: true,
+      preserveModulesRoot: 'src/server',
+      sourcemap: true
+    },
+    external,
+    resolve: {
+      alias: aliasConfig
+    },
+    plugins: []
+  },
+  // Server CJS build
+  {
+    input: 'src/server/index.ts',
+    output: {
+      dir: `${BUILD_PATHS.BUILD.CJS}/server`,
+      format: 'cjs',
+      preserveModules: true,
+      preserveModulesRoot: 'src/server',
+      sourcemap: true,
+      exports: 'named'
+    },
+    external,
+    resolve: {
+      alias: aliasConfig
+    },
+    plugins: []
+  },
   // React ESM build
   {
     input: 'src/react/index.ts',

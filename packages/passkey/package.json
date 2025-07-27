@@ -12,6 +12,11 @@
       "require": "./dist/cjs/index.js",
       "types": "./dist/types/src/index.d.ts"
     },
+    "./server": {
+      "import": "./dist/esm/server/index.js",
+      "require": "./dist/cjs/server/index.js",
+      "types": "./dist/types/src/server/index.d.ts"
+    },
     "./react": {
       "import": "./dist/esm/react/index.js",
       "require": "./dist/cjs/react/index.js",
@@ -80,7 +85,7 @@
     "@near-js/crypto": "^2.0.1",
     "@near-js/providers": "^2.0.1",
     "@playwright/test": "^1.40.0",
-    "@types/node": "^20.19.7",
+    "@types/node": "^20.19.9",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
