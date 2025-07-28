@@ -18,31 +18,6 @@ export const useQRFileUpload = (options: UseQRFileUploadOptions): UseQRFileUploa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isProcessingRef = useRef(false);
 
-  // Parse and validate QR data
-  const parseAndValidateQRData = useCallback((qrData: string): DeviceLinkingQRData => {
-    let parsedData: DeviceLinkingQRData;
-    try {
-      parsedData = JSON.parse(qrData);
-    } catch {
-      if (qrData.startsWith('http')) {
-        throw new Error('QR code contains a URL, not device linking data');
-      }
-      if (qrData.includes('ed25519:')) {
-        throw new Error('QR code contains a NEAR key, not device linking data');
-      }
-      throw new Error('Invalid QR code format - expected JSON device linking data');
-    }
-
-    const missing = [];
-    if (!parsedData.devicePublicKey) missing.push('devicePublicKey');
-    if (!parsedData.timestamp) missing.push('timestamp');
-    if (missing.length > 0) {
-      throw new Error(`Invalid device linking QR code: Missing ${missing.join(', ')}`);
-    }
-
-    return parsedData;
-  }, []);
-
   // Handle file upload
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -57,7 +32,7 @@ export const useQRFileUpload = (options: UseQRFileUploadOptions): UseQRFileUploa
       const parsedQRData = await scanQRCodeFromFile(file);
 
       console.log('useQRFileUpload: Valid file QR -', {
-        devicePublicKey: parsedQRData.devicePublicKey,
+        device2PublicKey: parsedQRData.device2PublicKey,
         accountId: parsedQRData.accountId
       });
 

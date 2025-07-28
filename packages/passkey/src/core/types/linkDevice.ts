@@ -10,7 +10,8 @@ import { AccountId } from './accountIds';
 // === DEVICE LINKING TYPES ===
 export interface DeviceLinkingQRData {
   accountId?: AccountId; // Optional - Device2 discovers this from contract polling
-  devicePublicKey: string;
+  device2PublicKey: string; // Device2 initiates and creates the QR code containing this public key
+                            // for Device1 to scan and add it to their account.
   timestamp: number;
   version: string; // For future compatibility
 }
@@ -32,13 +33,13 @@ export type DeviceLinkingStatus =
   | 'waiting'        // Device2: Waiting for Device1 authorization
   | 'authorizing'    // Device1: Processing authorization
   | 'authorized'     // Device1: AddKey transaction sent
-  | 'registering'    // Device2: Calling verify_and_register_user
+  | 'registering'    // Device2: Calling link_device_register_user
   | 'completed'      // Success
   | 'failed'         // Error state
   | 'expired';       // Timeout
 
 export interface LinkDeviceResult extends ActionResult {
-  devicePublicKey: string;
+  device2PublicKey: string;
   transactionId?: string;
   fundingAmount: string;
   linkedToAccount?: string; // The account ID that the device key was added to

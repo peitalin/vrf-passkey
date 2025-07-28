@@ -5,7 +5,7 @@ mod cose;
 mod encoders;
 mod error;
 mod handlers;
-mod http;
+mod rpc_calls;
 #[cfg(test)]
 mod tests;
 mod transaction;
@@ -204,11 +204,6 @@ pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue
             let result = handlers::handle_check_can_register_user_msg(request).await?;
             result.to_json()
         },
-        WorkerRequestType::SignVerifyAndRegisterUser => {
-            let request = msg.parse_payload::<SignVerifyAndRegisterUserPayload>(request_type)?;
-            let result = handlers::handle_sign_verify_and_register_user_msg(request).await?;
-            result.to_json()
-        },
         WorkerRequestType::DecryptPrivateKeyWithPrf => {
             let request = msg.parse_payload::<DecryptKeyPayload>(request_type)?;
             let result = handlers::handle_decrypt_private_key_with_prf_msg(request).await?;
@@ -227,6 +222,13 @@ pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue
         WorkerRequestType::SignTransactionWithKeyPair => {
             let request = msg.parse_payload::<SignTransactionWithKeyPairPayload>(request_type)?;
             let result = handlers::handle_sign_transaction_with_keypair_msg(request).await?;
+            result.to_json()
+        },
+        // DEPRECATED: only used for testnet registration
+        WorkerRequestType::SignVerifyAndRegisterUser => {
+            let request = msg.parse_payload::<SignVerifyAndRegisterUserPayload>(request_type)?;
+            // DEPRECATED: only used for testnet registration
+            let result = handlers::handle_sign_verify_and_register_user_msg(request).await?;
             result.to_json()
         },
     };
@@ -284,11 +286,12 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         WorkerRequestType::DeriveNearKeypairAndEncrypt => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT",
         WorkerRequestType::RecoverKeypairFromPasskey => "RECOVER_KEYPAIR_FROM_PASSKEY",
         WorkerRequestType::CheckCanRegisterUser => "CHECK_CAN_REGISTER_USER",
-        WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
         WorkerRequestType::DecryptPrivateKeyWithPrf => "DECRYPT_PRIVATE_KEY_WITH_PRF",
         WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
         WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
         WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
+        // DEPRECATED: only used for testnet registration
+        WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
     }
 }
 

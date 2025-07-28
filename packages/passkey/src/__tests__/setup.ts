@@ -234,6 +234,11 @@ async function injectImportMap(page: Page): Promise<void> {
         '@near-js/crypto': 'https://esm.sh/@near-js/crypto@2.0.1',
         '@near-js/transactions': 'https://esm.sh/@near-js/transactions@2.0.1',
         '@near-js/types': 'https://esm.sh/@near-js/types@2.0.1',
+        '@near-js/accounts': 'https://esm.sh/@near-js/accounts@2.0.1',
+        '@near-js/client': 'https://esm.sh/@near-js/client@2.0.1',
+        '@near-js/keystores': 'https://esm.sh/@near-js/keystores@2.0.1',
+        '@near-js/providers': 'https://esm.sh/@near-js/providers@2.0.1',
+        '@near-js/signers': 'https://esm.sh/@near-js/signers@2.0.1',
         'tslib': 'https://esm.sh/tslib@2.8.1',
         'buffer': 'https://esm.sh/buffer@6.0.3'
       }
@@ -259,8 +264,8 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
 
   // Critical timing: Wait for import map processing
   // The WebAuthn Virtual Authenticator setup can interfere with import map processing
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  await page.waitForLoadState('networkidle');
+  await new Promise(resolve => setTimeout(resolve, 500));
+  await page.waitForLoadState('domcontentloaded');
 
   console.log('Step 3 Complete: Environment stabilized and ready for imports');
 }

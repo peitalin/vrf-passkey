@@ -90,13 +90,13 @@ export interface NearClient {
     waitUntil?: TxExecutionStatus
   ): Promise<FinalExecutionOutcome>;
   query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
-  callFunction<T>(
+  callFunction<A, T>(
     contractId: string,
     method: string,
-    args: Record<string, unknown>,
+    args: A,
     blockQuery?: BlockReference
   ): Promise<T>;
-  view<T>(params: { account: string; method: string; args: any }): Promise<T>;
+  view<A, T>(params: { account: string; method: string; args: A }): Promise<T>;
 }
 
 export class MinimalNearClient implements NearClient {
@@ -216,10 +216,10 @@ export class MinimalNearClient implements NearClient {
     );
   }
 
-  async callFunction<T>(
+  async callFunction<A, T>(
     contractId: string,
     method: string,
-    args: Record<string, unknown>,
+    args: A,
     blockQuery?: BlockReference
   ): Promise<T> {
     const rpcParams = {
@@ -258,7 +258,7 @@ export class MinimalNearClient implements NearClient {
     }
   }
 
-  async view<T>(params: { account: string; method: string; args: any }): Promise<T> {
-    return this.callFunction<T>(params.account, params.method, params.args);
+  async view<A, T>(params: { account: string; method: string; args: A }): Promise<T> {
+    return this.callFunction<A, T>(params.account, params.method, params.args);
   }
 }

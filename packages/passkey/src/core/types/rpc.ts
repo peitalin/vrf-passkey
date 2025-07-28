@@ -1,8 +1,10 @@
 import { AccessKeyView, TxExecutionStatus } from "@near-js/types";
-import { ActionArgs } from "./actions";
 
 export const DEFAULT_WAIT_STATUS = {
   executeAction: "EXECUTED_OPTIMISTIC" as TxExecutionStatus,
+  linkDeviceAddKey: "INCLUDED_FINAL" as TxExecutionStatus,
+  linkDeviceSwapKey: "FINAL" as TxExecutionStatus,
+  linkDeviceAccountMapping: "INCLUDED_FINAL" as TxExecutionStatus,
   // See default finality settings:
   // https://github.com/near/near-api-js/blob/99f34864317725467a097dc3c7a3cc5f7a5b43d4/packages/accounts/src/account.ts#L68
 }

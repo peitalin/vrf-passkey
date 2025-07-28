@@ -14,11 +14,12 @@ pub enum WorkerRequestType {
     DeriveNearKeypairAndEncrypt,
     RecoverKeypairFromPasskey,
     CheckCanRegisterUser,
-    SignVerifyAndRegisterUser,
     DecryptPrivateKeyWithPrf,
     SignTransactionsWithActions,
     ExtractCosePublicKey,
     SignTransactionWithKeyPair,
+    // DEPRECATED: only used for testnet registration
+    SignVerifyAndRegisterUser,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -27,11 +28,12 @@ impl From<u32> for WorkerRequestType {
             0 => WorkerRequestType::DeriveNearKeypairAndEncrypt,
             1 => WorkerRequestType::RecoverKeypairFromPasskey,
             2 => WorkerRequestType::CheckCanRegisterUser,
-            3 => WorkerRequestType::SignVerifyAndRegisterUser,
-            4 => WorkerRequestType::DecryptPrivateKeyWithPrf,
-            5 => WorkerRequestType::SignTransactionsWithActions,
-            6 => WorkerRequestType::ExtractCosePublicKey,
-            7 => WorkerRequestType::SignTransactionWithKeyPair,
+            3 => WorkerRequestType::DecryptPrivateKeyWithPrf,
+            4 => WorkerRequestType::SignTransactionsWithActions,
+            5 => WorkerRequestType::ExtractCosePublicKey,
+            6 => WorkerRequestType::SignTransactionWithKeyPair,
+            // DEPRECATED: only used for testnet registration
+            7 => WorkerRequestType::SignVerifyAndRegisterUser,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -69,11 +71,11 @@ impl WorkerRequestType {
             WorkerRequestType::DeriveNearKeypairAndEncrypt => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT",
             WorkerRequestType::RecoverKeypairFromPasskey => "RECOVER_KEYPAIR_FROM_PASSKEY",
             WorkerRequestType::CheckCanRegisterUser => "CHECK_CAN_REGISTER_USER",
-            WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
             WorkerRequestType::DecryptPrivateKeyWithPrf => "DECRYPT_PRIVATE_KEY_WITH_PRF",
             WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
             WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
             WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
+            WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
         }
     }
 }

@@ -92,7 +92,7 @@ export interface PasskeyErrorDetails {
   /** Human-readable error message */
   message: string;
 
-  /** Original error that caused this error (if any) */
+  /** Original error that caused this error */
   originalError?: Error;
 
   /** Additional context for debugging */

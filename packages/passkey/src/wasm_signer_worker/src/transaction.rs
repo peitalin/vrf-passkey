@@ -5,10 +5,11 @@ use borsh;
 use crate::types::*;
 use crate::actions::{ActionParams, get_action_handler};
 use crate::encoders::base64_url_decode;
-use crate::http::{
+use crate::rpc_calls::{
     VrfData,
     ContractRegistrationResult,
     VERIFY_AND_REGISTER_USER_METHOD,
+    LINK_DEVICE_REGISTER_USER_METHOD,
 };
 use crate::types::WebAuthnRegistrationCredential;
 
@@ -99,12 +100,6 @@ pub fn calculate_transaction_hash(signed_tx_bytes: &[u8]) -> String {
     format!("{:x}", result)
 }
 
-// === REGISTRATION TRANSACTION SIGNING FUNCTIONS ===
-// These are higher-level convenience functions that build specific transaction types.
-// They use the low-level sign_transaction() function internally but handle the business
-// logic for specific use cases:
-// 1. sign_registration_tx_wasm: Traditional user registration - decrypts PRF-encrypted keys
-// 2. sign_link_device_registration_tx: Device linking registration - uses unencrypted keys
 
 /// Sign registration transaction with encrypted private key (traditional flow)
 /// Decrypts the key first using PRF, then builds and signs the transaction
@@ -261,13 +256,13 @@ pub async fn sign_link_device_registration_tx(
 
     // Build verify_and_register_user transaction actions
     let action_params = vec![crate::actions::ActionParams::FunctionCall {
-        method_name: "verify_and_register_user".to_string(),
+        method_name: LINK_DEVICE_REGISTER_USER_METHOD.to_string(),
         args: serde_json::json!({
             "vrf_data": vrf_data,
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }).to_string(),
-        gas: crate::config::DEVICE_LINKING_REGISTRATION_GAS.to_string(),
+        gas: crate::config::LINK_DEVICE_REGISTRATION_GAS.to_string(),
         deposit: "0".to_string(),
     }];
 
@@ -293,7 +288,7 @@ pub async fn sign_link_device_registration_tx(
         success: true,
         verified: true, // Assume success for now
         registration_info: None, // Not needed for device linking
-        logs: vec!["Registration transaction signed successfully".to_string()],
+        logs: vec!["Link Device Registration transaction signed successfully".to_string()],
         signed_transaction_borsh: Some(signed_tx_bytes),
         pre_signed_delete_transaction: None, // Not needed for device linking
         error: None,

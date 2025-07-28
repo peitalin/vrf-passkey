@@ -130,7 +130,6 @@ impl VRFKeyManager {
         if stored_public_key != expected_public_key {
             return Err(VrfWorkerError::public_key_mismatch(&expected_public_key, &stored_public_key));
         }
-
         debug!("Public key verification successful");
 
         // Encrypt the VRF keypair

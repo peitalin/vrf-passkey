@@ -3,7 +3,7 @@
 
 /// Change this constant and recompile to adjust logging verbosity
 /// Available levels: Error, Warn, Info, Debug, Trace
-pub const CURRENT_LOG_LEVEL: log::Level = log::Level::Debug;
+pub const CURRENT_LOG_LEVEL: log::Level = log::Level::Info;
 
 // === CRYPTOGRAPHIC CONSTANTS ===
 
@@ -27,8 +27,8 @@ pub const ED25519_HKDF_KEY_INFO: &str = "ed25519-signing-key-dual-prf-v1";
 /// Standard gas amount for contract verification calls (30 TGas)
 pub const VERIFY_REGISTRATION_GAS: &str = "30000000000000";
 
-/// Higher gas amount for device linking registration calls (40 TGas)
-pub const DEVICE_LINKING_REGISTRATION_GAS: &str = "40000000000000";
+/// Higher gas amount for device linking registration calls (30 TGas)
+pub const LINK_DEVICE_REGISTRATION_GAS: &str = "30000000000000";
 
 // === ERROR MESSAGES ===
 

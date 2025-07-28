@@ -9,6 +9,7 @@ import { AccountId } from '@/core/types/accountIds';
 /**
  * Create NEAR account using testnet faucet service
  * This only works on testnet, for production use the relayer server
+ * @deprecated Testnet only, use createAccountAndRegisterWithRelayServer instead for prod
  */
 export async function createAccountTestnetFaucet(
   nearAccountId: AccountId,
@@ -107,6 +108,7 @@ export async function createAccountTestnetFaucet(
 /**
  * Create account and register user using testnet faucet (sequential flow)
  * This is the traditional flow: create account -> verify access key -> register with contract
+ * @deprecated Testnet only, use createAccountAndRegisterWithRelayServer instead for prod
  */
 export async function createAccountAndRegisterWithTestnetFaucet(
   context: PasskeyManagerContext,

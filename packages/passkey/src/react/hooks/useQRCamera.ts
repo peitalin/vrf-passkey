@@ -118,7 +118,7 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
     }
 
     const missing = [];
-    if (!parsedData.devicePublicKey) missing.push('devicePublicKey');
+    if (!parsedData.device2PublicKey) missing.push('devicePublicKey');
     if (!parsedData.timestamp) missing.push('timestamp');
     if (missing.length > 0) {
       throw new Error(`Invalid device linking QR code: Missing ${missing.join(', ')}`);
@@ -136,7 +136,7 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
 
       const parsedQRData = parseAndValidateQRData(qrData);
       console.log('useQRCamera: Valid QR data -', {
-        devicePublicKey: parsedQRData.devicePublicKey,
+        devicePublicKey: parsedQRData.device2PublicKey,
         accountId: parsedQRData.accountId,
         timestamp: new Date(parsedQRData.timestamp || 0).toISOString()
       });

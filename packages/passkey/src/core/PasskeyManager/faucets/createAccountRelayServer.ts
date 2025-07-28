@@ -5,6 +5,27 @@ import { base64UrlDecode } from '../../../utils/encoders';
 import { serializeCredentialWithPRF, WebAuthnRegistrationCredential } from '../../types/signer-worker';
 
 /**
+ * Request data interface for the relay server's atomic account creation endpoint
+ */
+export interface CreateAccountAndRegisterUserRequest {
+  new_account_id: string;
+  new_public_key: string;
+  device_number: number;
+  vrf_data: {
+    vrf_input_data: number[];
+    vrf_output: number[];
+    vrf_proof: number[];
+    public_key: number[];
+    user_id: string;
+    rp_id: string;
+    block_height: number;
+    block_hash: number[];
+  };
+  webauthn_registration: WebAuthnRegistrationCredential;
+  deterministic_vrf_public_key: number[];
+}
+
+/**
  * Create account and register user using relay-server atomic endpoint
  * Makes a single call to the relay-server's /create_account_and_register_user endpoint
  * which calls the contract's atomic create_account_and_register_user function
@@ -21,7 +42,7 @@ export async function createAccountAndRegisterWithRelayServer(
   success: boolean;
   transactionId?: string;
   error?: string;
-  preSignedDeleteTransaction?: any;
+  preSignedDeleteTransaction: null; // not used for relay server
 }> {
   const { configs } = context;
 
@@ -42,7 +63,7 @@ export async function createAccountAndRegisterWithRelayServer(
     const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
 
     // Prepare data for atomic endpoint
-    const requestData = {
+    const requestData: CreateAccountAndRegisterUserRequest = {
       new_account_id: nearAccountId,
       new_public_key: publicKey,
       device_number: 1, // First device gets device number 1 (1-indexed)

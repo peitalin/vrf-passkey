@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use bs58;
 
 use crate::encoders::base64_url_decode;
-use crate::http::{
+use crate::rpc_calls::{
     VrfData,
     verify_authentication_response_rpc_call,
     check_can_register_user_rpc_call,
@@ -101,7 +101,7 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
             reg_type: request.credential.credential_type.clone(),
         };
 
-        // Sign the verify_and_register_user transaction
+        // Sign the link_device_register_user transaction
         // Decode base64url deterministic VRF public key to Vec<u8>
         let deterministic_vrf_public_key = base64_url_decode(&registration_tx.deterministic_vrf_public_key)
             .map_err(|e| format!("Failed to decode deterministic VRF public key: {}", e))?;
@@ -291,6 +291,8 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
 // *                                                                            *
 // *                  HANDLER 4: SIGN VERIFY AND REGISTER USER                  *
 // *                                                                            *
+// *                  DEPRECATED: ONLY USED FOR TESTNET REGISTRATION            *
+// *                                                                            *
 // ******************************************************************************
 
 /// **Handles:** `WorkerRequestType::SignVerifyAndRegisterUser`
@@ -303,6 +305,7 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
 ///
 /// # Returns
 /// * `RegistrationResult` - Contains final verification status, signed transactions, and registration metadata
+/// @deprecated Testnet only, use createAccountAndRegisterWithRelayServer instead for prod
 pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerifyAndRegisterUserPayload) -> Result<RegistrationResult, String> {
 
     let vrf_challenge = &parsed_payload.vrf_challenge;

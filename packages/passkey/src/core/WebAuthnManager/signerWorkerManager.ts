@@ -207,7 +207,7 @@ export class SignerWorkerManager {
 
   /**
    * Secure registration flow with dual PRF: WebAuthn + WASM worker encryption using dual PRF
-   * Optionally signs a verify_and_register_user transaction if VRF data is provided
+   * Optionally signs a link_device_register_user transaction if VRF data is provided
    */
   async deriveNearKeypairAndEncrypt(
     credential: PublicKeyCredential,
@@ -447,12 +447,7 @@ export class SignerWorkerManager {
   }
 
   /**
-   * Actually register user on-chain with transaction
-   * This function performs the complete registration transaction including:
-   * 1. Get transaction metadata (nonce, block hash)
-   * 2. Decrypt NEAR keys with PRF
-   * 3. Build and sign registration transaction
-   * 4. Return signed transaction for main thread to dispatch
+   * @deprecated Testnet only, use createAccountAndRegisterWithRelayServer instead for prod
    */
   async signVerifyAndRegisterUser({
     vrfChallenge,

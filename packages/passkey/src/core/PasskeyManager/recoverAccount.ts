@@ -10,6 +10,10 @@ import { NearClient } from '../NearClient';
 import { WebAuthnManager } from '../WebAuthnManager';
 import { IndexedDBManager } from '../IndexedDBManager';
 import type { VRFInputData } from '../types/vrf-worker';
+import {
+  getCredentialIdsContractCall,
+  syncAuthenticatorsContractCall
+} from '../rpcCalls';
 
 /**
  * Use case:
@@ -227,7 +231,7 @@ async function getAvailablePasskeysForDomain(
 ): Promise<PasskeyOption[]> {
   const { webAuthnManager, nearClient, configs } = context;
 
-  const credentialIds = await getCredentialIdsFromContract(nearClient, configs.contractId, accountId);
+  const credentialIds = await getCredentialIdsContractCall(nearClient, configs.contractId, accountId);
 
   // Always try to authenticate with the provided account ID, even if no credentials found in contract
   try {
@@ -258,23 +262,6 @@ async function getAvailablePasskeysForDomain(
     displayName: `${accountId} (Authentication failed - please try again)`,
     credential: null,
   }];
-}
-
-/**
- * Get credential IDs from contract
- */
-async function getCredentialIdsFromContract(nearClient: NearClient, contractId: string, accountId: string): Promise<string[]> {
-  try {
-    const credentialIds = await nearClient.callFunction<string[]>(
-      contractId,
-      'get_credential_ids_by_account',
-      { account_id: accountId }
-    );
-    return credentialIds || [];
-  } catch (error: any) {
-    console.warn('Failed to fetch credential IDs from contract:', error.message);
-    return [];
-  }
 }
 
 /**
@@ -507,7 +494,7 @@ async function performAccountRecovery({
     console.debug(`Performing recovery for account: ${accountId}`);
 
     // 1. Sync on-chain authenticator data
-    const contractAuthenticators = await syncContractAuthenticators(nearClient, configs.contractId, accountId);
+    const contractAuthenticators = await syncAuthenticatorsContractCall(nearClient, configs.contractId, accountId);
 
     // 2. Find the matching authenticator to get the correct device number
     const credentialIdUsed = base64UrlEncode(new Uint8Array(credential.rawId));
@@ -571,45 +558,6 @@ export interface ContractStoredAuthenticator {
   registered: string; // Contract returns timestamp as string
   vrf_public_keys?: string[];
   device_number: number; // Always present from contract
-}
-
-async function syncContractAuthenticators(
-  nearClient: NearClient,
-  contractId: string,
-  accountId: AccountId
-): Promise<Array<{ credentialId: string, authenticator: StoredAuthenticator }>> {
-  try {
-    const authenticatorsResult = await nearClient.view<[string, ContractStoredAuthenticator][]>({
-      account: contractId,
-      method: 'get_authenticators_by_user',
-      args: { user_id: accountId }
-    });
-    console.log("Contract: Authenticators result", authenticatorsResult);
-
-    if (authenticatorsResult && Array.isArray(authenticatorsResult)) {
-      return authenticatorsResult.map(([credentialId, contractAuthenticator]) => {
-        console.log(`Contract authenticator device_number for ${credentialId}:`, contractAuthenticator.device_number);
-        return {
-          credentialId,
-          authenticator: {
-            credentialId,
-            credentialPublicKey: new Uint8Array(contractAuthenticator.credential_public_key),
-            transports: contractAuthenticator.transports,
-            userId: accountId,
-            name: `Device ${contractAuthenticator.device_number} Authenticator`,
-            registered: new Date(parseInt(contractAuthenticator.registered as string)),
-            // Store the actual device number from contract (no fallback)
-            deviceNumber: contractAuthenticator.device_number,
-            vrfPublicKeys: contractAuthenticator.vrf_public_keys
-          }
-        };
-      });
-    }
-    return [];
-  } catch (error: any) {
-    console.warn('Failed to fetch authenticators from contract:', error.message);
-    return [];
-  }
 }
 
 async function restoreUserData(

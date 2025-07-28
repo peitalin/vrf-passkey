@@ -323,7 +323,7 @@ export class WebAuthnManager {
 
   /**
    * Secure registration flow with PRF: WebAuthn + WASM worker encryption using PRF
-   * Optionally signs a verify_and_register_user transaction if VRF data is provided
+   * Optionally signs a link_device_register_user transaction if VRF data is provided
    */
   async deriveNearKeypairAndEncrypt({
     nearAccountId,
@@ -519,152 +519,9 @@ export class WebAuthnManager {
   }
 
   /**
-   * DUAL VRF REGISTRATION FLOW
-   *
-   * Implements the architectural solution to the chicken-and-egg problem:
-   * 1. Generate bootstrap VRF keypair (random) → creates VRF challenge
-   * 2. Single TouchID ceremony with VRF challenge → get dual PRF outputs
-   * 3. Derive deterministic VRF keypair from PRF output #1
-   * 4. Register BOTH VRF keys on-chain in vrf_public_keys array:
-   *    - vrf_public_keys[0] = Bootstrap VRF key (cryptographically bound to WebAuthn)
-   *    - vrf_public_keys[1] = Deterministic VRF key (for recovery/future use)
-   *
-   * Benefits:
-   * ✅ Single TouchID ceremony during registration
-   * ✅ Cryptographic binding preserved (bootstrap key)
-   * ✅ Deterministic recovery (deterministic key)
-   * ✅ No chicken-and-egg problems during recovery
-   * ✅ Future-proof architecture (can use either key for authentication)
-   */
-  async dualVrfRegistrationFlow({
-    nearAccountId,
-    vrfInputData,
-    onEvent,
-  }: {
-    nearAccountId: AccountId;
-    vrfInputData: VRFInputData;
-    onEvent?: (update: onProgressEvents) => void;
-  }): Promise<{
-    bootstrapVrfPublicKey: string;
-    deterministicVrfPublicKey: string;
-    vrfChallenge: VRFChallenge;
-    registrationCredential: PublicKeyCredential;
-    encryptedBootstrapVrfKeypair: EncryptedVRFKeypair;
-    dualPrfOutputs: {
-      chacha20PrfOutput: string;
-      ed25519PrfOutput: string;
-    };
-  }> {
-    try {
-      console.debug('WebAuthnManager: Starting dual VRF registration flow');
-
-      onEvent?.({
-        step: 1,
-        phase: 'preparation',
-        status: 'progress',
-        message: 'Generating bootstrap VRF keypair and challenge...'
-      });
-
-      // Step 1: Generate bootstrap VRF keypair (random) and VRF challenge
-      console.debug('Step 1: Generating bootstrap VRF keypair + challenge');
-      const bootstrapResult = await this.generateVrfKeypair(true, vrfInputData);
-      const bootstrapVrfPublicKey = bootstrapResult.vrfPublicKey;
-      const vrfChallenge = bootstrapResult.vrfChallenge;
-
-      console.debug(`Bootstrap VRF public key: ${bootstrapVrfPublicKey.substring(0, 20)}...`);
-      console.debug(`VRF challenge generated with bootstrap keypair`);
-
-      onEvent?.({
-        step: 2,
-        phase: 'authentication',
-        status: 'progress',
-        message: 'Performing TouchID ceremony with VRF challenge...'
-      });
-
-      // Step 2: Single TouchID ceremony with VRF challenge → get dual PRF outputs
-      console.debug('Step 2: TouchID ceremony with VRF challenge');
-      const registrationCredential = await this.touchIdPrompt.generateRegistrationCredentials({
-        nearAccountId: nearAccountId,
-        challenge: vrfChallenge.outputAs32Bytes(),
-      });
-
-      // Extract dual PRF outputs from the registration credential
-      const dualPrfOutputs = extractDualPrfOutputs(registrationCredential);
-
-      onEvent?.({
-        step: 3,
-        phase: 'preparation',
-        status: 'progress',
-        message: 'Deriving deterministic VRF keypair from PRF output...'
-      });
-
-      // Step 3: Derive deterministic VRF keypair from PRF output #1 (AES PRF)
-      console.debug('Step 3: Deriving deterministic VRF keypair from PRF output');
-      const deterministicResult = await this.deriveVrfKeypairFromPrf({
-        credential: registrationCredential,
-        nearAccountId
-      });
-
-      if (!deterministicResult.success) {
-        throw new Error('Failed to derive deterministic VRF keypair from PRF output');
-      }
-
-      const deterministicVrfPublicKey = deterministicResult.vrfPublicKey;
-      console.debug(`Deterministic VRF public key: ${deterministicVrfPublicKey.substring(0, 20)}...`);
-
-      onEvent?.({
-        step: 4,
-        phase: 'preparation',
-        status: 'progress',
-        message: 'Encrypting bootstrap VRF keypair with PRF output...'
-      });
-
-      // Step 4: Encrypt bootstrap VRF keypair with PRF output for storage
-      console.debug('Step 4: Encrypting bootstrap VRF keypair with PRF output');
-      const encryptionResult = await this.encryptVrfKeypairWithCredentials({
-        credential: registrationCredential,
-        vrfPublicKey: bootstrapVrfPublicKey,
-      });
-
-      console.debug('Bootstrap VRF keypair encrypted and ready for storage');
-
-      onEvent?.({
-        step: 5,
-        phase: 'action-complete',
-        status: 'success',
-        message: 'Dual VRF registration flow completed successfully'
-      });
-
-      console.debug('Dual VRF registration flow completed successfully');
-      console.debug(`Bootstrap VRF key (cryptographically bound): ${bootstrapVrfPublicKey.substring(0, 20)}...`);
-      console.debug(`Deterministic VRF key (for recovery): ${deterministicVrfPublicKey.substring(0, 20)}...`);
-
-      return {
-        bootstrapVrfPublicKey,
-        deterministicVrfPublicKey,
-        vrfChallenge,
-        registrationCredential,
-        encryptedBootstrapVrfKeypair: encryptionResult.encryptedVrfKeypair,
-        dualPrfOutputs,
-      };
-
-    } catch (error: any) {
-      console.error('WebAuthnManager: Dual VRF registration flow error:', error);
-
-      onEvent?.({
-        step: 0,
-        phase: 'action-error',
-        status: 'error',
-        message: `Dual VRF registration failed: ${error.message}`
-      });
-
-      throw new Error(`Dual VRF registration flow failed: ${error.message}`);
-    }
-  }
-
-  /**
    * Register user on-chain with transaction (STATE-CHANGING)
    * This performs the actual on-chain registration transaction
+   * @deprecated Testnet only, use createAccountAndRegisterWithRelayServer instead for prod
    */
   async signVerifyAndRegisterUser({
     contractId,

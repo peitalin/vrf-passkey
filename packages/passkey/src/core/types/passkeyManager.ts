@@ -43,8 +43,8 @@ export interface BaseSSEActionEvent extends BaseSSEEvent {
   | 'contract-verification'
   | 'transaction-signing'
   | 'device-linking'
-  | 'verification-complete'    // Rust WASM worker phase
-  | 'signing-complete'         // Rust WASM worker phase
+  | 'verification-complete'   // Rust WASM worker phase
+  | 'signing-complete'        // Rust WASM worker phase
   | 'error'                   // Rust WASM worker phase
   | 'broadcasting'
   | 'action-complete'
@@ -53,14 +53,15 @@ export interface BaseSSEActionEvent extends BaseSSEEvent {
 
 
 export interface DeviceLinkingSSEEvent extends BaseSSEEvent {
-  phase: 'qr-code-generated'
-  | 'addkey-detected'
-  | 'scanning'
-  | 'authorization'
-  | 'registration'
-  | 'registration-error'
-  | 'device-linking'
-  | 'error';
+  phase: 'qr-code-generated'    // Device2: QR code created and displayed
+  | 'scanning'                  // Device1: Scanning QR code
+  | 'authorization'             // Device1: TouchID authorization
+  | 'polling'                   // Device2: Polling contract for mapping
+  | 'addkey-detected'           // Device2: AddKey transaction detected
+  | 'registration'              // Device2: Registration and credential storage
+  | 'device-linking'            // Final completion
+  | 'registration-error'        // Error during registration
+  | 'error';                    // General error state
 }
 
 // Registration Event Types
