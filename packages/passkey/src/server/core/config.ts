@@ -57,6 +57,6 @@ export function getTestServerConfig(): ServerConfig {
     nearRpcUrl: 'https://rpc.testnet.near.org',
     webAuthnContractId: 'web3-authn-v2.testnet',
     networkId: 'testnet',
-    defaultInitialBalance: '50000000000000000000000',
+    defaultInitialBalance: '50000000000000000000000', // 0.05 NEAR in yoctoNEAR
   };
 }

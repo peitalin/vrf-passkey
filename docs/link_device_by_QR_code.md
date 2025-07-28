@@ -192,7 +192,7 @@ const result = await webAuthnManager.signTransactionWithKeyPair({
 const actionResult = await executeAction(context, realAccountId, {
   type: ActionType.FunctionCall,
   receiverId: contractId,
-  methodName: 'verify_and_register_user',
+  methodName: 'link_device_register_user',
   args: {
     vrf_data: {
       vrf_input_data: Array.from(base64UrlDecode(vrfChallenge.vrfInput)),
@@ -248,7 +248,7 @@ pub fn get_device_linking_account(
 
 ```rust
 // Add Device2's authenticator to existing account (1:N mapping)
-pub fn verify_and_register_user(
+pub fn link_device_register_user(
     &mut self,
     vrf_data: VRFVerificationData,
     webauthn_registration: WebAuthnRegistrationCredential,

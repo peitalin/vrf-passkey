@@ -1,7 +1,7 @@
 # Server Package
 
-Simple, framework-agnostic NEAR account service creating accounts and registering
-users into the Web3Authn contract.
+A simple account service for creating accounts and registering
+users with the Web3Authn contract.
 
 ## Usage
 

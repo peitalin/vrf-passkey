@@ -155,7 +155,7 @@ export class NearAccountService {
             actionCreators.functionCall(
               'create_account_and_register_user',
               contractArgs,
-              BigInt('300000000000000'), // 300 TGas
+              BigInt('30000000000000'), // 30 TGas
               BigInt(this.config.defaultInitialBalance) // Initial balance
             )
           ]
