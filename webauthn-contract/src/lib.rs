@@ -9,9 +9,8 @@ mod link_device;
 mod verify_authentication_response;
 mod verify_registration_response;
 
-// Choose one of the VRF verification methods
-use crate::utils::vrf_verifier;
-use crate::contract_state::WebAuthnContractExt;
+use near_sdk::{env, log, near};
+use near_sdk::store::{LookupMap, IterableSet};
 
 pub use types::{
     WebAuthnRegistrationCredential,
@@ -19,11 +18,13 @@ pub use types::{
     AuthenticatorAssertionResponse,
     AuthenticatorAttestationResponse,
 };
+use contract_state::WebAuthnContractExt;
 pub use contract_state::{
     WebAuthnContract,
     VRFSettings,
     StoredAuthenticator,
     StorageKey,
+    AuthenticatorTransport,
 };
 pub use verify_registration_response::{
     VerifyRegistrationResponse,
@@ -33,21 +34,11 @@ pub use verify_registration_response::{
 pub use verify_authentication_response::{
     VerifiedAuthenticationResponse,
 };
-use near_sdk::{env, log, near};
-use near_sdk::store::{LookupMap, IterableSet};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
 /////////////////////////////////////
 
-/// VRF authentication response with output
-#[near_sdk::near(serializers = [borsh, json])]
-#[derive(Debug, Clone)]
-pub struct VerifiedVRFAuthenticationResponse {
-    pub verified: bool,
-    pub vrf_output: Option<Vec<u8>>, // 64-byte VRF output if verification succeeds
-    pub authentication_info: Option<String>,
-}
 
 #[near]
 impl WebAuthnContract {
@@ -75,50 +66,6 @@ impl WebAuthnContract {
         log!("Saving greeting: {}", greeting);
         self.greeting = greeting;
     }
-
-
-    // vrf-contract-verifier (view-only verification)
-    pub fn verify_vrf_1(
-        &self,
-        proof_bytes: Vec<u8>,
-        public_key_bytes: Vec<u8>,
-        input: Vec<u8>,
-    ) -> VerifiedVRFAuthenticationResponse {
-        match vrf_verifier::verify_vrf_1(&proof_bytes, &public_key_bytes, &input) {
-            Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
-                verified: true,
-                vrf_output: Some(vrf_output.to_vec()),
-                authentication_info: Some("VRF verification successful".to_string()),
-            },
-            Err(_) => VerifiedVRFAuthenticationResponse {
-                verified: false,
-                vrf_output: None,
-                authentication_info: Some("VRF verification failed".to_string()),
-            }
-        }
-    }
-
-    // // vrf-wasm
-    // pub fn verify_vrf_2(
-    //     &mut self,
-    //     proof_bytes: Vec<u8>,
-    //     public_key_bytes: Vec<u8>,
-    //     input: Vec<u8>,
-    // ) -> VerifiedVRFAuthenticationResponse {
-    //     match vrf_verifier::verify_vrf_2(&proof_bytes, &public_key_bytes, &input) {
-    //         Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
-    //             verified: true,
-    //             vrf_output: Some(vrf_output.to_vec()),
-    //             authentication_info: Some("VRF-WASM verification successful".to_string()),
-    //         },
-    //         Err(_) => VerifiedVRFAuthenticationResponse {
-    //             verified: false,
-    //             vrf_output: None,
-    //             authentication_info: Some("VRF-WASM verification failed".to_string()),
-    //         }
-    //     }
-    // }
-
     /// Update VRF settings (only contract owner can call this)
     pub fn update_vrf_settings(&mut self, settings: VRFSettings) {
         let predecessor = env::predecessor_account_id();
@@ -137,13 +84,53 @@ impl WebAuthnContract {
         self.vrf_settings.clone()
     }
 
+    // // vrf-contract-verifier (view-only verification)
+    // pub fn verify_vrf_1(
+    //     &self,
+    //     proof_bytes: Vec<u8>,
+    //     public_key_bytes: Vec<u8>,
+    //     input: Vec<u8>,
+    // ) -> crate::verify_registration_response::VerifiedVRFAuthenticationResponse {
+    //     match crate::utils::vrf_verifier::verify_vrf_1(&proof_bytes, &public_key_bytes, &input) {
+    //         Ok(vrf_output) => crate::verify_registration_response::VerifiedVRFAuthenticationResponse {
+    //             verified: true,
+    //             vrf_output: Some(vrf_output.to_vec()),
+    //             authentication_info: Some("VRF verification successful".to_string()),
+    //         },
+    //         Err(_) => crate::verify_registration_response::VerifiedVRFAuthenticationResponse {
+    //             verified: false,
+    //             vrf_output: None,
+    //             authentication_info: Some("VRF verification failed".to_string()),
+    //         }
+    //     }
+    // }
+
+    // // vrf-wasm
+    // pub fn verify_vrf_2(
+    //     &mut self,
+    //     proof_bytes: Vec<u8>,
+    //     public_key_bytes: Vec<u8>,
+    //     input: Vec<u8>,
+    // ) -> VerifiedVRFAuthenticationResponse {
+    //     match crate::utils::vrf_verifier::verify_vrf_2(&proof_bytes, &public_key_bytes, &input) {
+    //         Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
+    //             verified: true,
+    //             vrf_output: Some(vrf_output.to_vec()),
+    //             authentication_info: Some("VRF-WASM verification successful".to_string()),
+    //         },
+    //         Err(_) => VerifiedVRFAuthenticationResponse {
+    //             verified: false,
+    //             vrf_output: None,
+    //             authentication_info: Some("VRF-WASM verification failed".to_string()),
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use near_sdk::test_utils::{accounts, VMContextBuilder};
-    use near_sdk::testing_env;
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
     use std::collections::BTreeMap;
     use crate::utils::vrf_verifier::*;

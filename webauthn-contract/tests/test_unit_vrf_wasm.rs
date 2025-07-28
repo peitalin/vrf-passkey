@@ -26,7 +26,7 @@
 
 // async fn get_contract() -> &'static near_workspaces::Contract {
 //     CONTRACT.get_or_init(|| async {
-//         println!("🚀 Deploying shared test contract for VRF WASM tests...");
+//         println!("Deploying shared test contract for VRF WASM tests...");
 //         deploy_test_contract().await.expect("Failed to deploy test contract")
 //     }).await
 // }
@@ -41,7 +41,7 @@
 
 //     #[tokio::test]
 //     async fn test_vrf_wasm_valid_proof_passes() -> Result<(), Box<dyn std::error::Error>> {
-//         println!("Test: ✅ Valid vrf-wasm proof should pass");
+//         println!("Test: Valid vrf-wasm proof should pass");
 
 //         let contract = get_contract().await;
 //         let test_data = generate_test_vrf_wasm_data().await?;
@@ -66,7 +66,7 @@
 //         let vrf_output = verification_result["vrf_output"].as_array();
 //         assert!(vrf_output.is_some(), "Valid proof should return VRF output");
 
-//         println!("✅ PASSED: Valid vrf-wasm proof verified successfully");
+//         println!("PASSED: Valid vrf-wasm proof verified successfully");
 //         println!("  - VRF output returned: {} bytes", vrf_output.unwrap().len());
 //         Ok(())
 //     }
@@ -122,7 +122,7 @@
 //         let vrf_output = verification_result["vrf_output"].as_array();
 //         assert!(vrf_output.is_none() || vrf_output.unwrap().is_empty(), "Invalid proof should not return VRF output");
 
-//         println!("✅ PASSED: Wrong s correctly rejected");
+//         println!("PASSED: Wrong s correctly rejected");
 //         Ok(())
 //     }
 
@@ -177,7 +177,7 @@
 //         let vrf_output = verification_result["vrf_output"].as_array();
 //         assert!(vrf_output.is_none() || vrf_output.unwrap().is_empty(), "Invalid proof should not return VRF output");
 
-//         println!("✅ PASSED: Wrong c correctly rejected");
+//         println!("PASSED: Wrong c correctly rejected");
 //         Ok(())
 //     }
 
@@ -220,7 +220,7 @@
 //         let vrf_output = verification_result["vrf_output"].as_array();
 //         assert!(vrf_output.is_none() || vrf_output.unwrap().is_empty(), "Invalid proof should not return VRF output");
 
-//         println!("✅ PASSED: Wrong gamma correctly rejected");
+//         println!("PASSED: Wrong gamma correctly rejected");
 //         Ok(())
 //     }
 
@@ -256,13 +256,13 @@
 //         let vrf_output = verification_result["vrf_output"].as_array();
 //         assert!(vrf_output.is_none() || vrf_output.unwrap().is_empty(), "Invalid proof should not return VRF output");
 
-//         println!("✅ PASSED: Malformed public key correctly rejected");
+//         println!("PASSED: Malformed public key correctly rejected");
 //         Ok(())
 //     }
 
 //     #[tokio::test]
 //     async fn test_vrf_wasm_roundtrip_verification() -> Result<(), Box<dyn std::error::Error>> {
-//         println!("Test: ✅ Roundtrip: output == contract.verify(input, pk, proof)");
+//         println!("Test: Roundtrip: output == contract.verify(input, pk, proof)");
 
 //         let contract = get_contract().await;
 //         let test_data = generate_test_vrf_wasm_data().await?;
@@ -300,7 +300,7 @@
 //             // Full roundtrip comparison
 //             assert_eq!(contract_output, expected_output.to_vec(), "VRF outputs must match exactly");
 
-//             println!("✅ PASSED: Full roundtrip verification successful");
+//             println!("PASSED: Full roundtrip verification successful");
 //             println!("  - Expected output: {} bytes", expected_output.len());
 //             println!("  - Contract output: {} bytes", contract_output.len());
 //             println!("  - Expected hash: {:02x}{:02x}...{:02x}{:02x}",
@@ -309,7 +309,7 @@
 //             println!("  - Contract hash: {:02x}{:02x}...{:02x}{:02x}",
 //                      contract_output[0], contract_output[1],
 //                      contract_output[30], contract_output[31]);
-//             println!("✅ VRF outputs match exactly");
+//             println!("VRF outputs match exactly");
 //         } else {
 //             return Err("Contract didn't return VRF output".into());
 //         }
@@ -336,7 +336,7 @@
 //         let output2 = proof2.to_hash();
 
 //         assert_eq!(output1, output2, "VRF outputs should be deterministic");
-//         println!("✅ VRF-WASM generation is deterministic: {} bytes", output1.len());
+//         println!("VRF-WASM generation is deterministic: {} bytes", output1.len());
 
 //         Ok(())
 //     }
@@ -373,7 +373,7 @@
 //         assert!(reconstructed.verify(input, &keypair.pk).is_ok());
 //         assert_eq!(reconstructed.to_hash(), proof.to_hash());
 
-//         println!("✅ Component extraction and reconstruction successful");
+//         println!("Component extraction and reconstruction successful");
 //         Ok(())
 //     }
 // }

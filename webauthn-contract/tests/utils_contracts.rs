@@ -16,7 +16,7 @@ pub async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn
         .transact()
         .await?;
 
-    println!("✅ Contract deployed and initialized");
+    println!("Contract deployed and initialized");
     Ok(contract)
 }
 

@@ -1,134 +1,112 @@
-#[cfg(test)]
-mod device_number_tests {
-    use near_sdk::test_utils::{accounts, VMContextBuilder};
-    use near_sdk::{testing_env, AccountId};
-    use webauthn_contract::{WebAuthnContract, StoredAuthenticator};
-    use near_sdk::bs58;
+use near_sdk::{bs58, PublicKey};
+use near_workspaces::types::KeyType;
 
-    fn get_context(predecessor: AccountId) -> VMContextBuilder {
-        let mut builder = VMContextBuilder::new();
-        builder.predecessor_account_id(predecessor);
-        builder
-    }
+mod utils_mocks;
+use utils_mocks::{
+    create_mock_webauthn_registration,
+    generate_vrf_data,
+    generate_deterministic_vrf_public_key,
+    generate_account_creation_data,
+};
 
-    #[test]
-    fn test_device_number_assignment() {
-        let account: AccountId = accounts(0);
-        let context = get_context(account.clone());
-        testing_env!(context.build());
+mod utils_contracts;
+use utils_contracts::deploy_test_contract;
 
-        let mut contract = WebAuthnContract::init("test_contract".to_string());
 
-        // Test that first device gets device number 1
-        let device_num_1 = 1u8;
-        let stored_auth_1 = StoredAuthenticator {
-            credential_public_key: vec![1, 2, 3],
-            transports: None,
-            registered: "2024-01-01".to_string(),
-            vrf_public_keys: vec![vec![4, 5, 6]],
-            device_number: device_num_1,
-        };
+#[tokio::test]
+async fn test_device_counter_incremented_by_link_device_register_user() -> Result<(), Box<dyn std::error::Error>> {
+    // Deploy contract using near_workspaces
+    let contract = deploy_test_contract().await?;
 
-        // Store first authenticator
-        let success = contract.store_authenticator(
-            account.clone(),
-            "credential_1".to_string(),
-            vec![1, 2, 3],
-            None,
-            "2024-01-01".to_string(),
-            vec![vec![4, 5, 6]],
-            device_num_1,
-        );
-        assert!(success, "First authenticator should be stored successfully");
+    // Get the sandbox for fast_forward and block operations
+    let sandbox = near_workspaces::sandbox().await?;
 
-        // Test that we can retrieve all authenticators with device numbers
-        let all_auths = contract.get_authenticators_by_user(account.clone());
-        assert_eq!(all_auths.len(), 1, "Should have one authenticator");
-        assert_eq!(all_auths[0].1.device_number, 1, "First device should have device number 1");
+    // Get the account that will be calling the contract (the test account)
+    let test_account = contract.as_account();
+    let account_id = test_account.id().clone();
+    println!("Test account ID: {}", account_id);
 
-        // Test device linking counter increment
-        let valid_ed25519_key = "ed25519:".to_string() + &bs58::encode(&[0u8; 32]).into_string();
-        contract.store_device_linking_mapping(
-            valid_ed25519_key.clone(),
-            account.clone(),
-        );
+    // Get current block height for VRF data
+    let current_block = sandbox.view_block().await?;
+    let current_block_height = current_block.height();
+    println!("Current block height: {}", current_block_height);
 
-        // Check that device counter was incremented for next device
-        let linking_result = contract.get_device_linking_account(valid_ed25519_key);
-        assert!(linking_result.is_some(), "Device linking should exist");
-        if let Some((linked_account, device_number)) = linking_result {
-            assert_eq!(linked_account, account, "Account should match");
-            assert_eq!(device_number, 2, "Second device should get device number 2");
-        }
-    }
+    // Check initial device counter (should be 0)
+    let device_counter_initial = contract.view("get_device_counter")
+        .args_json(serde_json::json!({
+            "account_id": account_id.clone(),
+        }))
+        .await?;
+    let device_counter_initial_value: u32 = device_counter_initial.json()?;
+    println!("Initial device counter: {}", device_counter_initial_value);
+    assert_eq!(device_counter_initial_value, 0, "Initial device counter should be 0");
 
-    #[test]
-    fn test_device_counter_initialization() {
-        let account: AccountId = accounts(0);
-        let context = get_context(account.clone());
-        testing_env!(context.build());
+    // Call link_device_register_user with mock data
+    // This should increment the device counter even though VRF verification will fail
+    let (rp_id, user_id, session_id, block_height, new_public_key) = generate_account_creation_data();
+        let vrf_data = generate_vrf_data(&rp_id, &user_id, &session_id, Some(current_block_height), None).await?;
+    let webauthn_registration = create_mock_webauthn_registration(&vrf_data.output, &rp_id, &user_id, None);
+    let deterministic_vrf_public_key = generate_deterministic_vrf_public_key();
 
-        let mut contract = WebAuthnContract::init("test_contract".to_string());
+    println!("Calling create_account_and_register_user...");
+    let result = contract
+        .call("create_account_and_register_user")
+        .args_json(serde_json::json!({
+            "new_account_id": account_id.clone(),
+            "new_public_key": new_public_key,
+            "vrf_data": vrf_data.to_json(),
+            "webauthn_registration": webauthn_registration,
+            "deterministic_vrf_public_key": deterministic_vrf_public_key
+        }))
+        .gas(near_sdk::Gas::from_tgas(200))
+        .transact()
+        .await?;
 
-        // Test device linking when no devices exist yet
-        let valid_key = "ed25519:".to_string() + &bs58::encode(&[1u8; 32]).into_string();
-        contract.store_device_linking_mapping(
-            valid_key.clone(),
-            account.clone(),
-        );
+    println!("create_account_and_register_user result: {:?}", result);
 
-        let result = contract.get_device_linking_account(valid_key);
-        assert!(result.is_some(), "Device mapping should exist");
+    // Check that the device counter was incremented to 1
+    let device_counter_after = contract.view("get_device_counter")
+        .args_json(serde_json::json!({
+            "account_id": account_id.clone(),
+        }))
+        .await?;
+    let device_counter_after_value: u32 = device_counter_after.json()?;
+    println!("Device counter after create_account_and_register_user: {}", device_counter_after_value);
 
-        if let Some((_, device_num)) = result {
-            assert_eq!(device_num, 2, "First linked device should get device number 2 (device 1 is the original)");
-        }
-    }
+    // The device counter should be incremented to 1, even though VRF verification failed
+    assert_eq!(device_counter_after_value, 1, "Device counter should be incremented to 1 after create_account_and_register_user call");
 
-    #[test]
-    fn test_1_indexed_device_numbers() {
-        let account: AccountId = accounts(0);
-        let context = get_context(account.clone());
-        testing_env!(context.build());
+    // Call link_device_register_user again to test second increment
+    let vrf_data_2 = generate_vrf_data(&rp_id, &user_id, &session_id, Some(current_block_height), None).await?;
+    let webauthn_registration_2 = create_mock_webauthn_registration(&vrf_data_2.output, &rp_id, &user_id, None);
+    let deterministic_vrf_public_key_2 = vec![1u8; 32];
 
-        let mut contract = WebAuthnContract::init("test_contract".to_string());
+    println!("Calling link_device_register_user for device 2...");
+    let result_2 = contract
+        .call("link_device_register_user")
+        .args_json(serde_json::json!({
+            "vrf_data": vrf_data_2.to_json(),
+            "webauthn_registration": webauthn_registration_2,
+            "deterministic_vrf_public_key": deterministic_vrf_public_key_2
+        }))
+        .gas(near_sdk::Gas::from_tgas(200))
+        .transact()
+        .await?;
 
-        // Test that device numbers are 1-indexed for better UX
+    println!("Second link_device_register_user result: {:?}", result_2);
 
-        // First device should be device number 1
-        let success = contract.store_authenticator(
-            account.clone(),
-            "credential_device_1".to_string(),
-            vec![1, 2, 3],
-            None,
-            "2024-01-01".to_string(),
-            vec![vec![4, 5, 6]],
-            1u8, // First device is device 1
-        );
-        assert!(success, "First device should be stored successfully");
+    // Check that the device counter was incremented to 2
+    let device_counter_final = contract.view("get_device_counter")
+        .args_json(serde_json::json!({
+            "account_id": account_id.clone(),
+        }))
+        .await?;
+    let device_counter_final_value: u32 = device_counter_final.json()?;
+    println!("Final device counter: {}", device_counter_final_value);
 
-        // Second device through linking should be device number 2
-        let device2_key = "ed25519:".to_string() + &bs58::encode(&[2u8; 32]).into_string();
-        contract.store_device_linking_mapping(
-            device2_key.clone(),
-            account.clone(),
-        );
+    // The device counter should be incremented to 2
+    assert_eq!(device_counter_final_value, 2, "Device counter should be incremented to 2 after second link_device_register_user call");
 
-        let linking_result = contract.get_device_linking_account(device2_key);
-        if let Some((_, device_number)) = linking_result {
-            assert_eq!(device_number, 2, "Second device should be device number 2 (1-indexed)");
-        }
-
-        // Third device should be device number 3
-        let device3_key = "ed25519:".to_string() + &bs58::encode(&[3u8; 32]).into_string();
-        contract.store_device_linking_mapping(
-            device3_key.clone(),
-            account.clone(),
-        );
-
-        let linking_result_3 = contract.get_device_linking_account(device3_key);
-        if let Some((_, device_number)) = linking_result_3 {
-            assert_eq!(device_number, 3, "Third device should be device number 3 (1-indexed)");
-        }
-    }
+    println!("✓ Test passed: Device counter is correctly incremented by link_device_register_user");
+    Ok(())
 }

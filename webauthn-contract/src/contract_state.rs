@@ -79,7 +79,7 @@ pub struct WebAuthnContract {
     pub credential_to_users: LookupMap<String, AccountId>,
     // Temporary mapping for device linking: Device2 public key -> (Device1 account ID, device number)
     // Required for Link Device Flow
-    pub device_linking_map: LookupMap<String, (AccountId, u32)>,
+    pub device_linking_map: LookupMap<String, (AccountId, u8)>,
     // Device counter per account: AccountId -> next device number
-    pub device_numbers: LookupMap<AccountId, u32>,
+    pub device_numbers: LookupMap<AccountId, u8>,
 }

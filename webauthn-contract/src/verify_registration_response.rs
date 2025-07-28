@@ -11,6 +11,7 @@ use crate::utils::parsers::{
     parse_authenticator_data
 };
 use crate::utils::verifiers::verify_attestation_signature;
+use crate::utils::vrf_verifier;
 
 // VRF Verification Data Structure
 #[near_sdk::near(serializers = [json, borsh])]
@@ -71,6 +72,15 @@ pub struct VerifyCanRegisterResponse {
 pub struct RegistrationInfo {
     pub credential_id: Vec<u8>,
     pub credential_public_key: Vec<u8>,
+}
+
+/// VRF authentication response with output
+#[near_sdk::near(serializers = [json])]
+#[derive(Debug, Clone)]
+pub struct VerifiedVRFAuthenticationResponse {
+    pub verified: bool,
+    pub vrf_output: Option<Vec<u8>>, // 64-byte VRF output if verification succeeds
+    pub authentication_info: Option<String>,
 }
 
 /////////////////////////////////////
@@ -141,13 +151,7 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Vec<u8>,
         device_number: Option<u8>,
     ) -> VerifyRegistrationResponse {
-
-        log!("Verifying VRF proof and WebAuthn registration with dual VRF support for account: {}", account_id);
-        log!("  - User ID: {}", vrf_data.user_id);
-        log!("  - RP ID (domain): {}", vrf_data.rp_id);
-        log!("  - Bootstrap VRF key: {} bytes", vrf_data.public_key.len());
-        log!("  - Deterministic VRF key: {} bytes", deterministic_vrf_public_key.len());
-
+        log!("Verifying VRF proof and WebAuthn registration for account: {}", account_id);
         // 1. Validate VRF and extract WebAuthn challenge (view-only)
         let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
             Some(challenge) => challenge,
@@ -169,13 +173,10 @@ impl WebAuthnContract {
         // 3. If WebAuthn verification succeeded, store the authenticator and user data
         if webauthn_result.verified {
             if let Some(registration_info) = webauthn_result.registration_info {
-                // Determine device number (defaults to 1 for first device, 1-indexed for UX)
+                // Determine device number (defaults to 1 for first device, or if passed None)
+                // Link Device via `link_device_register_user` passes the device number
                 let device_num = device_number.unwrap_or(1);
-
-                // For new accounts (device 1), initialize counter
-                if device_num == 1 {
-                    self.device_numbers.insert(account_id.clone(), 2); // Next device will be 2
-                }
+                self.device_numbers.insert(account_id.clone(), device_num);
 
                 // Store the authenticator and user data with dual VRF keys for the specific account
                 let storage_result = self.store_authenticator_and_user_for_account(
@@ -202,10 +203,27 @@ impl WebAuthnContract {
         }
     }
 
+    pub fn verify_and_register_user(
+        &mut self,
+        vrf_data: VRFVerificationData,
+        webauthn_registration: WebAuthnRegistrationCredential,
+        deterministic_vrf_public_key: Vec<u8>,
+    ) -> VerifyRegistrationResponse {
+        let account_id = env::predecessor_account_id();
+        // Delegate to the account-specific version
+        self.verify_and_register_user_for_account(
+            account_id,
+            vrf_data,
+            webauthn_registration,
+            deterministic_vrf_public_key,
+            None
+        )
+    }
+
     // This function is only called by the Device2 account when Linking Devices
     // Previously it was used to create accounts after Testnet Faucet has created an account.
     // We now combine account creation and registration in a single transaction.
-    pub fn verify_and_register_user(
+    pub fn link_device_register_user(
         &mut self,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
@@ -215,18 +233,9 @@ impl WebAuthnContract {
         let account_id = env::predecessor_account_id();
 
         // Check if this account already has devices registered
-        let device_number = self.device_numbers.get(&account_id)
-            .map(|counter| *counter as u8) // Use current counter value as the device number (cast u32 to u8)
-            .unwrap_or(1u8); // Default to device 1 for new accounts
-
-        log!("Device linking registration: account {} assigned device number {}", account_id, device_number);
-
-        // Increment the counter for the next device
-        let next_counter = self.device_numbers.get(&account_id).copied().unwrap_or(1) + 1;
-        self.device_numbers.insert(account_id.clone(), next_counter);
-
-        log!("Device linking registration: account {} assigned device number {} (next_counter = {})",
-             account_id, device_number, next_counter);
+        let device_number = self.get_device_counter(account_id.clone());
+        let next_device_number = device_number + 1;
+        log!("Device linking registration: account {} assigned device number {}", account_id, next_device_number);
 
         // Delegate to the account-specific version
         self.verify_and_register_user_for_account(
@@ -234,9 +243,8 @@ impl WebAuthnContract {
             vrf_data,
             webauthn_registration,
             deterministic_vrf_public_key,
-            Some(device_number),
+            Some(next_device_number),
         )
-        // If so, prune the entry
     }
 
     /// VIEW VERSION: Check if user can register without modifying state
@@ -339,12 +347,22 @@ impl WebAuthnContract {
         log!("  - Public key: {} bytes", vrf_data.public_key.len());
         log!("  - Block hash: {} bytes (entropy only, not validated)", vrf_data.block_hash.len());
 
-        // Using vrf-contract-verifier
-        let vrf_verification = self.verify_vrf_1(
-            vrf_data.vrf_proof.clone(),
-            vrf_data.public_key.clone(),
-            vrf_data.vrf_input_data.clone()
-        );
+        let vrf_verification = match vrf_verifier::verify_vrf_1(
+            &vrf_data.vrf_proof,
+            &vrf_data.public_key,
+            &vrf_data.vrf_input_data
+        ) {
+            Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
+                verified: true,
+                vrf_output: Some(vrf_output.to_vec()),
+                authentication_info: Some("VRF verification successful".to_string()),
+            },
+            Err(_) => VerifiedVRFAuthenticationResponse {
+                verified: false,
+                vrf_output: None,
+                authentication_info: Some("VRF verification failed".to_string()),
+            }
+        };
 
         if !vrf_verification.verified {
             log!("VRF proof verification failed");
@@ -790,7 +808,7 @@ mod tests {
 
         // Note: This test will fail VRF verification since we're using mock data
         // but it will test the structure and flow of the VRF registration process
-        let result = contract.verify_and_register_user(
+        let result = contract.link_device_register_user(
             vrf_data,
             webauthn_registration,
             deterministic_vrf_public_key,
@@ -801,7 +819,7 @@ mod tests {
         assert!(!result.verified, "Mock VRF data should fail verification (expected)");
         assert!(result.registration_info.is_none(), "No registration info should be returned on VRF failure");
 
-        println!("✅ VRF Registration test completed - structure and flow verified");
+        println!("VRF Registration test completed - structure and flow verified");
         println!("   (VRF verification failed as expected with mock data)");
     }
 
@@ -833,7 +851,7 @@ mod tests {
         assert_eq!(vrf_data.block_height, deserialized.block_height);
         assert_eq!(vrf_data.block_hash, deserialized.block_hash);
 
-        println!("✅ VRFVerificationData serialization test passed");
+        println!("VRFVerificationData serialization test passed");
     }
 
     #[test]
@@ -847,7 +865,7 @@ mod tests {
         assert_eq!(webauthn_registration.id, deserialized.id);
         assert_eq!(webauthn_registration.type_, deserialized.type_);
 
-        println!("✅ RegistrationCredential serialization test passed");
+        println!("RegistrationCredential serialization test passed");
     }
 
     #[test]

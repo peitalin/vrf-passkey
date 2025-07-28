@@ -43,12 +43,6 @@ impl WebAuthnContract {
         true
     }
 
-    /// Check if a user is registered
-    /// @view
-    pub fn is_user_registered(&self, user_id: AccountId) -> bool {
-        self.registered_users.contains(&user_id)
-    }
-
     /////////////////////////////////////
     /// AUTHENTICATORS
     /////////////////////////////////////
@@ -242,31 +236,9 @@ impl WebAuthnContract {
         }
     }
 
-    /// Get authenticator by credential ID (for device number recovery)
-    pub fn get_authenticator_by_credential_id(
-        &self,
-        credential_id: String,
-    ) -> Option<(AccountId, StoredAuthenticator)> {
-        // Use reverse lookup to find account, then get authenticator with device_number
-        if let Some(account_id) = self.credential_to_users.get(&credential_id).cloned() {
-            if let Some(authenticators) = self.authenticators.get(&account_id) {
-                if let Some(authenticator) = authenticators.get(&credential_id).cloned() {
-                    return Some((account_id, authenticator));
-                }
-            }
-        }
-        None
-    }
-
     /////////////////////////////////
     /// CREDENTIAL LOOKUP
     /////////////////////////////////
-
-    /// Get the account ID associated with a credential ID
-    /// This enables efficient account discovery during recovery
-    pub fn get_account_by_credential_id(&self, credential_id: String) -> Option<AccountId> {
-        self.credential_to_users.get(&credential_id).cloned()
-    }
 
     /// Get all credential IDs associated with an account ID
     /// This enables reverse lookup for account recovery (account -> credential IDs)
@@ -279,12 +251,7 @@ impl WebAuthnContract {
     }
 
     /// Helper method to add a credential->user mapping (used during registration)
-    pub(crate) fn add_credential_user_mapping(&mut self, credential_id: String, user_id: AccountId) {
+    fn add_credential_user_mapping(&mut self, credential_id: String, user_id: AccountId) {
         self.credential_to_users.insert(credential_id, user_id);
-    }
-
-    /// Helper method to remove a credential->user mapping (used during deregistration)
-    pub(crate) fn remove_credential_user_mapping(&mut self, credential_id: String, _user_id: AccountId) {
-        self.credential_to_users.remove(&credential_id);
     }
 }

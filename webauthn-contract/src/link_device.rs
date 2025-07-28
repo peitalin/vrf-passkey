@@ -1,7 +1,7 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{
     log, near, env, serde_json, require,
-    Promise, AccountId, NearToken, Gas, PublicKey, CryptoHash, GasWeight
+    AccountId, Gas, PublicKey, CryptoHash, GasWeight
 };
 
 // Simple enum for access key permission (kept for potential future use)
@@ -48,7 +48,7 @@ impl WebAuthnContract {
         let current_counter = self.device_numbers
             .get(&target_account_id)
             .copied()
-            .unwrap_or(2); // Start from 2 since device 1 is the first device
+            .unwrap_or(1); // device numbering starts on 1
 
         let device_number = current_counter;
 
@@ -79,13 +79,13 @@ impl WebAuthnContract {
 
     /// View function for Device2 to query which account it will be linked to and get its assigned device number
     /// Device2 calls this with its public key to discover Device1's account ID and its assigned device number
-    pub fn get_device_linking_account(&self, device_public_key: String) -> Option<(AccountId, u32)> {
+    pub fn get_device_linking_account(&self, device_public_key: String) -> Option<(AccountId, u8)> {
         self.device_linking_map.get(&device_public_key)
             .map(|(account_id, device_number)| (account_id.clone(), *device_number))
     }
 
     /// Get the current device counter for an account (useful for debugging)
-    pub fn get_device_counter(&self, account_id: AccountId) -> u32 {
+    pub fn get_device_counter(&self, account_id: AccountId) -> u8 {
         self.device_numbers.get(&account_id).copied().unwrap_or(0)
     }
 
@@ -126,7 +126,7 @@ impl WebAuthnContract {
     }
 
     /// Clean up temporary device linking mapping after successful registration
-    /// This should be called after Device2 completes verify_and_register_user
+    /// This should be called after Device2 completes link_device_register_user
     /// OR automatically called by the yield-resume pattern after 200 blocks
     pub fn cleanup_device_linking(&mut self, device_public_key: String) {
         self.device_linking_map.remove(&device_public_key);
@@ -138,7 +138,7 @@ impl WebAuthnContract {
     /// WARNING: This is for testing purposes only and should not be used in production
     pub fn test_add_device_linking_entry(&mut self, device_public_key: String, account_id: AccountId) {
         // For testing, assign device number 2 (simulating first additional device - 1-indexed system)
-        let test_device_number = 2u32;
+        let test_device_number = 2u8;
 
         self.device_linking_map.insert(
             device_public_key.clone(),
