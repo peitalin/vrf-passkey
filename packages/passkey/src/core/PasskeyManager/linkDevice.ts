@@ -68,7 +68,6 @@ export class LinkDeviceFlow {
   constructor(context: PasskeyManagerContext, options: StartDeviceLinkingOptionsDevice2) {
     this.context = context;
     this.options = options;
-    console.log(`LinkDeviceFlow[${this.instanceId}]: New instance created`);
   }
 
   /**
@@ -232,7 +231,6 @@ export class LinkDeviceFlow {
     // Always stop any existing polling before starting new one
     this.stopPolling();
 
-    console.log(`LinkDeviceFlow[${this.instanceId}]: Starting polling interval`);
     this.pollingInterval = setInterval(async () => {
       // Double-check we should still be polling (prevents race conditions)
       if (!this.shouldContinuePolling()) {
@@ -242,7 +240,19 @@ export class LinkDeviceFlow {
 
       try {
         const hasNewKey = await this.checkForDeviceKeyAdded();
-        if (hasNewKey) await this.handleDeviceKeyFound();
+        if (hasNewKey) {
+          this.session!.status = 'registering';
+          this.phase = 'registering';
+
+          this.options?.onEvent?.({
+            step: 2,
+            phase: 'addkey-detected',
+            status: 'progress',
+            timestamp: Date.now(),
+            message: 'AddKey transaction detected, completing registration...'
+          });
+          this.completeRegistration();
+        }
       } catch (error: any) {
         console.error('Polling error:', error);
         // On persistent errors, stop polling to prevent spam
@@ -276,36 +286,17 @@ export class LinkDeviceFlow {
     return true;
   }
 
-  private async handleDeviceKeyFound(): Promise<void> {
-    this.session!.status = 'registering';
-    this.phase = 'registering';
-
-    this.options?.onEvent?.({
-      step: 2,
-      phase: 'addkey-detected',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'AddKey transaction detected, completing registration...'
-    });
-
-    await this.completeRegistration();
-  }
-
   /**
    * Device2: Check if device key has been added by polling contract HashMap
    */
   private async checkForDeviceKeyAdded(): Promise<boolean> {
-    const sessionInfo = `instanceId=${this.instanceId}, publicKey=${this.session?.nearPublicKey?.substring(0, 20)}...`;
-    console.log(`LinkDeviceFlow[${sessionInfo}]: Checking for device key addition`);
-
     if (!this.session?.nearPublicKey) {
-      console.error(`LinkDeviceFlow[${sessionInfo}]: No session or public key available for polling`);
+      console.error(`LinkDeviceFlow: No session or public key available for polling`);
       return false;
     }
 
     try {
       this.lastRpcCallTime = Date.now();
-      console.log(`LinkDeviceFlow[${sessionInfo}]: Querying contract ${this.context.webAuthnManager.configs.contractId} for key: ${this.session.nearPublicKey}`);
 
       const linkingResult = await getDeviceLinkingAccountContractCall(
         this.context.nearClient,
@@ -321,35 +312,26 @@ export class LinkDeviceFlow {
         message: 'Polling contract for linked account...'
       });
 
-      if (linkingResult && Array.isArray(linkingResult) && linkingResult.length >= 2) {
-        const [linkedAccountId, deviceNumber] = linkingResult;
-        console.log(`LinkDeviceFlow[${sessionInfo}]: SUCCESS! Discovered linked account:`, {
-          linkedAccountId,
-          deviceNumber,
+      if (linkingResult && linkingResult.linkedAccountId && linkingResult.deviceNumber !== undefined) {
+        // The contract returns the current device counter, but this device should be assigned the next number
+        const nextDeviceNumber = linkingResult.deviceNumber + 1;
+        console.log(`LinkDeviceFlow: Success! Discovered linked account:`, {
+          linkedAccountId: linkingResult.linkedAccountId,
+          currentCounter: linkingResult.deviceNumber,
+          nextDeviceNumber: nextDeviceNumber,
           timestamp: new Date().toISOString()
         });
-        this.session.accountId = linkedAccountId;
-        this.session.deviceNumber = deviceNumber; // Store device number for later use
+        this.session.accountId = linkingResult.linkedAccountId as AccountId;
+        this.session.deviceNumber = nextDeviceNumber; // Store the next device number for this device
 
         return true;
-      }
-
-      // Log different response types for debugging
-      if (linkingResult === null || linkingResult === undefined) {
-        console.log(`LinkDeviceFlow[${sessionInfo}]: No mapping found yet (null/undefined response)`);
-      } else if (Array.isArray(linkingResult)) {
-        if (linkingResult.length < 2) {
-          console.log(`LinkDeviceFlow[${sessionInfo}]: Array response but insufficient length:`, linkingResult);
-        } else {
-          console.log(`LinkDeviceFlow[${sessionInfo}]: Valid array response but failed condition check:`, linkingResult);
-        }
       } else {
-        console.log(`️LinkDeviceFlow[${sessionInfo}]: Unhandled response type:`, typeof linkingResult, linkingResult);
+        console.log(`LinkDeviceFlow: No mapping found yet...`);
       }
 
       return false;
     } catch (error: any) {
-      console.error(`LinkDeviceFlow[${sessionInfo}]: Error checking for device key addition:`, {
+      console.error(`LinkDeviceFlow: Error checking for device key addition:`, {
         error: error.message,
         stack: error.stack,
         name: error.name,
@@ -405,7 +387,7 @@ export class LinkDeviceFlow {
         message: 'Device linking completed successfully!'
       });
 
-      // CHANGE: Auto-login for Device2 after successful device linking
+      // Auto-login for Device2 after successful device linking
       console.log('LinkDeviceFlow: Starting auto-login attempt...');
       try {
         await this.attemptAutoLogin(migrateKeysResult);
@@ -430,7 +412,6 @@ export class LinkDeviceFlow {
           timestamp: Date.now(),
           message: loginError.message,
         });
-
         // Don't fail the whole linking process if auto-login fails
       }
 
@@ -556,9 +537,7 @@ export class LinkDeviceFlow {
       }
 
       // Generate device-specific account ID for storage
-      const deviceSpecificAccountId = generateDeviceSpecificUserId(accountId, this.session.deviceNumber);
       console.log("Using device number: ", this.session.deviceNumber, " (assigned by contract for this device)");
-      console.log(`LinkDeviceFlow: Storing authenticator data for device-specific account: ${deviceSpecificAccountId}`);
       // Store user data for the device-specific account
       await webAuthnManager.storeUserData({
         nearAccountId: accountId, // Use device-specific account ID
@@ -574,9 +553,9 @@ export class LinkDeviceFlow {
         deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
 
-      // Store authenticator for the device-specific account
+      // Store authenticator using base account ID for consistent lookup
       await webAuthnManager.storeAuthenticator({
-        nearAccountId: accountId, // Use device-specific account ID
+        nearAccountId: accountId, // Use base account ID for consistent lookup
         credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
         credentialPublicKey: new Uint8Array(credential.rawId),
         transports: ['internal'],
@@ -587,7 +566,7 @@ export class LinkDeviceFlow {
         deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
 
-      console.log(`LinkDeviceFlow: Successfully stored authenticator data for account: ${deviceSpecificAccountId}`);
+      console.log(`LinkDeviceFlow: Successfully stored authenticator data for account: ${accountId}, device number: ${this.session.deviceNumber}`);
 
     } catch (error) {
       console.error(`LinkDeviceFlow: Failed to store authenticator data:`, error);
@@ -922,7 +901,7 @@ export class LinkDeviceFlow {
    */
   private stopPolling(): void {
     if (this.pollingInterval) {
-      console.log(`LinkDeviceFlow[${this.instanceId}]: Stopping polling interval`);
+      console.log(`LinkDeviceFlow: Stopping polling interval`);
       clearInterval(this.pollingInterval);
       this.pollingInterval = undefined;
     }
@@ -947,7 +926,7 @@ export class LinkDeviceFlow {
    * Cancel the flow and cleanup
    */
   cancel(): void {
-    console.log(`LinkDeviceFlow[${this.instanceId}]: Cancel called`);
+    console.log(`LinkDeviceFlow: Cancel called`);
     this.stopPolling();
     this.phase = 'idle';
     this.session = null;
