@@ -24,7 +24,6 @@ function runTests(): void {
     step: 'transaction_signing',
     message: 'Signing transaction',
     status: 'progress',
-    timestamp: Date.now(),
     data: '{"step": 1, "total": 3}'
   };
 
@@ -40,7 +39,6 @@ function runTests(): void {
   assert(typeof validMsg.step === 'string', 'step should be string');
   assert(typeof validMsg.message === 'string', 'message should be string');
   assert(typeof validMsg.status === 'string', 'status should be string');
-  assert(typeof validMsg.timestamp === 'number', 'timestamp should be number');
   assert(validMsg.data === undefined || typeof validMsg.data === 'string', 'data should be string or undefined');
   console.log('Message structure validation working correctly\n');
 }

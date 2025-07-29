@@ -14,6 +14,32 @@ import type {
   StartDeviceLinkingOptionsDevice2,
   ScanAndLinkDeviceOptionsDevice1
 } from '../core/types/linkDevice';
+import type {
+  DeviceLinkingEvent,
+  DeviceLinkingPhase,
+  DeviceLinkingStatus,
+  RegistrationPhase,
+  RegistrationStatus,
+  LoginPhase,
+  LoginStatus,
+  ActionPhase,
+  ActionStatus
+} from '../core/types/passkeyManager';
+
+// Type-safe event handler for device linking events
+export type DeviceLinkingEventHandler = (event: DeviceLinkingEvent) => void;
+
+// Re-export enums for convenience
+export {
+  DeviceLinkingPhase,
+  DeviceLinkingStatus,
+  RegistrationPhase,
+  RegistrationStatus,
+  LoginPhase,
+  LoginStatus,
+  ActionPhase,
+  ActionStatus
+};
 
 // === CORE STATE TYPES ===
 

@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
-import { usePasskeyContext } from '@web3authn/passkey/react'
-import toast from 'react-hot-toast'
-import type { LastTxDetails } from '../types'
-
+import { usePasskeyContext, DeviceLinkingPhase, DeviceLinkingStatus } from '@web3authn/passkey/react'
 // Import the improved QRCodeScanner from the SDK
 import { QRCodeScanner } from '@web3authn/passkey/react'
+import toast from 'react-hot-toast'
 
 export function LinkDeviceScanQR() {
   const {
@@ -87,33 +85,35 @@ export function LinkDeviceScanQR() {
         onClose={onCancelDeviceLinking}
         onEvent={(event) => {
           switch (event.phase) {
-            case 'qr-code-generated':
-              if (event.status === 'progress') {
-                toast.loading('Generating QR code...', { id: 'device-linking' });
-              }
+            case DeviceLinkingPhase.STEP_2_SCANNING:
+              toast.loading('Scanning QR code...', { id: 'device-linking' });
               break;
-            case 'scanning':
-              if (event.status === 'progress') {
-                toast.loading('Scanning QR code...', { id: 'device-linking' });
-              }
-              break;
-            case 'authorization':
-              if (event.status === 'progress') {
+            case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
+              if (event.status === DeviceLinkingStatus.PROGRESS) {
                 toast.loading('Authorizing...', { id: 'device-linking' });
+              } else if (event.status === DeviceLinkingStatus.SUCCESS) {
+                toast.success(event.message || 'Authorization completed successfully!', { id: 'device-linking' });
               }
               break;
-            case 'registration':
-              if (event.status === 'progress') {
+            case DeviceLinkingPhase.STEP_6_REGISTRATION:
+              if (event.status === DeviceLinkingStatus.PROGRESS) {
                 toast.loading('Registering device...', { id: 'device-linking' });
+              } else if (event.status === DeviceLinkingStatus.SUCCESS) {
+                toast.success(event.message || 'Device linked successfully!', { id: 'device-linking' });
               }
               break;
-            case 'registration-error':
-              if (event.status === 'error') {
+            case DeviceLinkingPhase.REGISTRATION_ERROR:
+              if (event.status === DeviceLinkingStatus.ERROR) {
                 toast.error(event.message || 'Registration failed', { id: 'device-linking' });
               }
               break;
+            case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
+              if (event.status === DeviceLinkingStatus.SUCCESS) {
+                toast.success(event.message || 'Device linking completed successfully!', { id: 'device-linking' });
+              }
+              break;
             default:
-              if (event.status === 'progress') {
+              if (event.status === DeviceLinkingStatus.PROGRESS) {
                 toast.loading(event.message || 'Processing...', { id: 'device-linking' });
               }
           }

@@ -25,11 +25,12 @@ export type {
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
-  DeviceLinkingStatus,
   LinkDeviceResult,
   DeviceLinkingError,
   DeviceLinkingErrorCode
 } from './core/types/linkDevice';
+
+export { DeviceLinkingPhase } from './core/types/passkeyManager';
 
 export type {
   WebAuthnRegistrationWithPrf,

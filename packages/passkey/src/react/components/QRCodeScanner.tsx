@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
-import type { DeviceLinkingSSEEvent } from '../../core/types/passkeyManager';
+import type { DeviceLinkingEvent } from '../../core/types/passkeyManager';
 import { useQRCamera } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { useQRFileUpload } from '../hooks/useQRFileUpload';
@@ -10,7 +10,7 @@ export interface QRCodeScannerProps {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: DeviceLinkingEvent) => void;
   fundingAmount?: string;
   isOpen?: boolean;
   cameraId?: string;

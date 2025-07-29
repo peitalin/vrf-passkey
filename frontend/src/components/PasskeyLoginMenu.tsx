@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { usePasskeyContext } from '@web3authn/passkey/react'
+import { usePasskeyContext, RegistrationPhase, RegistrationStatus, LoginPhase, LoginStatus } from '@web3authn/passkey/react'
 import toast from 'react-hot-toast'
 
 import type { RegistrationSSEEvent } from '@web3authn/passkey/react'
@@ -61,26 +61,36 @@ export function PasskeyLoginMenu() {
         useRelayer: useRelayer,
         onEvent: (event: RegistrationSSEEvent) => {
           switch (event.phase) {
-            case 'webauthn-verification':
-              if (event.status === 'progress') {
+            case RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION:
+              if (event.status === RegistrationStatus.PROGRESS) {
                 toast.loading('Starting registration...', { id: 'registration' });
               }
               break;
-            case 'user-ready':
-              if (event.status === 'success') {
-                toast.success(`Welcome ${event.nearAccountId}! Registration complete!`, { id: 'registration' });
+            case RegistrationPhase.STEP_2_KEY_GENERATION:
+              if (event.status === RegistrationStatus.SUCCESS) {
+                toast.success(`Keys generated...`, { id: 'registration' });
               }
               break;
-            case 'registration-complete':
-              if (event.status === 'success') {
+            case RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION:
+              if (event.status === RegistrationStatus.PROGRESS) {
+                toast.loading(`Creating account...`, { id: 'registration' });
+              }
+              break;
+            case RegistrationPhase.STEP_6_CONTRACT_REGISTRATION:
+              if (event.status === RegistrationStatus.PROGRESS) {
+                toast.loading(`Registering with Web3Authn contract...`, { id: 'registration' });
+              }
+              break;
+            case RegistrationPhase.STEP_7_REGISTRATION_COMPLETE:
+              if (event.status === RegistrationStatus.SUCCESS) {
                 toast.success('Registration completed successfully!', { id: 'registration' });
               }
               break;
-            case 'registration-error':
+            case RegistrationPhase.REGISTRATION_ERROR:
               toast.error(event.error || 'Registration failed', { id: 'registration' });
               break;
             default:
-              if (event.status === 'progress') {
+              if (event.status === RegistrationStatus.PROGRESS) {
                 toast.loading(event.message || 'Processing...', { id: 'registration' });
               }
           }
@@ -131,18 +141,18 @@ export function PasskeyLoginMenu() {
     await loginPasskey(targetAccountId, {
       onEvent: (event) => {
         switch (event.phase) {
-          case 'preparation':
+          case LoginPhase.STEP_1_PREPARATION:
             toast.loading(`Logging in as ${targetAccountId}...`, { id: 'login' });
             break;
-          case 'webauthn-assertion':
+          case LoginPhase.STEP_2_WEBAUTHN_ASSERTION:
             toast.loading(event.message, { id: 'login' });
             break;
-          case 'vrf-unlock':
+          case LoginPhase.STEP_3_VRF_UNLOCK:
             break;
-          case 'login-complete':
+          case LoginPhase.STEP_4_LOGIN_COMPLETE:
             toast.success(`Logged in as ${event.nearAccountId}!`, { id: 'login' });
             break;
-          case 'login-error':
+          case LoginPhase.LOGIN_ERROR:
             toast.error(event.error, { id: 'login' });
             break;
         }
@@ -155,7 +165,7 @@ export function PasskeyLoginMenu() {
       <div className="passkey-container">
         <h3>Passkey Authentication</h3>
         <div className="security-warning">
-          <p>⚠️ Warning: Passkey operations require a secure context (HTTPS or localhost).</p>
+          <p>⚠️ Passkey operations require a secure context (HTTPS or localhost).</p>
           <p>Please ensure your development server is running on HTTPS or access via localhost.</p>
         </div>
       </div>

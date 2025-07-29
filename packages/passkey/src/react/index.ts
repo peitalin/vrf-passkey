@@ -46,6 +46,18 @@ export type {
   ActionEvent
 } from './types';
 
+// === DEVICE LINKING ENUMS ===
+export {
+  DeviceLinkingPhase,
+  DeviceLinkingStatus,
+  RegistrationPhase,
+  RegistrationStatus,
+  LoginPhase,
+  LoginStatus,
+  ActionPhase,
+  ActionStatus
+} from '../core/types/passkeyManager';
+
 // === PROFILE BUTTON TYPES ===
 export type {
   ProfileDimensions,

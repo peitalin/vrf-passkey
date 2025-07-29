@@ -1,13 +1,13 @@
 import { useRef, useCallback } from 'react';
 import { usePasskeyContext } from '../context';
 import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
-import type { DeviceLinkingSSEEvent } from '../../core/types/passkeyManager';
+import type { DeviceLinkingEvent } from '../../core/types/passkeyManager';
 
 export interface UseDeviceLinkingOptions {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: DeviceLinkingEvent) => void;
   fundingAmount?: string;
 }
 

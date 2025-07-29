@@ -18,13 +18,14 @@ interface BaseSSERegistrationEvent {
 }
 
 type RegistrationSSEEvent =
-  | WebAuthnVerificationSSEEvent    // Step 1
-  | UserReadySSEEvent              // Step 2
-  | AccessKeyAdditionSSEEvent      // Step 3
-  | DatabaseStorageSSEEvent        // Step 4
-  | ContractRegistrationSSEEvent   // Step 5
-  | RegistrationCompleteSSEEvent   // Step 6
-  | RegistrationErrorSSEEvent;     // Step 0
+  | RegistrationEventStep1    // Step 1
+  | RegistrationEventStep2    // Step 2
+  | RegistrationEventStep3    // Step 3
+  | RegistrationEventStep4    // Step 4
+  | RegistrationEventStep5    // Step 5
+  | RegistrationEventStep6    // Step 6
+  | RegistrationEventStep7    // Step 7
+  | RegistrationEventStep0;   // Step 0
 ```
 
 ## Registration Steps
@@ -45,7 +46,7 @@ Verifies WebAuthn credentials with mode detection:
 - `secure`: Contract-based verification with on-chain commitment
 
 ```typescript
-interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
+interface RegistrationEventStep1 extends BaseSSERegistrationEvent {
   step: 1;
   phase: 'webauthn-verification';
   mode?: 'optimistic' | 'secure';
@@ -56,7 +57,7 @@ interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
 User verification complete - **login interface can be enabled**:
 
 ```typescript
-interface UserReadySSEEvent extends BaseSSERegistrationEvent {
+interface RegistrationEventStep2 extends BaseSSERegistrationEvent {
   step: 2;
   phase: 'user-ready';
   status: 'success';

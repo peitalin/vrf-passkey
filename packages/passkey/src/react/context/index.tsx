@@ -7,6 +7,7 @@ import {
   useMemo,
 } from 'react';
 import { PasskeyManager, AccountRecoveryFlow } from '../../core/PasskeyManager';
+import { DeviceLinkingPhase } from '../../core/types/passkeyManager';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';
@@ -250,7 +251,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
         console.log('Device linking event received:', { phase: event.phase, status: event.status, message: event.message });
 
         // Update React state when auto-login completes successfully
-        if (event.phase === 'device-linking' && event.status === 'success') {
+        if (event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE && event.status === 'success') {
           console.log('Device linking auto-login completed - refreshing login state...');
           // Refresh login state to update React context after successful auto-login
           refreshLoginState()

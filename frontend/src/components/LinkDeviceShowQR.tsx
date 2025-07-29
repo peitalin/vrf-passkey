@@ -1,14 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { usePasskeyContext } from '@web3authn/passkey/react'
+import { usePasskeyContext, DeviceLinkingPhase, DeviceLinkingStatus } from '@web3authn/passkey/react'
 import toast from 'react-hot-toast'
 
 export function LinkDeviceShowQR() {
   const {
-    loginState: {
-      isLoggedIn,
-      nearPublicKey,
-      nearAccountId
-    },
+    loginState,
     startDeviceLinkingFlow,
     scanAndLinkDevice,
   } = usePasskeyContext();
@@ -38,16 +34,25 @@ export function LinkDeviceShowQR() {
       console.log('Creating new device linking flow...');
       const flow = startDeviceLinkingFlow({
         onEvent: (event) => {
+          console.log('Device linking event:', event);
           switch (event.phase) {
-            case 'qr-code-generated':
+            case DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED:
               toast.success('QR code generated! Show this to Device1 to scan.', { id: 'device-link' });
               break;
-            case 'addkey-detected':
+            // Steps 2-4 are handled on Device1 (Scans QR code)
+            case DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED:
               toast.loading('Device linking detected, completing registration...', { id: 'device-link' });
               break;
-            case 'registration':
-              if (event.status === 'success') {
+            case DeviceLinkingPhase.STEP_6_REGISTRATION:
+              if (event.status === DeviceLinkingStatus.SUCCESS) {
                 toast.success('Device linking completed successfully!', { id: 'device-link' });
+                setDeviceLinkingState({ mode: 'idle', isProcessing: false });
+                flowRef.current = null; // Clear ref when completed
+              }
+              break;
+            case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
+              if (event.status === DeviceLinkingStatus.SUCCESS) {
+                toast.success(event.message || 'Device linking completed successfully!', { id: 'device-link' });
                 setDeviceLinkingState({ mode: 'idle', isProcessing: false });
                 flowRef.current = null; // Clear ref when completed
               }

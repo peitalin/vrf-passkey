@@ -23,7 +23,6 @@ const TEST_CONFIG = {
     rpId: 'localhost',
     blockHeight: 12345,
     blockHash: '11111111111111111111111111111111111111111111', // Simple valid base58 string (all 1s, decodes to zeros)
-    timestamp: Date.now()
   },
   MOCK_PRF_OUTPUT: 'dGVzdC1wcmYtb3V0cHV0LTMyLWJ5dGVzLWZvci10ZXN0aW5n', // base64url: 'test-prf-output-32-bytes-for-testing'
   VRF_WORKER_URL: BUILD_PATHS.TEST_WORKERS.VRF
@@ -425,7 +424,6 @@ test.describe('VRF Worker Manager Integration Test', () => {
           rpId: 'localhost',
           blockHeight: 67890,
           blockHash: testConfig.VRF_INPUT_PARAMS.blockHash,
-          timestamp: Date.now()
         };
 
         const vrfChallenge1 = await vrfWorkerManager.generateVrfChallenge(vrfInputData);
@@ -439,7 +437,6 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const differentInputData = {
           ...vrfInputData,
           blockHeight: 99999,
-          timestamp: Date.now() + 1000
         };
         const vrfChallenge3 = await vrfWorkerManager.generateVrfChallenge(differentInputData);
 
@@ -530,7 +527,6 @@ test.describe('VRF Worker Manager Integration Test', () => {
             rpId: 'localhost',
             blockHeight: 12345,
             blockHash: 'dGVzdC1ibG9jay1oYXNo', // base64url: 'test-block-hash'
-            timestamp: Date.now()
           });
           console.log('ERROR: Challenge without session should have failed but succeeded!');
         } catch (error: any) {
