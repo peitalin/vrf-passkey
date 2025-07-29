@@ -54,7 +54,9 @@ export async function getDeviceLinkingAccountContractCall(
       'get_device_linking_account',
       { device_public_key: devicePublicKey }
     );
+    console.log('getDeviceLinkingAccountContractCall: result:', result);
 
+    // Handle different result formats
     if (result && Array.isArray(result) && result.length >= 2) {
       const [linkedAccountId, deviceNumber] = result;
       return {
@@ -145,7 +147,7 @@ export async function executeDeviceLinkingContractCalls({
         phase: 'authorization',
         status: 'progress',
         timestamp: Date.now(),
-        message: `Contract registration: ${progress.message}`
+        message: `Signing transactions: ${progress.message}`
       })
     }
   });
@@ -165,7 +167,6 @@ export async function executeDeviceLinkingContractCalls({
       receiverId: signedTransactions[0].signedTransaction.transaction.receiverId,
       actions: JSON.parse(signedTransactions[0].signedTransaction.transaction.actionsJson || '[]'),
       transactionKeys: Object.keys(signedTransactions[0].signedTransaction.transaction),
-      fullTransaction: JSON.stringify(signedTransactions[0].signedTransaction.transaction, null, 2)
     });
 
     addKeyTxResult = await context.nearClient.sendTransaction(
@@ -178,17 +179,9 @@ export async function executeDeviceLinkingContractCalls({
     onEvent?.({
       step: 5,
       phase: 'authorization',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: `AddKey transaction signed and broadcasted successfully!`
-    });
-
-    onEvent?.({
-      step: 6,
-      phase: 'registration',
       status: 'success',
       timestamp: Date.now(),
-      message: `Device2's key added to ${device1AccountId} successfully!`
+      message: `AddKey transaction completed successfully!`
     });
 
     // Check if contract mapping transaction is valid before attempting to broadcast
@@ -215,13 +208,13 @@ export async function executeDeviceLinkingContractCalls({
     throw new Error(`AddKey transaction broadcasting failed: ${txError.message}`);
   }
 
-  console.log('LinkDeviceFlow: Sending step 5 event...');
+  console.log('LinkDeviceFlow: Sending final success event...');
   onEvent?.({
-    step: 5,
-    phase: 'authorization',
-    status: 'progress',
+    step: 6,
+    phase: 'device-linking',
+    status: 'success',
     timestamp: Date.now(),
-    message: `Both transactions signed and broadcasted successfully!`
+    message: `Device linking completed successfully!`
   });
 
   return { addKeyTxResult, contractTxResult };

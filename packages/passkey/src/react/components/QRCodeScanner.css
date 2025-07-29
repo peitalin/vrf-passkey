@@ -202,6 +202,9 @@
   z-index: 10;
   transition: all 0.2s ease;
   backdrop-filter: blur(10px);
+  padding: 0;
+  line-height: 1;
+  box-sizing: border-box;
 }
 
 .qr-scanner-close:hover {

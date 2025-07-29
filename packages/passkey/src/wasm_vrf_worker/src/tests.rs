@@ -37,7 +37,7 @@ fn test_base64url_prf_processing_consistency() {
     assert_eq!(decoded_bytes.len(), 32, "PRF should be exactly 32 bytes");
     assert_eq!(decoded_bytes, test_prf_bytes, "Base64url round-trip should preserve original bytes");
 
-    println!("✅ Base64url PRF processing consistency test passed");
+    println!("[Passed] Base64url PRF processing consistency test passed");
 }
 
 #[test]
@@ -48,7 +48,6 @@ fn test_vrf_data_structures_serialization() {
         rp_id: "example.com".to_string(),
         block_height: 12345,
         block_hash: vec![0u8; 32],
-        timestamp: Some(1234567890),
     };
 
     let json_str = serde_json::to_string(&vrf_input).expect("Should serialize VRFInputData");
@@ -58,7 +57,6 @@ fn test_vrf_data_structures_serialization() {
     assert_eq!(vrf_input.rp_id, deserialized.rp_id);
     assert_eq!(vrf_input.block_height, deserialized.block_height);
     assert_eq!(vrf_input.block_hash, deserialized.block_hash);
-    assert_eq!(vrf_input.timestamp, deserialized.timestamp);
 
     // Test EncryptedVRFKeypair serialization/deserialization
     let encrypted_keypair = EncryptedVRFKeypair {
@@ -72,7 +70,7 @@ fn test_vrf_data_structures_serialization() {
     assert_eq!(encrypted_keypair.encrypted_vrf_data_b64u, deserialized.encrypted_vrf_data_b64u);
     assert_eq!(encrypted_keypair.chacha20_nonce_b64u, deserialized.chacha20_nonce_b64u);
 
-    println!("✅ VRF data structures serialization test passed");
+    println!("[Passed] VRF data structures serialization test passed");
 }
 
 #[test]
@@ -105,7 +103,7 @@ fn test_worker_message_format_consistency() {
     assert_eq!(test_response.success, deserialized.success);
     assert_eq!(test_response.error, deserialized.error);
 
-    println!("✅ Worker message format consistency test passed");
+    println!("[Passed] Worker message format consistency test passed");
 }
 
 #[test]
@@ -125,7 +123,7 @@ fn test_base64_encoding_consistency() {
     assert!(!encoded.contains('/'), "Base64url should not contain / characters");
     assert!(!encoded.contains('='), "Base64url should not contain = padding");
 
-    println!("✅ Base64 encoding consistency test passed");
+    println!("[Passed] Base64 encoding consistency test passed");
 }
 
 #[test]
@@ -144,7 +142,7 @@ fn test_configuration_constants() {
     assert!(!HKDF_VRF_KEYPAIR_INFO.is_empty(), "HKDF VRF info should not be empty");
     assert_ne!(HKDF_CHACHA20_KEY_INFO, HKDF_VRF_KEYPAIR_INFO, "HKDF info strings should be different");
 
-    println!("✅ Configuration constants test passed");
+    println!("[Passed] Configuration constants test passed");
 }
 
 #[test]
@@ -167,7 +165,7 @@ fn test_account_id_salt_generation() {
 
     assert_ne!(chacha20_salt, different_chacha20_salt, "Different accounts should produce different salts");
 
-    println!("✅ Account ID salt generation test passed");
+    println!("[Passed] Account ID salt generation test passed");
 }
 
 #[test]
@@ -189,7 +187,7 @@ fn test_prf_base64url_edge_cases() {
     let urlsafe_result = base64_url_decode("SGVsbG8_LQ");
     assert!(urlsafe_result.is_ok(), "URL-safe base64url should decode successfully");
 
-    println!("✅ PRF base64url edge cases test passed");
+    println!("[Passed] PRF base64url edge cases test passed");
 }
 
 #[test]
@@ -223,5 +221,5 @@ fn test_worker_message_prf_field_extraction() {
     let decoded_output = base64_url_decode(prf_output_field).expect("Should decode PRF output");
     assert_eq!(decoded_output, test_prf_bytes, "Decoded PRF output should match original bytes");
 
-    println!("✅ Worker message PRF field extraction test passed");
+    println!("[Passed] Worker message PRF field extraction test passed");
 }

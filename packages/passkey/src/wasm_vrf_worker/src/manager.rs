@@ -166,9 +166,7 @@ impl VRFKeyManager {
         self.session_active = true;
         self.session_start_time = Date::now();
 
-        info!("✅ VRF keypair unlocked successfully");
-        debug!("Session active for {}", near_account_id);
-
+        info!("VRF keypair unlocked successfully");
         Ok(())
     }
 
@@ -192,8 +190,6 @@ impl VRFKeyManager {
         let user_id_bytes = input_data.user_id.as_bytes();
         let rp_id_bytes = input_data.rp_id.as_bytes();
         let block_height_bytes = input_data.block_height.to_le_bytes();
-        let timestamp = input_data.timestamp.unwrap_or_else(|| js_sys::Date::now() as u64);
-        let timestamp_bytes = timestamp.to_le_bytes();
 
         // Concatenate all input components following the test pattern
         let mut vrf_input_data = Vec::new();
@@ -202,7 +198,6 @@ impl VRFKeyManager {
         vrf_input_data.extend_from_slice(rp_id_bytes);
         vrf_input_data.extend_from_slice(&block_height_bytes);
         vrf_input_data.extend_from_slice(&input_data.block_hash);
-        vrf_input_data.extend_from_slice(&timestamp_bytes);
 
         // Hash the input data (VRF input should be hashed)
         let vrf_input = Sha256::digest(&vrf_input_data).to_vec();

@@ -2,3 +2,6 @@
 
 /* Import ProfileSettingsButton styles */
 @import './components/ProfileSettingsButton/Web3AuthProfileButton.css';
+
+/* Import QRCodeScanner styles */
+@import './components/QRCodeScanner.css';

@@ -81,23 +81,8 @@ pub mod status_fields {
     pub const ALIVE: &str = "alive";
 }
 
-// === WORKER MESSAGE TYPES ===
-
-/// VRF Worker message type constants
-pub mod message_types {
-    pub const PING: &str = "PING";
-    pub const UNLOCK_VRF_KEYPAIR: &str = "UNLOCK_VRF_KEYPAIR";
-    pub const GENERATE_VRF_CHALLENGE: &str = "GENERATE_VRF_CHALLENGE";
-    pub const GENERATE_VRF_KEYPAIR_BOOTSTRAP: &str = "GENERATE_VRF_KEYPAIR_BOOTSTRAP";
-    pub const ENCRYPT_VRF_KEYPAIR_WITH_PRF: &str = "ENCRYPT_VRF_KEYPAIR_WITH_PRF";
-    pub const CHECK_VRF_STATUS: &str = "CHECK_VRF_STATUS";
-    pub const LOGOUT: &str = "LOGOUT";
-    pub const DERIVE_VRF_KEYPAIR_FROM_PRF: &str = "DERIVE_VRF_KEYPAIR_FROM_PRF";
-}
-
 // === ERROR MESSAGES ===
 
-/// Common error message constants
 pub mod error_messages {
     pub const NO_VRF_KEYPAIR: &str = "No VRF keypair in memory - please generate keypair first";
     pub const VRF_NOT_UNLOCKED: &str = "VRF keypair not unlocked - please login first";
@@ -109,37 +94,6 @@ pub mod error_messages {
     pub const MESSAGE_NOT_STRING: &str = "Message is not a string";
     pub const FAILED_TO_SERIALIZE: &str = "failed to serialize";
 }
-
-// === LOG MESSAGES ===
-
-/// Common log message constants for consistency
-pub mod log_messages {
-    pub const VRF_MANAGER_READY: &str = "VRF WASM Web Worker: VRFKeyManager ready (no user session active)";
-    pub const GENERATING_BOOTSTRAP: &str = "VRF WASM Web Worker: Generating VRF keypair for bootstrapping";
-    pub const KEYPAIR_IN_MEMORY: &str = "VRF keypair will be stored in memory unencrypted until PRF encryption";
-    pub const KEYPAIR_GENERATED: &str = "VRF WASM Web Worker: VRF keypair generated and stored in memory";
-    pub const BOOTSTRAP_COMPLETED: &str = "VRF WASM Web Worker: VRF keypair bootstrap completed";
-    pub const ENCRYPTING_KEYPAIR: &str = "VRF WASM Web Worker: Encrypting VRF keypair with PRF output";
-    pub const PUBLIC_KEY_VERIFIED: &str = "VRF WASM Web Worker: Public key verification successful";
-    pub const KEYPAIR_ENCRYPTED: &str = "VRF WASM Web Worker: VRF keypair encrypted with PRF output";
-    pub const READY_FOR_STORAGE: &str = "VRF keypair ready for persistent storage";
-    pub const KEYPAIR_UNLOCKED: &str = "✅ VRF WASM Web Worker: VRF keypair unlocked successfully";
-    pub const GENERATING_CHALLENGE: &str = "VRF WASM Web Worker: Generating VRF challenge";
-    pub const CHALLENGE_GENERATED: &str = "VRF WASM Web Worker: VRF challenge generated successfully";
-    pub const LOGGING_OUT: &str = "VRF WASM Web Worker: Logging out and securely clearing VRF keypair";
-    pub const KEYPAIR_CLEARED: &str = "VRF WASM Web Worker: VRF keypair cleared with automatic zeroization";
-    pub const SESSION_CLEARED: &str = "VRF WASM Web Worker: Session cleared securely with automatic zeroization";
-    pub const DERIVING_CHACHA20_KEY: &str = "VRF WASM Web Worker: Deriving ChaCha20 key using HKDF-SHA256";
-    pub const KEYPAIR_RESTORED: &str = "VRF WASM Web Worker: VRF keypair successfully restored from bincode";
-    pub const GENERATING_SECURE_KEYPAIR: &str = "VRF WASM Web Worker: Generating VRF keypair with secure randomness";
-    pub const SECURE_KEYPAIR_GENERATED: &str = "VRF WASM Web Worker: VRF keypair generated successfully";
-    pub const DETERMINISTIC_KEYPAIR_GENERATED: &str = "VRF WASM Web Worker: Deterministic VRF keypair generated successfully";
-    pub const ENCRYPTING_KEYPAIR_DATA: &str = "VRF WASM Web Worker: Encrypting VRF keypair data";
-    pub const KEYPAIR_DATA_ENCRYPTED: &str = "VRF WASM Web Worker: VRF keypair encrypted successfully";
-    pub const DERIVING_CHACHA20_FOR_ENCRYPTION: &str = "VRF WASM Web Worker: Deriving ChaCha20 key using HKDF-SHA256 for encryption";
-}
-
-// === DISPLAY TRUNCATION ===
 
 /// Number of characters to show when displaying truncated keys/hashes in logs
 pub const DISPLAY_TRUNCATE_LENGTH: usize = 20;

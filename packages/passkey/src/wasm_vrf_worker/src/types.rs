@@ -22,7 +22,6 @@ pub struct VRFInputData {
     pub rp_id: String,
     pub block_height: u64,
     pub block_hash: Vec<u8>,
-    pub timestamp: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]

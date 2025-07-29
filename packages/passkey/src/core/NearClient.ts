@@ -238,20 +238,25 @@ export class MinimalNearClient implements NearClient {
 
     // Parse result bytes to string/JSON
     const resultBytes = result.result;
+
     if (!Array.isArray(resultBytes)) {
       // If result is not bytes array, it might already be parsed
       return result as unknown as T;
     }
 
     const resultString = String.fromCharCode(...resultBytes);
+
     if (!resultString.trim()) {
       return null as T;
     }
 
     try {
       const parsed = JSON.parse(resultString);
+      console.log('callFunction: Successfully parsed JSON:', parsed);
       return parsed as T;
-    } catch {
+    } catch (parseError) {
+      console.warn('Failed to parse result as JSON, returning as string:', parseError);
+      console.warn('Raw result string:', resultString);
       // Return the string value if it's not valid JSON
       const cleanString = resultString.replace(/^"|"$/g, ''); // Remove quotes
       return cleanString as T;

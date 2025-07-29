@@ -4,7 +4,6 @@ import type { DeviceLinkingSSEEvent } from '../../core/types/passkeyManager';
 import { useQRCamera } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { useQRFileUpload } from '../hooks/useQRFileUpload';
-import './QRCodeScanner.css';
 
 export interface QRCodeScannerProps {
   onQRCodeScanned?: (qrData: DeviceLinkingQRData) => void;
@@ -72,7 +71,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   // Handle close with camera cleanup
   const handleClose = useCallback(() => {
     qrCamera.stopScanning();
-    onClose?.();
+        onClose?.();
   }, [qrCamera.stopScanning, onClose]);
 
   // Enhanced file upload that stops camera first
@@ -187,37 +186,37 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
           {(showCamera || showFileUpload) && (
             <div className="qr-scanner-mode-controls">
               {showCamera && (
-                <button
+            <button
                   onClick={() => qrCamera.setScanMode('auto')}
                   className={qrCamera.scanMode === 'auto'
                     ? 'qr-scanner-mode-button--active'
                     : 'qr-scanner-mode-button'
                   }
-                >
-                  Camera
-                </button>
+            >
+              Camera
+            </button>
               )}
               {showFileUpload && (
-                <button
+            <button
                   onClick={() => { qrCamera.setScanMode('file'); fileUpload.fileInputRef.current?.click(); }}
                   className="qr-scanner-mode-button"
-                  disabled={isProcessing}
-                >
-                  Upload
-                </button>
+              disabled={isProcessing}
+            >
+              Upload
+            </button>
               )}
-            </div>
+          </div>
           )}
 
           {/* Hidden file input - only include if file upload is enabled */}
           {showFileUpload && (
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFileUpload}
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
               ref={fileUpload.fileInputRef}
-              style={{ display: 'none' }}
-            />
+            style={{ display: 'none' }}
+          />
           )}
         </>
       )}
