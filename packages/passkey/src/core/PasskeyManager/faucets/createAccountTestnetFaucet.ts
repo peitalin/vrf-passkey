@@ -1,10 +1,11 @@
+import { AccessKeyView } from '@near-js/types';
 import { RegistrationSSEEvent } from '../../types/passkeyManager';
 import { formatLongMessage } from '../../../utils';
 import { PasskeyManagerContext } from '..';
 import { VRFChallenge } from '@/core/types/webauthn';
-import { AccessKeyView } from 'node_modules/@near-js/types/lib/commonjs/provider/response.cjs';
 import { NearClient } from '@/core/NearClient';
 import { AccountId } from '@/core/types/accountIds';
+import { RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
 
 /**
  * Create NEAR account using testnet faucet service
@@ -21,9 +22,8 @@ export async function createAccountTestnetFaucet(
 
     onEvent?.({
       step: 3,
-      phase: 'access-key-addition',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION,
+      status: RegistrationStatus.PROGRESS,
       message: 'Creating NEAR account via faucet service...'
     });
 
@@ -75,9 +75,8 @@ export async function createAccountTestnetFaucet(
 
     onEvent?.({
       step: 3,
-      phase: 'access-key-addition',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION,
+      status: RegistrationStatus.SUCCESS,
       message: `NEAR account ${nearAccountId} created successfully via faucet`
     } as RegistrationSSEEvent);
 
@@ -90,9 +89,8 @@ export async function createAccountTestnetFaucet(
     console.error('Faucet service error:', faucetError);
     onEvent?.({
       step: 0,
-      phase: 'registration-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.REGISTRATION_ERROR,
+      status: RegistrationStatus.ERROR,
       message: 'Account creation via faucet failed',
       error: faucetError.message
     } as RegistrationSSEEvent);
@@ -149,9 +147,8 @@ export async function createAccountAndRegisterWithTestnetFaucet(
 
     onEvent?.({
       step: 4,
-      phase: 'account-verification',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_4_ACCOUNT_VERIFICATION,
+      status: RegistrationStatus.SUCCESS,
       message: 'Account creation verified successfully'
     });
 
@@ -168,10 +165,9 @@ export async function createAccountAndRegisterWithTestnetFaucet(
       deviceNumber: 1, // First device gets device number 1 (1-indexed)
       onEvent: (progress) => {
         onEvent?.({
-          step: 5,
-          phase: 'contract-registration',
-          status: 'progress',
-          timestamp: Date.now(),
+          step: 6,
+          phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+          status: RegistrationStatus.PROGRESS,
           message: `VRF registration: ${progress.message}`
         });
       },
@@ -183,10 +179,9 @@ export async function createAccountAndRegisterWithTestnetFaucet(
 
     // Broadcast the signed transaction
     onEvent?.({
-      step: 5,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
+      step: 6,
+      phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+      status: RegistrationStatus.PROGRESS,
       message: 'Broadcasting registration transaction...'
     });
 
@@ -194,10 +189,9 @@ export async function createAccountAndRegisterWithTestnetFaucet(
     const transactionId = transactionResult?.transaction_outcome?.id;
 
     onEvent?.({
-      step: 5,
-      phase: 'contract-registration',
-      status: 'success',
-      timestamp: Date.now(),
+      step: 6,
+      phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+      status: RegistrationStatus.SUCCESS,
       message: `VRF registration successful, transaction ID: ${transactionId}`
     });
 
@@ -212,9 +206,8 @@ export async function createAccountAndRegisterWithTestnetFaucet(
 
     onEvent?.({
       step: 0,
-      phase: 'registration-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.REGISTRATION_ERROR,
+      status: RegistrationStatus.ERROR,
       message: `Registration failed: ${error.message}`,
       error: error.message
     });

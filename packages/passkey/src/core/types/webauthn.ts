@@ -1,17 +1,15 @@
 import { SignedTransaction } from "../NearClient";
 import { base64UrlDecode } from "../../utils/encoders";
 import type { BaseSSEActionEvent } from './passkeyManager';
+import { ActionStatus, RegistrationStatus, LoginStatus, DeviceLinkingStatus } from './passkeyManager';
 
 // =================================================================
 // 0. CORE WEBAUTHN & BROWSER-API TYPES
 // =================================================================
 
-export interface onProgressEvents extends Omit<BaseSSEActionEvent, 'timestamp'> {
+export interface onProgressEvents extends BaseSSEActionEvent {
   step: number;
-  // phase is inherited from BaseSSEActionEvent and includes both legacy and Rust WASM worker phases
-  status: 'progress'
-    | 'success'
-    | 'error';
+  status: ActionStatus;
   message: string;
   data?: any;
   logs?: string[];

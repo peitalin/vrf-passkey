@@ -49,6 +49,7 @@ import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBMan
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
+import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import { jsonTryParse } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
 import { AccountId, toAccountId } from "../types/accountIds";
@@ -74,6 +75,7 @@ const CONFIG = {
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // WASM-generated types now correctly match runtime data with js_name attributes
 import * as wasmModule from '../../wasm_signer_worker/wasm_signer_worker.js';
+import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -487,14 +489,6 @@ export class SignerWorkerManager {
         throw new Error('Client NEAR public key not provided - cannot get access key nonce');
       }
 
-      // Step 1: Get transaction metadata
-      onEvent?.({
-        step: 1,
-        phase: 'preparation',
-        status: 'progress',
-        message: 'Preparing transaction metadata...',
-      });
-
       // Retrieve encrypted key data from IndexedDB in main thread
       console.debug('WebAuthnManager: Retrieving encrypted key from IndexedDB for account:', nearAccountId);
       const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(nearAccountId);
@@ -511,16 +505,6 @@ export class SignerWorkerManager {
         txBlockHash,
         txBlockHeight,
       } = await getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId });
-
-      console.debug('WebAuthnManager: Access key info received:', {
-        signerAccountId,
-        nearPublicKeyStr,
-        accessKeyInfo,
-        hasNonce: accessKeyInfo?.nonce !== undefined,
-        nonceValue: accessKeyInfo?.nonce,
-        nonceType: typeof accessKeyInfo?.nonce
-      });
-
 
       // Step 2: Execute registration transaction via WASM
       const response = await this.executeWorkerOperation({

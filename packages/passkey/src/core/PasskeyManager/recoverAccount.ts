@@ -1,4 +1,5 @@
 import type { ActionOptions, ActionResult, OperationHooks } from '../types/passkeyManager';
+import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
@@ -280,10 +281,9 @@ export async function recoverAccount(
 
   onEvent?.({
     step: 1,
-    phase: 'preparation',
-    status: 'progress',
-    timestamp: Date.now(),
-    message: `Starting account recovery for ${accountId}`
+    phase: ActionPhase.STEP_1_PREPARATION,
+    status: ActionStatus.PROGRESS,
+    message: 'Preparing account recovery...',
   });
 
   try {
@@ -297,10 +297,9 @@ export async function recoverAccount(
 
     onEvent?.({
       step: 3,
-      phase: 'contract-verification',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Verifying account ownership...'
+      phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION,
+      status: ActionStatus.PROGRESS,
+      message: 'Verifying contract state...',
     });
 
     const { hasAccess, blockHeight, blockHash } = await Promise.all([
@@ -322,7 +321,6 @@ export async function recoverAccount(
       rpId: window.location.hostname,
       blockHeight,
       blockHash,
-      timestamp: Date.now()
     };
     const { encryptedVrfResult, vrfChallenge } = await deriveVrfKeypair(
       webAuthnManager,
@@ -333,10 +331,9 @@ export async function recoverAccount(
 
     onEvent?.({
       step: 4,
-      phase: 'transaction-signing',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Restoring account data...'
+      phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+      status: ActionStatus.PROGRESS,
+      message: 'Signing recovery transaction...',
     });
 
     const recoveryResult = await performAccountRecovery({
@@ -354,10 +351,10 @@ export async function recoverAccount(
 
     onEvent?.({
       step: 6,
-      phase: 'action-complete',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'Account recovery completed successfully'
+      phase: ActionPhase.STEP_9_ACTION_COMPLETE,
+      status: ActionStatus.SUCCESS,
+      message: 'Account recovery completed successfully',
+      data: recoveryResult,
     });
 
     hooks?.afterCall?.(true, recoveryResult);
@@ -527,7 +524,6 @@ async function performAccountRecovery({
       console.warn('VRF keypair unlock failed during recovery');
     }
 
-    // 5. Update last login timestamp and get final login state
     await webAuthnManager.updateLastLogin(accountId);
     const loginState = await getRecoveryLoginState(webAuthnManager, accountId);
 

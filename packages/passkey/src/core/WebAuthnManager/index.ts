@@ -1,5 +1,6 @@
 import type { PasskeyManagerConfigs } from '../types/passkeyManager';
 import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
+import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import type { AccountId } from '../types/accountIds';
 import { ActionType } from '../types/actions';
 import { toAccountId } from '../types/accountIds';
@@ -443,28 +444,6 @@ export class WebAuthnManager {
       throw new Error('No payloads provided for signing');
     }
 
-    onEvent?.({
-      step: 2,
-      phase: 'authentication',
-      status: 'progress',
-      message: 'Authenticating with VRF challenge...'
-    });
-
-    console.debug('VRF WebAuthn authentication completed');
-    onEvent?.({
-      step: 3,
-      phase: 'contract-verification',
-      status: 'progress',
-      message: 'Authentication verified - preparing transactions...'
-    });
-
-    onEvent?.({
-      step: 4,
-      phase: 'transaction-signing',
-      status: 'progress',
-      message: `Signing ${transactions.length} transactions in secure worker...`
-    });
-
     return await this.signerWorkerManager.signTransactionsWithActions(
       {
         transactions,
@@ -655,7 +634,6 @@ export class WebAuthnManager {
       step: 5,
       phase: 'database-storage',
       status: 'success',
-      timestamp: Date.now(),
       message: 'VRF registration data stored successfully'
     });
   }
@@ -751,9 +729,9 @@ export class WebAuthnManager {
 
     onEvent?.({
       step: 1,
-      phase: 'preparation',
-      status: 'progress',
-      message: 'Adding VRF public key to authenticator...'
+      phase: ActionPhase.STEP_1_PREPARATION,
+      status: ActionStatus.PROGRESS,
+      message: 'Adding VRF public key to authenticator...',
     });
 
     try {
@@ -788,9 +766,9 @@ export class WebAuthnManager {
       console.debug('WebAuthnManager: VRF key addition completed successfully');
 
       onEvent?.({
-        step: 2,
-        phase: 'transaction-signing',
-        status: 'success',
+        step: 4,
+        phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+        status: ActionStatus.SUCCESS,
         message: 'VRF public key added to authenticator successfully'
       });
 
@@ -805,9 +783,9 @@ export class WebAuthnManager {
 
       onEvent?.({
         step: 0,
-        phase: 'action-error',
-        status: 'error',
-        message: `VRF key addition failed: ${error.message}`
+        phase: ActionPhase.ACTION_ERROR,
+        status: ActionStatus.ERROR,
+        message: `VRF key addition failed: ${error.message}`,
       });
 
       throw new Error(`VRF key addition failed: ${error.message}`);

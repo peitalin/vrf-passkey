@@ -139,7 +139,6 @@ function sendProgressMessage(
         messageTypeName === 'REGISTRATION_COMPLETE'
       ) ? 'success' : 'progress',
       message: message,
-      timestamp: Date.now(),
       data: parsedData,
       logs: parsedLogs
     };
@@ -148,7 +147,6 @@ function sendProgressMessage(
     const progressMessage = {
       type: messageType,
       payload: progressPayload,
-      timestamp: Date.now()
     };
 
     self.postMessage(progressMessage);
@@ -163,7 +161,6 @@ function sendProgressMessage(
         error: `Progress message failed: ${error?.message || 'Unknown error'}`,
         context: { messageType, step, message }
       },
-      timestamp: Date.now()
     });
   }
 }

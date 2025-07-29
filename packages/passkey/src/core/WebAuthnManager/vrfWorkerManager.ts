@@ -271,7 +271,7 @@ export class VrfWorkerManager {
         // Convert base58 blockHash to byte array to be
         // consistent with Rust Vec<u8>
         block_hash: Array.from(base58Decode(inputData.blockHash)),
-        timestamp: inputData.timestamp
+        timestamp: Date.now()
       }
     };
 
@@ -383,7 +383,7 @@ export class VrfWorkerManager {
             rp_id: vrfInputData.rpId,
             block_height: vrfInputData.blockHeight,
             block_hash: Array.from(base58Decode(vrfInputData.blockHash)),
-            timestamp: vrfInputData.timestamp
+            timestamp: Date.now()
           } : undefined
         }
       };
@@ -514,7 +514,7 @@ export class VrfWorkerManager {
           rp_id: vrfInputData.rpId,
           block_height: vrfInputData.blockHeight,
           block_hash: Array.from(base58Decode(vrfInputData.blockHash)),
-          timestamp: vrfInputData.timestamp
+          timestamp: Date.now()
         };
       }
 

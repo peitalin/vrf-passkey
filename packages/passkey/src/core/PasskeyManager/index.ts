@@ -312,12 +312,12 @@ export type {
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
-  DeviceLinkingStatus,
   LinkDeviceResult
 } from '../types/linkDevice';
 
 // Re-export device linking error types and classes
 export {
+  DeviceLinkingPhase,
   DeviceLinkingError,
   DeviceLinkingErrorCode
 } from '../types/linkDevice';

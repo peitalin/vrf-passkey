@@ -24,6 +24,7 @@ import type { VRFChallenge } from '../types/webauthn';
 import { generateDeviceSpecificUserId } from '../WebAuthnManager/touchIdPrompt';
 import { getDeviceLinkingAccountContractCall } from "../rpcCalls";
 import { DEFAULT_WAIT_STATUS } from "../types/rpc";
+import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
 
 
 async function generateQRCodeDataURL(data: string): Promise<string> {
@@ -58,7 +59,6 @@ export class LinkDeviceFlow {
   private context: PasskeyManagerContext;
   private options: StartDeviceLinkingOptionsDevice2;
   private session: DeviceLinkingSession | null = null;
-  private phase: 'idle' | 'generating' | 'waiting' | 'registering' | 'complete' | 'error' = 'idle';
   private error?: Error;
   private pollingInterval?: NodeJS.Timeout;
   private lastRpcCallTime = 0;
@@ -82,8 +82,6 @@ export class LinkDeviceFlow {
     qrCodeDataURL: string
   }> {
     try {
-      this.phase = 'generating';
-
       if (accountId) {
         // === OPTION E: Account ID provided - generate proper keypair immediately ===
         console.log(`LinkDeviceFlow: Option E - Using provided account ID: ${accountId}`);
@@ -124,7 +122,7 @@ export class LinkDeviceFlow {
           nearPublicKey: nearKeyResult.publicKey,
           credential,
           vrfChallenge,
-          status: 'waiting',
+          phase: DeviceLinkingPhase.IDLE,
           createdAt: Date.now(),
           expiresAt: Date.now() + (15 * 60 * 1000) // 15 minute timeout
         };
@@ -147,7 +145,7 @@ export class LinkDeviceFlow {
           nearPublicKey: tempNearKeyResult.publicKey,
           credential: null, // Will be generated later when we know real account
           vrfChallenge: null, // Will be generated later
-          status: 'waiting',
+          phase: DeviceLinkingPhase.IDLE,
           createdAt: Date.now(),
           expiresAt: Date.now() + (15 * 60 * 1000), // 15 minute timeout
           tempPrivateKey: tempNearKeyResult.privateKey // Store temp private key for signing later
@@ -167,37 +165,36 @@ export class LinkDeviceFlow {
       // Create QR code data URL
       const qrDataString = JSON.stringify(qrData);
       const qrCodeDataURL = await generateQRCodeDataURL(qrDataString);
-
-      // Start polling for AddKey transaction
-      this.startPolling();
-      this.phase = 'waiting';
-
       const flowType = accountId
         ? 'Option E (provided account)'
         : 'Option F (account discovery)';
 
       this.options?.onEvent?.({
         step: 1,
-        phase: 'qr-code-generated',
-        status: 'progress',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED,
+        status: DeviceLinkingStatus.PROGRESS,
         message: `QR code generated using ${flowType}, waiting for Device1 to scan and authorize...`
+      });
+
+      // Start polling for AddKey transaction
+      this.startPolling();
+      this.options?.onEvent?.({
+        step: 1,
+        phase: DeviceLinkingPhase.STEP_4_POLLING,
+        status: DeviceLinkingStatus.PROGRESS,
+        message: `Polling contract for linked account...`
       });
 
       return { qrData, qrCodeDataURL };
 
     } catch (error: any) {
-      this.phase = 'error';
       this.error = error;
-
       this.options?.onEvent?.({
         step: 0,
-        phase: 'error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR,
+        status: DeviceLinkingStatus.ERROR,
         message: error.message,
       });
-
       throw new DeviceLinkingError(
         `Failed to generate device linking QR: ${error.message}`,
         DeviceLinkingErrorCode.REGISTRATION_FAILED,
@@ -237,18 +234,14 @@ export class LinkDeviceFlow {
         this.stopPolling();
         return;
       }
-
       try {
-        const hasNewKey = await this.checkForDeviceKeyAdded();
-        if (hasNewKey) {
-          this.session!.status = 'registering';
-          this.phase = 'registering';
-
+        let hasKeyAdded = await this.checkForDeviceKeyAdded();
+        if (hasKeyAdded && this.session) {
+          this.session.phase = DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED;
           this.options?.onEvent?.({
             step: 2,
-            phase: 'addkey-detected',
-            status: 'progress',
-            timestamp: Date.now(),
+            phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
+            status: DeviceLinkingStatus.PROGRESS,
             message: 'AddKey transaction detected, completing registration...'
           });
           this.completeRegistration();
@@ -265,18 +258,14 @@ export class LinkDeviceFlow {
   }
 
   private shouldContinuePolling(): boolean {
-    if (!this.session || this.phase !== 'waiting') return false;
+    if (!this.session || this.session.phase === DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED) return false;
 
     if (Date.now() > this.session.expiresAt) {
-      this.session.status = 'expired';
-      this.phase = 'error';
       this.error = new Error('Session expired');
-
       this.options?.onEvent?.({
         step: 0,
-        phase: 'error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR,
+        status: DeviceLinkingStatus.ERROR,
         message: 'Device linking session expired',
       });
 
@@ -306,9 +295,8 @@ export class LinkDeviceFlow {
 
       this.options?.onEvent?.({
         step: 2,
-        phase: 'polling',
-        status: 'progress',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.STEP_4_POLLING,
+        status: DeviceLinkingStatus.PROGRESS,
         message: 'Polling contract for linked account...'
       });
 
@@ -319,7 +307,6 @@ export class LinkDeviceFlow {
           linkedAccountId: linkingResult.linkedAccountId,
           currentCounter: linkingResult.deviceNumber,
           nextDeviceNumber: nextDeviceNumber,
-          timestamp: new Date().toISOString()
         });
         this.session.accountId = linkingResult.linkedAccountId as AccountId;
         this.session.deviceNumber = nextDeviceNumber; // Store the next device number for this device
@@ -353,79 +340,55 @@ export class LinkDeviceFlow {
     try {
       this.options?.onEvent?.({
         step: 3,
-        phase: 'registration',
-        status: 'progress',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+        status: DeviceLinkingStatus.PROGRESS,
         message: 'Storing device authenticator data locally...'
       });
 
-      // First, migrate/generate the VRF credentials for the real account
-      // This will generate the credential for Option F flow
+      // Migrate/generate the VRF credentials for the real account
       const migrateKeysResult = await this.migrateKeysAndCredentials();
 
       // Store authenticator data locally on Device2
-      // Device1 already handled the contract registration and AddKey transaction
       await this.storeDeviceAuthenticator(migrateKeysResult);
 
+      this.session.phase = DeviceLinkingPhase.STEP_7_LINKING_COMPLETE;
       this.options?.onEvent?.({
         step: 3,
-        phase: 'registration',
-        status: 'progress',
-        timestamp: Date.now(),
-        message: 'Cleaning up temporary device linking mapping...'
+        phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
+        status: DeviceLinkingStatus.SUCCESS,
+        message: 'Device linking completed successfully'
       });
-
-      this.session.status = 'completed';
-      this.phase = 'complete';
       this.stopPolling();
 
-      this.options?.onEvent?.({
-        step: 3,
-        phase: 'device-linking',
-        status: 'success',
-        timestamp: Date.now(),
-        message: 'Device linking completed successfully!'
-      });
-
       // Auto-login for Device2 after successful device linking
-      console.log('LinkDeviceFlow: Starting auto-login attempt...');
       try {
-        await this.attemptAutoLogin(migrateKeysResult);
-        console.log('LinkDeviceFlow: Auto-login completed successfully');
-
         // Send additional event after successful auto-login to update React state
         this.options?.onEvent?.({
           step: 4,
-          phase: 'device-linking',
-          status: 'success',
-          timestamp: Date.now(),
-          message: 'Auto-login completed - device fully ready!'
+          phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
+          status: DeviceLinkingStatus.PROGRESS,
+          message: 'Logging in...'
         });
+        await this.attemptAutoLogin(migrateKeysResult);
       } catch (loginError: any) {
-        console.warn('Auto-login failed after device linking:', loginError.message);
-        console.warn('Auto-login error details:', loginError);
-
+        console.warn('Auto-login failed after device linking:', loginError);
+        // Don't fail the whole linking process if auto-login fails
         this.options?.onEvent?.({
           step: 4,
-          phase: 'registration-error',
-          status: 'error',
-          timestamp: Date.now(),
+          phase: DeviceLinkingPhase.LOGIN_ERROR,
+          status: DeviceLinkingStatus.ERROR,
           message: loginError.message,
         });
-        // Don't fail the whole linking process if auto-login fails
       }
 
     } catch (error: any) {
-      this.session.status = 'failed';
-      this.phase = 'error';
+      this.session.phase = DeviceLinkingPhase.REGISTRATION_ERROR;
       this.error = error;
       this.stopPolling();
-
       this.options?.onEvent?.({
         step: 0,
-        phase: 'registration-error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.REGISTRATION_ERROR,
+        status: DeviceLinkingStatus.ERROR,
         message: error.message,
       });
 
@@ -459,28 +422,6 @@ export class LinkDeviceFlow {
       throw new Error(`Missing required data for auto-login: ${missing.join(', ')}`);
     }
 
-    this.options?.onEvent?.({
-      step: 4,
-      phase: 'device-linking',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Attempting automatic login...'
-    });
-
-    console.log('LinkDeviceFlow: Calling unlockVRFKeypair with:', {
-      nearAccountId: this.session.accountId,
-      hasEncryptedVrfKeypair: !!migrateKeysResult.encryptedVrfKeypair,
-      hasCredential: !!this.session.credential,
-      credentialType: this.session.credential?.type,
-      hasPrfOutput: !!this.session.credential?.getClientExtensionResults()?.prf?.results?.first
-    });
-
-    // Check if credential has PRF output
-    const prfOutput = this.session.credential?.getClientExtensionResults()?.prf?.results?.first;
-    if (!prfOutput) {
-      throw new Error('Credential does not have PRF output - cannot unlock VRF keypair');
-    }
-
     // Unlock VRF keypair for immediate login
     const vrfUnlockResult = await this.context.webAuthnManager.unlockVRFKeypair({
       nearAccountId: this.session.accountId,
@@ -488,15 +429,12 @@ export class LinkDeviceFlow {
       credential: this.session.credential,
     });
 
-    console.log('LinkDeviceFlow: VRF unlock result:', vrfUnlockResult);
-
     if (vrfUnlockResult.success) {
       this.options?.onEvent?.({
         step: 4,
-        phase: 'device-linking',
-        status: 'success',
-        timestamp: Date.now(),
-        message: `Successfully logged in to ${this.session.accountId}!`
+        phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
+        status: DeviceLinkingStatus.SUCCESS,
+        message: `Welcome ${this.session.accountId}`
       });
     } else {
       throw new Error(vrfUnlockResult.error || 'VRF unlock failed');
@@ -521,26 +459,24 @@ export class LinkDeviceFlow {
       const { webAuthnManager } = this.context;
       const { credential, accountId } = this.session;
 
-      // Now check for credential after migration (should be available for both Option E and F)
+      // check for credential after migration (should be available for both Option E and F)
       if (!credential) {
         throw new Error('WebAuthn credential not available after VRF migration');
       }
-
       if (!migrateKeysResult?.encryptedVrfKeypair) {
         throw new Error('VRF credentials not available after migration');
       }
 
-      // Issue 1 Fix: Log device number to debug the issue
-      console.log("Device2 authenticator storage - Device Number:", this.session.deviceNumber);
       if (this.session.deviceNumber === undefined || this.session.deviceNumber === null) {
         throw new Error('Device number not available - cannot determine device-specific account ID');
       }
 
       // Generate device-specific account ID for storage
-      console.log("Using device number: ", this.session.deviceNumber, " (assigned by contract for this device)");
-      // Store user data for the device-specific account
+      console.log("Storing device authenticator data with device number: ", this.session.deviceNumber);
+      // Store user data with deviceNumber
       await webAuthnManager.storeUserData({
-        nearAccountId: accountId, // Use device-specific account ID
+        nearAccountId: accountId,
+        deviceNumber: this.session.deviceNumber,
         clientNearPublicKey: migrateKeysResult.nearPublicKey,
         lastUpdated: Date.now(),
         prfSupported: true,
@@ -550,12 +486,12 @@ export class LinkDeviceFlow {
           rawId: base64UrlEncode(new Uint8Array(credential.rawId))
         },
         encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair,
-        deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
 
-      // Store authenticator using base account ID for consistent lookup
+      // Store authenticator with deviceNumber
       await webAuthnManager.storeAuthenticator({
-        nearAccountId: accountId, // Use base account ID for consistent lookup
+        nearAccountId: accountId,
+        deviceNumber: this.session.deviceNumber,
         credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
         credentialPublicKey: new Uint8Array(credential.rawId),
         transports: ['internal'],
@@ -563,9 +499,7 @@ export class LinkDeviceFlow {
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
         vrfPublicKey: migrateKeysResult.vrfPublicKey,
-        deviceNumber: this.session.deviceNumber // Pass the correct device number from session
       });
-
       console.log(`LinkDeviceFlow: Successfully stored authenticator data for account: ${accountId}, device number: ${this.session.deviceNumber}`);
 
     } catch (error) {
@@ -577,11 +511,12 @@ export class LinkDeviceFlow {
   }
 
   /**
-   * Re-derive VRF credentials for the real account ID instead of migrating temp credentials
-   * The VRF derivation is account-specific, so we need to re-derive with the real account ID
+   * 1. Re-derives VRF and NEAR keys using real accountID (instead of temporary keys)
+   * 2. Executes Key Replacement transaction to replace temporary key with the real key
+   * 3. Signs the registration transaction and broadcasts it.
    *
-   * For Option F: Generate WebAuthn credential + derive VRF credentials
    * For Option E: VRF credentials already exist, just ensure they're stored
+   * For Option F: Generate WebAuthn credential + derive VRF credentials
    */
   private async migrateKeysAndCredentials(): Promise<{
     encryptedVrfKeypair: EncryptedVRFKeypair;
@@ -591,9 +526,9 @@ export class LinkDeviceFlow {
     vrfChallenge?: VRFChallenge;
   } | undefined> {
 
-    if (!this.session?.accountId) {
-      return undefined;
-    }
+    if (!this.session || !this.session.accountId) {
+      throw new Error('Session account ID not available for migration');
+    };
     const realAccountId = this.session.accountId;
 
     try {
@@ -612,8 +547,8 @@ export class LinkDeviceFlow {
 
         // Generate WebAuthn credentials with TouchID (now that we know the real account)
         const credential = await this.context.webAuthnManager.touchIdPrompt.generateRegistrationCredentialsForLinkDevice({
-          nearAccountId: realAccountId, // Use base account ID for consistent PRF salts across devices
-          deviceNumber, // Use device number discovered during polling
+          nearAccountId: realAccountId, // Use account ID for consistent PRF salts across devices
+          deviceNumber, // Use device number discovered from contract during polling
           challenge: vrfChallenge.outputAs32Bytes(),
         });
 
@@ -638,13 +573,15 @@ export class LinkDeviceFlow {
         const nearKeyResultStep1 = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
           nearAccountId: realAccountId, // Use base account ID for consistency
           credential: credential,
-          // No options - just generate the keypair, don't sign registration tx yet
+          // No options - just generate the keypair, don't sign registration tx yet.
+          // We need the deterministic NEAR public key to get the nonce for the key replacement transaction first
+          // Then once the key replacement transaction is executed, we use the deterministic key
+          // to sign the registration transaction
         });
 
         if (!nearKeyResultStep1.success || !nearKeyResultStep1.publicKey) {
           throw new Error('Failed to derive NEAR keypair in step 1');
         }
-
         console.log(`LinkDeviceFlow: Step 1 - Generated keypair: ${nearKeyResultStep1.publicKey}`);
 
         // === STEP 2: Execute Key Replacement Transaction ===
@@ -656,7 +593,6 @@ export class LinkDeviceFlow {
           nearPublicKeyStr: this.session.nearPublicKey, // Use temp key for nonce info
           nearAccountId: realAccountId
         });
-        console.log("nextNonce", nextNonce);
 
         await this.executeKeySwapTransaction(
           nearKeyResultStep1.publicKey,
@@ -673,27 +609,26 @@ export class LinkDeviceFlow {
           nearPublicKeyStr: nearKeyResultStep1.publicKey, // Use NEW key for its actual nonce
           nearAccountId: realAccountId
         });
+        console.log("Key Replacement Transaction Block Hash retrieved.");
+        console.log("NewKey's actual nonce >>>> newKeyNonce", newKeyNonce);
 
-        // Generate the same keypair again (deterministic) but now with registration transaction
+        // Generate the same keypair again (deterministic) but now with with the correct nonce for the registration transaction
         const nearKeyResultStep3 = await this.context.webAuthnManager.deriveNearKeypairAndEncrypt({
           nearAccountId: realAccountId, // Use base account ID for consistency
           credential: credential,
           options: {
             vrfChallenge: vrfChallenge,
             contractId: this.context.webAuthnManager.configs.contractId,
-            nonce: newKeyNonce, // ✅ Use NEW key's actual nonce
+            nonce: newKeyNonce, // Use NEW key's actual nonce for the registration transaction
             blockHash: newTxBlockHash,
             // Pass the deterministic VRF public key for contract call
-            // Note: deviceNumber removed - contract determines this automatically for device linking
             deterministicVrfPublicKey: vrfDerivationResult.vrfPublicKey,
           }
         });
 
         if (!nearKeyResultStep3.success || !nearKeyResultStep3.signedTransaction) {
-          throw new Error('Failed to sign registration transaction in step 3');
+          throw new Error('Failed to sign registration transaction');
         }
-
-        console.log(`LinkDeviceFlow: Step 3 - Generated registration transaction with correct nonce`);
 
         // === STEP 3: Broadcast Registration Transaction ===
         console.log(`LinkDeviceFlow: Broadcasting Device2 authenticator registration transaction`);
@@ -720,19 +655,13 @@ export class LinkDeviceFlow {
           vrfChallenge: vrfChallenge
         };
 
-        console.log('LinkDeviceFlow: Option F returning result with credential:', {
-          hasCredential: !!result.credential,
-          credentialType: result.credential?.type,
-          hasPrfOutput: !!result.credential?.getClientExtensionResults()?.prf?.results?.first
-        });
-
         return result;
 
       } else {
         // === OPTION E: Regenerate credential with device number ===
         console.log(`LinkDeviceFlow: Option E - Regenerating credentials with device number for ${realAccountId}`);
 
-        // Generate VRF challenge for the real account
+        // Generate VRF challenge using the real accountID as PRF salt
         const vrfChallenge = await generateBootstrapVrfChallenge(this.context, realAccountId);
 
         // Use device number that was discovered during polling
@@ -759,10 +688,8 @@ export class LinkDeviceFlow {
         if (!vrfDerivationResult.success || !vrfDerivationResult.encryptedVrfKeypair) {
           throw new Error('Failed to derive VRF keypair from PRF for Option E');
         }
+        console.log(`LinkDeviceFlow: Option E - VRF credentials derived for ${realAccountId}`);
 
-        console.log(`LinkDeviceFlow: Option E - VRF credentials properly derived for ${realAccountId}`);
-
-        // Return all derived values - clean and explicit!
         const result = {
           encryptedVrfKeypair: vrfDerivationResult.encryptedVrfKeypair,
           vrfPublicKey: vrfDerivationResult.vrfPublicKey,
@@ -770,12 +697,6 @@ export class LinkDeviceFlow {
           credential: credential, // Use regenerated credential with device number
           vrfChallenge: vrfChallenge // Use regenerated VRF challenge
         };
-
-        console.log('LinkDeviceFlow: Option E returning result with credential:', {
-          hasCredential: !!result.credential,
-          credentialType: result.credential?.type,
-          hasPrfOutput: !!result.credential?.getClientExtensionResults()?.prf?.results?.first
-        });
 
         return result;
       }
@@ -812,7 +733,7 @@ export class LinkDeviceFlow {
           actionType: ActionType.AddKey,
           public_key: newPublicKey,
           access_key: JSON.stringify({
-            nonce: 0,
+            // nonce: 0, // nonce should be 0 for the new key, specifying nonce here does not seem to do anything
             permission: { FullAccess: {} }
           })
         },
@@ -912,13 +833,9 @@ export class LinkDeviceFlow {
    */
   getState() {
     return {
-      phase: this.phase,
+      phase: this.session?.phase,
       session: this.session,
       error: this.error,
-      isWaiting: this.phase === 'waiting',
-      isRegistering: this.phase === 'registering',
-      isComplete: this.phase === 'complete',
-      hasError: this.phase === 'error'
     };
   }
 
@@ -928,7 +845,6 @@ export class LinkDeviceFlow {
   cancel(): void {
     console.log(`LinkDeviceFlow: Cancel called`);
     this.stopPolling();
-    this.phase = 'idle';
     this.session = null;
     this.error = undefined;
   }

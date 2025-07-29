@@ -13,9 +13,11 @@ import type { AccountId } from './types/accountIds';
 import type { ContractStoredAuthenticator } from './PasskeyManager/recoverAccount';
 import { StoredAuthenticator } from './types/webauthn';
 import type { PasskeyManagerContext } from './PasskeyManager';
+import { ActionPhase } from './types/passkeyManager';
 import { ActionType } from './types/actions';
 import type { VRFChallenge } from './types/webauthn';
-import type { DeviceLinkingSSEEvent } from './types/passkeyManager';
+import type { DeviceLinkingEvent } from './types/passkeyManager';
+import { DeviceLinkingPhase, DeviceLinkingStatus } from './types/passkeyManager';
 import { DEFAULT_WAIT_STATUS } from './types/rpc';
 
 // ===========================
@@ -77,7 +79,7 @@ export async function getDeviceLinkingAccountContractCall(
 // ===========================
 
 /**
- * Execute device linking transactions (AddKey + Contract mapping)
+ * Execute device1's linking transactions (AddKey + Contract mapping)
  * This function signs and broadcasts both transactions required for device linking
  */
 export async function executeDeviceLinkingContractCalls({
@@ -99,7 +101,7 @@ export async function executeDeviceLinkingContractCalls({
   txBlockHash: string,
   vrfChallenge: VRFChallenge,
   credential: any, // PublicKeyCredential type
-  onEvent?: (event: DeviceLinkingSSEEvent) => void
+  onEvent?: (event: DeviceLinkingEvent) => void
 }): Promise<{ addKeyTxResult: FinalExecutionOutcome; contractTxResult: FinalExecutionOutcome }> {
 
   // Sign both transactions with one PRF authentication
@@ -142,13 +144,21 @@ export async function executeDeviceLinkingContractCalls({
     credential: credential,
     nearRpcUrl: context.webAuthnManager.configs.nearRpcUrl,
     onEvent: (progress) => {
+      if (progress.phase == ActionPhase.STEP_4_TRANSACTION_SIGNING) {
+      }
       onEvent?.({
         step: 4,
-        phase: 'authorization',
-        status: 'progress',
-        timestamp: Date.now(),
+        phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+        status: DeviceLinkingStatus.PROGRESS,
         message: `Signing transactions: ${progress.message}`
       })
+
+      onEvent?.({
+        step: 5,
+        phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+        status: DeviceLinkingStatus.SUCCESS,
+        message: `AddKey transaction completed successfully!`
+      });
     }
   });
 
@@ -178,9 +188,8 @@ export async function executeDeviceLinkingContractCalls({
     // Send success events immediately after AddKey succeeds
     onEvent?.({
       step: 5,
-      phase: 'authorization',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+      status: DeviceLinkingStatus.SUCCESS,
       message: `AddKey transaction completed successfully!`
     });
 
@@ -211,9 +220,8 @@ export async function executeDeviceLinkingContractCalls({
   console.log('LinkDeviceFlow: Sending final success event...');
   onEvent?.({
     step: 6,
-    phase: 'device-linking',
-    status: 'success',
-    timestamp: Date.now(),
+    phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+    status: DeviceLinkingStatus.SUCCESS,
     message: `Device linking completed successfully!`
   });
 

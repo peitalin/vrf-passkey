@@ -19,7 +19,6 @@ export interface VRFInputData {
   rpId: string;
   blockHeight: number;
   blockHash: string;
-  timestamp: number;
 }
 
 export interface VRFChallengeData {

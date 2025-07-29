@@ -10,6 +10,7 @@ import type { PasskeyManagerContext } from './index';
 import type { NearClient } from '../NearClient';
 import type { VRFInputData } from '../types/vrf-worker';
 import type { AccountId } from '../types/accountIds';
+import { ActionSSEEvent, ActionPhase, ActionStatus } from '../types/passkeyManager';
 
 /**
  * Core action execution function without React dependencies
@@ -35,9 +36,8 @@ export async function executeAction(
   // Emit started event
   onEvent?.({
     step: 1,
-    phase: 'preparation',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: ActionPhase.STEP_1_PREPARATION,
+    status: ActionStatus.PROGRESS,
     message: isMultipleActions
       ? `Starting batched transaction with ${actions.length} actions`
       : `Starting ${actions[0].type} action to ${actions[0].receiverId}`
@@ -89,9 +89,8 @@ export async function executeAction(
     onError?.(error);
     onEvent?.({
       step: 0,
-      phase: 'action-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: ActionPhase.ACTION_ERROR,
+      status: ActionStatus.ERROR,
       message: `Action failed: ${error.message}`,
       error: error.message
     });
@@ -157,9 +156,8 @@ async function validateActionInputs(
 
   onEvent?.({
     step: 1,
-    phase: 'preparation',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: ActionPhase.STEP_1_PREPARATION,
+    status: ActionStatus.PROGRESS,
     message: 'Validating inputs...'
   });
 
@@ -194,9 +192,8 @@ async function verifyVrfAuthAndSignTransaction(
 
   onEvent?.({
     step: 2,
-    phase: 'authentication',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: ActionPhase.STEP_2_AUTHENTICATION,
+    status: ActionStatus.PROGRESS,
     message: 'Generating VRF challenge...'
   });
 
@@ -214,16 +211,14 @@ async function verifyVrfAuthAndSignTransaction(
     rpId: window.location.hostname,
     blockHeight: transactionContext.txBlockHeight,
     blockHash: transactionContext.txBlockHash, // Use original base58 string, not decoded bytes
-    timestamp: Date.now()
   };
   // Use VRF output as WebAuthn challenge
   const vrfChallenge = await webAuthnManager.generateVrfChallenge(vrfInputData);
 
   onEvent?.({
     step: 2,
-    phase: 'authentication',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: ActionPhase.STEP_2_AUTHENTICATION,
+    status: ActionStatus.PROGRESS,
     message: 'Authenticating with VRF challenge...'
   });
 
@@ -320,12 +315,24 @@ async function verifyVrfAuthAndSignTransaction(
     credential: credential,
     nearRpcUrl: webAuthnManager.configs.nearRpcUrl,
     // Pass through the onEvent callback for progress updates
-    // Convert onProgressEvents to ActionSSEEvent by adding timestamp
     onEvent: onEvent ? (progressEvent) => {
-      onEvent({
-        ...progressEvent,
-        timestamp: Date.now()
-      } as any);
+      if (progressEvent.phase === ActionPhase.STEP_3_CONTRACT_VERIFICATION) {
+        onEvent?.({
+          step: 3,
+          phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION,
+          status: ActionStatus.PROGRESS,
+          message: 'Verifying contract state...',
+        });
+      }
+      if (progressEvent.phase === ActionPhase.STEP_4_TRANSACTION_SIGNING) {
+        onEvent?.({
+          step: 4,
+          phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+          status: ActionStatus.PROGRESS,
+          message: 'Signing transaction...',
+        });
+      }
+      onEvent({ ...progressEvent } as any);
     } : undefined
   });
 
@@ -345,13 +352,12 @@ export async function broadcastTransaction(
   const { onEvent, onError, hooks } = options || {};
   const { nearClient } = context;
 
-  onEvent?.({
-    step: 5,
-    phase: 'broadcasting',
-    status: 'progress',
-    timestamp: Date.now(),
-    message: 'Broadcasting transaction...'
-  });
+      onEvent?.({
+      step: 5,
+      phase: ActionPhase.STEP_8_BROADCASTING,
+      status: ActionStatus.PROGRESS,
+      message: 'Broadcasting transaction...'
+    });
 
   // The signingResult contains structured SignedTransaction with embedded raw bytes
   const signedTransaction = signingResult.signedTransaction;
@@ -382,9 +388,8 @@ export async function broadcastTransaction(
 
   onEvent?.({
     step: 6,
-    phase: 'action-complete',
-    status: 'success',
-    timestamp: Date.now(),
+    phase: ActionPhase.STEP_9_ACTION_COMPLETE,
+    status: ActionStatus.SUCCESS,
     message: 'Transaction completed successfully',
     data: {
       transactionId: actionResult.transactionId,

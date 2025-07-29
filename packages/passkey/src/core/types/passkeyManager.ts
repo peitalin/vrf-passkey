@@ -2,6 +2,82 @@ import { TxExecutionStatus } from "@near-js/types";
 import type { EncryptedVRFKeypair } from './vrf-worker';
 import { AccountId } from "./accountIds";
 
+// Device Linking Enums
+export enum DeviceLinkingPhase {
+  STEP_1_QR_CODE_GENERATED = 'qr-code-generated',   // Device2: QR code created and displayed
+  STEP_2_SCANNING = 'scanning',                     // Device1: Scanning QR code
+  STEP_3_AUTHORIZATION = 'authorization',           // Device1: TouchID authorization
+  STEP_4_POLLING = 'polling',                       // Device2: Polling contract for mapping
+  STEP_5_ADDKEY_DETECTED = 'addkey-detected',       // Device2: AddKey transaction detected
+  STEP_6_REGISTRATION = 'registration',             // Device2: Registration and credential storage
+  STEP_7_LINKING_COMPLETE = 'linking-complete',     // Final completion
+  STEP_8_AUTO_LOGIN = 'auto-login',                 // Auto-login after registration
+  IDLE = 'idle',                                    // Idle state
+  REGISTRATION_ERROR = 'registration-error',        // Error during registration
+  LOGIN_ERROR = 'login-error',                      // Error during login
+  DEVICE_LINKING_ERROR = 'error',                   // General error state
+}
+
+export enum DeviceLinkingStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
+// Registration Enums
+export enum RegistrationPhase {
+  STEP_1_WEBAUTHN_VERIFICATION = 'webauthn-verification',
+  STEP_2_KEY_GENERATION = 'key-generation',
+  STEP_3_ACCESS_KEY_ADDITION = 'access-key-addition',
+  STEP_4_ACCOUNT_VERIFICATION = 'account-verification',
+  STEP_5_DATABASE_STORAGE = 'database-storage',
+  STEP_6_CONTRACT_REGISTRATION = 'contract-registration',
+  STEP_7_REGISTRATION_COMPLETE = 'registration-complete',
+  REGISTRATION_ERROR = 'error',
+}
+
+export enum RegistrationStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
+// Login Enums
+export enum LoginPhase {
+  STEP_1_PREPARATION = 'preparation',
+  STEP_2_WEBAUTHN_ASSERTION = 'webauthn-assertion',
+  STEP_3_VRF_UNLOCK = 'vrf-unlock',
+  STEP_4_LOGIN_COMPLETE = 'login-complete',
+  LOGIN_ERROR = 'login-error',
+}
+
+export enum LoginStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
+// Action Enums
+export enum ActionPhase {
+  STEP_1_PREPARATION = 'preparation',
+  STEP_2_AUTHENTICATION = 'authentication',
+  STEP_3_CONTRACT_VERIFICATION = 'contract-verification',
+  STEP_4_TRANSACTION_SIGNING = 'transaction-signing',
+  STEP_5_DEVICE_LINKING = 'device-linking',
+  STEP_6_VERIFICATION_COMPLETE = 'verification-complete',   // Rust WASM worker phase
+  STEP_7_SIGNING_COMPLETE = 'signing-complete',             // Rust WASM worker phase
+  WASM_ERROR = 'wasm-error',                                // Rust WASM worker phase
+  STEP_8_BROADCASTING = 'broadcasting',
+  STEP_9_ACTION_COMPLETE = 'action-complete',
+  ACTION_ERROR = 'action-error',
+}
+
+export enum ActionStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
 // Base event callback type
 export type EventCallback<T> = (event: T) => void;
 
@@ -17,209 +93,187 @@ export interface OperationHooks {
 // Base SSE Event Types (unified for Registration and Actions)
 export interface BaseSSEEvent {
   step: number;
-  phase: string;
-  status: 'progress' | 'success' | 'error';
-  timestamp: number;
+  phase: RegistrationPhase | LoginPhase | ActionPhase | DeviceLinkingPhase;
+  status: RegistrationStatus | LoginStatus | ActionStatus | DeviceLinkingStatus;
   message: string;
 }
 
 // Registration-specific events
 export interface BaseSSERegistrationEvent extends BaseSSEEvent {
-  phase: 'webauthn-verification'
-  | 'user-ready'
-  | 'access-key-addition'
-  | 'account-verification'
-  | 'database-storage'
-  | 'contract-registration'
-  | 'registration-complete'
-  | 'registration-error'
-  | 'device-linking';
+  phase: RegistrationPhase;
+  status: RegistrationStatus;
 }
 
 // Action-specific events
 export interface BaseSSEActionEvent extends BaseSSEEvent {
-  phase: 'preparation'
-  | 'authentication'
-  | 'contract-verification'
-  | 'transaction-signing'
-  | 'device-linking'
-  | 'verification-complete'   // Rust WASM worker phase
-  | 'signing-complete'        // Rust WASM worker phase
-  | 'error'                   // Rust WASM worker phase
-  | 'broadcasting'
-  | 'action-complete'
-  | 'action-error';
+  phase: ActionPhase;
+  status: ActionStatus;
 }
 
+// Login-specific events
+export interface BaseSSELoginEvent extends BaseSSEEvent {
+  phase: LoginPhase;
+  status: LoginStatus;
+}
 
-export interface DeviceLinkingSSEEvent extends BaseSSEEvent {
-  phase: 'qr-code-generated'    // Device2: QR code created and displayed
-  | 'scanning'                  // Device1: Scanning QR code
-  | 'authorization'             // Device1: TouchID authorization
-  | 'polling'                   // Device2: Polling contract for mapping
-  | 'addkey-detected'           // Device2: AddKey transaction detected
-  | 'registration'              // Device2: Registration and credential storage
-  | 'device-linking'            // Final completion
-  | 'registration-error'        // Error during registration
-  | 'error';                    // General error state
+export interface DeviceLinkingEvent extends BaseSSEEvent {
+  phase: DeviceLinkingPhase;
+  status: DeviceLinkingStatus;
 }
 
 // Registration Event Types
-export interface WebAuthnVerificationSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep1 extends BaseSSERegistrationEvent {
   step: 1;
-  phase: 'webauthn-verification';
+  phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION;
 }
 
-export interface UserReadySSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep2 extends BaseSSERegistrationEvent {
   step: 2;
-  phase: 'user-ready';
-  status: 'success';
+  phase: RegistrationPhase.STEP_2_KEY_GENERATION;
+  status: RegistrationStatus.SUCCESS;
   verified: boolean;
   nearAccountId: string;
-  clientNearPublicKey: string | null | undefined;
+  nearPublicKey: string | null | undefined;
+  vrfPublicKey: string | null | undefined;
 }
 
-export interface AccessKeyAdditionSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep3 extends BaseSSERegistrationEvent {
   step: 3;
-  phase: 'access-key-addition';
+  phase: RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION;
   error?: string;
 }
 
-export interface AccountVerificationSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep4 extends BaseSSERegistrationEvent {
   step: 4;
-  phase: 'account-verification';
+  phase: RegistrationPhase.STEP_4_ACCOUNT_VERIFICATION;
   error?: string;
 }
 
-export interface ContractRegistrationSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep5 extends BaseSSERegistrationEvent {
   step: 5;
-  phase: 'contract-registration';
+  phase: RegistrationPhase.STEP_5_DATABASE_STORAGE;
   error?: string;
 }
 
-export interface DatabaseStorageSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep6 extends BaseSSERegistrationEvent {
   step: 6;
-  phase: 'database-storage';
+  phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION;
   error?: string;
 }
 
-export interface RegistrationCompleteSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep7 extends BaseSSERegistrationEvent {
   step: 7;
-  phase: 'registration-complete';
-  status: 'success';
+  phase: RegistrationPhase.STEP_7_REGISTRATION_COMPLETE;
+  status: RegistrationStatus.SUCCESS;
 }
 
-export interface RegistrationErrorSSEEvent extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep0 extends BaseSSERegistrationEvent {
   step: 0;
-  phase: 'registration-error';
-  status: 'error';
+  phase: RegistrationPhase.REGISTRATION_ERROR;
+  status: RegistrationStatus.ERROR;
   error: string;
 }
 
 export type RegistrationSSEEvent =
-  | WebAuthnVerificationSSEEvent
-  | UserReadySSEEvent
-  | AccessKeyAdditionSSEEvent
-  | AccountVerificationSSEEvent
-  | DatabaseStorageSSEEvent
-  | ContractRegistrationSSEEvent
-  | RegistrationCompleteSSEEvent
-  | RegistrationErrorSSEEvent;
+  | RegistrationEventStep1
+  | RegistrationEventStep2
+  | RegistrationEventStep3
+  | RegistrationEventStep4
+  | RegistrationEventStep5
+  | RegistrationEventStep6
+  | RegistrationEventStep7
+  | RegistrationEventStep0;
 
 // Action Event Types
-export interface ActionPreparationSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep1 extends BaseSSEActionEvent {
   step: 1;
-  phase: 'preparation';
+  phase: ActionPhase.STEP_1_PREPARATION;
 }
 
-export interface ActionAuthenticationSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep2 extends BaseSSEActionEvent {
   step: 2;
-  phase: 'authentication';
+  phase: ActionPhase.STEP_2_AUTHENTICATION;
 }
 
-export interface ActionContractVerificationSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep3 extends BaseSSEActionEvent {
   step: 3;
-  phase: 'contract-verification';
+  phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION;
   data?: any;
   logs?: string[];
 }
 
-export interface ActionTransactionSigningSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep4 extends BaseSSEActionEvent {
   step: 4;
-  phase: 'transaction-signing';
+  phase: ActionPhase.STEP_4_TRANSACTION_SIGNING;
   data?: any;
   logs?: string[];
 }
 
-export interface ActionBroadcastingSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep5 extends BaseSSEActionEvent {
   step: 5;
-  phase: 'broadcasting';
+  phase: ActionPhase.STEP_8_BROADCASTING;
 }
 
-export interface ActionCompleteSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep6 extends BaseSSEActionEvent {
   step: 6;
-  phase: 'action-complete';
-  status: 'success';
+  phase: ActionPhase.STEP_9_ACTION_COMPLETE;
+  status: ActionStatus.SUCCESS;
   data?: any;
 }
 
-export interface ActionErrorSSEEvent extends BaseSSEActionEvent {
+export interface ActionEventStep0 extends BaseSSEActionEvent {
   step: 0;
-  phase: 'action-error';
-  status: 'error';
+  phase: ActionPhase.ACTION_ERROR;
+  status: ActionStatus.ERROR;
   error: string;
 }
 
 export type ActionSSEEvent =
-  | ActionPreparationSSEEvent
-  | ActionAuthenticationSSEEvent
-  | ActionContractVerificationSSEEvent
-  | ActionTransactionSigningSSEEvent
-  | ActionBroadcastingSSEEvent
-  | ActionCompleteSSEEvent
-  | ActionErrorSSEEvent;
+  | ActionEventStep1
+  | ActionEventStep2
+  | ActionEventStep3
+  | ActionEventStep4
+  | ActionEventStep5
+  | ActionEventStep6
+  | ActionEventStep0;
 
-// Login Events (SSE format)
-export interface BaseSSELoginEvent extends BaseSSEEvent {
-  phase: 'preparation' | 'webauthn-assertion' | 'vrf-unlock' | 'login-complete' | 'login-error';
-}
-
-export interface LoginPreparationSSEEvent extends BaseSSELoginEvent {
+// Login Event Types
+export interface LoginEventStep1 extends BaseSSELoginEvent {
   step: 1;
-  phase: 'preparation';
+  phase: LoginPhase.STEP_1_PREPARATION;
 }
 
-export interface LoginWebAuthnAssertionSSEEvent extends BaseSSELoginEvent {
+export interface LoginEventStep2 extends BaseSSELoginEvent {
   step: 2;
-  phase: 'webauthn-assertion';
+  phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION;
 }
 
-export interface LoginVrfUnlockSSEEvent extends BaseSSELoginEvent {
+export interface LoginEventStep3 extends BaseSSELoginEvent {
   step: 3;
-  phase: 'vrf-unlock';
+  phase: LoginPhase.STEP_3_VRF_UNLOCK;
 }
 
-export interface LoginCompleteSSEEvent extends BaseSSELoginEvent {
+export interface LoginEventStep4 extends BaseSSELoginEvent {
   step: 4;
-  phase: 'login-complete';
-  status: 'success';
+  phase: LoginPhase.STEP_4_LOGIN_COMPLETE;
+  status: LoginStatus.SUCCESS;
   nearAccountId: string;
   clientNearPublicKey: string;
 }
 
-export interface LoginErrorSSEEvent extends BaseSSELoginEvent {
+export interface LoginEventStep0 extends BaseSSELoginEvent {
   step: 0;
-  phase: 'login-error';
-  status: 'error';
+  phase: LoginPhase.LOGIN_ERROR;
+  status: LoginStatus.ERROR;
   error: string;
 }
 
 export type LoginEvent =
-  | LoginPreparationSSEEvent
-  | LoginWebAuthnAssertionSSEEvent
-  | LoginVrfUnlockSSEEvent
-  | LoginCompleteSSEEvent
-  | LoginErrorSSEEvent;
+  | LoginEventStep1
+  | LoginEventStep2
+  | LoginEventStep3
+  | LoginEventStep4
+  | LoginEventStep0;
 
 // Legacy Action Events (for backward compatibility - to be deprecated)
 export interface ActionStartedEvent {

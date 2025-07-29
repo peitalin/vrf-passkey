@@ -42,7 +42,6 @@ export interface BasicProgressMessage {
   step: string;
   message: string;
   status: string;
-  timestamp: number;
   data?: string;
 }
 
@@ -54,7 +53,6 @@ export function isBasicProgressMessage(obj: any): obj is BasicProgressMessage {
     typeof obj.message_type === 'string' &&
     typeof obj.step === 'string' &&
     typeof obj.message === 'string' &&
-    typeof obj.status === 'string' &&
-    typeof obj.timestamp === 'number'
+    typeof obj.status === 'string'
   );
 }

@@ -8,6 +8,7 @@ import type {
   RegistrationSSEEvent,
   OperationHooks,
 } from '../types/passkeyManager';
+import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
 import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccountTestnetFaucet';
 import { WebAuthnManager } from '../WebAuthnManager';
@@ -53,9 +54,8 @@ export async function registerPasskey(
   // Emit started event
   onEvent?.({
     step: 1,
-    phase: 'webauthn-verification',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+    status: RegistrationStatus.PROGRESS,
     message: `Starting registration for ${nearAccountId}`
   } as RegistrationSSEEvent);
 
@@ -68,9 +68,8 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 1,
-      phase: 'webauthn-verification',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+      status: RegistrationStatus.PROGRESS,
       message: 'Account available - generating VRF credentials...'
     });
 
@@ -88,9 +87,8 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 1,
-      phase: 'webauthn-verification',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+      status: RegistrationStatus.PROGRESS,
       message: 'Performing WebAuthn registration with VRF challenge...'
     });
 
@@ -101,9 +99,8 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 1,
-      phase: 'webauthn-verification',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+      status: RegistrationStatus.SUCCESS,
       message: 'WebAuthn ceremony successful, PRF output obtained'
     });
 
@@ -136,9 +133,8 @@ export async function registerPasskey(
           console.debug(`Registration progress: ${progress.step} - ${progress.message}`);
           onEvent?.({
             step: 4,
-            phase: 'account-verification',
-            status: 'progress',
-            timestamp: Date.now(),
+            phase: RegistrationPhase.STEP_4_ACCOUNT_VERIFICATION,
+            status: RegistrationStatus.PROGRESS,
             message: `Checking registration: ${progress.message}`
           });
         },
@@ -175,13 +171,13 @@ export async function registerPasskey(
     console.log('Registration Step 5: Account creation and contract registration');
     onEvent?.({
       step: 2,
-      phase: 'user-ready',
-      status: 'success',
-      timestamp: Date.now(),
-      message: 'Registration completed with challenge consistency!',
+      phase: RegistrationPhase.STEP_2_KEY_GENERATION,
+      status: RegistrationStatus.SUCCESS,
+      message: 'Wallet keys derived successfully from TouchId',
       verified: true,
       nearAccountId: nearAccountId,
-      clientNearPublicKey: nearKeyResult.publicKey,
+      nearPublicKey: nearKeyResult.publicKey,
+      vrfPublicKey: vrfChallenge.vrfPublicKey,
     });
 
     let accountAndRegistrationResult;
@@ -232,10 +228,9 @@ export async function registerPasskey(
       if (registrationState.preSignedDeleteTransaction) {
         const preSignedDeleteTransactionHash = generateTransactionHash(registrationState.preSignedDeleteTransaction);
         onEvent?.({
-          step: 5,
-          phase: 'contract-registration',
-          status: 'progress',
-          timestamp: Date.now(),
+          step: 6,
+          phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+          status: RegistrationStatus.PROGRESS,
           message: `Presigned delete transaction created for rollback (hash: ${preSignedDeleteTransactionHash})`
         });
       }
@@ -244,10 +239,9 @@ export async function registerPasskey(
     // Step 6: Store user data with VRF credentials atomically
     console.log('Registration Step 6: Storing VRF registration data');
     onEvent?.({
-      step: 6,
-      phase: 'database-storage',
-      status: 'progress',
-      timestamp: Date.now(),
+      step: 5,
+      phase: RegistrationPhase.STEP_5_DATABASE_STORAGE,
+      status: RegistrationStatus.PROGRESS,
       message: 'Storing VRF registration data'
     });
 
@@ -264,10 +258,9 @@ export async function registerPasskey(
     registrationState.databaseStored = true;
 
     onEvent?.({
-      step: 6,
-      phase: 'database-storage',
-      status: 'success',
-      timestamp: Date.now(),
+      step: 5,
+      phase: RegistrationPhase.STEP_5_DATABASE_STORAGE,
+      status: RegistrationStatus.SUCCESS,
       message: 'VRF registration data stored successfully'
     });
 
@@ -290,9 +283,8 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 7,
-      phase: 'registration-complete',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_7_REGISTRATION_COMPLETE,
+      status: RegistrationStatus.SUCCESS,
       message: 'Registration completed successfully'
     });
 
@@ -333,9 +325,8 @@ export async function registerPasskey(
 
     onEvent?.({
       step: 0,
-      phase: 'registration-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.REGISTRATION_ERROR,
+      status: RegistrationStatus.ERROR,
       message: errorMessage,
       error: errorMessage
     } as RegistrationSSEEvent);
@@ -385,7 +376,6 @@ export async function generateBootstrapVrfChallenge(
       rpId: window.location.hostname,
       blockHeight: blockInfo.header.height,
       blockHash: blockInfo.header.hash,
-      timestamp: Date.now()
     }
   );
 
@@ -411,9 +401,8 @@ const validateRegistrationInputs = async (
 
   onEvent?.({
     step: 1,
-    phase: 'webauthn-verification',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+    status: RegistrationStatus.PROGRESS,
     message: 'Validating registration inputs...'
   } as RegistrationSSEEvent);
 
@@ -439,9 +428,8 @@ const validateRegistrationInputs = async (
   // Check if account already exists on-chain
   onEvent?.({
     step: 1,
-    phase: 'webauthn-verification',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+    status: RegistrationStatus.PROGRESS,
     message: `Checking if account ${nearAccountId} is available...`
   } as RegistrationSSEEvent);
 
@@ -457,9 +445,8 @@ const validateRegistrationInputs = async (
     console.log(`✅ Account ${nearAccountId} is available for registration (viewAccount failed: ${viewError.message})`);
     onEvent?.({
       step: 1,
-      phase: 'webauthn-verification',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
+      status: RegistrationStatus.PROGRESS,
       message: `Account ${nearAccountId} is available for registration`
     } as RegistrationSSEEvent);
     return; // Continue with registration
@@ -491,9 +478,8 @@ async function performRegistrationRollback(
       console.debug('Rolling back database storage...');
       onEvent?.({
         step: 0,
-        phase: 'registration-error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: RegistrationPhase.REGISTRATION_ERROR,
+        status: RegistrationStatus.ERROR,
         message: 'Rolling back database storage...',
         error: 'Registration failed - rolling back database storage'
       } as RegistrationSSEEvent);
@@ -507,9 +493,8 @@ async function performRegistrationRollback(
       console.debug('Rolling back NEAR account...');
       onEvent?.({
         step: 0,
-        phase: 'registration-error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: RegistrationPhase.REGISTRATION_ERROR,
+        status: RegistrationStatus.ERROR,
         message: `Rolling back NEAR account ${nearAccountId}...`,
         error: 'Registration failed - attempting account deletion'
       } as RegistrationSSEEvent);
@@ -526,9 +511,8 @@ async function performRegistrationRollback(
 
           onEvent?.({
             step: 0,
-            phase: 'registration-error',
-            status: 'error',
-            timestamp: Date.now(),
+            phase: RegistrationPhase.REGISTRATION_ERROR,
+            status: RegistrationStatus.ERROR,
             message: `NEAR account ${nearAccountId} deleted successfully (rollback completed)`,
             error: 'Registration failed but account rollback completed'
           } as RegistrationSSEEvent);
@@ -536,9 +520,8 @@ async function performRegistrationRollback(
           console.error(`NEAR account deletion failed:`, deleteError);
           onEvent?.({
             step: 0,
-            phase: 'registration-error',
-            status: 'error',
-            timestamp: Date.now(),
+            phase: RegistrationPhase.REGISTRATION_ERROR,
+            status: RegistrationStatus.ERROR,
             message: `️NEAR account ${nearAccountId} could not be deleted: ${deleteError.message}. Account will remain on testnet.`,
             error: 'Registration failed - account deletion failed'
           } as RegistrationSSEEvent);
@@ -547,9 +530,8 @@ async function performRegistrationRollback(
         console.debug(`No pre-signed delete transaction available for ${nearAccountId}. Account will remain on testnet.`);
         onEvent?.({
           step: 0,
-          phase: 'registration-error',
-          status: 'error',
-          timestamp: Date.now(),
+          phase: RegistrationPhase.REGISTRATION_ERROR,
+          status: RegistrationStatus.ERROR,
           message: `️NEAR account ${nearAccountId} could not be deleted: No pre-signed transaction available. Account will remain on testnet.`,
           error: 'Registration failed - no rollback transaction available'
         } as RegistrationSSEEvent);
@@ -562,9 +544,8 @@ async function performRegistrationRollback(
       console.debug('Contract registration cannot be rolled back (immutable blockchain state)');
       onEvent?.({
         step: 0,
-        phase: 'registration-error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: RegistrationPhase.REGISTRATION_ERROR,
+        status: RegistrationStatus.ERROR,
         message: `Contract registration (tx: ${registrationState.contractTransactionId}) cannot be rolled back`,
         error: 'Registration failed - contract state is immutable'
       } as RegistrationSSEEvent);
@@ -576,9 +557,8 @@ async function performRegistrationRollback(
     console.error('Rollback failed:', rollbackError);
     onEvent?.({
       step: 0,
-      phase: 'registration-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: RegistrationPhase.REGISTRATION_ERROR,
+      status: RegistrationStatus.ERROR,
       message: `Rollback failed: ${rollbackError.message}`,
       error: 'Both registration and rollback failed'
     } as RegistrationSSEEvent);

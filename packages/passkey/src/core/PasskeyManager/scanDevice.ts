@@ -8,10 +8,36 @@ import type {
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
 } from '../types/linkDevice';
+import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 // jsQR will be dynamically imported when needed
 import { scanQRCodeFromCamera } from '../../utils/qrScanner';
 import { executeDeviceLinkingContractCalls } from '../rpcCalls';
+
+/**
+ * Device1 (original device): Scan QR code and execute AddKey transaction (convenience method)
+ */
+export async function scanAndLinkDevice(
+  context: PasskeyManagerContext,
+  options: ScanAndLinkDeviceOptionsDevice1
+): Promise<LinkDeviceResult> {
+  const { onEvent, onError } = options || {};
+  try {
+    // 1. Scan QR code
+    const qrData = await scanQRCodeFromCamera(options.cameraId, options.cameraConfigs);
+
+    // 2. Use the extracted linking function with the scanned QR data
+    return await linkDeviceWithQRData(context, qrData, {
+      fundingAmount: options.fundingAmount,
+      onEvent,
+      onError
+    });
+
+  } catch (error: any) {
+    onError?.(error);
+    throw error;
+  }
+}
 
 /**
  * Device1 (original device): Link device using pre-scanned QR data
@@ -26,22 +52,13 @@ export async function linkDeviceWithQRData(
   try {
     onEvent?.({
       step: 2,
-      phase: 'scanning',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: DeviceLinkingPhase.STEP_2_SCANNING,
+      status: DeviceLinkingStatus.PROGRESS,
       message: 'Validating QR data...'
     });
 
     // Validate QR data
     validateDeviceLinkingQRData(qrData);
-
-    onEvent?.({
-      step: 3,
-      phase: 'authorization',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Checking Device1 account access...'
-    });
 
     // 3. Get Device1's current account (the account that will receive the new key)
     const device1LoginState = await getLoginState(context);
@@ -52,14 +69,6 @@ export async function linkDeviceWithQRData(
 
     const device1AccountId = device1LoginState.nearAccountId;
 
-    onEvent?.({
-      step: 4,
-      phase: 'authorization',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: `Adding Device2's key to ${device1AccountId}...`
-    });
-
     // 4. Execute batched transaction: AddKey + Contract notification
     const fundingAmount = options.fundingAmount;
 
@@ -69,12 +78,10 @@ export async function linkDeviceWithQRData(
       throw new Error('Invalid device public key format');
     }
 
-    // Execute two transactions with one PRF - reuse VRF challenge and credential
     onEvent?.({
       step: 4,
-      phase: 'authorization',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+      status: DeviceLinkingStatus.PROGRESS,
       message: `Performing TouchID authentication for device linking...`
     });
 
@@ -101,7 +108,6 @@ export async function linkDeviceWithQRData(
       rpId: window.location.hostname,
       blockHeight: txBlockHeight,
       blockHash: txBlockHash,
-      timestamp: Date.now()
     };
 
     const vrfChallenge = await context.webAuthnManager.generateVrfChallenge(vrfInputData);
@@ -116,9 +122,8 @@ export async function linkDeviceWithQRData(
 
     onEvent?.({
       step: 4,
-      phase: 'authorization',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+      status: DeviceLinkingStatus.PROGRESS,
       message: 'TouchID successful! Signing AddKey transaction...'
     });
 
@@ -145,9 +150,8 @@ export async function linkDeviceWithQRData(
 
     onEvent?.({
       step: 6,
-      phase: 'registration',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+      status: DeviceLinkingStatus.SUCCESS,
       message: `Device2's key added to ${device1AccountId} successfully!`
     });
 
@@ -183,8 +187,8 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
     );
   }
 
-  // Check timestamp is not too old (max 30 minutes)
-  const maxAge = 30 * 60 * 1000; // 30 minutes
+  // Check timestamp is not too old (max 15 minutes)
+  const maxAge = 15 * 60 * 1000; // 15 minutes
   if (Date.now() - qrData.timestamp > maxAge) {
     throw new DeviceLinkingError(
       'QR code expired',
@@ -196,39 +200,5 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
   // Account ID is optional - Device2 discovers it from contract logs
   if (qrData.accountId) {
     validateNearAccountId(qrData.accountId);
-  }
-}
-
-/**
- * Device1 (original device): Scan QR code and execute AddKey transaction (convenience method)
- */
-export async function scanAndLinkDevice(
-  context: PasskeyManagerContext,
-  options: ScanAndLinkDeviceOptionsDevice1
-): Promise<LinkDeviceResult> {
-  const { onEvent, onError } = options || {};
-
-  try {
-    onEvent?.({
-      step: 1,
-      phase: 'scanning',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Scanning QR code...'
-    });
-
-    // 1. Scan QR code
-    const qrData = await scanQRCodeFromCamera(options.cameraId, options.cameraConfigs);
-
-    // 2. Use the extracted linking function with the scanned QR data
-    return await linkDeviceWithQRData(context, qrData, {
-      fundingAmount: options.fundingAmount,
-      onEvent,
-      onError
-    });
-
-  } catch (error: any) {
-    onError?.(error);
-    throw error;
   }
 }

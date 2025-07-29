@@ -1,5 +1,5 @@
 import { VRFChallenge } from '../../../core/types/webauthn';
-import { RegistrationSSEEvent } from '../../types/passkeyManager';
+import { RegistrationSSEEvent, RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
 import { PasskeyManagerContext } from '..';
 import { base64UrlDecode } from '../../../utils/encoders';
 import { serializeCredentialWithPRF, WebAuthnRegistrationCredential } from '../../types/signer-worker';
@@ -53,10 +53,9 @@ export async function createAccountAndRegisterWithRelayServer(
   try {
     onEvent?.({
       step: 3,
-      phase: 'access-key-addition',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Creating account and registering with atomic transaction...'
+      phase: RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION,
+      status: RegistrationStatus.PROGRESS,
+      message: 'Adding access key to account...',
     });
 
     // Serialize the WebAuthn credential properly for the contract
@@ -82,11 +81,10 @@ export async function createAccountAndRegisterWithRelayServer(
     };
 
     onEvent?.({
-      step: 5,
-      phase: 'contract-registration',
-      status: 'progress',
-      timestamp: Date.now(),
-      message: 'Calling atomic registration endpoint...'
+      step: 6,
+      phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+      status: RegistrationStatus.PROGRESS,
+      message: 'Registering user with Web3Authn contract...',
     });
 
     // Call the atomic endpoint
@@ -110,11 +108,10 @@ export async function createAccountAndRegisterWithRelayServer(
     }
 
     onEvent?.({
-      step: 5,
-      phase: 'contract-registration',
-      status: 'success',
-      timestamp: Date.now(),
-      message: `Atomic registration successful, transaction ID: ${result.transactionHash}`
+      step: 6,
+      phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION,
+      status: RegistrationStatus.SUCCESS,
+      message: 'User registered with Web3Authn contract successfully',
     });
 
     return {
@@ -129,11 +126,10 @@ export async function createAccountAndRegisterWithRelayServer(
 
     onEvent?.({
       step: 0,
-      phase: 'registration-error',
-      status: 'error',
-      timestamp: Date.now(),
-      message: `Atomic registration failed: ${error.message}`,
-      error: error.message
+      phase: RegistrationPhase.REGISTRATION_ERROR,
+      status: RegistrationStatus.ERROR,
+      message: 'Registration failed',
+      error: error.message,
     });
 
     return {

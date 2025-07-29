@@ -1,11 +1,15 @@
 import {
   ActionResult,
-  DeviceLinkingSSEEvent,
+  DeviceLinkingEvent,
   EventCallback,
-  OperationHooks
+  OperationHooks,
+  DeviceLinkingPhase
 } from './passkeyManager';
 import { VRFChallenge } from './webauthn';
 import { AccountId } from './accountIds';
+
+// Reexport DeviceLinkingPhase from passkeyManager
+export { DeviceLinkingPhase } from './passkeyManager';
 
 // === DEVICE LINKING TYPES ===
 export interface DeviceLinkingQRData {
@@ -22,21 +26,11 @@ export interface DeviceLinkingSession {
   nearPublicKey: string;
   credential: PublicKeyCredential | null; // Null for Option F until real account discovered
   vrfChallenge: VRFChallenge | null; // Null for Option F until real account discovered
-  status: DeviceLinkingStatus;
+  phase: DeviceLinkingPhase;
   createdAt: number;
   expiresAt: number;
   tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
 }
-
-export type DeviceLinkingStatus =
-  | 'generating'     // Device2: Generating credentials
-  | 'waiting'        // Device2: Waiting for Device1 authorization
-  | 'authorizing'    // Device1: Processing authorization
-  | 'authorized'     // Device1: AddKey transaction sent
-  | 'registering'    // Device2: Calling link_device_register_user
-  | 'completed'      // Success
-  | 'failed'         // Error state
-  | 'expired';       // Timeout
 
 export interface LinkDeviceResult extends ActionResult {
   device2PublicKey: string;
@@ -66,7 +60,7 @@ export enum DeviceLinkingErrorCode {
 
 export interface StartDeviceLinkingOptionsDevice2 {
   cameraId?: string;
-  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onEvent?: EventCallback<DeviceLinkingEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
@@ -79,7 +73,7 @@ export interface ScanAndLinkDeviceOptionsDevice1 {
     width?: number;
     height?: number;
   };
-  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onEvent?: EventCallback<DeviceLinkingEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }

@@ -4,6 +4,7 @@ import type {
   LoginState,
   LoginEvent,
 } from '../types/passkeyManager';
+import { LoginPhase, LoginStatus } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 
@@ -20,9 +21,8 @@ export async function loginPasskey(
   // Emit started event
   onEvent?.({
     step: 1,
-    phase: 'preparation',
-    status: 'progress',
-    timestamp: Date.now(),
+    phase: LoginPhase.STEP_1_PREPARATION,
+    status: LoginStatus.PROGRESS,
     message: `Starting login for ${nearAccountId}`
   });
 
@@ -37,9 +37,8 @@ export async function loginPasskey(
       onError?.(error);
       onEvent?.({
         step: 0,
-        phase: 'login-error',
-        status: 'error',
-        timestamp: Date.now(),
+        phase: LoginPhase.LOGIN_ERROR,
+        status: LoginStatus.ERROR,
         message: errorMessage,
         error: errorMessage
       });
@@ -60,9 +59,8 @@ export async function loginPasskey(
     onError?.(err);
     onEvent?.({
       step: 0,
-      phase: 'login-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: LoginPhase.LOGIN_ERROR,
+      status: LoginStatus.ERROR,
       message: err.message,
       error: err.message
     });
@@ -135,9 +133,8 @@ async function handleLoginUnlockVRF(
     // Step 2: Perform initial WebAuthn authentication to get PRF output for VRF decryption
     onEvent?.({
       step: 2,
-      phase: 'webauthn-assertion',
-      status: 'progress',
-      timestamp: Date.now(),
+      phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
+      status: LoginStatus.PROGRESS,
       message: 'Authenticating to unlock VRF keypair...'
     });
 
@@ -161,9 +158,8 @@ async function handleLoginUnlockVRF(
 
     onEvent?.({
       step: 3,
-      phase: 'vrf-unlock',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: LoginPhase.STEP_3_VRF_UNLOCK,
+      status: LoginStatus.SUCCESS,
       message: 'VRF keypair unlocked successfully'
     });
 
@@ -179,9 +175,8 @@ async function handleLoginUnlockVRF(
 
     onEvent?.({
       step: 4,
-      phase: 'login-complete',
-      status: 'success',
-      timestamp: Date.now(),
+      phase: LoginPhase.STEP_4_LOGIN_COMPLETE,
+      status: LoginStatus.SUCCESS,
       message: 'Login completed successfully',
       nearAccountId: nearAccountId,
       clientNearPublicKey: userData?.clientNearPublicKey || ''
@@ -194,11 +189,10 @@ async function handleLoginUnlockVRF(
     onError?.(error);
     onEvent?.({
       step: 0,
-      phase: 'login-error',
-      status: 'error',
-      timestamp: Date.now(),
+      phase: LoginPhase.LOGIN_ERROR,
+      status: LoginStatus.ERROR,
       message: error.message,
-      error: error.message
+      error: error
     });
     hooks?.afterCall?.(false, error);
     return { success: false, error: error.message };
