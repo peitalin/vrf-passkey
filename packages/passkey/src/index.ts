@@ -42,7 +42,7 @@ export type { UserData } from './core/types/signer-worker';
 // === WORKER TYPES ===
 export {
   WorkerRequestType,
-  WorkerResponseType
+  WorkerResponseType,
 } from './core/types/signer-worker';
 
 export type {
@@ -57,11 +57,6 @@ export type {
 } from './core/types/signer-worker';
 
 export {
-  isEncryptionSuccess,
-  isRegistrationSuccess,
-  isSignatureSuccess,
-  isDecryptionSuccess,
-  isWorkerError,
   serializeCredentialWithPRF,
   takeAesPrfOutput,
 } from './core/types/signer-worker';

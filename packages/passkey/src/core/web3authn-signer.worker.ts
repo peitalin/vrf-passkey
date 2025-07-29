@@ -36,14 +36,13 @@
 import {
   WorkerMessage,
   WorkerRequestType,
-  WorkerResponseType
+  WorkerResponseType,
+  ProgressStep,
+  ProgressStepMap,
 } from './types/signer-worker';
 // Import WASM binary directly
 import init, * as wasmModule from '../wasm_signer_worker/wasm_signer_worker.js';
 import { resolveWasmUrl } from './wasm/wasmLoader';
-
-// Import auto-generated enums from WASM module
-const { ProgressMessageType, ProgressStep } = wasmModule;
 
 /**
  * WASM Asset Path Resolution for Signer Worker
@@ -106,33 +105,10 @@ function sendProgressMessage(
       parsedLogs = logs ? [logs] : [];
     }
 
-    // Map step names to frontend phase values (now they match directly)
-    let phase: string;
-    switch (stepName) {
-      case 'preparation':
-      case 'contract-verification':
-      case 'transaction-signing':
-        phase = stepName; // Direct pass-through - no mapping needed
-        break;
-      case 'verification-complete':
-        phase = 'contract-verification'; // Show as verification phase
-        break;
-      case 'signing-complete':
-        phase = 'transaction-signing'; // Show as signing phase
-        break;
-      case 'error':
-        phase = 'action-error';
-        break;
-      default:
-        console.warn(`[signer-worker]: Unknown step name: ${stepName}, defaulting to preparation`);
-        phase = 'preparation';
-        break;
-    }
-
     // Create onProgressEvents-compatible payload
     const progressPayload = {
       step: step,
-      phase: phase,
+      phase: stepName,
       status: (
         messageTypeName === 'VERIFICATION_COMPLETE' ||
         messageTypeName === 'SIGNING_COMPLETE' ||
@@ -154,9 +130,9 @@ function sendProgressMessage(
   } catch (error: any) {
     console.error('[signer-worker]: Failed to send progress message:', error);
 
-    // Send error message as fallback
+    // Send error message as fallback - use a generic failure type
     self.postMessage({
-      type: WorkerResponseType.Error,
+      type: WorkerResponseType.DeriveNearKeypairAndEncryptFailure, // Use any failure type as fallback
       payload: {
         error: `Progress message failed: ${error?.message || 'Unknown error'}`,
         context: { messageType, step, message }
@@ -183,7 +159,7 @@ async function initializeWasm(): Promise<void> {
 self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): Promise<void> => {
   if (messageProcessed) {
     self.postMessage({
-      type: WorkerResponseType.Error,
+      type: WorkerResponseType.DeriveNearKeypairAndEncryptFailure, // Use any failure type as fallback
       payload: { error: 'Worker has already processed a message' }
     });
     self.close();
@@ -211,7 +187,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): 
     console.error('[signer-worker]: Message processing failed:', error);
 
     self.postMessage({
-      type: WorkerResponseType.Error,
+      type: WorkerResponseType.DeriveNearKeypairAndEncryptFailure,
       payload: {
         error: error?.message || 'Unknown error occurred',
         context: { type: event.data.type }

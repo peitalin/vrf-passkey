@@ -12,7 +12,7 @@ test.describe('Worker Communication Protocol', () => {
 
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
   });
 
   test('Progress Messages - SignTransactionsWithActions', async ({ page }) => {
@@ -82,19 +82,20 @@ test.describe('Worker Communication Protocol', () => {
           totalEvents: progressEvents.length,
           phases: progressEvents.map(e => e.phase),
           uniquePhases: [...new Set(progressEvents.map(e => e.phase))],
+          // Check for phases that exist in Rust ProgressStep enum:
+          // packages/passkey/src/wasm_signer_worker/src/types/progress.rs
           hasPreparation: progressEvents.some(e => e.phase === 'preparation'),
-          hasAuthentication: progressEvents.some(e => e.phase === 'authentication'),
           hasContractVerification: progressEvents.some(e => e.phase === 'contract-verification'),
           hasTransactionSigning: progressEvents.some(e => e.phase === 'transaction-signing'),
-          hasBroadcasting: progressEvents.some(e => e.phase === 'broadcasting'),
-          hasCompletion: progressEvents.some(e => e.phase === 'action-complete'),
+          hasVerificationComplete: progressEvents.some(e => e.phase === 'verification-complete'),
+          hasSigningComplete: progressEvents.some(e => e.phase === 'signing-complete'),
+          hasError: progressEvents.some(e => e.phase === 'error'),
           // Event structure validation
           allEventsHaveRequiredFields: progressEvents.every(e =>
             typeof e.step === 'number' &&
             typeof e.phase === 'string' &&
             typeof e.status === 'string' &&
-            typeof e.message === 'string' &&
-            typeof e.timestamp === 'number'
+            typeof e.message === 'string'
           )
         };
 
@@ -124,19 +125,22 @@ test.describe('Worker Communication Protocol', () => {
 
     // Verify progress events were captured
     expect(result.totalEvents).toBeGreaterThan(0);
-    console.log(`Captured ${result.totalEvents} progress events`);
-    console.log(`Phases: ${result.uniquePhases?.join(', ') || 'none'}`);
-
     // Verify expected phases are present
+    // These phases are defined in the Rust ProgressStep enum:
+    // packages/passkey/src/wasm_signer_worker/src/types/progress.rs
     expect(result.hasPreparation).toBe(true);
-    expect(result.hasAuthentication).toBe(true);
+
+    expect(result.hasError).toBe(false);
+    // expect(result.hasVerificationComplete).toBe(true);
     expect(result.hasContractVerification).toBe(true);
     expect(result.hasTransactionSigning).toBe(true);
+    expect(result.hasSigningComplete).toBe(true);
+    expect(result.hasError).toBe(false);
 
     // Verify event structure
     expect(result.allEventsHaveRequiredFields).toBe(true);
 
-    console.log('✅ Worker communication and progress messaging test passed');
+    console.log('Worker communication and progress messaging test passed');
   });
 
   test('Progress Message Types - All Message Types', async ({ page }) => {
@@ -217,7 +221,7 @@ test.describe('Worker Communication Protocol', () => {
 
     expect(result.success).toBe(true);
 
-    console.log('✅ Message Types Test Results:');
+    console.log('Message Types Test Results:');
     console.log(`   Total Events: ${result.totalEvents}`);
     console.log(`   Message Types: ${result.messageTypes?.join(', ') || 'none'}`);
     console.log(`   Progress: ${result.progressCount}, Success: ${result.successCount}, Error: ${result.errorCount}`);
@@ -274,7 +278,7 @@ test.describe('Worker Communication Protocol', () => {
     });
 
     expect(result.success).toBe(true);
-    console.log('✅ Error Handling Test Results:');
+    console.log('Error Handling Test Results:');
     console.log(`   Progress Events: ${result.progressEvents}`);
     console.log(`   Error Events: ${result.errorEvents}`);
     console.log(`   Has Error Phase: ${result.hasErrorPhase}`);

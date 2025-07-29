@@ -1,8 +1,6 @@
 import { base64UrlEncode } from "../../utils/encoders";
 import type { VRFChallenge, onProgressEvents } from "./webauthn";
 import { ActionType } from "./actions";
-import type { SignedTransaction } from '../NearClient';
-import type { TransactionStruct, SignatureStruct } from './rpc';
 
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // These are the source of truth generated from Rust structs via wasm-bindgen
@@ -153,14 +151,25 @@ export enum ProgressMessageType {
 }
 
 // Step identifiers for progress tracking
+// This enum exactly matches the Rust WASM ProgressStep enum from:
+// packages/passkey/src/wasm_signer_worker/src/types/progress.rs
+// The string values come from the progress_step_name() function in that file
 export enum ProgressStep {
-  PREPARATION = 'preparation',
-  AUTHENTICATION = 'authentication',
-  CONTRACT_VERIFICATION = 'contract_verification',
-  TRANSACTION_SIGNING = 'transaction_signing',
-  BROADCASTING = 'broadcasting',
-  VERIFICATION_COMPLETE = 'verification_complete',
-  SIGNING_COMPLETE = 'signing_complete',
+  PREPARATION = 'preparation',                     // Rust: Preparation = 20
+  CONTRACT_VERIFICATION = 'contract-verification', // Rust: ContractVerification = 21
+  VERIFICATION_COMPLETE = 'verification-complete', // Rust: VerificationComplete = 22
+  TRANSACTION_SIGNING = 'transaction-signing',     // Rust: TransactionSigning = 23
+  SIGNING_COMPLETE = 'signing-complete',           // Rust: SigningComplete = 24
+  ERROR = 'error',                                 // Rust: Error = 25
+}
+
+export interface ProgressStepMap {
+  [wasmModule.ProgressStep.Preparation]: ProgressStep.PREPARATION;
+  [wasmModule.ProgressStep.ContractVerification]: ProgressStep.CONTRACT_VERIFICATION;
+  [wasmModule.ProgressStep.TransactionSigning]: ProgressStep.TRANSACTION_SIGNING;
+  [wasmModule.ProgressStep.VerificationComplete]: ProgressStep.VERIFICATION_COMPLETE;
+  [wasmModule.ProgressStep.SigningComplete]: ProgressStep.SIGNING_COMPLETE;
+  [wasmModule.ProgressStep.Error]: ProgressStep.ERROR;
 }
 
 // === RESPONSE MESSAGE INTERFACES ===
@@ -201,15 +210,9 @@ export interface WorkerErrorResponse extends BaseWorkerResponse {
   };
 }
 
-// Progress response type
 export interface WorkerProgressResponse extends BaseWorkerResponse {
-  type: typeof WorkerResponseType.VerificationProgress
-      | typeof WorkerResponseType.SigningProgress
-      | typeof WorkerResponseType.RegistrationProgress
-      | typeof WorkerResponseType.VerificationComplete    // Moved from completion to progress
-      | typeof WorkerResponseType.SigningComplete         // Moved from completion to progress
-      | typeof WorkerResponseType.RegistrationComplete;   // Moved from completion to progress
-  payload: onProgressEvents;
+  type: WorkerResponseType;
+  payload: onProgressEvents
 }
 
 // === MAIN RESPONSE TYPE ===
@@ -231,33 +234,6 @@ export type CoseExtractionResponse = WorkerResponseForRequest<typeof WorkerReque
 
 // === TYPE GUARDS FOR GENERIC RESPONSES ===
 
-export function isWorkerSuccess<T extends WorkerRequestType>(
-  response: WorkerResponseForRequest<T>
-): response is WorkerSuccessResponse<T> {
-  return (
-    response.type === WorkerResponseType.EncryptionSuccess ||
-    response.type === WorkerResponseType.RecoverKeypairSuccess ||
-    response.type === WorkerResponseType.RegistrationSuccess ||
-    response.type === WorkerResponseType.SignatureSuccess ||
-    response.type === WorkerResponseType.DecryptionSuccess ||
-    response.type === WorkerResponseType.CoseExtractionSuccess
-  );
-}
-
-export function isWorkerError<T extends WorkerRequestType>(
-  response: WorkerResponseForRequest<T>
-): response is WorkerErrorResponse {
-  return (
-    response.type === WorkerResponseType.Error ||
-    response.type === WorkerResponseType.DeriveNearKeyFailure ||
-    response.type === WorkerResponseType.RecoverKeypairFailure ||
-    response.type === WorkerResponseType.RegistrationFailure ||
-    response.type === WorkerResponseType.SignatureFailure ||
-    response.type === WorkerResponseType.DecryptionFailure ||
-    response.type === WorkerResponseType.CoseExtractionFailure
-  );
-}
-
 export function isWorkerProgress<T extends WorkerRequestType>(
   response: WorkerResponseForRequest<T>
 ): response is WorkerProgressResponse {
@@ -265,41 +241,75 @@ export function isWorkerProgress<T extends WorkerRequestType>(
     response.type === WorkerResponseType.VerificationProgress ||
     response.type === WorkerResponseType.SigningProgress ||
     response.type === WorkerResponseType.RegistrationProgress ||
-    response.type === WorkerResponseType.VerificationComplete ||  // Moved from completion to progress
-    response.type === WorkerResponseType.SigningComplete ||       // Moved from completion to progress
-    response.type === WorkerResponseType.RegistrationComplete     // Moved from completion to progress
+    response.type === WorkerResponseType.VerificationComplete || // Treat as progress, not final completion
+    response.type === WorkerResponseType.SigningComplete ||      // Treat as progress, not final completion
+    response.type === WorkerResponseType.RegistrationComplete    // Treat as progress, not final completion
+  );
+}
+
+export function isWorkerSuccess<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerSuccessResponse<T> {
+  return (
+    response.type === WorkerResponseType.DeriveNearKeypairAndEncryptSuccess ||
+    response.type === WorkerResponseType.RecoverKeypairFromPasskeySuccess ||
+    response.type === WorkerResponseType.CheckCanRegisterUserSuccess ||
+    response.type === WorkerResponseType.DecryptPrivateKeyWithPrfSuccess ||
+    response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
+    response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
+    response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
+    response.type === WorkerResponseType.SignVerifyAndRegisterUserSuccess
+  );
+}
+
+export function isWorkerError<T extends WorkerRequestType>(
+  response: WorkerResponseForRequest<T>
+): response is WorkerErrorResponse {
+  return (
+    response.type === WorkerResponseType.DeriveNearKeypairAndEncryptFailure ||
+    response.type === WorkerResponseType.RecoverKeypairFromPasskeyFailure ||
+    response.type === WorkerResponseType.CheckCanRegisterUserFailure ||
+    response.type === WorkerResponseType.DecryptPrivateKeyWithPrfFailure ||
+    response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
+    response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
+    response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
+    response.type === WorkerResponseType.SignVerifyAndRegisterUserFailure
   );
 }
 
 // === SPECIFIC TYPE GUARDS FOR COMMON OPERATIONS ===
 
-export function isEncryptionSuccess(response: EncryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt> {
-  return response.type === WorkerResponseType.EncryptionSuccess;
+export function isDeriveNearKeypairAndEncryptSuccess(response: EncryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt> {
+  return response.type === WorkerResponseType.DeriveNearKeypairAndEncryptSuccess;
 }
 
-export function isRecoverKeypairSuccess(response: RecoveryResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.RecoverKeypairFromPasskey> {
-  return response.type === WorkerResponseType.RecoverKeypairSuccess;
+export function isRecoverKeypairFromPasskeySuccess(response: RecoveryResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.RecoverKeypairFromPasskey> {
+  return response.type === WorkerResponseType.RecoverKeypairFromPasskeySuccess;
 }
 
-export function isCheckRegistrationSuccess(response: CheckRegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.CheckCanRegisterUser> {
-  return response.type === WorkerResponseType.RegistrationSuccess;
+export function isCheckCanRegisterUserSuccess(response: CheckRegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.CheckCanRegisterUser> {
+  return response.type === WorkerResponseType.CheckCanRegisterUserSuccess;
 }
 
-export function isRegistrationSuccess(response: RegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignVerifyAndRegisterUser> {
-  return response.type === WorkerResponseType.RegistrationSuccess;
+export function isSignVerifyAndRegisterUserSuccess(response: RegistrationResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignVerifyAndRegisterUser> {
+  return response.type === WorkerResponseType.SignVerifyAndRegisterUserSuccess;
 }
 
-export function isSignatureSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
-  return response.type === WorkerResponseType.SignatureSuccess;
+export function isSignTransactionsWithActionsSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
+  return response.type === WorkerResponseType.SignTransactionsWithActionsSuccess;
 }
 
-export function isDecryptionSuccess(response: DecryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DecryptPrivateKeyWithPrf> {
-  return response.type === WorkerResponseType.DecryptionSuccess;
+export function isDecryptPrivateKeyWithPrfSuccess(response: DecryptionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.DecryptPrivateKeyWithPrf> {
+  return response.type === WorkerResponseType.DecryptPrivateKeyWithPrfSuccess;
 }
 
-export function isCoseExtractionSuccess(response: CoseExtractionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
-  return response.type === WorkerResponseType.CoseExtractionSuccess;
+export function isExtractCosePublicKeySuccess(response: CoseExtractionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
+  return response.type === WorkerResponseType.ExtractCosePublicKeySuccess;
 }
+
+// export function isSignTransactionWithKeyPairSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionWithKeyPair> {
+//   return response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess;
+// }
 
 // === ACTION TYPE VALIDATION ===
 
@@ -589,49 +599,3 @@ export type ActionParams =
  * Helper type to get just the success response payload type for a request
  */
 export type SuccessPayloadForRequest<T extends WorkerRequestType> = RequestResponseMap[T];
-
-// === SPECIFIC TYPE-SAFE EXTRACTORS ===
-
-/**
- * Type-safe extractor for encryption results
- * Only works with successful responses, throws on error
- */
-export function extractEncryptionResult(response: EncryptionResponse): WasmEncryptionResult {
-  if (isEncryptionSuccess(response)) {
-    return response.payload;
-  }
-  throw new Error('Cannot extract result from non-success response');
-}
-
-/**
- * Type-safe extractor for transaction signing results
- * Only works with successful responses, throws on error
- */
-export function extractTransactionResult(response: TransactionResponse): WasmTransactionSignResult {
-  if (isSignatureSuccess(response)) {
-    return response.payload;
-  }
-  throw new Error('Cannot extract result from non-success response');
-}
-
-/**
- * Type-safe extractor for registration results
- * Only works with successful responses, throws on error
- */
-export function extractRegistrationResult(response: RegistrationResponse): WasmRegistrationResult {
-  if (isRegistrationSuccess(response)) {
-    return response.payload;
-  }
-  throw new Error('Cannot extract result from non-success response');
-}
-
-/**
- * Type-safe extractor for keypair recovery results
- * Only works with successful responses, throws on error
- */
-export function extractRecoveryResult(response: RecoveryResponse): WasmRecoverKeypairResult {
-  if (isRecoverKeypairSuccess(response)) {
-    return response.payload;
-  }
-  throw new Error('Cannot extract result from non-success response');
-}

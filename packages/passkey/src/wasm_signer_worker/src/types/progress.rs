@@ -34,6 +34,22 @@ pub enum ProgressMessageType {
     RegistrationComplete = 17,
 }
 
+impl TryFrom<u32> for ProgressMessageType {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
+        match value {
+            12 => Ok(ProgressMessageType::VerificationProgress),
+            13 => Ok(ProgressMessageType::VerificationComplete),
+            14 => Ok(ProgressMessageType::SigningProgress),
+            15 => Ok(ProgressMessageType::SigningComplete),
+            16 => Ok(ProgressMessageType::RegistrationProgress),
+            17 => Ok(ProgressMessageType::RegistrationComplete),
+            _ => Err(format!("Invalid ProgressMessageType value: {}", value)),
+        }
+    }
+}
+
 /// Progress step identifiers for different phases of operations
 /// Values start at 20 to avoid conflicts with WorkerResponseType enum
 #[wasm_bindgen]
@@ -41,10 +57,26 @@ pub enum ProgressMessageType {
 pub enum ProgressStep {
     Preparation = 20,
     ContractVerification = 21,
-    TransactionSigning = 22,
-    VerificationComplete = 23,
+    VerificationComplete = 22,
+    TransactionSigning = 23,
     SigningComplete = 24,
     Error = 25,
+}
+
+impl TryFrom<u32> for ProgressStep {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
+        match value {
+            20 => Ok(ProgressStep::Preparation),
+            21 => Ok(ProgressStep::ContractVerification),
+            22 => Ok(ProgressStep::VerificationComplete),
+            23 => Ok(ProgressStep::TransactionSigning),
+            24 => Ok(ProgressStep::SigningComplete),
+            25 => Ok(ProgressStep::Error),
+            _ => Err(format!("Invalid ProgressStep value: {}", value)),
+        }
+    }
 }
 
 /// Status of a progress message
@@ -172,8 +204,8 @@ pub fn progress_step_name(step: ProgressStep) -> &'static str {
     match step {
         ProgressStep::Preparation => "preparation",                               // 20
         ProgressStep::ContractVerification => "contract-verification",            // 21
-        ProgressStep::TransactionSigning => "transaction-signing",                // 22
-        ProgressStep::VerificationComplete => "verification-complete",            // 23
+        ProgressStep::VerificationComplete => "verification-complete",            // 22
+        ProgressStep::TransactionSigning => "transaction-signing",                // 23
         ProgressStep::SigningComplete => "signing-complete",                      // 24
         ProgressStep::Error => "error",                                           // 25
     }

@@ -42,25 +42,68 @@ impl From<u32> for WorkerRequestType {
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
         match value {
-            WorkerResponseType::EncryptionSuccess => 0,
-            WorkerResponseType::DeriveNearKeyFailure => 1,
-            WorkerResponseType::RecoverKeypairSuccess => 2,
-            WorkerResponseType::RecoverKeypairFailure => 3,
-            WorkerResponseType::RegistrationSuccess => 4,
-            WorkerResponseType::RegistrationFailure => 5,
-            WorkerResponseType::SignatureSuccess => 6,
-            WorkerResponseType::SignatureFailure => 7,
-            WorkerResponseType::DecryptionSuccess => 8,
-            WorkerResponseType::DecryptionFailure => 9,
-            WorkerResponseType::CoseExtractionSuccess => 10,
-            WorkerResponseType::CoseExtractionFailure => 11,
-            WorkerResponseType::VerificationProgress => 12,
-            WorkerResponseType::VerificationComplete => 13,
-            WorkerResponseType::SigningProgress => 14,
-            WorkerResponseType::SigningComplete => 15,
-            WorkerResponseType::RegistrationProgress => 16,
-            WorkerResponseType::RegistrationComplete => 17,
-            WorkerResponseType::Error => 18,
+            // Success responses
+            WorkerResponseType::DeriveNearKeypairAndEncryptSuccess => 0,
+            WorkerResponseType::RecoverKeypairFromPasskeySuccess => 1,
+            WorkerResponseType::CheckCanRegisterUserSuccess => 2,
+            WorkerResponseType::DecryptPrivateKeyWithPrfSuccess => 3,
+            WorkerResponseType::SignTransactionsWithActionsSuccess => 4,
+            WorkerResponseType::ExtractCosePublicKeySuccess => 5,
+            WorkerResponseType::SignTransactionWithKeyPairSuccess => 6,
+            WorkerResponseType::SignVerifyAndRegisterUserSuccess => 7,
+
+            // Failure responses
+            WorkerResponseType::DeriveNearKeypairAndEncryptFailure => 8,
+            WorkerResponseType::RecoverKeypairFromPasskeyFailure => 9,
+            WorkerResponseType::CheckCanRegisterUserFailure => 10,
+            WorkerResponseType::DecryptPrivateKeyWithPrfFailure => 11,
+            WorkerResponseType::SignTransactionsWithActionsFailure => 12,
+            WorkerResponseType::ExtractCosePublicKeyFailure => 13,
+            WorkerResponseType::SignTransactionWithKeyPairFailure => 14,
+            WorkerResponseType::SignVerifyAndRegisterUserFailure => 15,
+
+            // Progress responses - for real-time updates during operations
+            WorkerResponseType::VerificationProgress => 16,
+            WorkerResponseType::SigningProgress => 17,
+            WorkerResponseType::RegistrationProgress => 18,
+            WorkerResponseType::VerificationComplete => 19,
+            WorkerResponseType::SigningComplete => 20,
+            WorkerResponseType::RegistrationComplete => 21,
+        }
+    }
+}
+
+impl From<u32> for WorkerResponseType {
+    fn from(value: u32) -> Self {
+        match value {
+            // Success responses
+            0 => WorkerResponseType::DeriveNearKeypairAndEncryptSuccess,
+            1 => WorkerResponseType::RecoverKeypairFromPasskeySuccess,
+            2 => WorkerResponseType::CheckCanRegisterUserSuccess,
+            3 => WorkerResponseType::DecryptPrivateKeyWithPrfSuccess,
+            4 => WorkerResponseType::SignTransactionsWithActionsSuccess,
+            5 => WorkerResponseType::ExtractCosePublicKeySuccess,
+            6 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
+            7 => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
+
+            // Failure responses
+            8 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
+            9 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
+            10 => WorkerResponseType::CheckCanRegisterUserFailure,
+            11 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
+            12 => WorkerResponseType::SignTransactionsWithActionsFailure,
+            13 => WorkerResponseType::ExtractCosePublicKeyFailure,
+            14 => WorkerResponseType::SignTransactionWithKeyPairFailure,
+            15 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
+
+            // Progress responses - for real-time updates during operations
+            16 => WorkerResponseType::VerificationProgress,
+            17 => WorkerResponseType::SigningProgress,
+            18 => WorkerResponseType::RegistrationProgress,
+            19 => WorkerResponseType::VerificationComplete,
+            20 => WorkerResponseType::SigningComplete,
+            21 => WorkerResponseType::RegistrationComplete,
+            _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
 }
@@ -84,25 +127,33 @@ impl WorkerRequestType {
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerResponseType {
-    EncryptionSuccess,
-    DeriveNearKeyFailure,
-    RecoverKeypairSuccess,
-    RecoverKeypairFailure,
-    RegistrationSuccess,
-    RegistrationFailure,
-    SignatureSuccess,
-    SignatureFailure,
-    DecryptionSuccess,
-    DecryptionFailure,
-    CoseExtractionSuccess,
-    CoseExtractionFailure,
+    // Success responses - one for each request type
+    DeriveNearKeypairAndEncryptSuccess,
+    RecoverKeypairFromPasskeySuccess,
+    CheckCanRegisterUserSuccess,
+    DecryptPrivateKeyWithPrfSuccess,
+    SignTransactionsWithActionsSuccess,
+    ExtractCosePublicKeySuccess,
+    SignTransactionWithKeyPairSuccess,
+    SignVerifyAndRegisterUserSuccess,
+
+    // Failure responses - one for each request type
+    DeriveNearKeypairAndEncryptFailure,
+    RecoverKeypairFromPasskeyFailure,
+    CheckCanRegisterUserFailure,
+    DecryptPrivateKeyWithPrfFailure,
+    SignTransactionsWithActionsFailure,
+    ExtractCosePublicKeyFailure,
+    SignTransactionWithKeyPairFailure,
+    SignVerifyAndRegisterUserFailure,
+
+    // Progress responses - for real-time updates during operations
     VerificationProgress,
-    VerificationComplete,
     SigningProgress,
-    SigningComplete,
     RegistrationProgress,
+    VerificationComplete,
+    SigningComplete,
     RegistrationComplete,
-    Error,
 }
 /// Main worker message structure
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -49,8 +49,8 @@ const DEFAULT_TEST_CONFIG = {
   nearNetwork: 'testnet' as const,
   relayerAccount: 'web3-authn-v2.testnet',
   contractId: 'web3-authn-v2.testnet',
-  // nearRpcUrl: 'https://rpc.testnet.near.org',
-  nearRpcUrl: 'https://free.rpc.fastnear.com',
+  nearRpcUrl: 'https://rpc.testnet.near.org',
+  // nearRpcUrl: 'https://free.rpc.fastnear.com',
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
@@ -193,7 +193,6 @@ export interface TestUtils {
  * Configure WebAuthn Virtual Authenticator first
  */
 async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
-  console.log('Step 1: Setting up WebAuthn Virtual Authenticator...');
 
   const client = await page.context().newCDPSession(page);
   await client.send('WebAuthn.enable');
@@ -221,7 +220,6 @@ async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
  * Add module resolution mappings to the page
  */
 async function injectImportMap(page: Page): Promise<void> {
-  console.log('Step 2: Injecting import map...');
 
   await page.evaluate(() => {
     const importMap = document.createElement('script');
@@ -260,7 +258,6 @@ async function injectImportMap(page: Page): Promise<void> {
  * Allow browser environment to settle
  */
 async function waitForEnvironmentStabilization(page: Page): Promise<void> {
-  console.log('Step 3: Waiting for environment stabilization...');
 
   // Critical timing: Wait for import map processing
   // The WebAuthn Virtual Authenticator setup can interfere with import map processing
@@ -275,7 +272,6 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
  * Load PasskeyManager only after environment is ready
  */
 async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<void> {
-  console.log('Step 4: Loading PasskeyManager dynamically...');
 
   await page.evaluate(async (setupOptions) => {
     console.log('Importing PasskeyManager from built SDK...');
@@ -329,8 +325,6 @@ async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<
  * Ensure base64UrlEncode is available as safety measure
  */
 async function ensureGlobalFallbacks(page: Page): Promise<void> {
-  console.log('Step 5: Ensuring global fallbacks...');
-
   await page.evaluate(async () => {
     // Defense in depth: Ensure base64UrlEncode is globally available
     // This prevents "base64UrlEncode is not defined" errors even if timing issues occur
@@ -548,12 +542,11 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         // Extract account ID from user info for deterministic PRF
         const accountId = options.publicKey.user?.name || 'default-account';
 
-        // CRITICAL: Credential ID Format for Contract Compatibility
+        // Credential ID Format for Contract Compatibility
         // ========================================================
         // The contract stores credentials using: BASE64_URL_ENGINE.encode(&credential_id_bytes)
         // During authentication, it looks up using: webauthn_authentication.id
         // Therefore, we must ensure both registration and authentication use the same format
-
         const credentialIdString = `test-credential-${accountId}-auth`; // Human-readable format
         const credentialIdBytes = new TextEncoder().encode(credentialIdString); // Convert to bytes
         const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
@@ -562,7 +555,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
         const attestationObjectBytes = await createProperAttestationObject(rpIdHash, credentialIdString);
 
         return {
-          // CRITICAL: Follow WebAuthn spec - id is base64URL string, rawId is bytes
+          // Follow WebAuthn spec - id is base64URL string, rawId is bytes
           id: credentialIdBase64Url, // Base64URL string for JSON serialization
           rawId: credentialIdBytes.buffer, // ArrayBuffer for WebAuthn spec compliance
           type: 'public-key',
@@ -582,7 +575,6 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
           getClientExtensionResults: () => {
             const results: any = {};
             if (prfRequested) {
-              console.log('[PRF DEBUG] Generating PRF outputs for account:', accountId);
               results.prf = {
                 enabled: true,
                 results: {
@@ -946,20 +938,6 @@ export function handleInfrastructureErrors(result: { success: boolean; error?: s
 
       // Skip this test instead of failing
       test.skip(true, 'Testnet faucet rate limited (HTTP 429) - retry later');
-      return true;
-    }
-
-    // Check if this is a contract connectivity error
-    if (result.error.includes('Web3Authn contract registration check failed') ||
-        result.error.includes('User verification failed - account may already exist or contract is unreachable')) {
-      console.warn('⚠️  Test skipped due to testnet contract connectivity issues');
-      console.warn('   The web3authn-v2.testnet contract may be unreachable or RPC issues.');
-      console.warn('   This is a testnet infrastructure issue, not a test failure.');
-      console.warn('   Rerun the test later - this is not a test failure.');
-      console.warn(`   Error: ${result.error}`);
-
-      // Skip this test instead of failing
-      test.skip(true, 'Testnet contract unreachable - retry later');
       return true;
     }
   }

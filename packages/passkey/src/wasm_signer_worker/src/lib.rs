@@ -133,24 +133,14 @@ pub fn send_progress_message(message_type: u32, step: u32, message: &str, _data:
     }
 
     // Convert numeric enums back to their string names for debugging
-    let message_type_name = match message_type {
-        12 => "VERIFICATION_PROGRESS",
-        13 => "VERIFICATION_COMPLETE",
-        14 => "SIGNING_PROGRESS",
-        15 => "SIGNING_COMPLETE",
-        16 => "REGISTRATION_PROGRESS",
-        17 => "REGISTRATION_COMPLETE",
-        _ => "UNKNOWN_MESSAGE_TYPE",
+    let message_type_name = match ProgressMessageType::try_from(message_type) {
+        Ok(msg_type) => progress_message_type_name(msg_type),
+        Err(_) => "UNKNOWN_MESSAGE_TYPE",
     };
 
-    let step_name = match step {
-        20 => "preparation",
-        21 => "contract-verification",
-        22 => "transaction-signing",
-        23 => "verification-complete",
-        24 => "signing-complete",
-        25 => "error",
-        _ => "unknown-step",
+    let step_name = match ProgressStep::try_from(step) {
+        Ok(step_enum) => progress_step_name(step_enum),
+        Err(_) => "unknown-step",
     };
 
     // Only try to send message in WASM context
@@ -233,32 +223,40 @@ pub async fn handle_signer_message(message_json: &str) -> Result<String, JsValue
         },
     };
 
-    // Handle the result
-    let payload = match response_payload {
-        Ok(payload) => payload,
-        Err(error_msg) => {
-            let error_response = SignerWorkerResponse {
-                response_type: u32::from(WorkerResponseType::Error),
-                payload: serde_json::json!({
-                    "error": error_msg,
-                    "context": { "type": msg.msg_type }
-                }),
+    // Handle the result and determine response type
+    let (response_type, payload) = match response_payload {
+        Ok(payload) => {
+            // Success case - map request type to success response type
+            let success_response_type = match request_type {
+                WorkerRequestType::DeriveNearKeypairAndEncrypt => WorkerResponseType::DeriveNearKeypairAndEncryptSuccess,
+                WorkerRequestType::RecoverKeypairFromPasskey => WorkerResponseType::RecoverKeypairFromPasskeySuccess,
+                WorkerRequestType::CheckCanRegisterUser => WorkerResponseType::CheckCanRegisterUserSuccess,
+                WorkerRequestType::DecryptPrivateKeyWithPrf => WorkerResponseType::DecryptPrivateKeyWithPrfSuccess,
+                WorkerRequestType::SignTransactionsWithActions => WorkerResponseType::SignTransactionsWithActionsSuccess,
+                WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::ExtractCosePublicKeySuccess,
+                WorkerRequestType::SignTransactionWithKeyPair => WorkerResponseType::SignTransactionWithKeyPairSuccess,
+                WorkerRequestType::SignVerifyAndRegisterUser => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
             };
-            return Ok(serde_json::to_string(&error_response)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize error response: {:?}", e)))?);
+            (success_response_type, payload)
+        },
+        Err(error_msg) => {
+            // Failure case - map request type to failure response type
+            let failure_response_type = match request_type {
+                WorkerRequestType::DeriveNearKeypairAndEncrypt => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
+                WorkerRequestType::RecoverKeypairFromPasskey => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
+                WorkerRequestType::CheckCanRegisterUser => WorkerResponseType::CheckCanRegisterUserFailure,
+                WorkerRequestType::DecryptPrivateKeyWithPrf => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
+                WorkerRequestType::SignTransactionsWithActions => WorkerResponseType::SignTransactionsWithActionsFailure,
+                WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::ExtractCosePublicKeyFailure,
+                WorkerRequestType::SignTransactionWithKeyPair => WorkerResponseType::SignTransactionWithKeyPairFailure,
+                WorkerRequestType::SignVerifyAndRegisterUser => WorkerResponseType::SignVerifyAndRegisterUserFailure,
+            };
+            let error_payload = serde_json::json!({
+                "error": error_msg,
+                "context": { "type": msg.msg_type }
+            });
+            (failure_response_type, error_payload)
         }
-    };
-
-    // Determine response type based on request type
-    let response_type = match request_type {
-        WorkerRequestType::DeriveNearKeypairAndEncrypt => WorkerResponseType::EncryptionSuccess,
-        WorkerRequestType::RecoverKeypairFromPasskey => WorkerResponseType::RecoverKeypairSuccess,
-        WorkerRequestType::CheckCanRegisterUser => WorkerResponseType::RegistrationSuccess,
-        WorkerRequestType::SignVerifyAndRegisterUser => WorkerResponseType::RegistrationSuccess,
-        WorkerRequestType::DecryptPrivateKeyWithPrf => WorkerResponseType::DecryptionSuccess,
-        WorkerRequestType::SignTransactionsWithActions => WorkerResponseType::SignatureSuccess,
-        WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::CoseExtractionSuccess,
-        WorkerRequestType::SignTransactionWithKeyPair => WorkerResponseType::SignatureSuccess,
     };
 
     // Debug logging for response type
@@ -298,24 +296,32 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
 /// Convert WorkerResponseType enum to readable string for debugging
 pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static str {
     match response_type {
-        WorkerResponseType::EncryptionSuccess => "ENCRYPTION_SUCCESS",
-        WorkerResponseType::DeriveNearKeyFailure => "DERIVE_NEAR_KEY_FAILURE",
-        WorkerResponseType::RecoverKeypairSuccess => "RECOVER_KEYPAIR_SUCCESS",
-        WorkerResponseType::RecoverKeypairFailure => "RECOVER_KEYPAIR_FAILURE",
-        WorkerResponseType::RegistrationSuccess => "REGISTRATION_SUCCESS",
-        WorkerResponseType::RegistrationFailure => "REGISTRATION_FAILURE",
-        WorkerResponseType::SignatureSuccess => "SIGNATURE_SUCCESS",
-        WorkerResponseType::SignatureFailure => "SIGNATURE_FAILURE",
-        WorkerResponseType::DecryptionSuccess => "DECRYPTION_SUCCESS",
-        WorkerResponseType::DecryptionFailure => "DECRYPTION_FAILURE",
-        WorkerResponseType::CoseExtractionSuccess => "COSE_EXTRACTION_SUCCESS",
-        WorkerResponseType::CoseExtractionFailure => "COSE_EXTRACTION_FAILURE",
-        WorkerResponseType::Error => "ERROR",
+        // Success responses
+        WorkerResponseType::DeriveNearKeypairAndEncryptSuccess => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT_SUCCESS",
+        WorkerResponseType::RecoverKeypairFromPasskeySuccess => "RECOVER_KEYPAIR_FROM_PASSKEY_SUCCESS",
+        WorkerResponseType::CheckCanRegisterUserSuccess => "CHECK_CAN_REGISTER_USER_SUCCESS",
+        WorkerResponseType::DecryptPrivateKeyWithPrfSuccess => "DECRYPT_PRIVATE_KEY_WITH_PRF_SUCCESS",
+        WorkerResponseType::SignTransactionsWithActionsSuccess => "SIGN_TRANSACTIONS_WITH_ACTIONS_SUCCESS",
+        WorkerResponseType::ExtractCosePublicKeySuccess => "EXTRACT_COSE_PUBLIC_KEY_SUCCESS",
+        WorkerResponseType::SignTransactionWithKeyPairSuccess => "SIGN_TRANSACTION_WITH_KEYPAIR_SUCCESS",
+        WorkerResponseType::SignVerifyAndRegisterUserSuccess => "SIGN_VERIFY_AND_REGISTER_USER_SUCCESS",
+
+        // Failure responses
+        WorkerResponseType::DeriveNearKeypairAndEncryptFailure => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT_FAILURE",
+        WorkerResponseType::RecoverKeypairFromPasskeyFailure => "RECOVER_KEYPAIR_FROM_PASSKEY_FAILURE",
+        WorkerResponseType::CheckCanRegisterUserFailure => "CHECK_CAN_REGISTER_USER_FAILURE",
+        WorkerResponseType::DecryptPrivateKeyWithPrfFailure => "DECRYPT_PRIVATE_KEY_WITH_PRF_FAILURE",
+        WorkerResponseType::SignTransactionsWithActionsFailure => "SIGN_TRANSACTIONS_WITH_ACTIONS_FAILURE",
+        WorkerResponseType::ExtractCosePublicKeyFailure => "EXTRACT_COSE_PUBLIC_KEY_FAILURE",
+        WorkerResponseType::SignTransactionWithKeyPairFailure => "SIGN_TRANSACTION_WITH_KEYPAIR_FAILURE",
+        WorkerResponseType::SignVerifyAndRegisterUserFailure => "SIGN_VERIFY_AND_REGISTER_USER_FAILURE",
+
+        // Progress responses
         WorkerResponseType::VerificationProgress => "VERIFICATION_PROGRESS",
-        WorkerResponseType::VerificationComplete => "VERIFICATION_COMPLETE",
         WorkerResponseType::SigningProgress => "SIGNING_PROGRESS",
-        WorkerResponseType::SigningComplete => "SIGNING_COMPLETE",
         WorkerResponseType::RegistrationProgress => "REGISTRATION_PROGRESS",
+        WorkerResponseType::VerificationComplete => "VERIFICATION_COMPLETE",
+        WorkerResponseType::SigningComplete => "SIGNING_COMPLETE",
         WorkerResponseType::RegistrationComplete => "REGISTRATION_COMPLETE",
     }
 }

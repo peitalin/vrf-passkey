@@ -260,6 +260,12 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
     ).await
     .map_err(|e| format!("Registration check failed: {}", e))?;
 
+    // Check if the RPC call itself failed (e.g., "Server error")
+    if !registration_result.success {
+        let error_msg = registration_result.error.unwrap_or_else(|| "Unknown RPC error".to_string());
+        return Err(format!("RPC call failed: {}", error_msg));
+    }
+
     // Create structured response
     let signed_transaction_wasm = match registration_result.unwrap_signed_transaction() {
         Some(json_value) => {

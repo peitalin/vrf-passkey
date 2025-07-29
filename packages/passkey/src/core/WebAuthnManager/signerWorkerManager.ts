@@ -2,47 +2,37 @@ import type { NearClient } from '../NearClient';
 import { getNonceBlockHashAndHeight } from "../PasskeyManager/actions";
 import { SignedTransaction } from "../NearClient";
 import { base58Decode } from '../../utils/encoders';
-import type {
-  ActionParams,
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-  WasmEncryptionResult,
-  WasmRegistrationResult,
-  WasmTransactionSignResult,
-  WasmRecoverKeypairResult,
-  WorkerResponseForRequest,
-  SuccessPayloadForRequest,
-  EncryptionResponse,
-  RecoveryResponse,
-  CheckRegistrationResponse,
-  RegistrationResponse,
-  TransactionResponse,
-  DecryptionResponse,
-  CoseExtractionResponse,
-  WorkerErrorResponse,
-  WorkerProgressResponse,
-} from '../types/signer-worker';
 import {
   WorkerRequestType,
   WorkerResponseType,
-  isEncryptionSuccess,
-  isSignatureSuccess,
-  isDecryptionSuccess,
-  isCheckRegistrationSuccess,
-  isRegistrationSuccess,
+  EncryptionResult,
+  RecoverKeypairResult,
+  RegistrationCheckResult,
+  RegistrationResult,
+  TransactionSignResult,
+  DecryptPrivateKeyResult,
+  WasmSignedTransaction,
+} from '../../wasm_signer_worker/wasm_signer_worker.js';
+import {
+  type ActionParams,
+  type WebAuthnAuthenticationCredential,
+  type WebAuthnRegistrationCredential,
   validateActionParams,
   serializeCredentialWithPRF,
   extractDualPrfOutputs,
-  isCoseExtractionSuccess,
-  isRecoverKeypairSuccess,
+  WorkerResponseForRequest,
+  isWorkerProgress,
   isWorkerError,
   isWorkerSuccess,
-  isWorkerProgress,
-  takeAesPrfOutput,
-  extractEncryptionResult,
-  extractTransactionResult,
-  extractRegistrationResult,
-  extractRecoveryResult,
+  isDeriveNearKeypairAndEncryptSuccess,
+  isDecryptPrivateKeyWithPrfSuccess,
+  isCheckCanRegisterUserSuccess,
+  isSignVerifyAndRegisterUserSuccess,
+  isRecoverKeypairFromPasskeySuccess,
+  isExtractCosePublicKeySuccess,
+  WorkerProgressResponse,
+  WorkerErrorResponse,
+  WasmTransactionSignResult,
 } from '../types/signer-worker';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
@@ -151,21 +141,14 @@ export class SignerWorkerManager {
         responses.push(response);
 
         // Handle progress updates using WASM-generated numeric enum values
-        if (
-          response.type === WorkerResponseType.VerificationProgress ||
-          response.type === WorkerResponseType.SigningProgress ||
-          response.type === WorkerResponseType.RegistrationProgress ||
-          response.type === WorkerResponseType.VerificationComplete || // Treat as progress, not final completion
-          response.type === WorkerResponseType.SigningComplete ||      // Treat as progress, not final completion
-          response.type === WorkerResponseType.RegistrationComplete    // Treat as progress, not final completion
-        ) {
+        if (isWorkerProgress(response)) {
           const progressResponse = response as WorkerProgressResponse;
           onEvent?.(progressResponse.payload as onProgressEvents);
           return; // Continue listening for more messages
         }
 
         // Handle errors using WASM-generated enum
-        if (response.type === WorkerResponseType.Error) {
+        if (isWorkerError(response)) {
           clearTimeout(timeoutId);
           worker.terminate();
           const errorResponse = response as WorkerErrorResponse;
@@ -265,7 +248,7 @@ export class SignerWorkerManager {
       });
 
       // Response is specifically EncryptionSuccessResponse | EncryptionFailureResponse
-      if (!isEncryptionSuccess(response)) {
+      if (!isDeriveNearKeypairAndEncryptSuccess(response)) {
         throw new Error('Dual PRF registration failed');
       }
 
@@ -373,7 +356,7 @@ export class SignerWorkerManager {
         }
       });
 
-      if (!isDecryptionSuccess(response)) {
+      if (!isDecryptPrivateKeyWithPrfSuccess(response)) {
         console.error('WebAuthnManager: Dual PRF private key decryption failed:', response);
         throw new Error('Private key decryption failed');
       }
@@ -426,21 +409,20 @@ export class SignerWorkerManager {
         timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
-      if (!isCheckRegistrationSuccess(response)) {
+      if (!isCheckCanRegisterUserSuccess(response)) {
         const errorDetails = isWorkerError(response) ? response.payload.error : 'Unknown worker error';
         throw new Error(`Registration check failed: ${errorDetails}`);
       }
 
-      console.info('WebAuthnManager: User can be registered on-chain');
       const wasmResult = response.payload as wasmModule.RegistrationCheckResult;
       return {
         success: true,
         verified: wasmResult.verified,
         registrationInfo: wasmResult.registrationInfo,
         logs: wasmResult.logs,
+        error: wasmResult.error,
       };
     } catch (error: any) {
-      console.error('WebAuthnManager: User cannot be registered on-chain:', error);
       return {
         success: false,
         error: error.message
@@ -532,7 +514,7 @@ export class SignerWorkerManager {
         timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
       });
 
-      if (isRegistrationSuccess(response)) {
+      if (isSignVerifyAndRegisterUserSuccess(response)) {
         console.debug('WebAuthnManager: On-chain user registration transaction successful');
         const wasmResult = response.payload;
         return {
@@ -671,7 +653,7 @@ export class SignerWorkerManager {
         onEvent
       });
 
-      if (response.type !== WorkerResponseType.SignatureSuccess) {
+      if (response.type !== WorkerResponseType.SignTransactionsWithActionsSuccess) {
         console.error('WebAuthnManager: Batch transaction signing failed:', response);
         throw new Error('Batch transaction signing failed');
       }
@@ -701,7 +683,6 @@ export class SignerWorkerManager {
         if (!signedTx || !signedTx.transaction || !signedTx.signature) {
           throw new Error(`Incomplete signed transaction data received for transaction ${index + 1}`);
         }
-        console.log('signedTx', signedTx);
 
         return {
           signedTransaction: new SignedTransaction({
@@ -762,21 +743,19 @@ export class SignerWorkerManager {
       });
 
       // response is RecoverKeypairSuccessResponse | RecoverKeypairFailureResponse
-      if (isRecoverKeypairSuccess(response)) {
-        console.debug('SignerWorkerManager: Dual PRF keypair recovery successful');
-        // extractRecoveryResult extracts response.payload as a WasmRecoverKeypairResult
-        const wasmResult = extractRecoveryResult(response);
-
-        return {
-          publicKey: wasmResult.publicKey,
-          encryptedPrivateKey: wasmResult.encryptedData,
-          iv: wasmResult.iv,
-          accountIdHint: wasmResult.accountIdHint
-        };
-      } else {
-        console.error('SignerWorkerManager: Dual PRF-based keypair recovery failed:', response);
+      if (!isRecoverKeypairFromPasskeySuccess(response)) {
         throw new Error('Dual PRF keypair recovery failed in WASM worker');
       }
+
+      const wasmResult = response.payload;
+
+      return {
+        publicKey: wasmResult.publicKey,
+        encryptedPrivateKey: wasmResult.encryptedData,
+        iv: wasmResult.iv,
+        accountIdHint: wasmResult.accountIdHint
+      };
+
     } catch (error: any) {
       console.error('SignerWorkerManager: Dual PRF keypair recovery error:', error);
       throw error;
@@ -800,7 +779,7 @@ export class SignerWorkerManager {
         }
       });
 
-      if (isCoseExtractionSuccess(response)) {
+      if (isExtractCosePublicKeySuccess(response)) {
         console.info('SignerWorkerManager: COSE public key extraction successful');
         return response.payload.cosePublicKeyBytes;
       } else {
@@ -861,7 +840,7 @@ export class SignerWorkerManager {
         }
       });
 
-      if (response.type !== WorkerResponseType.SignatureSuccess) {
+      if (response.type !== WorkerResponseType.SignTransactionWithKeyPairSuccess) {
         console.error('SignerWorkerManager: Transaction signing with private key failed:', response);
         throw new Error('Transaction signing with private key failed');
       }

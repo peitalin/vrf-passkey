@@ -3,7 +3,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
 use serde_json::Value;
 use serde::{Serialize, Deserialize};
-use log::{info, debug, warn};
+use log::{info, debug, warn, error};
 
 use crate::encoders::{base64_standard_encode, base64_url_decode};
 use crate::types::VrfChallenge;
