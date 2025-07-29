@@ -1,5 +1,5 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
-use near_sdk::{log, near, require, env, AccountId, NearToken};
+use near_sdk::{log, near, require, env, AccountId};
 use near_sdk::store::IterableMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;

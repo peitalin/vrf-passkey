@@ -13,7 +13,6 @@ impl WebAuthnContract {
     }
 
     pub fn set_contract_name(&mut self, contract_name: String) {
-        log!("Saving contract name: {}", contract_name);
         self.contract_name = contract_name;
     }
 
@@ -34,8 +33,10 @@ impl WebAuthnContract {
     }
 
     pub(crate) fn only_admin(&self) {
-        require!(self.admins.contains(&env::predecessor_account_id()),
-            "Only admins can call this function");
+        require!(
+            self.admins.contains(&env::predecessor_account_id()),
+            "Only admins can call this function"
+        );
     }
 
     /// Add a new admin (only contract owner can call this)

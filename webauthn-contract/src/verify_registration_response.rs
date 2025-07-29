@@ -18,7 +18,7 @@ use crate::utils::vrf_verifier;
 #[derive(Debug, Clone)]
 pub struct VRFVerificationData {
     /// SHA256 hash of concatenated VRF input components:
-    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash + timestamp
+    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash
     /// This hashed data is used for VRF proof verification
     pub vrf_input_data: Vec<u8>,
     /// Used as the WebAuthn challenge (VRF output)
@@ -344,8 +344,6 @@ impl WebAuthnContract {
         log!("  - Input data: {} bytes", vrf_data.vrf_input_data.len());
         log!("  - Expected output: {} bytes", vrf_data.vrf_output.len());
         log!("  - Proof: {} bytes", vrf_data.vrf_proof.len());
-        log!("  - Public key: {} bytes", vrf_data.public_key.len());
-        log!("  - Block hash: {} bytes (entropy only, not validated)", vrf_data.block_hash.len());
 
         let vrf_verification = match vrf_verifier::verify_vrf_1(
             &vrf_data.vrf_proof,
@@ -652,7 +650,6 @@ mod tests {
             let session_id = b"session_abc123";
             let block_height = 12345u64;
             let block_hash = b"mock_block_hash_32_bytes_long_abc";
-            let timestamp = 1234567890u64;
 
             // Construct VRF input similar to the spec
             let mut input_data = Vec::new();
@@ -662,7 +659,6 @@ mod tests {
             input_data.extend_from_slice(session_id);
             input_data.extend_from_slice(&block_height.to_le_bytes());
             input_data.extend_from_slice(block_hash);
-            input_data.extend_from_slice(&timestamp.to_le_bytes());
 
             // Hash the input data (VRF input should be hashed)
             let hashed_input = Sha256::digest(&input_data).to_vec();
@@ -877,7 +873,6 @@ mod tests {
         let session_id = b"session_uuid_12345";
         let block_height = 123456789u64;
         let block_hash = b"block_hash_32_bytes_long_example";
-        let timestamp = 1700000000u64;
 
         let mut input_data = Vec::new();
         input_data.extend_from_slice(domain);
@@ -886,7 +881,6 @@ mod tests {
         input_data.extend_from_slice(session_id);
         input_data.extend_from_slice(&block_height.to_le_bytes());
         input_data.extend_from_slice(block_hash);
-        input_data.extend_from_slice(&timestamp.to_le_bytes());
 
         let vrf_input = Sha256::digest(&input_data);
 
@@ -897,7 +891,6 @@ mod tests {
         println!("  - Session ID: {:?}", std::str::from_utf8(session_id).unwrap());
         println!("  - Block height: {}", block_height);
         println!("  - Block hash: {:?}", std::str::from_utf8(block_hash).unwrap());
-        println!("  - Timestamp: {}", timestamp);
         println!("  - Total input length: {} bytes", input_data.len());
         println!("  - SHA256 hash length: {} bytes", vrf_input.len());
 

@@ -18,7 +18,7 @@ impl Default for VRFSettings {
             max_input_age_ms: 300_000, // 5 minutes
             max_block_age: 100,        // 100 blocks (~60 seconds, accommodates TouchID delays)
             enabled: true,
-            max_authenticators_per_account: 5,
+            max_authenticators_per_account: 10,
         }
     }
 }

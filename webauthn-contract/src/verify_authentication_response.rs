@@ -399,7 +399,6 @@ mod tests {
             let session_id = b"auth_session_xyz789";
             let block_height = 54321u64;
             let block_hash = b"mock_auth_block_hash_32_bytes_abc";
-            let timestamp = 1234567890u64;
 
             // Construct VRF input similar to the spec
             let mut input_data = Vec::new();
@@ -409,7 +408,6 @@ mod tests {
             input_data.extend_from_slice(session_id);
             input_data.extend_from_slice(&block_height.to_le_bytes());
             input_data.extend_from_slice(block_hash);
-            input_data.extend_from_slice(&timestamp.to_le_bytes());
 
             // Hash the input data (VRF input should be hashed)
             let hashed_input = Sha256::digest(&input_data).to_vec();
@@ -622,7 +620,6 @@ mod tests {
         let session_id = b"auth_session_uuid_67890";
         let block_height = 987654321u64;
         let block_hash = b"auth_block_hash_32_bytes_example";
-        let timestamp = 1700000000u64;
 
         let mut input_data = Vec::new();
         input_data.extend_from_slice(domain);
@@ -631,7 +628,6 @@ mod tests {
         input_data.extend_from_slice(session_id);
         input_data.extend_from_slice(&block_height.to_le_bytes());
         input_data.extend_from_slice(block_hash);
-        input_data.extend_from_slice(&timestamp.to_le_bytes());
 
         let vrf_input = Sha256::digest(&input_data);
 
@@ -642,7 +638,6 @@ mod tests {
         println!("  - Session ID: {:?}", std::str::from_utf8(session_id).unwrap());
         println!("  - Block height: {}", block_height);
         println!("  - Block hash: {:?}", std::str::from_utf8(block_hash).unwrap());
-        println!("  - Timestamp: {}", timestamp);
         println!("  - Total input length: {} bytes", input_data.len());
         println!("  - SHA256 hash length: {} bytes", vrf_input.len());
 
@@ -750,7 +745,6 @@ mod tests {
         let session_id = b"session_12345";
         let block_height = 123456u64;
         let block_hash = b"block_hash_example_32_bytes_long";
-        let timestamp = 1700000000u64;
 
         let mut input_data = Vec::new();
         input_data.extend_from_slice(domain_separator);
@@ -759,7 +753,6 @@ mod tests {
         input_data.extend_from_slice(session_id);
         input_data.extend_from_slice(&block_height.to_le_bytes());
         input_data.extend_from_slice(block_hash);
-        input_data.extend_from_slice(&timestamp.to_le_bytes());
 
         Sha256::digest(&input_data).to_vec()
     }
