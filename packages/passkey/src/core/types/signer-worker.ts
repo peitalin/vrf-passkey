@@ -138,16 +138,46 @@ export interface WorkerMessage<T extends WorkerRequestType> {
   payload: any; // properly typed based on the specific request interface above
 }
 
+/**
+ * Worker Communication Documentation
+ * =============================
+ *
+ * 1. PROGRESS MESSAGES (During Operation):
+ *    Rust WASM → send_typed_progress_message() → TypeScript sendProgressMessage() → postMessage() → Main Thread
+ *    - Used for real-time updates during long operations
+ *    - Multiple progress messages can be sent per operation
+ *    - Does not affect the final result
+ *    - Types: ProgressMessageType, ProgressStep, ProgressStatus (auto-generated from Rust)
+ *
+ * 2. FINAL RESULTS (Operation Complete):
+ *    Rust WASM → return value from handle_signer_message() → TypeScript worker → postMessage() → Main Thread
+ *    - Contains the actual operation result (success/error)
+ *    - Only one result message per operation
+ *    - This is what the main thread awaits for completion
+ */
+
 // === PROGRESS MESSAGE TYPES ===
 
-// Progress message types that can be sent from WASM to the main thread
+// Basic interface for development - actual types are auto-generated from Rust
+export type ProgressMessage = wasmModule.WorkerProgressMessage;
+
+// Type guard for basic progress message validation during development
+export function isProgressMessage(obj: any): obj is ProgressMessage {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    typeof obj.message_type === 'string' &&
+    typeof obj.step === 'string' &&
+    typeof obj.message === 'string' &&
+    typeof obj.status === 'string'
+  );
+}
+
 export enum ProgressMessageType {
-  VERIFICATION_PROGRESS = 'VERIFICATION_PROGRESS',
-  VERIFICATION_COMPLETE = 'VERIFICATION_COMPLETE',
-  SIGNING_PROGRESS = 'SIGNING_PROGRESS',
-  SIGNING_COMPLETE = 'SIGNING_COMPLETE',
   REGISTRATION_PROGRESS = 'REGISTRATION_PROGRESS',
   REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
+  EXECUTE_ACTIONS_PROGRESS = 'EXECUTE_ACTIONS_PROGRESS',
+  EXECUTE_ACTIONS_COMPLETE = 'EXECUTE_ACTIONS_COMPLETE',
 }
 
 // Step identifiers for progress tracking
@@ -155,20 +185,20 @@ export enum ProgressMessageType {
 // packages/passkey/src/wasm_signer_worker/src/types/progress.rs
 // The string values come from the progress_step_name() function in that file
 export enum ProgressStep {
-  PREPARATION = 'preparation',                     // Rust: Preparation = 20
-  CONTRACT_VERIFICATION = 'contract-verification', // Rust: ContractVerification = 21
-  VERIFICATION_COMPLETE = 'verification-complete', // Rust: VerificationComplete = 22
-  TRANSACTION_SIGNING = 'transaction-signing',     // Rust: TransactionSigning = 23
-  SIGNING_COMPLETE = 'signing-complete',           // Rust: SigningComplete = 24
-  ERROR = 'error',                                 // Rust: Error = 25
+  PREPARATION = 'preparation',                           // Rust: Preparation = 30
+  WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',   // Rust: WebauthnAuthentication = 31
+  AUTHENTICATION_COMPLETE = 'authentication-complete',   // Rust: AuthenticationComplete = 32
+  TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust: TransactionSigningProgress = 33
+  TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust: TransactionSigningComplete = 34
+  ERROR = 'error',                                       // Rust: Error = 35
 }
 
 export interface ProgressStepMap {
   [wasmModule.ProgressStep.Preparation]: ProgressStep.PREPARATION;
-  [wasmModule.ProgressStep.ContractVerification]: ProgressStep.CONTRACT_VERIFICATION;
-  [wasmModule.ProgressStep.TransactionSigning]: ProgressStep.TRANSACTION_SIGNING;
-  [wasmModule.ProgressStep.VerificationComplete]: ProgressStep.VERIFICATION_COMPLETE;
-  [wasmModule.ProgressStep.SigningComplete]: ProgressStep.SIGNING_COMPLETE;
+  [wasmModule.ProgressStep.WebauthnAuthentication]: ProgressStep.WEBAUTHN_AUTHENTICATION;
+  [wasmModule.ProgressStep.AuthenticationComplete]: ProgressStep.AUTHENTICATION_COMPLETE;
+  [wasmModule.ProgressStep.TransactionSigningProgress]: ProgressStep.TRANSACTION_SIGNING_PROGRESS;
+  [wasmModule.ProgressStep.TransactionSigningComplete]: ProgressStep.TRANSACTION_SIGNING_COMPLETE;
   [wasmModule.ProgressStep.Error]: ProgressStep.ERROR;
 }
 
@@ -238,12 +268,10 @@ export function isWorkerProgress<T extends WorkerRequestType>(
   response: WorkerResponseForRequest<T>
 ): response is WorkerProgressResponse {
   return (
-    response.type === WorkerResponseType.VerificationProgress ||
-    response.type === WorkerResponseType.SigningProgress ||
+    response.type === WorkerResponseType.ExecuteActionsProgress ||
+    response.type === WorkerResponseType.ExecuteActionsComplete ||
     response.type === WorkerResponseType.RegistrationProgress ||
-    response.type === WorkerResponseType.VerificationComplete || // Treat as progress, not final completion
-    response.type === WorkerResponseType.SigningComplete ||      // Treat as progress, not final completion
-    response.type === WorkerResponseType.RegistrationComplete    // Treat as progress, not final completion
+    response.type === WorkerResponseType.RegistrationComplete
   );
 }
 
@@ -306,10 +334,6 @@ export function isDecryptPrivateKeyWithPrfSuccess(response: DecryptionResponse):
 export function isExtractCosePublicKeySuccess(response: CoseExtractionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
   return response.type === WorkerResponseType.ExtractCosePublicKeySuccess;
 }
-
-// export function isSignTransactionWithKeyPairSuccess(response: TransactionResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionWithKeyPair> {
-//   return response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess;
-// }
 
 // === ACTION TYPE VALIDATION ===
 

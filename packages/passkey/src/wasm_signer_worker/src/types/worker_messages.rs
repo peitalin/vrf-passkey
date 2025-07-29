@@ -63,12 +63,10 @@ impl From<WorkerResponseType> for u32 {
             WorkerResponseType::SignVerifyAndRegisterUserFailure => 15,
 
             // Progress responses - for real-time updates during operations
-            WorkerResponseType::VerificationProgress => 16,
-            WorkerResponseType::SigningProgress => 17,
-            WorkerResponseType::RegistrationProgress => 18,
-            WorkerResponseType::VerificationComplete => 19,
-            WorkerResponseType::SigningComplete => 20,
-            WorkerResponseType::RegistrationComplete => 21,
+            WorkerResponseType::RegistrationProgress => 16,
+            WorkerResponseType::RegistrationComplete => 17,
+            WorkerResponseType::ExecuteActionsProgress => 18,
+            WorkerResponseType::ExecuteActionsComplete => 19,
         }
     }
 }
@@ -97,12 +95,10 @@ impl From<u32> for WorkerResponseType {
             15 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
 
             // Progress responses - for real-time updates during operations
-            16 => WorkerResponseType::VerificationProgress,
-            17 => WorkerResponseType::SigningProgress,
-            18 => WorkerResponseType::RegistrationProgress,
-            19 => WorkerResponseType::VerificationComplete,
-            20 => WorkerResponseType::SigningComplete,
-            21 => WorkerResponseType::RegistrationComplete,
+            16 => WorkerResponseType::RegistrationProgress,
+            17 => WorkerResponseType::RegistrationComplete,
+            18 => WorkerResponseType::ExecuteActionsProgress,
+            19 => WorkerResponseType::ExecuteActionsComplete,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -148,12 +144,10 @@ pub enum WorkerResponseType {
     SignVerifyAndRegisterUserFailure,
 
     // Progress responses - for real-time updates during operations
-    VerificationProgress,
-    SigningProgress,
     RegistrationProgress,
-    VerificationComplete,
-    SigningComplete,
     RegistrationComplete,
+    ExecuteActionsProgress,
+    ExecuteActionsComplete,
 }
 /// Main worker message structure
 #[derive(Serialize, Deserialize, Debug, Clone)]

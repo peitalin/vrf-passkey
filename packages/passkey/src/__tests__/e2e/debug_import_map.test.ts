@@ -3,12 +3,13 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { setupBasicPasskeyTest } from '../setup';
 
 test.describe('Debug Import Map', () => {
 
   test('Debug import map setup', async ({ page }) => {
-    // Navigate to the frontend
-    await page.goto('https://example.localhost');
+
+    await setupBasicPasskeyTest(page);
 
     const result = await page.evaluate(async () => {
       try {

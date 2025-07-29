@@ -110,9 +110,8 @@ function sendProgressMessage(
       step: step,
       phase: stepName,
       status: (
-        messageTypeName === 'VERIFICATION_COMPLETE' ||
-        messageTypeName === 'SIGNING_COMPLETE' ||
-        messageTypeName === 'REGISTRATION_COMPLETE'
+        messageTypeName === 'REGISTRATION_COMPLETE' ||
+        messageTypeName === 'EXECUTE_ACTIONS_COMPLETE'
       ) ? 'success' : 'progress',
       message: message,
       data: parsedData,

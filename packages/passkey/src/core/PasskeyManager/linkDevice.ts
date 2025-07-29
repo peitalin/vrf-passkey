@@ -21,7 +21,6 @@ import type { ActionParams } from '../types/signer-worker';
 import { IndexedDBManager } from '../IndexedDBManager';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import type { VRFChallenge } from '../types/webauthn';
-import { generateDeviceSpecificUserId } from '../WebAuthnManager/touchIdPrompt';
 import { getDeviceLinkingAccountContractCall } from "../rpcCalls";
 import { DEFAULT_WAIT_STATUS } from "../types/rpc";
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';

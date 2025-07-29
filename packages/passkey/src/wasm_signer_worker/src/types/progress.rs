@@ -23,15 +23,21 @@ use serde::{Serialize, Deserialize};
 
 /// Progress message types that can be sent during WASM operations
 /// Values align with TypeScript WorkerResponseType enum for proper mapping
+///
+/// Should match the Progress WorkerResponseTypes in worker_messages.rs:
+/// - WorkerResponseType::RegistrationProgress
+/// - WorkerResponseType::RegistrationComplete,
+/// - WorkerResponseType::WebauthnAuthenticationProgress
+/// - WorkerResponseType::AuthenticationComplete
+/// - WorkerResponseType::TransactionSigningProgress
+/// - WorkerResponseType::TransactionSigningComplete
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProgressMessageType {
-    VerificationProgress = 12,
-    VerificationComplete = 13,
-    SigningProgress = 14,
-    SigningComplete = 15,
     RegistrationProgress = 16,
     RegistrationComplete = 17,
+    ExecuteActionsProgress = 18,
+    ExecuteActionsComplete = 19,
 }
 
 impl TryFrom<u32> for ProgressMessageType {
@@ -39,12 +45,10 @@ impl TryFrom<u32> for ProgressMessageType {
 
     fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
         match value {
-            12 => Ok(ProgressMessageType::VerificationProgress),
-            13 => Ok(ProgressMessageType::VerificationComplete),
-            14 => Ok(ProgressMessageType::SigningProgress),
-            15 => Ok(ProgressMessageType::SigningComplete),
             16 => Ok(ProgressMessageType::RegistrationProgress),
             17 => Ok(ProgressMessageType::RegistrationComplete),
+            18 => Ok(ProgressMessageType::ExecuteActionsProgress),
+            19 => Ok(ProgressMessageType::ExecuteActionsComplete),
             _ => Err(format!("Invalid ProgressMessageType value: {}", value)),
         }
     }
@@ -55,12 +59,12 @@ impl TryFrom<u32> for ProgressMessageType {
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProgressStep {
-    Preparation = 20,
-    ContractVerification = 21,
-    VerificationComplete = 22,
-    TransactionSigning = 23,
-    SigningComplete = 24,
-    Error = 25,
+    Preparation = 30,
+    WebauthnAuthentication = 31,
+    AuthenticationComplete = 32,
+    TransactionSigningProgress = 33,
+    TransactionSigningComplete = 34,
+    Error = 35,
 }
 
 impl TryFrom<u32> for ProgressStep {
@@ -68,12 +72,12 @@ impl TryFrom<u32> for ProgressStep {
 
     fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
         match value {
-            20 => Ok(ProgressStep::Preparation),
-            21 => Ok(ProgressStep::ContractVerification),
-            22 => Ok(ProgressStep::VerificationComplete),
-            23 => Ok(ProgressStep::TransactionSigning),
-            24 => Ok(ProgressStep::SigningComplete),
-            25 => Ok(ProgressStep::Error),
+            30 => Ok(ProgressStep::Preparation),
+            31 => Ok(ProgressStep::WebauthnAuthentication),
+            32 => Ok(ProgressStep::AuthenticationComplete),
+            33 => Ok(ProgressStep::TransactionSigningProgress),
+            34 => Ok(ProgressStep::TransactionSigningComplete),
+            35 => Ok(ProgressStep::Error),
             _ => Err(format!("Invalid ProgressStep value: {}", value)),
         }
     }
@@ -190,24 +194,22 @@ pub fn send_error_message(
 /// Convert ProgressMessageType enum to readable string for debugging
 pub fn progress_message_type_name(message_type: ProgressMessageType) -> &'static str {
     match message_type {
-        ProgressMessageType::VerificationProgress => "VERIFICATION_PROGRESS",     // 12
-        ProgressMessageType::VerificationComplete => "VERIFICATION_COMPLETE",     // 13
-        ProgressMessageType::SigningProgress => "SIGNING_PROGRESS",               // 14
-        ProgressMessageType::SigningComplete => "SIGNING_COMPLETE",               // 15
-        ProgressMessageType::RegistrationProgress => "REGISTRATION_PROGRESS",     // 16
-        ProgressMessageType::RegistrationComplete => "REGISTRATION_COMPLETE",     // 17
+        ProgressMessageType::RegistrationProgress => "REGISTRATION_PROGRESS",
+        ProgressMessageType::RegistrationComplete => "REGISTRATION_COMPLETE",
+        ProgressMessageType::ExecuteActionsProgress => "EXECUTE_ACTIONS_PROGRESS",
+        ProgressMessageType::ExecuteActionsComplete => "EXECUTE_ACTIONS_COMPLETE",
     }
 }
 
 /// Convert ProgressStep enum to readable string for debugging
 pub fn progress_step_name(step: ProgressStep) -> &'static str {
     match step {
-        ProgressStep::Preparation => "preparation",                               // 20
-        ProgressStep::ContractVerification => "contract-verification",            // 21
-        ProgressStep::VerificationComplete => "verification-complete",            // 22
-        ProgressStep::TransactionSigning => "transaction-signing",                // 23
-        ProgressStep::SigningComplete => "signing-complete",                      // 24
-        ProgressStep::Error => "error",                                           // 25
+        ProgressStep::Preparation => "preparation",
+        ProgressStep::WebauthnAuthentication => "webauthn-authentication",
+        ProgressStep::AuthenticationComplete => "authentication-complete",
+        ProgressStep::TransactionSigningProgress => "transaction-signing-progress",
+        ProgressStep::TransactionSigningComplete => "transaction-signing-complete",
+        ProgressStep::Error => "error",
     }
 }
 

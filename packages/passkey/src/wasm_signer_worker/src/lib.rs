@@ -316,13 +316,11 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         WorkerResponseType::SignTransactionWithKeyPairFailure => "SIGN_TRANSACTION_WITH_KEYPAIR_FAILURE",
         WorkerResponseType::SignVerifyAndRegisterUserFailure => "SIGN_VERIFY_AND_REGISTER_USER_FAILURE",
 
-        // Progress responses
-        WorkerResponseType::VerificationProgress => "VERIFICATION_PROGRESS",
-        WorkerResponseType::SigningProgress => "SIGNING_PROGRESS",
+        // Progress responses - for real-time updates during operations
         WorkerResponseType::RegistrationProgress => "REGISTRATION_PROGRESS",
-        WorkerResponseType::VerificationComplete => "VERIFICATION_COMPLETE",
-        WorkerResponseType::SigningComplete => "SIGNING_COMPLETE",
         WorkerResponseType::RegistrationComplete => "REGISTRATION_COMPLETE",
+        WorkerResponseType::ExecuteActionsProgress => "EXECUTE_ACTIONS_PROGRESS",
+        WorkerResponseType::ExecuteActionsComplete => "EXECUTE_ACTIONS_COMPLETE",
     }
 }
 

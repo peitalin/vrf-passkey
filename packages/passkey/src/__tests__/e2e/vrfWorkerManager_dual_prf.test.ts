@@ -139,10 +139,16 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
+        // Get centralized configuration
+        const { configs } = (window as any).testUtils;
+
         // Generate bootstrap VRF keypair (used during registration)
         console.log('Generating bootstrap VRF keypair...');
         const bootstrapResult = await vrfWorkerManager.generateVrfKeypair(
-          testConfig.VRF_INPUT_PARAMS,
+          {
+            ...testConfig.VRF_INPUT_PARAMS,
+            rpId: configs.rpId
+          },
           true // saveInMemory
         );
 
@@ -156,7 +162,10 @@ test.describe('VRF Worker Manager Integration Test', () => {
         // Test that VRF challenge is deterministic for same input
         console.log('Testing deterministic VRF challenge generation...');
         const bootstrapResult2 = await vrfWorkerManager.generateVrfKeypair(
-          testConfig.VRF_INPUT_PARAMS,
+          {
+            ...testConfig.VRF_INPUT_PARAMS,
+            rpId: configs.rpId
+          },
           true
         );
 
@@ -219,12 +228,18 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
+        // Get centralized configuration
+        const { configs } = (window as any).testUtils;
+
         // Derive deterministic VRF keypair from PRF output (used during recovery)
         console.log('Deriving VRF keypair from PRF output...');
         const derivedResult1 = await vrfWorkerManager.deriveVrfKeypairFromSeed({
           prfOutput: testConfig.MOCK_PRF_OUTPUT,
           nearAccountId: testConfig.ACCOUNT_ID as AccountId,
-          vrfInputData: testConfig.VRF_INPUT_PARAMS
+          vrfInputData: {
+            ...testConfig.VRF_INPUT_PARAMS,
+            rpId: configs.rpId
+          }
         });
 
         // Derive again with same PRF output to test deterministic behavior
@@ -232,7 +247,10 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const derivedResult2 = await vrfWorkerManager.deriveVrfKeypairFromSeed({
           prfOutput: testConfig.MOCK_PRF_OUTPUT,
           nearAccountId: testConfig.ACCOUNT_ID as AccountId,
-          vrfInputData: testConfig.VRF_INPUT_PARAMS
+          vrfInputData: {
+            ...testConfig.VRF_INPUT_PARAMS,
+            rpId: configs.rpId
+          }
         });
 
         // Verify deterministic behavior
@@ -413,15 +431,21 @@ test.describe('VRF Worker Manager Integration Test', () => {
         const vrfWorkerManager = new VrfWorkerManager() as VrfWorkerManager;
         await vrfWorkerManager.initialize();
 
+        // Get centralized configuration
+        const { configs } = (window as any).testUtils;
+
         // First, activate session by generating a VRF keypair
         console.log('Activating VRF session...');
-        await vrfWorkerManager.generateVrfKeypair(testConfig.VRF_INPUT_PARAMS, true);
+        await vrfWorkerManager.generateVrfKeypair({
+          ...testConfig.VRF_INPUT_PARAMS,
+          rpId: configs.rpId
+        }, true);
 
         // Test VRF challenge generation with active session
         console.log('Generating VRF challenge with active session...');
         const vrfInputData = {
           userId: testConfig.ACCOUNT_ID,
-          rpId: 'localhost',
+          rpId: configs.rpId,
           blockHeight: 67890,
           blockHash: testConfig.VRF_INPUT_PARAMS.blockHash,
         };

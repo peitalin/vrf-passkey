@@ -53,7 +53,7 @@ export async function executeAction(
     );
 
     // 2. VRF Authentication + Transaction Signing
-    const signingResult = await verifyVrfAuthAndSignTransaction(
+    const signingResult = await wasmAuthenticateAndSignTransaction(
       context,
       nearAccountId,
       transactionContext,
@@ -179,7 +179,7 @@ async function validateActionInputs(
  * 2. VRF Authentication - Handles VRF challenge generation and WebAuthn authentication
  *  with the webauthn contract
  */
-async function verifyVrfAuthAndSignTransaction(
+async function wasmAuthenticateAndSignTransaction(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   transactionContext: TransactionContext,
@@ -192,7 +192,7 @@ async function verifyVrfAuthAndSignTransaction(
 
   onEvent?.({
     step: 2,
-    phase: ActionPhase.STEP_2_AUTHENTICATION,
+    phase: ActionPhase.STEP_2_GENERATING_CHALLENGE,
     status: ActionStatus.PROGRESS,
     message: 'Generating VRF challenge...'
   });
@@ -217,7 +217,7 @@ async function verifyVrfAuthAndSignTransaction(
 
   onEvent?.({
     step: 2,
-    phase: ActionPhase.STEP_2_AUTHENTICATION,
+    phase: ActionPhase.STEP_2_GENERATING_CHALLENGE,
     status: ActionStatus.PROGRESS,
     message: 'Authenticating with VRF challenge...'
   });
@@ -316,20 +316,36 @@ async function verifyVrfAuthAndSignTransaction(
     nearRpcUrl: webAuthnManager.configs.nearRpcUrl,
     // Pass through the onEvent callback for progress updates
     onEvent: onEvent ? (progressEvent) => {
-      if (progressEvent.phase === ActionPhase.STEP_3_CONTRACT_VERIFICATION) {
+      if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
         onEvent?.({
           step: 3,
-          phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION,
+          phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
           status: ActionStatus.PROGRESS,
-          message: 'Verifying contract state...',
+          message: 'Authenticating with WebAuthn contract...',
         });
       }
-      if (progressEvent.phase === ActionPhase.STEP_4_TRANSACTION_SIGNING) {
+      if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
         onEvent?.({
           step: 4,
-          phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+          phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+          status: ActionStatus.SUCCESS,
+          message: 'WebAuthn verification complete',
+        });
+      }
+      if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
+        onEvent?.({
+          step: 5,
+          phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
           status: ActionStatus.PROGRESS,
           message: 'Signing transaction...',
+        });
+      }
+      if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+        onEvent?.({
+          step: 6,
+          phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
+          status: ActionStatus.SUCCESS,
+          message: 'Transaction signed successfully',
         });
       }
       onEvent({ ...progressEvent } as any);
@@ -352,12 +368,12 @@ export async function broadcastTransaction(
   const { onEvent, onError, hooks } = options || {};
   const { nearClient } = context;
 
-      onEvent?.({
-      step: 5,
-      phase: ActionPhase.STEP_8_BROADCASTING,
-      status: ActionStatus.PROGRESS,
-      message: 'Broadcasting transaction...'
-    });
+  onEvent?.({
+    step: 7,
+    phase: ActionPhase.STEP_7_BROADCASTING,
+    status: ActionStatus.PROGRESS,
+    message: 'Broadcasting transaction...'
+  });
 
   // The signingResult contains structured SignedTransaction with embedded raw bytes
   const signedTransaction = signingResult.signedTransaction;
@@ -387,8 +403,8 @@ export async function broadcastTransaction(
   };
 
   onEvent?.({
-    step: 6,
-    phase: ActionPhase.STEP_9_ACTION_COMPLETE,
+    step: 8,
+    phase: ActionPhase.STEP_8_ACTION_COMPLETE,
     status: ActionStatus.SUCCESS,
     message: 'Transaction completed successfully',
     data: {

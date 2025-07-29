@@ -3,12 +3,13 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { setupBasicPasskeyTest } from '../setup';
 
 test.describe('Debug Setup Errors', () => {
 
   test('Debug PasskeyManager setup error', async ({ page }) => {
-    // Navigate to the frontend
-    await page.goto('https://example.localhost');
+
+    await setupBasicPasskeyTest(page);
 
     const result = await page.evaluate(async () => {
       try {
@@ -49,14 +50,8 @@ test.describe('Debug Setup Errors', () => {
           const { PasskeyManager } = await import('/sdk/esm/index.js');
           console.log('PasskeyManager class imported successfully');
 
-          const configs = {
-            nearRpcUrl: 'https://rpc.testnet.near.org',
-            // nearRpcUrl: 'https://free.rpc.fastnear.com',
-            contractId: 'web3-authn-v2.testnet',
-            relayerAccount: 'web3-authn-v2.testnet',
-            relayServerUrl: 'http://localhost:3000',
-            initialUseRelayer: false
-          };
+          // Use centralized configuration from testUtils
+          const { configs } = (window as any).testUtils;
           console.log('Configs prepared:', configs);
 
           console.log('Creating PasskeyManager instance...');

@@ -296,10 +296,10 @@ export async function recoverAccount(
     const recoveredKeypair = await deriveKeypairFromCredential(webAuthnManager, credential, accountId);
 
     onEvent?.({
-      step: 3,
-      phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION,
+      step: 2,
+      phase: ActionPhase.STEP_2_GENERATING_CHALLENGE,
       status: ActionStatus.PROGRESS,
-      message: 'Verifying contract state...',
+      message: 'Generating VRF challenge...',
     });
 
     const { hasAccess, blockHeight, blockHash } = await Promise.all([
@@ -330,10 +330,10 @@ export async function recoverAccount(
     );
 
     onEvent?.({
-      step: 4,
-      phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+      step: 3,
+      phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
       status: ActionStatus.PROGRESS,
-      message: 'Signing recovery transaction...',
+      message: 'Authenticating with WebAuthn contract...',
     });
 
     const recoveryResult = await performAccountRecovery({
@@ -351,7 +351,7 @@ export async function recoverAccount(
 
     onEvent?.({
       step: 6,
-      phase: ActionPhase.STEP_9_ACTION_COMPLETE,
+      phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
       status: ActionStatus.SUCCESS,
       message: 'Account recovery completed successfully',
       data: recoveryResult,
@@ -507,11 +507,23 @@ async function performAccountRecovery({
     }
 
     // 3. Restore user data to IndexedDB with correct device number
-    await restoreUserData(webAuthnManager, accountId, publicKey, encryptedVrfResult.encryptedVrfKeypair, encryptedKeypair, deviceNumber);
+    await restoreUserData(
+      webAuthnManager,
+      accountId,
+      publicKey,
+      encryptedVrfResult.encryptedVrfKeypair,
+      encryptedKeypair,
+      deviceNumber
+    );
 
     // 4. Restore only the authenticator used for recovery
     console.debug(`Restoring only the authenticator used for recovery: ${credentialIdUsed}`);
-    await restoreAuthenticators(webAuthnManager, accountId, [matchingAuthenticator], vrfChallenge.vrfPublicKey);
+    await restoreAuthenticators(
+      webAuthnManager,
+      accountId,
+      [matchingAuthenticator],
+      vrfChallenge.vrfPublicKey
+    );
 
     // 4. Unlock VRF keypair in memory for immediate login
     const vrfUnlockResult = await webAuthnManager.unlockVRFKeypair({

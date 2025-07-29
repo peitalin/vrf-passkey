@@ -1,7 +1,3 @@
-import { FullAccessPermission, AccessKeyPermission, AccessKey } from "@near-js/transactions";
-import { AccessKeyView } from "@near-js/types";
-
-
 /**
  * Enum for all supported NEAR action types
  * Provides type safety and better developer experience

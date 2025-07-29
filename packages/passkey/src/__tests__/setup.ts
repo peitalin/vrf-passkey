@@ -38,22 +38,33 @@
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page, test } from '@playwright/test';
 import type { PasskeyManager } from '../index';
-import { base64UrlEncode } from '../utils/encoders';
 
 // =============================================================================
 // MAIN SETUP FUNCTION
 // =============================================================================
 
 const DEFAULT_TEST_CONFIG = {
+  // Frontend and test environment URLs
   frontendUrl: 'https://example.localhost',
+
+  // NEAR network configuration
   nearNetwork: 'testnet' as const,
-  relayerAccount: 'web3-authn-v2.testnet',
-  contractId: 'web3-authn-v2.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
   // nearRpcUrl: 'https://free.rpc.fastnear.com',
+
+  // Contract and account configuration
+  contractId: 'web3-authn-v2.testnet',
+  relayerAccount: 'web3-authn-v2.testnet',
+
+  // WebAuthn configuration
+  rpId: 'localhost',
+
   // Registration flow testing options
   useRelayer: false, // Default to testnet faucet flow
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
+
+  // Test account configuration
+  testReceiverAccountId: 'web3-authn-v2.testnet', // Default receiver for transfer tests
 };
 
 /**
@@ -78,6 +89,8 @@ export async function setupBasicPasskeyTest(
     nearRpcUrl?: string;
     useRelayer?: boolean;
     relayServerUrl?: string;
+    rpId?: string;
+    testReceiverAccountId?: string;
   } = {}
 ): Promise<void> {
   const config = { ...DEFAULT_TEST_CONFIG, ...options };
@@ -106,6 +119,8 @@ export async function setupRelayServerTest(
     relayServerUrl?: string;
     contractId?: string;
     nearRpcUrl?: string;
+    rpId?: string;
+    testReceiverAccountId?: string;
   } = {}
 ): Promise<void> {
   await setupBasicPasskeyTest(page, {
@@ -125,6 +140,8 @@ export async function setupTestnetFaucetTest(
     frontendUrl?: string;
     contractId?: string;
     nearRpcUrl?: string;
+    rpId?: string;
+    testReceiverAccountId?: string;
   } = {}
 ): Promise<void> {
   await setupBasicPasskeyTest(page, {
@@ -148,6 +165,10 @@ export interface TestUtils {
     nearRpcUrl: string;
     useRelayer: boolean;
     relayServerUrl?: string;
+    // Additional centralized configuration
+    frontendUrl: string;
+    rpId: string;
+    testReceiverAccountId: string;
   };
   generateTestAccountId: () => string;
   verifyAccountExists: (accountId: string) => Promise<boolean>;
@@ -290,7 +311,11 @@ async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<
       contractId: setupOptions.contractId,
       nearRpcUrl: setupOptions.nearRpcUrl,
       useRelayer: setupOptions.useRelayer || false,
-      relayServerUrl: setupOptions.relayServerUrl
+      relayServerUrl: setupOptions.relayServerUrl,
+      // Additional centralized configuration
+      frontendUrl: setupOptions.frontendUrl,
+      rpId: setupOptions.rpId,
+      testReceiverAccountId: setupOptions.testReceiverAccountId
     };
 
     // Validate required configs

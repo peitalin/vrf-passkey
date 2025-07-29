@@ -208,8 +208,7 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
         console.log('Waiting 6 seconds for registration transaction to be fully finalized...');
         await new Promise(resolve => setTimeout(resolve, 6000));
 
-        // const receiverAccountId = generateTestAccountId();
-        const receiverAccountId = "web3-authn-v2.testnet";
+        const receiverAccountId = (window as any).testUtils.configs.testReceiverAccountId; // Use centralized configuration
         console.log(`Testing transfer: ${testAccountId} → ${receiverAccountId}`);
 
         const actionEvents: any[] = [];

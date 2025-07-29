@@ -377,7 +377,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     // Send contract verification progress
     send_progress_message(
         ProgressMessageType::RegistrationProgress,
-        ProgressStep::ContractVerification,
+        ProgressStep::WebauthnAuthentication,
         "Verifying credentials with contract...",
         Some(&serde_json::json!({"step": 2, "total": 4}).to_string())
     );
@@ -411,7 +411,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     // Send transaction signing progress
     send_progress_message(
         ProgressMessageType::RegistrationProgress,
-        ProgressStep::TransactionSigning,
+        ProgressStep::TransactionSigningProgress,
         "Signing registration transaction...",
         Some(&serde_json::json!({"step": 3, "total": 4}).to_string())
     );
@@ -446,7 +446,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
     if registration_result.verified {
         send_completion_message(
             ProgressMessageType::RegistrationComplete,
-            ProgressStep::VerificationComplete,
+            ProgressStep::AuthenticationComplete,
             "User registration completed successfully",
             Some(&serde_json::json!({
                 "step": 4,
@@ -552,7 +552,7 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
     // Send initial progress message
     send_progress_message(
-        ProgressMessageType::SigningProgress,
+        ProgressMessageType::ExecuteActionsProgress,
         ProgressStep::Preparation,
         "Starting batch transaction verification and signing...",
         Some(&serde_json::json!({"step": 1, "total": 4, "transaction_count": tx_batch_request.tx_signing_requests.len()}).to_string())
@@ -577,8 +577,8 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
     // Send verification progress
     send_progress_message(
-        ProgressMessageType::VerificationProgress,
-        ProgressStep::ContractVerification,
+        ProgressMessageType::ExecuteActionsProgress,
+        ProgressStep::WebauthnAuthentication,
         "Verifying credentials with contract...",
         Some(&serde_json::json!({"step": 2, "total": 4}).to_string())
     );
@@ -600,8 +600,8 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
             // Send verification complete progress
             send_completion_message(
-                ProgressMessageType::VerificationComplete,
-                ProgressStep::VerificationComplete,
+                ProgressMessageType::ExecuteActionsProgress,
+                ProgressStep::AuthenticationComplete,
                 "Contract verification completed successfully",
                 Some(&serde_json::json!({
                     "step": 2,
@@ -619,7 +619,7 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
             // Send error progress message
             send_error_message(
-                ProgressMessageType::VerificationProgress,
+                ProgressMessageType::ExecuteActionsProgress,
                 ProgressStep::Error,
                 &error_msg,
                 &e.to_string()
@@ -634,7 +634,7 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
         logs.push(error_msg.clone());
 
         send_error_message(
-            ProgressMessageType::VerificationProgress,
+            ProgressMessageType::ExecuteActionsProgress,
             ProgressStep::Error,
             &error_msg,
             "verification failed"
@@ -650,8 +650,8 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
     // Send signing progress
     send_progress_message(
-        ProgressMessageType::SigningProgress,
-        ProgressStep::TransactionSigning,
+        ProgressMessageType::ExecuteActionsProgress,
+        ProgressStep::TransactionSigningProgress,
         "Decrypting private key and signing transactions...",
         Some(&serde_json::json!({"step": 3, "total": 4, "transaction_count": tx_batch_request.tx_signing_requests.len()}).to_string())
     );
@@ -673,8 +673,8 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
 
     // Send completion progress message
     send_completion_message(
-        ProgressMessageType::SigningComplete,
-        ProgressStep::SigningComplete,
+        ProgressMessageType::ExecuteActionsProgress,
+        ProgressStep::TransactionSigningComplete,
         &format!("{} transactions signed successfully", tx_count),
         Some(&serde_json::json!({
             "step": 4,

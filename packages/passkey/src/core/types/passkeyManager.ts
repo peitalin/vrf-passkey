@@ -60,15 +60,14 @@ export enum LoginStatus {
 // Action Enums
 export enum ActionPhase {
   STEP_1_PREPARATION = 'preparation',
-  STEP_2_AUTHENTICATION = 'authentication',
-  STEP_3_CONTRACT_VERIFICATION = 'contract-verification',
-  STEP_4_TRANSACTION_SIGNING = 'transaction-signing',
-  STEP_5_DEVICE_LINKING = 'device-linking',
-  STEP_6_VERIFICATION_COMPLETE = 'verification-complete',   // Rust WASM worker phase
-  STEP_7_SIGNING_COMPLETE = 'signing-complete',             // Rust WASM worker phase
-  WASM_ERROR = 'wasm-error',                                // Rust WASM worker phase
-  STEP_8_BROADCASTING = 'broadcasting',
-  STEP_9_ACTION_COMPLETE = 'action-complete',
+  STEP_2_GENERATING_CHALLENGE = 'generating-challenge',
+  STEP_3_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',           // Rust WASM worker phase: WebauthnAuthentication = 31
+  STEP_4_AUTHENTICATION_COMPLETE = 'authentication-complete',           // Rust WASM worker phase: AuthenticationComplete = 32
+  STEP_5_TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust WASM worker phase: TransactionSigningProgress = 33
+  STEP_6_TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust WASM worker phase: TransactionSigningComplete = 34
+  WASM_ERROR = 'wasm-error',                                            // Rust WASM worker phase: Error = 35
+  STEP_7_BROADCASTING = 'broadcasting',
+  STEP_8_ACTION_COMPLETE = 'action-complete',
   ACTION_ERROR = 'action-error',
 }
 
@@ -192,38 +191,59 @@ export interface ActionEventStep1 extends BaseSSEActionEvent {
 
 export interface ActionEventStep2 extends BaseSSEActionEvent {
   step: 2;
-  phase: ActionPhase.STEP_2_AUTHENTICATION;
+  phase: ActionPhase.STEP_2_GENERATING_CHALLENGE;
 }
 
 export interface ActionEventStep3 extends BaseSSEActionEvent {
   step: 3;
-  phase: ActionPhase.STEP_3_CONTRACT_VERIFICATION;
+  phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION;
   data?: any;
   logs?: string[];
 }
 
 export interface ActionEventStep4 extends BaseSSEActionEvent {
   step: 4;
-  phase: ActionPhase.STEP_4_TRANSACTION_SIGNING;
+  phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE;
   data?: any;
   logs?: string[];
 }
 
 export interface ActionEventStep5 extends BaseSSEActionEvent {
   step: 5;
-  phase: ActionPhase.STEP_8_BROADCASTING;
+  phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS;
 }
 
 export interface ActionEventStep6 extends BaseSSEActionEvent {
   step: 6;
-  phase: ActionPhase.STEP_9_ACTION_COMPLETE;
+  phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE;
   status: ActionStatus.SUCCESS;
   data?: any;
 }
 
-export interface ActionEventStep0 extends BaseSSEActionEvent {
+export interface ActionEventStep7 extends BaseSSEActionEvent {
+  step: 7;
+  phase: ActionPhase.STEP_7_BROADCASTING;
+  status: ActionStatus.PROGRESS;
+  data?: any;
+}
+
+export interface ActionEventStep8 extends BaseSSEActionEvent {
+  step: 8;
+  phase: ActionPhase.STEP_8_ACTION_COMPLETE;
+  status: ActionStatus.SUCCESS;
+  data?: any;
+}
+
+export interface ActionEventError extends BaseSSEActionEvent {
   step: 0;
   phase: ActionPhase.ACTION_ERROR;
+  status: ActionStatus.ERROR;
+  error: string;
+}
+
+export interface ActionEventWasmError extends BaseSSEActionEvent {
+  step: 0;
+  phase: ActionPhase.WASM_ERROR;
   status: ActionStatus.ERROR;
   error: string;
 }
@@ -235,7 +255,10 @@ export type ActionSSEEvent =
   | ActionEventStep4
   | ActionEventStep5
   | ActionEventStep6
-  | ActionEventStep0;
+  | ActionEventStep7
+  | ActionEventStep8
+  | ActionEventError
+  | ActionEventWasmError;
 
 // Login Event Types
 export interface LoginEventStep1 extends BaseSSELoginEvent {

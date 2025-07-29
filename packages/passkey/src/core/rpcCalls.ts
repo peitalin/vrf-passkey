@@ -144,21 +144,22 @@ export async function executeDeviceLinkingContractCalls({
     credential: credential,
     nearRpcUrl: context.webAuthnManager.configs.nearRpcUrl,
     onEvent: (progress) => {
-      if (progress.phase == ActionPhase.STEP_4_TRANSACTION_SIGNING) {
+      if (progress.phase == ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
+        onEvent?.({
+          step: 4,
+          phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+          status: DeviceLinkingStatus.PROGRESS,
+          message: `Signing transactions: ${progress.message}`
+        })
       }
-      onEvent?.({
-        step: 4,
-        phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-        status: DeviceLinkingStatus.PROGRESS,
-        message: `Signing transactions: ${progress.message}`
-      })
-
-      onEvent?.({
-        step: 5,
-        phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-        status: DeviceLinkingStatus.SUCCESS,
-        message: `AddKey transaction completed successfully!`
-      });
+      if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+        onEvent?.({
+          step: 5,
+          phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+          status: DeviceLinkingStatus.SUCCESS,
+          message: `Transactions signed`
+        })
+      }
     }
   });
 

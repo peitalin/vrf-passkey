@@ -39,7 +39,6 @@ import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBMan
 import { TouchIdPrompt } from "./touchIdPrompt";
 import { VRFChallenge } from '../types/webauthn';
 import type { onProgressEvents } from '../types/webauthn';
-import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import { jsonTryParse } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
 import { AccountId, toAccountId } from "../types/accountIds";
@@ -65,7 +64,6 @@ const CONFIG = {
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // WASM-generated types now correctly match runtime data with js_name attributes
 import * as wasmModule from '../../wasm_signer_worker/wasm_signer_worker.js';
-import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations

@@ -767,7 +767,7 @@ export class WebAuthnManager {
 
       onEvent?.({
         step: 4,
-        phase: ActionPhase.STEP_4_TRANSACTION_SIGNING,
+        phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
         status: ActionStatus.SUCCESS,
         message: 'VRF public key added to authenticator successfully'
       });
