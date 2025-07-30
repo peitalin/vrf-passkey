@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { PasskeyManager } from '../../core/PasskeyManager';
-import { toAccountId } from '../../core/types/accountIds';
+import {
+  type PasskeyManager,
+  toAccountId
+} from '@/index';
 
 export interface AccountInputState {
   inputUsername: string;

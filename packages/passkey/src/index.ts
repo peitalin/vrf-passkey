@@ -1,12 +1,16 @@
+
 export { PasskeyManager } from './core/PasskeyManager';
-export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 export { WebAuthnManager } from './core/WebAuthnManager';
-export { IndexedDBManager } from './core/IndexedDBManager';
-
-// === Flow Classes ===
 export { LinkDeviceFlow, AccountRecoveryFlow } from './core/PasskeyManager';
+export { type NearClient, MinimalNearClient } from './core/NearClient';
 
-// === Re-exported from various type definition files ===
+export * from './config';
+export { base64UrlEncode, base64UrlDecode } from './utils/encoders';
+
+///////////////////////////////////////////////////////////////
+// === Types re-exported from various type definition files ===
+///////////////////////////////////////////////////////////////
+
 export type {
   PasskeyManagerConfigs,
   RegistrationOptions,
@@ -15,13 +19,20 @@ export type {
   LoginOptions,
   LoginResult,
   LoginEvent,
-  ActionOptions,
+  HooksOptions,
   ActionResult,
   ActionEvent,
   EventCallback,
   OperationHooks
 } from './core/types/passkeyManager';
 
+export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
+
+// === Device Linking Types ===
+export {
+  DeviceLinkingPhase,
+  type DeviceLinkingEvent
+} from './core/types/passkeyManager';
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
@@ -30,53 +41,17 @@ export type {
   DeviceLinkingErrorCode
 } from './core/types/linkDevice';
 
-export { DeviceLinkingPhase } from './core/types/passkeyManager';
+// === AccountID Types ===
+export type { AccountId } from './core/types/accountIds';
+export { toAccountId } from './core/types/accountIds';
 
 export type {
-  WebAuthnRegistrationWithPrf,
-  WebAuthnAuthenticationWithPrf,
-} from './core/types/webauthn';
+  SignNEP413MessageParams,
+  SignNEP413MessageResult
+} from './core/PasskeyManager/signNEP413';
 
-export type { UserData } from './core/types/signer-worker';
-
-// === WORKER TYPES ===
-export {
-  WorkerRequestType,
-  WorkerResponseType,
-} from './core/types/signer-worker';
-
-export type {
-  WorkerResponseForRequest,
-  EncryptionResponse,
-  RecoveryResponse,
-  CheckRegistrationResponse,
-  RegistrationResponse,
-  TransactionResponse,
-  DecryptionResponse,
-  CoseExtractionResponse,
-} from './core/types/signer-worker';
-
-export {
-  serializeCredentialWithPRF,
-  takeAesPrfOutput,
-} from './core/types/signer-worker';
-
-// === ACCOUNT ID TYPE SAFETY ===
-export type {
-  AccountId,
-} from './core/types/accountIds';
-export {
-  toAccountId
-} from './core/types/accountIds';
-
-// === UTILITIES ===
-export { base64UrlEncode, base64UrlDecode } from './utils/encoders';
-
-export * from './config';
-
-// === MAIN PASSKEY SDK EXPORTS ===
-
-// === TYPES ===
+// === Action Types ===
+export { ActionType } from './core/types/actions';
 export type {
   ActionArgs,
   FunctionCallAction,
@@ -87,10 +62,6 @@ export type {
   AddKeyAction,
   DeleteKeyAction,
   DeleteAccountAction
-} from './core/types/actions';
-
-export {
-  ActionType
 } from './core/types/actions';
 
 // Action helper functions for easy action creation

@@ -1,6 +1,5 @@
 use wasm_bindgen::JsValue;
 use std::fmt;
-use serde::Serialize;
 
 // Parse payload error with message name context
 #[derive(Debug)]

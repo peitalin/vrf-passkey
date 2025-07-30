@@ -6,8 +6,13 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import { PasskeyManager, AccountRecoveryFlow } from '../../core/PasskeyManager';
-import { DeviceLinkingPhase } from '../../core/types/passkeyManager';
+import {
+  PasskeyManager,
+  AccountRecoveryFlow,
+  DeviceLinkingPhase,
+  type SignNEP413MessageParams,
+  type SignNEP413MessageResult
+} from '@/index';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useRelayer } from '../hooks/useRelayer';
@@ -20,7 +25,7 @@ import type {
   LoginOptions,
   LoginResult,
   RegistrationOptions,
-  ActionOptions,
+  HooksOptions,
   StartDeviceLinkingOptionsDevice2,
   ScanAndLinkDeviceOptionsDevice1,
 } from '../types';
@@ -207,7 +212,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const recoverAccountWithAccountId = async (
     accountId: string,
-    options?: ActionOptions,
+    options?: HooksOptions,
     reuseCredential?: PublicKeyCredential
   ) => {
     const result = await passkeyManager.recoverAccountWithAccountId(accountId, options, reuseCredential);
@@ -232,7 +237,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result;
   }
 
-  const startAccountRecoveryFlow = (options?: ActionOptions): AccountRecoveryFlow => {
+  const startAccountRecoveryFlow = (options?: HooksOptions): AccountRecoveryFlow => {
     return passkeyManager.startAccountRecoveryFlow(options);
   }
 
@@ -267,6 +272,14 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
    */
   const scanAndLinkDevice = async (options: ScanAndLinkDeviceOptionsDevice1) => {
     return await passkeyManager.scanAndLinkDevice(options);
+  }
+
+  const signNEP413Message = async (
+    nearAccountId: string,
+    params: SignNEP413MessageParams,
+    options?: HooksOptions
+  ) => {
+    return await passkeyManager.signNEP413Message(nearAccountId, params, options);
   }
 
   // Function to manually refresh login state
@@ -323,6 +336,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     startAccountRecoveryFlow,    // Create account recovery flow to discover accounts onchain, and recover accounts
     startDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
     scanAndLinkDevice,           // Scan QR and link device (Device1 side)
+
+    // NEP-413 message signing
+    signNEP413Message,           // Sign NEP-413 messages
 
     // Authentication state (actual state from contract/backend)
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),

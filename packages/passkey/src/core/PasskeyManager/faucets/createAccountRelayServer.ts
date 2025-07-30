@@ -1,8 +1,9 @@
-import { VRFChallenge } from '../../../core/types/webauthn';
+import { VRFChallenge } from '../../../core/types/vrf-worker';
 import { RegistrationSSEEvent, RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
 import { PasskeyManagerContext } from '..';
 import { base64UrlDecode } from '../../../utils/encoders';
-import { serializeCredentialWithPRF, WebAuthnRegistrationCredential } from '../../types/signer-worker';
+import { serializeCredentialWithPRF } from '../../WebAuthnManager/credentialsHelpers';
+import { WebAuthnRegistrationCredential } from '../../types/webauthn';
 
 /**
  * Request data interface for the relay server's atomic account creation endpoint

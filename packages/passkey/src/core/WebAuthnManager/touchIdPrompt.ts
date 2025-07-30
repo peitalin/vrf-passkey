@@ -40,24 +40,6 @@ export function generateEd25519Salt(nearAccountId: string): Uint8Array {
 }
 
 /**
- * Generate account-specific PRF salt for WebAuthn (legacy single PRF)
- * @deprecated Use generateChaCha20Salt and generateEd25519Salt for dual PRF
- * @param nearAccountId - NEAR account ID to include in the salt
- * @returns 32-byte Uint8Array account-specific salt
- */
-export function generateAccountSpecificPrfSalt(nearAccountId: string): Uint8Array {
-  // Create account-specific salt for WebAuthn PRF
-  // WASM worker will do additional HKDF domain separation for AES vs. Ed25519
-  const saltString = `webauthn-prf-salt-v1:${nearAccountId}`;
-  const salt = new Uint8Array(32);
-  const saltBytes = new TextEncoder().encode(saltString);
-
-  // Copy up to 32 bytes, padding with zeros if needed
-  salt.set(saltBytes.slice(0, 32));
-  return salt;
-}
-
-/**
  * TouchIdPrompt prompts for touchID,
  * creates credentials,
  * manages WebAuthn touchID prompts,
@@ -268,7 +250,6 @@ export function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber
   if (deviceNumber === undefined || deviceNumber === 1) {
     return nearAccountId;
   }
-
   // For additional devices, add device number in parentheses
   return `${nearAccountId} (${deviceNumber})`;
 }
@@ -287,12 +268,10 @@ export function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber
 function generateUserFriendlyDisplayName(nearAccountId: string, deviceNumber?: number): string {
   // Extract the base username (everything before the first dot)
   const baseUsername = nearAccountId.split('.')[0];
-
   // If no device number provided or device number is 1, this is the first device
   if (deviceNumber === undefined || deviceNumber === 1) {
     return baseUsername;
   }
-
   // For additional devices, add device number with friendly label
   return `${baseUsername} (device ${deviceNumber})`;
 }

@@ -5,10 +5,10 @@ import {
   OperationHooks,
   DeviceLinkingPhase
 } from './passkeyManager';
-import { VRFChallenge } from './webauthn';
+import { VRFChallenge } from './vrf-worker';
 import { AccountId } from './accountIds';
 
-// Reexport DeviceLinkingPhase from passkeyManager
+// Re-export DeviceLinkingPhase from passkeyManager
 export { DeviceLinkingPhase } from './passkeyManager';
 
 // === DEVICE LINKING TYPES ===

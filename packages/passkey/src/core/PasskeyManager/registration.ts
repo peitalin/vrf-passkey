@@ -1,4 +1,3 @@
-import type { AccessKeyView } from '@near-js/types';
 import type { NearClient, SignedTransaction } from '../NearClient';
 import { MinimalNearClient } from '../NearClient';
 import { validateNearAccountId } from '../../utils/validation';
@@ -12,10 +11,10 @@ import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
 import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccountTestnetFaucet';
 import { WebAuthnManager } from '../WebAuthnManager';
-import { VRFChallenge } from '../types/webauthn';
+import { VRFChallenge } from '../types/vrf-worker';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
-import { base64UrlEncode, base64Decode } from '../../utils/encoders';
+import { base64UrlEncode } from '../../utils/encoders';
 
 /**
  * Core registration function that handles passkey registration

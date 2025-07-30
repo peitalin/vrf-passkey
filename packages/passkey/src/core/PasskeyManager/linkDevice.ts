@@ -20,7 +20,7 @@ import QRCode from 'qrcode';
 import type { ActionParams } from '../types/signer-worker';
 import { IndexedDBManager } from '../IndexedDBManager';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
-import type { VRFChallenge } from '../types/webauthn';
+import { VRFChallenge } from '../types/vrf-worker';
 import { getDeviceLinkingAccountContractCall } from "../rpcCalls";
 import { DEFAULT_WAIT_STATUS } from "../types/rpc";
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
@@ -479,7 +479,6 @@ export class LinkDeviceFlow {
         clientNearPublicKey: migrateKeysResult.nearPublicKey,
         lastUpdated: Date.now(),
         prfSupported: true,
-        deterministicKey: true,
         passkeyCredential: {
           id: credential.id,
           rawId: base64UrlEncode(new Uint8Array(credential.rawId))

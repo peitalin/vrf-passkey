@@ -1,6 +1,7 @@
 import { TxExecutionStatus } from "@near-js/types";
 import type { EncryptedVRFKeypair } from './vrf-worker';
 import { AccountId } from "./accountIds";
+import { SignedTransaction } from "../NearClient";
 
 // Device Linking Enums
 export enum DeviceLinkingPhase {
@@ -107,6 +108,15 @@ export interface BaseSSERegistrationEvent extends BaseSSEEvent {
 export interface BaseSSEActionEvent extends BaseSSEEvent {
   phase: ActionPhase;
   status: ActionStatus;
+}
+
+// Progress Events
+export interface onProgressEvents extends BaseSSEActionEvent {
+  step: number;
+  status: ActionStatus;
+  message: string;
+  data?: any;
+  logs?: string[];
 }
 
 // Login-specific events
@@ -348,7 +358,7 @@ export interface LoginState {
   vrfSessionDuration?: number;
 }
 
-export interface ActionOptions {
+export interface HooksOptions {
   onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
@@ -384,6 +394,12 @@ export interface ActionResult {
   error?: string;
   transactionId?: string;
   result?: any;
+}
+
+export interface VerifyAndSignTransactionResult {
+  signedTransaction: SignedTransaction;
+  nearAccountId: string;
+  logs?: string[];
 }
 
 // PasskeyManager Configuration

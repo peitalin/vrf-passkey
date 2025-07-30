@@ -674,6 +674,59 @@ pub struct SignTransactionWithKeyPairPayload {
 
 // ******************************************************************************
 // *                                                                            *
+// *                        HANDLER 9: SIGN NEP-413 MESSAGE                    *
+// *                                                                            *
+// ******************************************************************************
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SignNep413Payload {
+    pub message: String,           // Message to sign
+    pub recipient: String,         // Recipient identifier
+    pub nonce: Vec<u8>,           // 32-byte nonce
+    pub state: Option<String>,     // Optional state
+    pub account_id: String,        // NEAR account ID
+    #[serde(rename = "encryptedPrivateKeyData")]
+    pub encrypted_private_key_data: String,
+    #[serde(rename = "encryptedPrivateKeyIv")]
+    pub encrypted_private_key_iv: String,
+    #[serde(rename = "prfOutput")]
+    pub prf_output: String,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignNep413Result {
+    #[wasm_bindgen(getter_with_clone, js_name = "accountId")]
+    pub account_id: String,
+    #[wasm_bindgen(getter_with_clone, js_name = "publicKey")]
+    pub public_key: String,        // Base58-encoded public key
+    #[wasm_bindgen(getter_with_clone)]
+    pub signature: String,         // Base64-encoded signature
+    #[wasm_bindgen(getter_with_clone)]
+    pub state: Option<String>,
+}
+
+#[wasm_bindgen]
+impl SignNep413Result {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        account_id: String,
+        public_key: String,
+        signature: String,
+        state: Option<String>,
+    ) -> SignNep413Result {
+        SignNep413Result {
+            account_id,
+            public_key,
+            signature,
+            state,
+        }
+    }
+}
+
+// ******************************************************************************
+// *                                                                            *
 // *                      CUSTOM TO_JSON IMPLEMENTATIONS                        *
 // *                                                                            *
 // ******************************************************************************
@@ -696,6 +749,7 @@ impl crate::types::ToJson for EncryptionResult {
         Ok(serde_json::Value::Object(json))
     }
 }
+
 
 impl crate::types::ToJson for TransactionSignResult {
     fn to_json(&self) -> Result<serde_json::Value, String> {
@@ -730,6 +784,7 @@ impl crate::types::ToJson for TransactionSignResult {
     }
 }
 
+
 impl crate::types::ToJson for KeyActionResult {
     fn to_json(&self) -> Result<serde_json::Value, String> {
         let mut json = serde_json::Map::new();
@@ -756,6 +811,7 @@ impl crate::types::ToJson for KeyActionResult {
         Ok(serde_json::Value::Object(json))
     }
 }
+
 
 impl crate::types::ToJson for RegistrationCheckResult {
     fn to_json(&self) -> Result<serde_json::Value, String> {
@@ -796,6 +852,7 @@ impl crate::types::ToJson for RegistrationCheckResult {
         Ok(serde_json::Value::Object(json))
     }
 }
+
 
 impl crate::types::ToJson for RegistrationResult {
     fn to_json(&self) -> Result<serde_json::Value, String> {
@@ -842,3 +899,4 @@ impl crate::types::ToJson for RegistrationResult {
         Ok(serde_json::Value::Object(json))
     }
 }
+

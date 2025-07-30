@@ -1,10 +1,10 @@
 import type { AccessKeyView } from '@near-js/types';
 import { DEFAULT_GAS_STRING } from '../../config';
-import { ActionParams } from '../types/signer-worker';
-import { VerifyAndSignTransactionResult } from '../types/webauthn';
+import { ActionParams } from '../types';
 import { ActionType } from '../types/actions';
+import type { VerifyAndSignTransactionResult } from '../types/passkeyManager';
 import type { ActionArgs } from '../types/actions';
-import type { ActionOptions, ActionResult } from '../types/passkeyManager';
+import type { HooksOptions, ActionResult } from '../types/passkeyManager';
 import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
 import type { NearClient } from '../NearClient';
@@ -21,7 +21,7 @@ export async function executeAction(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   actionArgs: ActionArgs | ActionArgs[],
-  options?: ActionOptions,
+  options?: HooksOptions,
 ): Promise<ActionResult> {
 
   const { onEvent, onError, hooks, waitUntil } = options || {};
@@ -135,7 +135,7 @@ async function validateActionInputs(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   actionArgs: ActionArgs,
-  options?: ActionOptions,
+  options?: HooksOptions,
 ): Promise<TransactionContext> {
 
   const { onEvent, onError, hooks } = options || {};
@@ -184,7 +184,7 @@ async function wasmAuthenticateAndSignTransaction(
   nearAccountId: AccountId,
   transactionContext: TransactionContext,
   actionArgs: ActionArgs[],
-  options?: ActionOptions,
+  options?: HooksOptions,
 ): Promise<VerifyAndSignTransactionResult> {
 
   const { onEvent, onError, hooks } = options || {};
@@ -205,15 +205,13 @@ async function wasmAuthenticateAndSignTransaction(
     throw new Error(`VRF session not active for ${nearAccountId}. Please login first. VRF status: ${JSON.stringify(vrfStatus)}`);
   }
 
-  // Generate VRF challenge
-  const vrfInputData: VRFInputData = {
+  // Generate VRF challenge, Use VRF output as WebAuthn challenge
+  const vrfChallenge = await webAuthnManager.generateVrfChallenge({
     userId: nearAccountId,
     rpId: window.location.hostname,
     blockHeight: transactionContext.txBlockHeight,
     blockHash: transactionContext.txBlockHash, // Use original base58 string, not decoded bytes
-  };
-  // Use VRF output as WebAuthn challenge
-  const vrfChallenge = await webAuthnManager.generateVrfChallenge(vrfInputData);
+  });
 
   onEvent?.({
     step: 2,
@@ -362,7 +360,7 @@ async function wasmAuthenticateAndSignTransaction(
 export async function broadcastTransaction(
   context: PasskeyManagerContext,
   signingResult: VerifyAndSignTransactionResult,
-  options?: ActionOptions,
+  options?: HooksOptions,
 ): Promise<ActionResult> {
 
   const { onEvent, onError, hooks } = options || {};

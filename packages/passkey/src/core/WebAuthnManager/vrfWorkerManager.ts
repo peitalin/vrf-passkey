@@ -5,30 +5,18 @@
 
 import { ClientAuthenticatorData } from '../IndexedDBManager/passkeyClientDB';
 import type {
-  VRFKeypairData,
+  VRFWorkerStatus,
+  VrfWorkerManagerConfig,
   EncryptedVRFKeypair,
   VRFInputData,
-  VRFChallengeData,
   VRFWorkerMessage,
   VRFWorkerResponse
 } from '../types/vrf-worker';
-import { VRFChallenge } from '../types/webauthn';
+import { VRFChallenge } from '../types/vrf-worker';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode, base58Decode } from '../../utils';
 import { BUILD_PATHS } from '../../../build-paths.js';
 import { AccountId, toAccountId } from '../types/accountIds';
-
-export interface VrfWorkerManagerConfig {
-  vrfWorkerUrl?: string;
-  workerTimeout?: number;
-  debug?: boolean;
-}
-
-export interface VRFWorkerStatus {
-  active: boolean;
-  nearAccountId: AccountId | null;
-  sessionDuration?: number;
-}
 
 /**
  * VRF Worker Manager
@@ -282,7 +270,7 @@ export class VrfWorkerManager {
     }
 
     console.debug('VRF Manager: VRF challenge generated successfully');
-    return new VRFChallenge(response.data as VRFChallengeData);
+    return new VRFChallenge(response.data);
   }
 
   /**
@@ -604,13 +592,4 @@ export class VrfWorkerManager {
       }
     }
   }
-
 }
-
-// Export types
-export type {
-  VRFKeypairData,
-  EncryptedVRFKeypair,
-  VRFInputData,
-  VRFChallengeData
-};

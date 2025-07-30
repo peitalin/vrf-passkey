@@ -2,13 +2,15 @@ import type { ReactNode } from 'react';
 import type {
   LoginOptions,
   RegistrationOptions,
-  ActionOptions,
+  HooksOptions,
   PasskeyManager,
   PasskeyManagerConfigs,
   RecoveryResult,
   AccountRecoveryFlow,
   LinkDeviceFlow,
-  LinkDeviceResult
+  LinkDeviceResult,
+  SignNEP413MessageParams,
+  SignNEP413MessageResult
 } from '../core/PasskeyManager';
 import type {
   StartDeviceLinkingOptionsDevice2,
@@ -152,14 +154,16 @@ export interface PasskeyContextType {
   registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
   recoverAccountWithAccountId: (
     nearAccountId: string,
-    options?: ActionOptions,
+    options?: HooksOptions,
     reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
   // Account recovery functions
-  startAccountRecoveryFlow: (options: ActionOptions) => AccountRecoveryFlow;
+  startAccountRecoveryFlow: (options: HooksOptions) => AccountRecoveryFlow;
   // Device linking functions
   startDeviceLinkingFlow: (options: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
   scanAndLinkDevice: (options: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
+  // NEP-413 message signing
+  signNEP413Message: (nearAccountId: string, params: SignNEP413MessageParams, options?: HooksOptions) => Promise<SignNEP413MessageResult>;
   // Consolidated login state function - preferred over individual getters
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;
@@ -205,7 +209,7 @@ export type {
   // Core manager types
   RegistrationOptions,
   LoginOptions,
-  ActionOptions,
+  HooksOptions,
   RegistrationSSEEvent,
   LoginEvent,
   ActionEvent,

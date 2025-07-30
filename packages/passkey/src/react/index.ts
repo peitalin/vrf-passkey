@@ -40,7 +40,7 @@ export type {
   // Re-exported from PasskeyManager types
   RegistrationOptions,
   LoginOptions,
-  ActionOptions,
+  HooksOptions,
   RegistrationSSEEvent,
   LoginEvent,
   ActionEvent
@@ -76,7 +76,7 @@ export type {
 
 // === RE-EXPORT CORE ===
 export type { PasskeyManagerConfigs as PasskeyConfigs } from '../core/types/passkeyManager';
-export type { UserData } from '../core/types/signer-worker';
+export type { StoreUserDataInput } from '../core/IndexedDBManager/passkeyClientDB';
 export { PasskeyManager } from '../core/PasskeyManager';
 
 // === RE-EXPORT ACTION TYPES ===

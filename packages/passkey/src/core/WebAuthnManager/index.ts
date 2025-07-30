@@ -1,7 +1,4 @@
-import type { PasskeyManagerConfigs } from '../types/passkeyManager';
-import type { onProgressEvents, VerifyAndSignTransactionResult, VRFChallenge } from '../types/webauthn';
 import { ActionPhase, ActionStatus } from '../types/passkeyManager';
-import type { AccountId } from '../types/accountIds';
 import { ActionType } from '../types/actions';
 import { toAccountId } from '../types/accountIds';
 import {
@@ -9,6 +6,7 @@ import {
   type ClientUserData,
   type ClientAuthenticatorData,
 } from '../IndexedDBManager';
+import { StoreUserDataInput } from '../IndexedDBManager/passkeyClientDB';
 import {
   type NearClient,
   SignedTransaction
@@ -17,19 +15,14 @@ import { SignerWorkerManager } from './signerWorkerManager';
 import { VrfWorkerManager } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode } from '../../utils/encoders';
-import {
-  type UserData,
-  type ActionParams,
-} from '../types/signer-worker';
-import { extractDualPrfOutputs } from '../types/signer-worker';
+import { type ActionParams } from '../types/signer-worker';
+import { extractDualPrfOutputs } from './credentialsHelpers';
 import { EncryptedVRFKeypair, VRFInputData } from '../types/vrf-worker';
+import type { PasskeyManagerConfigs, onProgressEvents } from '../types/passkeyManager';
+import { VRFChallenge } from '../types/vrf-worker';
+import type { VerifyAndSignTransactionResult } from '../types/passkeyManager';
+import type { AccountId } from '../types/accountIds';
 
-// Define interfaces that are missing
-export interface VRFWorkerStatus {
-  active: boolean;
-  nearAccountId: AccountId | null;
-  sessionDuration?: number;
-}
 
 /**
  * WebAuthnManager - Main orchestrator for WebAuthn operations
@@ -234,7 +227,7 @@ export class WebAuthnManager {
   // INDEXEDDB OPERATIONS
   ///////////////////////////////////////
 
-  async storeUserData(userData: UserData): Promise<void> {
+  async storeUserData(userData: StoreUserDataInput): Promise<void> {
     await IndexedDBManager.clientDB.storeWebAuthnUserData(userData);
   }
 
@@ -242,17 +235,8 @@ export class WebAuthnManager {
     return await IndexedDBManager.clientDB.getUser(nearAccountId);
   }
 
-  async getAllUserData(): Promise<UserData[]> {
-    const allUsers = await IndexedDBManager.clientDB.getAllUsers();
-    return allUsers.map(user => ({
-      nearAccountId: user.nearAccountId,
-      clientNearPublicKey: user.clientNearPublicKey,
-      lastUpdated: user.lastUpdated,
-      prfSupported: user.prfSupported,
-      deterministicKey: true,
-      passkeyCredential: user.passkeyCredential,
-      encryptedVrfKeypair: user.encryptedVrfKeypair
-    }));
+  async getAllUserData(): Promise<ClientUserData[]> {
+    return await IndexedDBManager.clientDB.getAllUsers();
   }
 
   async getAllUsers(): Promise<ClientUserData[]> {
@@ -457,6 +441,42 @@ export class WebAuthnManager {
     );
   }
 
+  async signNEP413Message(payload: {
+    message: string;
+    recipient: string;
+    nonce: string;
+    state: string | null;
+    accountId: AccountId;
+    credential: PublicKeyCredential;
+  }): Promise<{
+    success: boolean;
+    accountId: string;
+    publicKey: string;
+    signature: string;
+    state?: string;
+    error?: string;
+  }> {
+    try {
+      // Send to WASM worker for signing
+      const result = await this.signerWorkerManager.signNep413Message(payload);
+      if (result.success) {
+        console.debug('WebAuthnManager: NEP-413 message signed successfully');
+        return result;
+      } else {
+        throw new Error(`NEP-413 signing failed: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error('WebAuthnManager: NEP-413 signing error:', error);
+      return {
+        success: false,
+        accountId: '',
+        publicKey: '',
+        signature: '',
+        error: error.message || 'Unknown error'
+      };
+    }
+  }
+
   // === COSE OPERATIONS (Delegated to WebAuthnWorkers) ===
 
   /**
@@ -618,7 +638,6 @@ export class WebAuthnManager {
         clientNearPublicKey: publicKey,
         lastUpdated: Date.now(),
         prfSupported: true,
-        deterministicKey: true,
         passkeyCredential: {
           id: credential.id,
           rawId: credentialId

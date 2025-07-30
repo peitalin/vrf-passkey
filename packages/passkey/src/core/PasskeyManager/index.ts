@@ -10,7 +10,7 @@ import type {
   RegistrationResult,
   LoginOptions,
   LoginResult,
-  ActionOptions,
+  HooksOptions,
   ActionResult,
   LoginState,
 } from '../types/passkeyManager';
@@ -25,6 +25,11 @@ import type {
 } from '../types/linkDevice';
 import { LinkDeviceFlow } from './linkDevice';
 import { scanAndLinkDevice, linkDeviceWithQRData } from './scanDevice';
+import {
+  signNEP413Message,
+  type SignNEP413MessageParams,
+  type SignNEP413MessageResult
+} from './signNEP413';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -63,6 +68,10 @@ export class PasskeyManager {
       configs: this.configs
     }
   }
+
+  ///////////////////////////////////////
+  // === Registration and Login ===
+  ///////////////////////////////////////
 
   /**
    * Register a new passkey for the given NEAR account ID
@@ -104,6 +113,15 @@ export class PasskeyManager {
     );
   }
 
+  /**
+   * Get check if accountId has a passkey from IndexedDB
+   */
+  async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
+    // Convert device-specific ID to base account ID for IndexedDB lookup
+    const baseAccountId = toAccountId(nearAccountId);
+    return await this.webAuthnManager.hasPasskeyCredential(baseAccountId);
+  }
+
   async getRecentLogins(): Promise<{
     accountIds: string[],
     lastUsedAccountId: {
@@ -113,6 +131,10 @@ export class PasskeyManager {
   }> {
     return getRecentLogins(this.getContext());
   }
+
+  ///////////////////////////////////////
+  // === Transactions ===
+  ///////////////////////////////////////
 
   /**
    * Execute a blockchain action/transaction using the new user-friendly API
@@ -140,16 +162,63 @@ export class PasskeyManager {
   async executeAction(
     nearAccountId: string,
     actionArgs: ActionArgs,
-    options?: ActionOptions
+    options?: HooksOptions
   ): Promise<ActionResult> {
     return executeAction(this.getContext(), toAccountId(nearAccountId), actionArgs, options);
   }
 
-  async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    // Convert device-specific ID to base account ID for IndexedDB lookup
-    const baseAccountId = toAccountId(nearAccountId);
-    return await this.webAuthnManager.hasPasskeyCredential(baseAccountId);
+  ///////////////////////////////////////
+  // === NEP-413 MESSAGE SIGNING ===
+  ///////////////////////////////////////
+
+  /**
+   * Sign a NEP-413 message using the user's passkey-derived private key
+   *
+   * This function implements the NEP-413 standard for off-chain message signing:
+   * - Creates a payload with message, recipient, nonce, and state
+   * - Serializes using Borsh
+   * - Adds NEP-413 prefix (2^31 + 413)
+   * - Hashes with SHA-256
+   * - Signs with Ed25519
+   * - Returns base64-encoded signature
+   *
+   * @param nearAccountId - NEAR account ID to sign with
+   * @param params - NEP-413 signing parameters
+   * - message: string - The message to sign
+   * - recipient: string - The recipient of the message
+   * - state: string - Optional state parameter
+   * @param options - Action options for event handling
+   * - onEvent: EventCallback<ActionSSEEvent> - Optional event callback
+   * - onError: (error: Error) => void - Optional error callback
+   * - hooks: OperationHooks - Optional operation hooks
+   * - waitUntil: TxExecutionStatus - Optional waitUntil status
+   * @returns Promise resolving to signing result
+   *
+   * @example
+   * ```typescript
+   * const result = await passkeyManager.signNEP413Message('alice.near', {
+   *   message: 'Hello World',
+   *   recipient: 'app.example.com',
+   *   state: 'optional-state'
+   * });
+   *
+   * if (result.success) {
+   *   console.log('Signature:', result.signature);
+   *   console.log('Public key:', result.publicKey);
+   * }
+   * ```
+   */
+  async signNEP413Message(
+    nearAccountId: string,
+    params: SignNEP413MessageParams,
+    options?: HooksOptions
+  ): Promise<SignNEP413MessageResult> {
+    return signNEP413Message(this.getContext(), toAccountId(nearAccountId), params, options);
   }
+
+  ///////////////////////////////////////
+  // === KEY MANAGEMENT ===
+  ///////////////////////////////////////
 
   /**
    * Export key pair (both private and public keys)
@@ -164,7 +233,9 @@ export class PasskeyManager {
     return await this.webAuthnManager.exportNearKeypairWithTouchId(toAccountId(nearAccountId))
   }
 
-  // === KEY MANAGEMENT (Link Device) ===
+  ///////////////////////////////////////
+  // === Link Device ===
+  ///////////////////////////////////////
 
   /**
    * Creates a LinkDeviceFlow instance for step-by-step device linking UX
@@ -260,7 +331,7 @@ export class PasskeyManager {
    */
   async recoverAccountWithAccountId(
     accountId: string,
-    options?: ActionOptions,
+    options?: HooksOptions,
     reuseCredential?: PublicKeyCredential
   ): Promise<RecoveryResult> {
     return recoverAccount(this.getContext(), toAccountId(accountId), options, reuseCredential);
@@ -287,7 +358,7 @@ export class PasskeyManager {
    * console.log('Recovery state:', flow.getState());
    * ```
    */
-  startAccountRecoveryFlow(options?: ActionOptions): AccountRecoveryFlow {
+  startAccountRecoveryFlow(options?: HooksOptions): AccountRecoveryFlow {
     return new AccountRecoveryFlow(this.getContext(), options);
   }
 
@@ -302,7 +373,7 @@ export type {
   LoginOptions,
   LoginResult,
   LoginEvent,
-  ActionOptions,
+  HooksOptions,
   ActionResult,
   ActionEvent,
   EventCallback,
@@ -339,3 +410,9 @@ export type {
 export {
   AccountRecoveryFlow
 } from './recoverAccount';
+
+// Re-export NEP-413 types
+export type {
+  SignNEP413MessageParams,
+  SignNEP413MessageResult
+} from './signNEP413';

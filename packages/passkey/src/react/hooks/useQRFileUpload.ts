@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import type { DeviceLinkingQRData } from '../../core/types/linkDevice';
+import type { DeviceLinkingQRData } from '@/index';
 
 export interface UseQRFileUploadOptions {
   onQRDetected?: (qrData: DeviceLinkingQRData) => void;

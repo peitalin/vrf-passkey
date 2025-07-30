@@ -3,11 +3,13 @@ import { NEAR_EXPLORER_BASE_URL } from "../../../config";
 export const UserDetails = ({
   username,
   fullAccountId,
-  isOpen
+  isOpen,
+  nearExplorerBaseUrl = NEAR_EXPLORER_BASE_URL
 }: {
   username: string;
   fullAccountId?: string;
   isOpen: boolean;
+  nearExplorerBaseUrl?: string;
 }) => {
   // Use the full account ID if provided, otherwise fall back to constructed version
   const displayAccountId = fullAccountId || `${username}`;
@@ -18,7 +20,7 @@ export const UserDetails = ({
         {username || 'User'}
       </p>
       <a
-        href={username ? `${NEAR_EXPLORER_BASE_URL}/address/${displayAccountId}` : '#'}
+        href={username ? `${nearExplorerBaseUrl}/address/${displayAccountId}` : '#'}
         target="_blank"
         rel="noopener noreferrer"
         className={`web3authn-profile-dropdown-account-id ${isOpen ? 'visible' : 'hidden'}`}

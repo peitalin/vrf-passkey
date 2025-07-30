@@ -18,6 +18,7 @@ pub enum WorkerRequestType {
     SignTransactionsWithActions,
     ExtractCosePublicKey,
     SignTransactionWithKeyPair,
+    SignNep413Message,
     // DEPRECATED: only used for testnet registration
     SignVerifyAndRegisterUser,
 }
@@ -32,8 +33,9 @@ impl From<u32> for WorkerRequestType {
             4 => WorkerRequestType::SignTransactionsWithActions,
             5 => WorkerRequestType::ExtractCosePublicKey,
             6 => WorkerRequestType::SignTransactionWithKeyPair,
+            7 => WorkerRequestType::SignNep413Message,
             // DEPRECATED: only used for testnet registration
-            7 => WorkerRequestType::SignVerifyAndRegisterUser,
+            8 => WorkerRequestType::SignVerifyAndRegisterUser,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -50,23 +52,25 @@ impl From<WorkerResponseType> for u32 {
             WorkerResponseType::SignTransactionsWithActionsSuccess => 4,
             WorkerResponseType::ExtractCosePublicKeySuccess => 5,
             WorkerResponseType::SignTransactionWithKeyPairSuccess => 6,
-            WorkerResponseType::SignVerifyAndRegisterUserSuccess => 7,
+            WorkerResponseType::SignNep413MessageSuccess => 7,
+            WorkerResponseType::SignVerifyAndRegisterUserSuccess => 8,
 
             // Failure responses
-            WorkerResponseType::DeriveNearKeypairAndEncryptFailure => 8,
-            WorkerResponseType::RecoverKeypairFromPasskeyFailure => 9,
-            WorkerResponseType::CheckCanRegisterUserFailure => 10,
-            WorkerResponseType::DecryptPrivateKeyWithPrfFailure => 11,
-            WorkerResponseType::SignTransactionsWithActionsFailure => 12,
-            WorkerResponseType::ExtractCosePublicKeyFailure => 13,
-            WorkerResponseType::SignTransactionWithKeyPairFailure => 14,
-            WorkerResponseType::SignVerifyAndRegisterUserFailure => 15,
+            WorkerResponseType::DeriveNearKeypairAndEncryptFailure => 20,
+            WorkerResponseType::RecoverKeypairFromPasskeyFailure => 21,
+            WorkerResponseType::CheckCanRegisterUserFailure => 22,
+            WorkerResponseType::DecryptPrivateKeyWithPrfFailure => 23,
+            WorkerResponseType::SignTransactionsWithActionsFailure => 24,
+            WorkerResponseType::ExtractCosePublicKeyFailure => 25,
+            WorkerResponseType::SignTransactionWithKeyPairFailure => 26,
+            WorkerResponseType::SignNep413MessageFailure => 27,
+            WorkerResponseType::SignVerifyAndRegisterUserFailure => 28,
 
             // Progress responses - for real-time updates during operations
-            WorkerResponseType::RegistrationProgress => 16,
-            WorkerResponseType::RegistrationComplete => 17,
-            WorkerResponseType::ExecuteActionsProgress => 18,
-            WorkerResponseType::ExecuteActionsComplete => 19,
+            WorkerResponseType::RegistrationProgress => 50,
+            WorkerResponseType::RegistrationComplete => 51,
+            WorkerResponseType::ExecuteActionsProgress => 52,
+            WorkerResponseType::ExecuteActionsComplete => 53,
         }
     }
 }
@@ -82,23 +86,25 @@ impl From<u32> for WorkerResponseType {
             4 => WorkerResponseType::SignTransactionsWithActionsSuccess,
             5 => WorkerResponseType::ExtractCosePublicKeySuccess,
             6 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
-            7 => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
+            7 => WorkerResponseType::SignNep413MessageSuccess,
+            8 => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
 
             // Failure responses
-            8 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
-            9 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
-            10 => WorkerResponseType::CheckCanRegisterUserFailure,
-            11 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
-            12 => WorkerResponseType::SignTransactionsWithActionsFailure,
-            13 => WorkerResponseType::ExtractCosePublicKeyFailure,
-            14 => WorkerResponseType::SignTransactionWithKeyPairFailure,
-            15 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
+            20 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
+            21 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
+            22 => WorkerResponseType::CheckCanRegisterUserFailure,
+            23 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
+            24 => WorkerResponseType::SignTransactionsWithActionsFailure,
+            25 => WorkerResponseType::ExtractCosePublicKeyFailure,
+            26 => WorkerResponseType::SignTransactionWithKeyPairFailure,
+            27 => WorkerResponseType::SignNep413MessageFailure,
+            28 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
 
             // Progress responses - for real-time updates during operations
-            16 => WorkerResponseType::RegistrationProgress,
-            17 => WorkerResponseType::RegistrationComplete,
-            18 => WorkerResponseType::ExecuteActionsProgress,
-            19 => WorkerResponseType::ExecuteActionsComplete,
+            40 => WorkerResponseType::RegistrationProgress,
+            41 => WorkerResponseType::RegistrationComplete,
+            42 => WorkerResponseType::ExecuteActionsProgress,
+            43 => WorkerResponseType::ExecuteActionsComplete,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -114,6 +120,7 @@ impl WorkerRequestType {
             WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
             WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
             WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
+            WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
             WorkerRequestType::SignVerifyAndRegisterUser => "SIGN_VERIFY_AND_REGISTER_USER",
         }
     }
@@ -131,6 +138,7 @@ pub enum WorkerResponseType {
     SignTransactionsWithActionsSuccess,
     ExtractCosePublicKeySuccess,
     SignTransactionWithKeyPairSuccess,
+    SignNep413MessageSuccess,
     SignVerifyAndRegisterUserSuccess,
 
     // Failure responses - one for each request type
@@ -141,6 +149,7 @@ pub enum WorkerResponseType {
     SignTransactionsWithActionsFailure,
     ExtractCosePublicKeyFailure,
     SignTransactionWithKeyPairFailure,
+    SignNep413MessageFailure,
     SignVerifyAndRegisterUserFailure,
 
     // Progress responses - for real-time updates during operations

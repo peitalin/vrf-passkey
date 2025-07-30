@@ -11,12 +11,13 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import type { NearClient } from './NearClient';
 import type { AccountId } from './types/accountIds';
 import type { ContractStoredAuthenticator } from './PasskeyManager/recoverAccount';
-import { StoredAuthenticator } from './types/webauthn';
 import type { PasskeyManagerContext } from './PasskeyManager';
+import type { DeviceLinkingEvent } from './types/passkeyManager';
+
+import { StoredAuthenticator } from './types/webauthn';
 import { ActionPhase } from './types/passkeyManager';
 import { ActionType } from './types/actions';
-import type { VRFChallenge } from './types/webauthn';
-import type { DeviceLinkingEvent } from './types/passkeyManager';
+import { VRFChallenge } from './types/vrf-worker';
 import { DeviceLinkingPhase, DeviceLinkingStatus } from './types/passkeyManager';
 import { DEFAULT_WAIT_STATUS } from './types/rpc';
 

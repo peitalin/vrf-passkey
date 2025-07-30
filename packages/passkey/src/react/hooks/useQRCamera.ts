@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { DeviceLinkingQRData } from '../../core/types/linkDevice';
-import { getOptimalCameraFacingMode } from '../../utils/deviceDetection';
+import { getOptimalCameraFacingMode } from '../deviceDetection';
+import type { DeviceLinkingQRData } from '@/index';
 
 export interface UseQRCameraOptions {
   onQRDetected?: (qrData: DeviceLinkingQRData) => void;

@@ -1,4 +1,4 @@
-import type { ActionOptions, ActionResult, OperationHooks } from '../types/passkeyManager';
+import type { HooksOptions, ActionResult, OperationHooks } from '../types/passkeyManager';
 import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
@@ -79,12 +79,12 @@ export interface PasskeySelection {
  */
 export class AccountRecoveryFlow {
   private context: PasskeyManagerContext;
-  private options?: ActionOptions;
+  private options?: HooksOptions;
   private availableAccounts?: PasskeyOption[]; // Full options with credentials (private)
   private phase: 'idle' | 'discovering' | 'ready' | 'recovering' | 'complete' | 'error' = 'idle';
   private error?: Error;
 
-  constructor(context: PasskeyManagerContext, options?: ActionOptions) {
+  constructor(context: PasskeyManagerContext, options?: HooksOptions) {
     this.context = context;
     this.options = options;
   }
@@ -271,7 +271,7 @@ async function getAvailablePasskeysForDomain(
 export async function recoverAccount(
   context: PasskeyManagerContext,
   accountId: AccountId,
-  options?: ActionOptions,
+  options?: HooksOptions,
   reuseCredential?: PublicKeyCredential
 ): Promise<RecoveryResult> {
   const { onEvent, onError, hooks } = options || {};
@@ -604,7 +604,6 @@ async function restoreUserData(
       clientNearPublicKey: publicKey,
       lastUpdated: Date.now(),
       prfSupported: existingUser.prfSupported ?? true,
-      deterministicKey: true,
       passkeyCredential: existingUser.passkeyCredential,
       encryptedVrfKeypair,
       deviceNumber

@@ -1,6 +1,9 @@
 import React, { useCallback } from 'react';
-import type { DeviceLinkingQRData, LinkDeviceResult } from '../../core/types/linkDevice';
-import type { DeviceLinkingEvent } from '../../core/types/passkeyManager';
+import type {
+  DeviceLinkingQRData,
+  LinkDeviceResult,
+  DeviceLinkingEvent
+} from '@/index';
 import { useQRCamera } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { useQRFileUpload } from '../hooks/useQRFileUpload';

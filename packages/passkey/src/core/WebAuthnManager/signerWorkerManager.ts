@@ -15,11 +15,7 @@ import {
 } from '../../wasm_signer_worker/wasm_signer_worker.js';
 import {
   type ActionParams,
-  type WebAuthnAuthenticationCredential,
-  type WebAuthnRegistrationCredential,
   validateActionParams,
-  serializeCredentialWithPRF,
-  extractDualPrfOutputs,
   WorkerResponseForRequest,
   isWorkerProgress,
   isWorkerError,
@@ -30,36 +26,27 @@ import {
   isSignVerifyAndRegisterUserSuccess,
   isRecoverKeypairFromPasskeySuccess,
   isExtractCosePublicKeySuccess,
+  isSignNep413MessageSuccess,
   WorkerProgressResponse,
   WorkerErrorResponse,
   WasmTransactionSignResult,
 } from '../types/signer-worker';
+import {
+  type WebAuthnAuthenticationCredential,
+  type WebAuthnRegistrationCredential,
+} from '../types/webauthn';
+import {
+  extractChaCha20PrfOutput,
+  extractDualPrfOutputs,
+  serializeCredentialWithPRF,
+} from './credentialsHelpers';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
 import { TouchIdPrompt } from "./touchIdPrompt";
-import { VRFChallenge } from '../types/webauthn';
-import type { onProgressEvents } from '../types/webauthn';
-import { jsonTryParse } from '../../utils';
-import { BUILD_PATHS } from '../../../build-paths.js';
+import { VRFChallenge } from '../types/vrf-worker';
+import type { onProgressEvents } from '../types/passkeyManager';
 import { AccountId, toAccountId } from "../types/accountIds";
-
-// === CONFIGURATION ===
-const CONFIG = {
-  TIMEOUTS: {
-    DEFAULT: 20_000,      // 20s
-    TRANSACTION: 60_000,  // 60s for contract verification + signing
-    REGISTRATION: 60_000, // 60s for registration operations
-  },
-  WORKER: {
-    URL: BUILD_PATHS.RUNTIME.SIGNER_WORKER,
-    TYPE: 'module' as const,
-    NAME: 'Web3AuthnSignerWorker',
-  },
-  RETRY: {
-    MAX_ATTEMPTS: 3,
-    BACKOFF_MS: 1000,
-  }
-} as const;
+import { SIGNER_WORKER_MANAGER_CONFIG } from "../../config";
 
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // WASM-generated types now correctly match runtime data with js_name attributes
@@ -81,13 +68,13 @@ export class SignerWorkerManager {
 
   createSecureWorker(): Worker {
     // Simple path resolution - build:all copies worker files to /workers/
-    const workerUrl = new URL(CONFIG.WORKER.URL, window.location.origin);
+    const workerUrl = new URL(SIGNER_WORKER_MANAGER_CONFIG.WORKER.URL, window.location.origin);
     console.debug('Creating secure worker from:', workerUrl.href);
 
     try {
       const worker = new Worker(workerUrl, {
-        type: CONFIG.WORKER.TYPE,
-        name: CONFIG.WORKER.NAME
+        type: SIGNER_WORKER_MANAGER_CONFIG.WORKER.TYPE,
+        name: SIGNER_WORKER_MANAGER_CONFIG.WORKER.NAME
       });
 
       // Add error handling
@@ -116,7 +103,7 @@ export class SignerWorkerManager {
   private async executeWorkerOperation<T extends WorkerRequestType>({
     message,
     onEvent,
-    timeoutMs = CONFIG.TIMEOUTS.DEFAULT // 20s
+    timeoutMs = SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.DEFAULT // 10s
   }: {
     message: { type: T } & Record<string, any>,
     onEvent?: (update: onProgressEvents) => void,
@@ -404,7 +391,7 @@ export class SignerWorkerManager {
           }
         },
         onEvent,
-        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
+        timeoutMs: SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.TRANSACTION
       });
 
       if (!isCheckCanRegisterUserSuccess(response)) {
@@ -509,7 +496,7 @@ export class SignerWorkerManager {
           }
         },
         onEvent,
-        timeoutMs: CONFIG.TIMEOUTS.TRANSACTION
+        timeoutMs: SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.REGISTRATION
       });
 
       if (isSignVerifyAndRegisterUserSuccess(response)) {
@@ -883,6 +870,81 @@ export class SignerWorkerManager {
     } catch (error: any) {
       console.error('SignerWorkerManager: Transaction signing with private key error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Sign a NEP-413 message using the user's passkey-derived private key
+   *
+   * @param payload - NEP-413 signing parameters including message, recipient, nonce, and state
+   * @returns Promise resolving to signing result with account ID, public key, and signature
+   */
+  async signNep413Message(payload: {
+    message: string;
+    recipient: string;
+    nonce: string;
+    state: string | null;
+    accountId: string;
+    credential: PublicKeyCredential;
+  }): Promise<{
+    success: boolean;
+    accountId: string;
+    publicKey: string;
+    signature: string;
+    state?: string;
+    error?: string;
+  }> {
+    try {
+      console.debug('SignerWorkerManager: Starting NEP-413 message signing');
+
+      const encryptedKeyData = await this.nearKeysDB.getEncryptedKey(payload.accountId);
+      if (!encryptedKeyData) {
+        throw new Error(`No encrypted key found for account: ${payload.accountId}`);
+      }
+
+      const { chacha20PrfOutput }= extractChaCha20PrfOutput(payload.credential);
+
+      const response = await this.executeWorkerOperation<typeof WorkerRequestType.SignNep413Message>({
+        message: {
+          type: WorkerRequestType.SignNep413Message,
+          payload: {
+            message: payload.message,
+            recipient: payload.recipient,
+            nonce: payload.nonce,
+            state: payload.state,
+            accountId: payload.accountId,
+            prfOutput: chacha20PrfOutput, // Use ChaCha20 PRF output for decryption
+            encryptedPrivateKeyData: encryptedKeyData.encryptedData,
+            encryptedPrivateKeyIv: encryptedKeyData.iv
+          }
+        }
+      });
+
+      if (!isSignNep413MessageSuccess(response)) {
+        console.error('SignerWorkerManager: NEP-413 signing failed:', response);
+        throw new Error('NEP-413 signing failed');
+      }
+
+      const wasmResult = response.payload as wasmModule.SignNep413Result;
+      console.debug('SignerWorkerManager: NEP-413 message signed successfully');
+
+      return {
+        success: true,
+        accountId: wasmResult.accountId,
+        publicKey: wasmResult.publicKey,
+        signature: wasmResult.signature,
+        state: wasmResult.state || undefined
+      };
+
+    } catch (error: any) {
+      console.error('SignerWorkerManager: NEP-413 signing error:', error);
+      return {
+        success: false,
+        accountId: '',
+        publicKey: '',
+        signature: '',
+        error: error.message || 'Unknown error'
+      };
     }
   }
 

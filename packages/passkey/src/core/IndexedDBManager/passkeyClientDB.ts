@@ -3,7 +3,7 @@ import { type ValidationResult, validateNearAccountId } from '../../utils/valida
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 
-// === TYPE DEFINITIONS ===
+
 export interface ClientUserData {
   // Primary key - now uses AccountId + deviceNumber for unique identification
   nearAccountId: AccountId;
@@ -31,6 +31,9 @@ export interface ClientUserData {
   // User preferences
   preferences?: UserPreferences;
 }
+
+export type StoreUserDataInput = Omit<ClientUserData, 'deviceNumber' | 'lastLogin' | 'registeredAt'>
+  & { deviceNumber?: number | undefined; };
 
 export interface UserPreferences {
   useRelayer: boolean;
@@ -208,7 +211,9 @@ export class PasskeyClientDBManager {
   async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
     try {
       const userData = await this.getUser(nearAccountId);
-      return !!userData && !!userData.clientNearPublicKey;
+      return !!userData
+          && !!userData.clientNearPublicKey
+          && !!userData.passkeyCredential
     } catch (error) {
       console.warn('Error checking passkey credential:', error);
       return false;

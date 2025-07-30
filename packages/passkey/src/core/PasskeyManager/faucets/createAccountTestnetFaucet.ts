@@ -1,8 +1,7 @@
 import { AccessKeyView } from '@near-js/types';
 import { RegistrationSSEEvent } from '../../types/passkeyManager';
-import { formatLongMessage } from '../../../utils';
 import { PasskeyManagerContext } from '..';
-import { VRFChallenge } from '@/core/types/webauthn';
+import { VRFChallenge } from '@/core/types/vrf-worker';
 import { NearClient } from '@/core/NearClient';
 import { AccountId } from '@/core/types/accountIds';
 import { RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
@@ -60,10 +59,10 @@ export async function createAccountTestnetFaucet(
         const errorKind = failure.ActionError.kind;
         const contractId = nearAccountId.split('.').slice(1).join('.');
         if (errorKind.CreateAccountNotAllowed) {
-          errorMessage = formatLongMessage(`
+          errorMessage = `
             Account creation for ${errorKind.CreateAccountNotAllowed.account_id} not allowed.
             Must be done through the ${contractId} account (via the relay server, not the testnet faucet).
-          `);
+          `;
         } else if (errorKind.AccountAlreadyExists) {
           errorMessage = `Account ${errorKind.AccountAlreadyExists.account_id} already exists`;
         } else {
