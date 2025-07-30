@@ -1,5 +1,5 @@
-import type { HooksOptions, ActionResult, OperationHooks } from '../types/passkeyManager';
-import { ActionPhase, ActionStatus } from '../types/passkeyManager';
+import type { BaseHooksOptions, ActionResult, OperationHooks, EventCallback, ActionSSEEvent, AccountRecoveryEventStep5, AccountRecoverySSEEvent } from '../types/passkeyManager';
+import { AccountRecoveryPhase, AccountRecoveryStatus, AccountRecoveryHooksOptions } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, StoredAuthenticator, VRFChallenge } from '../types';
 import type { EncryptedVRFKeypair } from '../types/vrf-worker';
@@ -79,12 +79,12 @@ export interface PasskeySelection {
  */
 export class AccountRecoveryFlow {
   private context: PasskeyManagerContext;
-  private options?: HooksOptions;
+  private options?: AccountRecoveryHooksOptions;
   private availableAccounts?: PasskeyOption[]; // Full options with credentials (private)
   private phase: 'idle' | 'discovering' | 'ready' | 'recovering' | 'complete' | 'error' = 'idle';
   private error?: Error;
 
-  constructor(context: PasskeyManagerContext, options?: HooksOptions) {
+  constructor(context: PasskeyManagerContext, options?: AccountRecoveryHooksOptions) {
     this.context = context;
     this.options = options;
   }
@@ -271,7 +271,7 @@ async function getAvailablePasskeysForDomain(
 export async function recoverAccount(
   context: PasskeyManagerContext,
   accountId: AccountId,
-  options?: HooksOptions,
+  options?: AccountRecoveryHooksOptions,
   reuseCredential?: PublicKeyCredential
 ): Promise<RecoveryResult> {
   const { onEvent, onError, hooks } = options || {};
@@ -281,8 +281,8 @@ export async function recoverAccount(
 
   onEvent?.({
     step: 1,
-    phase: ActionPhase.STEP_1_PREPARATION,
-    status: ActionStatus.PROGRESS,
+    phase: AccountRecoveryPhase.STEP_1_PREPARATION,
+    status: AccountRecoveryStatus.PROGRESS,
     message: 'Preparing account recovery...',
   });
 
@@ -292,15 +292,15 @@ export async function recoverAccount(
       return handleRecoveryError(accountId, `Invalid NEAR account ID: ${validation.error}`, onError, hooks);
     }
 
-    const credential = await getOrCreateCredential(webAuthnManager, accountId, reuseCredential);
-    const recoveredKeypair = await deriveKeypairFromCredential(webAuthnManager, credential, accountId);
-
     onEvent?.({
       step: 2,
-      phase: ActionPhase.STEP_2_GENERATING_CHALLENGE,
-      status: ActionStatus.PROGRESS,
-      message: 'Generating VRF challenge...',
+      phase: AccountRecoveryPhase.STEP_2_WEBAUTHN_AUTHENTICATION,
+      status: AccountRecoveryStatus.PROGRESS,
+      message: 'Authenticating with WebAuthn...',
     });
+
+    const credential = await getOrCreateCredential(webAuthnManager, accountId, reuseCredential);
+    const recoveredKeypair = await deriveKeypairFromCredential(webAuthnManager, credential, accountId);
 
     const { hasAccess, blockHeight, blockHash } = await Promise.all([
       nearClient.viewAccessKey(accountId, recoveredKeypair.publicKey),
@@ -329,13 +329,6 @@ export async function recoverAccount(
       vrfInputData
     );
 
-    onEvent?.({
-      step: 3,
-      phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-      status: ActionStatus.PROGRESS,
-      message: 'Authenticating with WebAuthn contract...',
-    });
-
     const recoveryResult = await performAccountRecovery({
       context,
       accountId,
@@ -347,12 +340,13 @@ export async function recoverAccount(
       vrfChallenge,
       credential,
       encryptedVrfResult,
+      onEvent,
     });
 
     onEvent?.({
-      step: 6,
-      phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-      status: ActionStatus.SUCCESS,
+      step: 5,
+      phase: AccountRecoveryPhase.STEP_5_ACCOUNT_RECOVERY_COMPLETE,
+      status: AccountRecoveryStatus.SUCCESS,
       message: 'Account recovery completed successfully',
       data: recoveryResult,
     });
@@ -360,6 +354,7 @@ export async function recoverAccount(
     hooks?.afterCall?.(true, recoveryResult);
     return recoveryResult;
   } catch (error: any) {
+    onError?.(error);
     return handleRecoveryError(accountId, error.message, onError, hooks);
   }
 }
@@ -472,6 +467,7 @@ async function performAccountRecovery({
   vrfChallenge,
   credential,
   encryptedVrfResult,
+  onEvent,
 }: {
   context: PasskeyManagerContext,
   accountId: AccountId,
@@ -483,12 +479,19 @@ async function performAccountRecovery({
   vrfChallenge: VRFChallenge,
   credential: PublicKeyCredential,
   encryptedVrfResult: { encryptedVrfKeypair: EncryptedVRFKeypair; vrfPublicKey: string },
+  onEvent?: EventCallback<AccountRecoverySSEEvent>,
 }): Promise<RecoveryResult> {
 
   const { webAuthnManager, nearClient, configs } = context;
 
   try {
     console.debug(`Performing recovery for account: ${accountId}`);
+    onEvent?.({
+      step: 3,
+      phase: AccountRecoveryPhase.STEP_3_SYNC_AUTHENTICATORS_ONCHAIN,
+      status: AccountRecoveryStatus.PROGRESS,
+      message: 'Syncing authenticators from onchain...',
+    });
 
     // 1. Sync on-chain authenticator data
     const contractAuthenticators = await syncAuthenticatorsContractCall(nearClient, configs.contractId, accountId);
@@ -507,49 +510,53 @@ async function performAccountRecovery({
     }
 
     // 3. Restore user data to IndexedDB with correct device number
-    await restoreUserData(
+    await restoreUserData({
       webAuthnManager,
       accountId,
+      deviceNumber,
       publicKey,
-      encryptedVrfResult.encryptedVrfKeypair,
-      encryptedKeypair,
-      deviceNumber
-    );
+      encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
+      encryptedNearKeypair: encryptedKeypair,
+      credential
+    });
 
     // 4. Restore only the authenticator used for recovery
     console.debug(`Restoring only the authenticator used for recovery: ${credentialIdUsed}`);
-    await restoreAuthenticators(
+    await restoreAuthenticators({
       webAuthnManager,
       accountId,
-      [matchingAuthenticator],
-      vrfChallenge.vrfPublicKey
-    );
+      contractAuthenticators: [matchingAuthenticator],
+      vrfPublicKey: encryptedVrfResult.vrfPublicKey
+      // the encrypted Vrf is the deterministic vrf public key
+    });
 
-    // 4. Unlock VRF keypair in memory for immediate login
-    const vrfUnlockResult = await webAuthnManager.unlockVRFKeypair({
+    onEvent?.({
+      step: 4,
+      phase: AccountRecoveryPhase.STEP_4_AUTHENTICATOR_SAVED,
+      status: AccountRecoveryStatus.SUCCESS,
+      message: 'Restored Passkey authenticator...',
+    });
+
+    // 5. Unlock VRF keypair in memory for immediate use
+    console.debug('Unlocking VRF keypair in memory after account recovery');
+    const unlockResult = await webAuthnManager.unlockVRFKeypair({
       nearAccountId: accountId,
       encryptedVrfKeypair: encryptedVrfResult.encryptedVrfKeypair,
-      credential,
+      credential: credential,
     });
 
-    if (!vrfUnlockResult.success) {
-      console.warn('VRF keypair unlock failed during recovery');
+    if (!unlockResult.success) {
+      console.warn('Failed to unlock VRF keypair after recovery:', unlockResult.error);
+      // Don't throw error here - recovery was successful, but VRF unlock failed
+    } else {
+      console.debug('VRF keypair unlocked successfully after account recovery');
     }
-
-    await webAuthnManager.updateLastLogin(accountId);
-    const loginState = await getRecoveryLoginState(webAuthnManager, accountId);
-
-    console.debug(`Account recovery completed for ${accountId}`, {
-      vrfActive: loginState.vrfActive,
-      isLoggedIn: loginState.isLoggedIn
-    });
 
     return {
       success: true,
       accountId,
       publicKey,
       message: 'Account successfully recovered',
-      loginState
     };
 
   } catch (error: any) {
@@ -568,17 +575,26 @@ export interface ContractStoredAuthenticator {
   device_number: number; // Always present from contract
 }
 
-async function restoreUserData(
+async function restoreUserData({
+  webAuthnManager,
+  accountId,
+  deviceNumber,
+  publicKey,
+  encryptedVrfKeypair,
+  encryptedNearKeypair,
+  credential
+}: {
   webAuthnManager: WebAuthnManager,
   accountId: AccountId,
+  deviceNumber: number,
   publicKey: string,
   encryptedVrfKeypair: EncryptedVRFKeypair,
   encryptedNearKeypair: {
     encryptedPrivateKey: string;
     iv: string
   },
-  deviceNumber: number
-) {
+  credential: PublicKeyCredential
+}) {
   const existingUser = await webAuthnManager.getUser(accountId);
 
   // Store the encrypted NEAR keypair in the encrypted keys database
@@ -591,19 +607,22 @@ async function restoreUserData(
   console.log("restoreUserData: using deviceNumber =", deviceNumber, "for account", accountId);
 
   if (!existingUser) {
-    await webAuthnManager.registerUser(accountId, {
-      clientNearPublicKey: publicKey,
-      prfSupported: true,
-      lastUpdated: Date.now(),
-      encryptedVrfKeypair,
+    await webAuthnManager.registerUser({
+      nearAccountId: accountId,
       deviceNumber,
+      clientNearPublicKey: publicKey,
+      lastUpdated: Date.now(),
+      passkeyCredential: {
+        id: credential.id,
+        rawId: base64UrlEncode(new Uint8Array(credential.rawId))
+      },
+      encryptedVrfKeypair,
     });
   } else {
     await webAuthnManager.storeUserData({
       nearAccountId: accountId,
       clientNearPublicKey: publicKey,
       lastUpdated: Date.now(),
-      prfSupported: existingUser.prfSupported ?? true,
       passkeyCredential: existingUser.passkeyCredential,
       encryptedVrfKeypair,
       deviceNumber
@@ -611,7 +630,12 @@ async function restoreUserData(
   }
 }
 
-async function restoreAuthenticators(
+async function restoreAuthenticators({
+  webAuthnManager,
+  accountId,
+  contractAuthenticators,
+  vrfPublicKey
+}: {
   webAuthnManager: WebAuthnManager,
   accountId: AccountId,
   contractAuthenticators: {
@@ -619,7 +643,7 @@ async function restoreAuthenticators(
     authenticator: StoredAuthenticator
   }[],
   vrfPublicKey: string
-) {
+}) {
   for (const { credentialId, authenticator } of contractAuthenticators) {
     const credentialPublicKey = authenticator.credentialPublicKey;
 
