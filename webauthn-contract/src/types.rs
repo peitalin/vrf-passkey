@@ -18,7 +18,7 @@ pub struct WebAuthnAuthenticationCredential {
         skip_serializing_if = "Option::is_none"
     )]
     #[borsh(skip)]
-    pub client_extension_results: Option<serde_json::Value>,
+    pub client_extension_results: Option<ClientExtensionResults>,
 }
 
 // WebAuthn Registration credential (equivalent to @simplewebauthn/server types)
@@ -109,5 +109,7 @@ pub struct PRFExtensionResults {
 pub struct PRFResults {
     // SECURITY: Avoid deserializing PRF output. We don't send PRF output from the client.
     #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
-    pub first: Option<String>, // base64url-encoded PRF output (always None when deserializing)
+    pub first: Option<String>,
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub second: Option<String>,
 }
