@@ -222,7 +222,7 @@ export class TouchIdPrompt {
           prf: {
             eval: {
               // Always use NEAR account ID for PRF salts to ensure consistent keypair derivation across devices
-              first: generateChaCha20Salt(nearAccountId),    // ChaCha20Poly1305 encryption keys
+              first: generateChaCha20Salt(nearAccountId),  // ChaCha20Poly1305 encryption keys
               second: generateEd25519Salt(nearAccountId)   // Ed25519 signing keys
             }
           }

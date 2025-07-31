@@ -36,9 +36,9 @@ import {
   type WebAuthnRegistrationCredential,
 } from '../types/webauthn';
 import {
-  extractChaCha20PrfOutput,
-  extractDualPrfOutputs,
+  extractPrfFromCredential,
   serializeCredentialWithPRF,
+  type DualPrfOutputs,
 } from './credentialsHelpers';
 import { ClientAuthenticatorData } from '../IndexedDBManager';
 import { PasskeyNearKeysDBManager, type EncryptedKeyData } from '../IndexedDBManager/passkeyNearKeysDB';
@@ -198,27 +198,33 @@ export class SignerWorkerManager {
     try {
       console.info('WebAuthnManager: Starting secure registration with dual PRF using deterministic derivation');
 
-      // Serialize credential first to ensure consistent PRF extraction with decryption phase
-      const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
+      const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: true, // only for deriving NEAR keys
+      });
 
-      // Extract dual PRF outputs from serialized credential (same as decryption phase)
-      const dualPrfOutputs = {
-        chacha20PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.first!,
-        ed25519PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.second!
-      };
-
-      if (!dualPrfOutputs.chacha20PrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
-        throw new Error('Dual PRF outputs missing from serialized credential');
+      // Extract dual PRF outputs from credential (same as decryption phase)
+      if (!serializedCredential.clientExtensionResults?.prf?.results?.first) {
+        throw new Error('First PRF output missing from serialized credential');
       }
+      if (!serializedCredential.clientExtensionResults?.prf?.results?.second) {
+        throw new Error('Second PRF output missing from serialized credential');
+      }
+
+      const dualPrfOutputs: DualPrfOutputs = {
+        chacha20PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.first!,
+        ed25519PrfOutput: serializedCredential.clientExtensionResults?.prf?.results?.second!,
+      };
 
       // Use generic executeWorkerOperation with specific request type for better type safety
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt>({
         message: {
           type: WorkerRequestType.DeriveNearKeypairAndEncrypt,
           payload: {
-            dualPrfOutputs,
+            dualPrfOutputs: dualPrfOutputs,
             nearAccountId: nearAccountId,
-            credential: serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential),
+            credential: serializedCredential,
             // Optional device linking registration transaction
             registrationTransaction: (options?.vrfChallenge && options?.contractId && options?.nonce && options?.blockHash) ? {
               vrfChallenge: options.vrfChallenge,
@@ -237,7 +243,7 @@ export class SignerWorkerManager {
         throw new Error('Dual PRF registration failed');
       }
 
-      console.debug('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
+      console.log('WebAuthnManager: Dual PRF registration successful with deterministic derivation');
       // response.payload is a WasmEncryptionResult with proper WASM types
       const wasmResult = response.payload;
       // Store the encrypted key in IndexedDB using the manager
@@ -326,15 +332,19 @@ export class SignerWorkerManager {
       });
 
       // Extract dual PRF outputs and use the AES one for decryption
-      const dualPrfOutputs = extractDualPrfOutputs(credential);
-      console.debug('WebAuthnManager: Extracted dual PRF outputs, using AES PRF for decryption');
+      const dualPrfOutputs = extractPrfFromCredential({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
+      console.debug('WebAuthnManager: Extracted ChaCha20 PRF output for decryption');
 
       const response = await this.executeWorkerOperation({
         message: {
           type: WorkerRequestType.DecryptPrivateKeyWithPrf,
           payload: {
             nearAccountId: nearAccountId,
-            prfOutput: dualPrfOutputs.chacha20PrfOutput, // Use AES PRF output for decryption
+            prfOutput: dualPrfOutputs.chacha20PrfOutput, // Use ChaCha20 PRF output for decryption
             encryptedPrivateKeyData: encryptedKeyData.encryptedData,
             encryptedPrivateKeyIv: encryptedKeyData.iv
           }
@@ -385,7 +395,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.CheckCanRegisterUser,
           payload: {
             vrfChallenge,
-            credential: serializeCredentialWithPRF(credential),
+            credential: serializeCredentialWithPRF({ credential }),
             contractId,
             nearRpcUrl
           }
@@ -464,7 +474,11 @@ export class SignerWorkerManager {
       }
 
       // Extract PRF output from credential
-      const dualPrfOutputs = extractDualPrfOutputs(credential);
+      const dualPrfOutputs = extractPrfFromCredential({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
 
       const {
         accessKeyInfo,
@@ -479,7 +493,7 @@ export class SignerWorkerManager {
           type: WorkerRequestType.SignVerifyAndRegisterUser,
           payload: {
             vrfChallenge,
-            credential: serializeCredentialWithPRF(credential),
+            credential: serializeCredentialWithPRF({ credential }),
             contractId,
             signerAccountId,
             nearAccountId,
@@ -599,9 +613,13 @@ export class SignerWorkerManager {
       }
 
       // Extract dual PRF outputs from credential
-      const dualPrfOutputs = extractDualPrfOutputs(credential);
+      const dualPrfOutputs = extractPrfFromCredential({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
 
-      if (!dualPrfOutputs.chacha20PrfOutput || !dualPrfOutputs.ed25519PrfOutput) {
+      if (!dualPrfOutputs.chacha20PrfOutput) {
         throw new Error('Failed to extract PRF outputs from credential');
       }
 
@@ -625,7 +643,7 @@ export class SignerWorkerManager {
               contractId: contractId,
               nearRpcUrl: nearRpcUrl,
               vrfChallenge: vrfChallenge,
-              credential: serializeCredentialWithPRF(credential)
+              credential: serializeCredentialWithPRF({ credential }),
             },
             decryption: {
               chacha20PrfOutput: dualPrfOutputs.chacha20PrfOutput,
@@ -706,14 +724,16 @@ export class SignerWorkerManager {
     try {
       console.info('SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential');
       // Serialize the authentication credential for the worker (includes dual PRF outputs)
-      const serializedCredential = serializeCredentialWithPRF<WebAuthnAuthenticationCredential>(
-        credential
-      );
+      const serializedCredential = serializeCredentialWithPRF<WebAuthnAuthenticationCredential>({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: true, // only for recovering NEAR keys
+      });
 
       // Verify dual PRF outputs are available
       if (!serializedCredential.clientExtensionResults?.prf?.results?.first ||
           !serializedCredential.clientExtensionResults?.prf?.results?.second) {
-        throw new Error('Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available');
+        throw new Error('Dual PRF outputs required for account recovery - both ChaCha20 and Ed25519 PRF outputs must be available');
       }
 
       // Use generic executeWorkerOperation with specific request type for better type safety
@@ -902,7 +922,11 @@ export class SignerWorkerManager {
         throw new Error(`No encrypted key found for account: ${payload.accountId}`);
       }
 
-      const { chacha20PrfOutput }= extractChaCha20PrfOutput(payload.credential);
+      const { chacha20PrfOutput } = extractPrfFromCredential({
+        credential: payload.credential,
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
 
       const response = await this.executeWorkerOperation<typeof WorkerRequestType.SignNep413Message>({
         message: {

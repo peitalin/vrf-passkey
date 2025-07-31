@@ -2,7 +2,7 @@ import { VRFChallenge } from '../../../core/types/vrf-worker';
 import { RegistrationSSEEvent, RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
 import { PasskeyManagerContext } from '..';
 import { base64UrlDecode } from '../../../utils/encoders';
-import { serializeCredentialWithPRF } from '../../WebAuthnManager/credentialsHelpers';
+import { removePrfOutputGuard, serializeCredential } from '../../WebAuthnManager/credentialsHelpers';
 import { WebAuthnRegistrationCredential } from '../../types/webauthn';
 
 /**
@@ -60,7 +60,7 @@ export async function createAccountAndRegisterWithRelayServer(
     });
 
     // Serialize the WebAuthn credential properly for the contract
-    const serializedCredential = serializeCredentialWithPRF<WebAuthnRegistrationCredential>(credential);
+    const serializedCredential = removePrfOutputGuard<WebAuthnRegistrationCredential>(serializeCredential(credential));
 
     // Prepare data for atomic endpoint
     const requestData: CreateAccountAndRegisterUserRequest = {

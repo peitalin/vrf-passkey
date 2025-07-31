@@ -16,7 +16,7 @@ import { VrfWorkerManager } from './vrfWorkerManager';
 import { TouchIdPrompt } from './touchIdPrompt';
 import { base64UrlEncode } from '../../utils/encoders';
 import { type ActionParams } from '../types/signer-worker';
-import { extractDualPrfOutputs } from './credentialsHelpers';
+import { extractPrfFromCredential } from './credentialsHelpers';
 import { EncryptedVRFKeypair, VRFInputData } from '../types/vrf-worker';
 import type { PasskeyManagerConfigs, onProgressEvents } from '../types/passkeyManager';
 import { VRFChallenge } from '../types/vrf-worker';
@@ -109,13 +109,17 @@ export class WebAuthnManager {
   }> {
     try {
       console.debug('WebAuthnManager: Deriving deterministic VRF keypair from PRF output');
-      // Extract PRF outputs from credential
-      const dualPrfOutputs = extractDualPrfOutputs(credential);
+      // Extract ChaCha20 PRF output from credential
+      const { chacha20PrfOutput } = extractPrfFromCredential({
+        credential,
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
 
       // Use the first PRF output for VRF keypair derivation (AES PRF output)
       // This ensures deterministic derivation: same PRF + same account = same VRF keypair
       const vrfResult = await this.vrfWorkerManager.deriveVrfKeypairFromSeed({
-        prfOutput: dualPrfOutputs.chacha20PrfOutput,
+        prfOutput: chacha20PrfOutput,
         nearAccountId,
         vrfInputData
       });
@@ -251,8 +255,8 @@ export class WebAuthnManager {
     return await IndexedDBManager.clientDB.updateLastLogin(nearAccountId);
   }
 
-  async registerUser(nearAccountId: AccountId, additionalData?: Partial<ClientUserData>): Promise<ClientUserData> {
-    return await IndexedDBManager.clientDB.registerUser(nearAccountId, additionalData);
+  async registerUser(storeUserData: StoreUserDataInput): Promise<ClientUserData> {
+    return await IndexedDBManager.clientDB.registerUser(storeUserData);
   }
 
   async storeAuthenticator(authenticatorData: {
@@ -612,21 +616,19 @@ export class WebAuthnManager {
   }): Promise<void> {
 
     await this.atomicOperation(async (db) => {
-      // Register user in IndexDB
-      await this.registerUser(nearAccountId);
 
       // Store credential for authentication
       const credentialId = base64UrlEncode(credential.rawId);
       const response = credential.response as AuthenticatorAttestationResponse;
 
       await this.storeAuthenticator({
+        nearAccountId: nearAccountId,
         credentialId: credentialId,
         credentialPublicKey: await this.extractCosePublicKey(
           base64UrlEncode(response.attestationObject)
         ),
         transports: response.getTransports?.() || [],
         name: `VRF Passkey for ${this.extractUsername(nearAccountId)}`,
-        nearAccountId,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
         vrfPublicKey: vrfPublicKey,
@@ -637,12 +639,11 @@ export class WebAuthnManager {
         nearAccountId,
         clientNearPublicKey: publicKey,
         lastUpdated: Date.now(),
-        prfSupported: true,
         passkeyCredential: {
           id: credential.id,
           rawId: credentialId
         },
-        encryptedVrfKeypair
+        encryptedVrfKeypair: encryptedVrfKeypair,
       });
 
       console.debug('✅ registration data stored atomically');
