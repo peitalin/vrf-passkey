@@ -23,7 +23,7 @@ import type { EncryptedVRFKeypair } from '../types/vrf-worker';
 import { VRFChallenge } from '../types/vrf-worker';
 import { getDeviceLinkingAccountContractCall } from "../rpcCalls";
 import { DEFAULT_WAIT_STATUS } from "../types/rpc";
-import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
+import { DeviceLinkingPhase, DeviceLinkingStatus, LoginPhase } from '../types/passkeyManager';
 
 
 async function generateQRCodeDataURL(data: string): Promise<string> {
@@ -59,10 +59,14 @@ export class LinkDeviceFlow {
   private options: StartDeviceLinkingOptionsDevice2;
   private session: DeviceLinkingSession | null = null;
   private error?: Error;
+  // AddKey polling
   private pollingInterval?: NodeJS.Timeout;
-  private lastRpcCallTime = 0;
   private KEY_POLLING_INTERVAL = 4000;
-  private readonly instanceId = Math.random().toString(36).substring(2, 8);
+  // Registration retries
+  private registrationRetryTimeout?: NodeJS.Timeout;
+  private registrationRetryCount = 0;
+  private readonly MAX_REGISTRATION_RETRIES = 5;
+  private readonly RETRY_DELAY_MS = 2000; // 2 second delay between retries
 
   constructor(context: PasskeyManagerContext, options: StartDeviceLinkingOptionsDevice2) {
     this.context = context;
@@ -131,9 +135,6 @@ export class LinkDeviceFlow {
       } else {
         // === OPTION F: No account ID - generate temporary keypair, replace later ===
         console.log(`LinkDeviceFlow: Option F - No account provided, using temporary keypair approach`);
-
-        const tempAccountId = 'temp-device-linking.testnet';
-
         // Generate temporary NEAR keypair WITHOUT TouchID/VRF (just for QR generation)
         const tempNearKeyResult = await this.generateTemporaryNearKeypair();
 
@@ -149,7 +150,6 @@ export class LinkDeviceFlow {
           expiresAt: Date.now() + (15 * 60 * 1000), // 15 minute timeout
           tempPrivateKey: tempNearKeyResult.privateKey // Store temp private key for signing later
         };
-
         console.log(`LinkDeviceFlow: Option F - Generated temporary NEAR keypair`);
       }
 
@@ -178,7 +178,7 @@ export class LinkDeviceFlow {
       // Start polling for AddKey transaction
       this.startPolling();
       this.options?.onEvent?.({
-        step: 1,
+        step: 4,
         phase: DeviceLinkingPhase.STEP_4_POLLING,
         status: DeviceLinkingStatus.PROGRESS,
         message: `Polling contract for linked account...`
@@ -192,6 +192,7 @@ export class LinkDeviceFlow {
         step: 0,
         phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR,
         status: DeviceLinkingStatus.ERROR,
+        error: error.message,
         message: error.message,
       });
       throw new DeviceLinkingError(
@@ -236,20 +237,23 @@ export class LinkDeviceFlow {
       try {
         let hasKeyAdded = await this.checkForDeviceKeyAdded();
         if (hasKeyAdded && this.session) {
-          this.session.phase = DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED;
+          // AddKey detected! Stop polling and start registration process
+          this.stopPolling();
+
           this.options?.onEvent?.({
-            step: 2,
+            step: 5,
             phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
             status: DeviceLinkingStatus.PROGRESS,
-            message: 'AddKey transaction detected, completing registration...'
+            message: 'AddKey transaction detected, starting registration...'
           });
-          this.completeRegistration();
+
+          this.session.phase = DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED;
+          this.startRegistrationWithRetries();
         }
       } catch (error: any) {
         console.error('Polling error:', error);
-        // On persistent errors, stop polling to prevent spam
-        if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
-          console.warn('Rate limited - stopping polling');
+        if (error.message?.includes('Account not found')) {
+          console.warn('Account not found - stopping polling');
           this.stopPolling();
         }
       }
@@ -257,14 +261,23 @@ export class LinkDeviceFlow {
   }
 
   private shouldContinuePolling(): boolean {
-    if (!this.session || this.session.phase === DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED) return false;
+    if (!this.session) return false;
 
+    // Stop polling if we've detected AddKey and moved to registration
+    if (this.session.phase === DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED) {
+      return false;
+    }
+    // Stop polling if we've completed successfully
+    if (this.session.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE) {
+      return false;
+    }
     if (Date.now() > this.session.expiresAt) {
       this.error = new Error('Session expired');
       this.options?.onEvent?.({
         step: 0,
         phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR,
         status: DeviceLinkingStatus.ERROR,
+        error: this.error?.message,
         message: 'Device linking session expired',
       });
 
@@ -284,8 +297,6 @@ export class LinkDeviceFlow {
     }
 
     try {
-      this.lastRpcCallTime = Date.now();
-
       const linkingResult = await getDeviceLinkingAccountContractCall(
         this.context.nearClient,
         this.context.webAuthnManager.configs.contractId,
@@ -293,14 +304,18 @@ export class LinkDeviceFlow {
       );
 
       this.options?.onEvent?.({
-        step: 2,
+        step: 4,
         phase: DeviceLinkingPhase.STEP_4_POLLING,
         status: DeviceLinkingStatus.PROGRESS,
         message: 'Polling contract for linked account...'
       });
 
-      if (linkingResult && linkingResult.linkedAccountId && linkingResult.deviceNumber !== undefined) {
-        // The contract returns the current device counter, but this device should be assigned the next number
+      if (
+        linkingResult
+        && linkingResult.linkedAccountId
+        && linkingResult.deviceNumber !== undefined
+      ) {
+        // contract returns current deviceNumber, device should be assigned next number
         const nextDeviceNumber = linkingResult.deviceNumber + 1;
         console.log(`LinkDeviceFlow: Success! Discovered linked account:`, {
           linkedAccountId: linkingResult.linkedAccountId,
@@ -308,8 +323,8 @@ export class LinkDeviceFlow {
           nextDeviceNumber: nextDeviceNumber,
         });
         this.session.accountId = linkingResult.linkedAccountId as AccountId;
-        this.session.deviceNumber = nextDeviceNumber; // Store the next device number for this device
-
+        this.session.deviceNumber = nextDeviceNumber;
+        // Store the next device number for this device
         return true;
       } else {
         console.log(`LinkDeviceFlow: No mapping found yet...`);
@@ -329,121 +344,199 @@ export class LinkDeviceFlow {
   }
 
   /**
-   * Device2: Complete device linking with local storage
+   * Device2: Start registration process with retry logic
    */
-  private async completeRegistration(): Promise<void> {
+  private startRegistrationWithRetries(): void {
+    this.registrationRetryCount = 0;
+    this.attemptRegistration();
+  }
+
+  /**
+   * Device2: Attempt registration with retry logic
+   */
+  private attemptRegistration(): void {
+    this.swapKeysAndRegisterAccount().catch((error: any) => {
+      // Check if this is a retryable error
+      if (this.isRetryableError(error)) {
+        this.registrationRetryCount++;
+
+        if (this.registrationRetryCount > this.MAX_REGISTRATION_RETRIES) {
+          console.error('LinkDeviceFlow: Max registration retries exceeded, failing permanently');
+          // Non-retryable error - fail permanently
+          this.session!.phase = DeviceLinkingPhase.REGISTRATION_ERROR;
+          this.error = error;
+          this.options?.onEvent?.({
+            step: 0,
+            phase: DeviceLinkingPhase.REGISTRATION_ERROR,
+            status: DeviceLinkingStatus.ERROR,
+            error: error.message,
+            message: error.message,
+          });
+        } else {
+          console.warn(`LinkDeviceFlow: Registration failed with retryable error (attempt ${this.registrationRetryCount}/${this.MAX_REGISTRATION_RETRIES}), will retry in ${this.RETRY_DELAY_MS}ms:`, error.message);
+          this.options?.onEvent?.({
+            step: 5,
+            phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
+            status: DeviceLinkingStatus.PROGRESS,
+            message: `Registration failed (${error.message}), retrying in ${this.RETRY_DELAY_MS}ms... (${this.registrationRetryCount}/${this.MAX_REGISTRATION_RETRIES})`
+          });
+          // Schedule retry with setTimeout
+          this.registrationRetryTimeout = setTimeout(() => {
+            this.attemptRegistration();
+          }, this.RETRY_DELAY_MS);
+        }
+      } else {
+        // Non-retryable error - fail permanently
+        this.session!.phase = DeviceLinkingPhase.REGISTRATION_ERROR;
+        this.error = error;
+        this.options?.onEvent?.({
+          step: 0,
+          phase: DeviceLinkingPhase.REGISTRATION_ERROR,
+          status: DeviceLinkingStatus.ERROR,
+          error: error.message,
+          message: error.message,
+        });
+      }
+    });
+  }
+
+  /**
+   * Device2: Complete device linking
+   * 1. Derives deterministic VRF and NEAR keys using real accountID (instead of temporary keys)
+   * 2. Executes Key Replacement transaction to replace temporary key with the real key
+   * 3. Signs the registration transaction and broadcasts it.
+   */
+  private async swapKeysAndRegisterAccount(): Promise<void> {
     if (!this.session || !this.session.accountId) {
       throw new Error('AccountID not available for registration');
     }
 
     try {
       this.options?.onEvent?.({
-        step: 3,
+        step: 6,
         phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
         status: DeviceLinkingStatus.PROGRESS,
         message: 'Storing device authenticator data locally...'
       });
 
-      // Migrate/generate the VRF credentials for the real account
-      const migrateKeysResult = await this.migrateKeysAndCredentials();
+      // Migrate/generate deterministic VRF credentials for the real account
+      const deterministicKeysResult = await this.deriveDeterministicKeysAndRegisterAccount();
 
       // Store authenticator data locally on Device2
-      await this.storeDeviceAuthenticator(migrateKeysResult);
+      await this.storeDeviceAuthenticator(deterministicKeysResult);
 
       this.session.phase = DeviceLinkingPhase.STEP_7_LINKING_COMPLETE;
+      this.registrationRetryCount = 0; // Reset retry counter on success
       this.options?.onEvent?.({
-        step: 3,
+        step: 7,
         phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
         status: DeviceLinkingStatus.SUCCESS,
         message: 'Device linking completed successfully'
       });
-      this.stopPolling();
 
       // Auto-login for Device2 after successful device linking
-      try {
-        // Send additional event after successful auto-login to update React state
-        this.options?.onEvent?.({
-          step: 4,
-          phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
-          status: DeviceLinkingStatus.PROGRESS,
-          message: 'Logging in...'
-        });
-        await this.attemptAutoLogin(migrateKeysResult);
-      } catch (loginError: any) {
-        console.warn('Auto-login failed after device linking:', loginError);
-        // Don't fail the whole linking process if auto-login fails
-        this.options?.onEvent?.({
-          step: 4,
-          phase: DeviceLinkingPhase.LOGIN_ERROR,
-          status: DeviceLinkingStatus.ERROR,
-          message: loginError.message,
-        });
-      }
+      await this.attemptAutoLogin(deterministicKeysResult, this.options);
 
     } catch (error: any) {
-      this.session.phase = DeviceLinkingPhase.REGISTRATION_ERROR;
-      this.error = error;
-      this.stopPolling();
-      this.options?.onEvent?.({
-        step: 0,
-        phase: DeviceLinkingPhase.REGISTRATION_ERROR,
-        status: DeviceLinkingStatus.ERROR,
-        message: error.message,
-      });
-
+      // Re-throw error to be handled by attemptRegistration
       throw error;
     }
   }
 
   /**
+   * Check if an error is retryable (temporary issues that can be resolved)
+   */
+  private isRetryableError(error: any): boolean {
+    const retryableErrorMessages = [
+      'page does not have focus',
+      'a request is already pending',
+      'request is already pending',
+      'operationerror',
+      'notallowederror',
+      'the operation is not allowed at this time',
+      'network error',
+      'timeout',
+      'temporary',
+      'transient'
+    ];
+
+    const errorMessage = error.message?.toLowerCase() || '';
+    const errorName = error.name?.toLowerCase() || '';
+
+    return retryableErrorMessages.some(msg =>
+      errorMessage.includes(msg.toLowerCase()) ||
+      errorName.includes(msg.toLowerCase())
+    );
+  }
+
+  /**
    * Device2: Attempt auto-login after successful device linking
    */
-  private async attemptAutoLogin(migrateKeysResult: {
-    encryptedVrfKeypair: EncryptedVRFKeypair;
-    vrfPublicKey: string;
-    nearPublicKey: string;
-    credential: PublicKeyCredential;
-    vrfChallenge?: VRFChallenge;
-  } | undefined): Promise<void> {
-    console.log('LinkDeviceFlow: attemptAutoLogin called with:', {
-      hasSession: !!this.session,
-      accountId: this.session?.accountId,
-      hasCredential: !!this.session?.credential,
-      hasMigrateKeysResult: !!migrateKeysResult
-    });
-
-    if (!this.session || !this.session.accountId || !this.session.credential || !migrateKeysResult) {
-      const missing = [];
-      if (!this.session) missing.push('session');
-      if (!this.session?.accountId) missing.push('accountId');
-      if (!this.session?.credential) missing.push('credential');
-      if (!migrateKeysResult) missing.push('migrateKeysResult');
-      throw new Error(`Missing required data for auto-login: ${missing.join(', ')}`);
-    }
-
-    // Unlock VRF keypair for immediate login
-    const vrfUnlockResult = await this.context.webAuthnManager.unlockVRFKeypair({
-      nearAccountId: this.session.accountId,
-      encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair,
-      credential: this.session.credential,
-    });
-
-    if (vrfUnlockResult.success) {
-      this.options?.onEvent?.({
-        step: 4,
+  private async attemptAutoLogin(
+    deterministicKeysResult?: {
+      encryptedVrfKeypair: EncryptedVRFKeypair;
+      vrfPublicKey: string;
+      nearPublicKey: string;
+      credential: PublicKeyCredential;
+      vrfChallenge?: VRFChallenge;
+    },
+    options?: StartDeviceLinkingOptionsDevice2
+  ): Promise<void> {
+    try {
+      // Send additional event after successful auto-login to update React state
+      options?.onEvent?.({
+        step: 8,
         phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
-        status: DeviceLinkingStatus.SUCCESS,
-        message: `Welcome ${this.session.accountId}`
+        status: DeviceLinkingStatus.PROGRESS,
+        message: 'Logging in...'
       });
-    } else {
-      throw new Error(vrfUnlockResult.error || 'VRF unlock failed');
+
+      if (
+        !this.session || !this.session.accountId ||
+        !this.session.credential || !deterministicKeysResult
+      ) {
+        const missing = [];
+        if (!this.session) missing.push('session');
+        if (!this.session?.accountId) missing.push('accountId');
+        if (!this.session?.credential) missing.push('credential');
+        if (!deterministicKeysResult) missing.push('deterministicKeysResult');
+        throw new Error(`Missing required data for auto-login: ${missing.join(', ')}`);
+      }
+
+      // Unlock VRF keypair for immediate login
+      const vrfUnlockResult = await this.context.webAuthnManager.unlockVRFKeypair({
+        nearAccountId: this.session.accountId,
+        encryptedVrfKeypair: deterministicKeysResult.encryptedVrfKeypair,
+        credential: this.session.credential,
+      });
+
+      if (vrfUnlockResult.success) {
+        this.options?.onEvent?.({
+          step: 8,
+          phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
+          status: DeviceLinkingStatus.SUCCESS,
+          message: `Welcome ${this.session.accountId}`
+        });
+      } else {
+        throw new Error(vrfUnlockResult.error || 'VRF unlock failed');
+      }
+    } catch(loginError: any) {
+      console.warn('Login failed after device linking:', loginError);
+      // Don't fail the whole linking process if auto-login fails
+      options?.onEvent?.({
+        step: 0,
+        phase: DeviceLinkingPhase.LOGIN_ERROR,
+        status: DeviceLinkingStatus.ERROR,
+        error: loginError.message,
+        message: loginError.message,
+      });
     }
   }
 
   /**
    * Device2: Store authenticator data locally on Device2
    */
-  private async storeDeviceAuthenticator(migrateKeysResult: {
+  private async storeDeviceAuthenticator(deterministicKeysResult: {
     encryptedVrfKeypair: EncryptedVRFKeypair;
     vrfPublicKey: string;
     nearPublicKey: string;
@@ -462,7 +555,7 @@ export class LinkDeviceFlow {
       if (!credential) {
         throw new Error('WebAuthn credential not available after VRF migration');
       }
-      if (!migrateKeysResult?.encryptedVrfKeypair) {
+      if (!deterministicKeysResult?.encryptedVrfKeypair) {
         throw new Error('VRF credentials not available after migration');
       }
 
@@ -476,14 +569,13 @@ export class LinkDeviceFlow {
       await webAuthnManager.storeUserData({
         nearAccountId: accountId,
         deviceNumber: this.session.deviceNumber,
-        clientNearPublicKey: migrateKeysResult.nearPublicKey,
+        clientNearPublicKey: deterministicKeysResult.nearPublicKey,
         lastUpdated: Date.now(),
-        prfSupported: true,
         passkeyCredential: {
           id: credential.id,
           rawId: base64UrlEncode(new Uint8Array(credential.rawId))
         },
-        encryptedVrfKeypair: migrateKeysResult.encryptedVrfKeypair,
+        encryptedVrfKeypair: deterministicKeysResult.encryptedVrfKeypair,
       });
 
       // Store authenticator with deviceNumber
@@ -496,7 +588,7 @@ export class LinkDeviceFlow {
         name: `Device ${this.session.deviceNumber || 'Unknown'} Passkey for ${accountId.split('.')[0]}`,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
-        vrfPublicKey: migrateKeysResult.vrfPublicKey,
+        vrfPublicKey: deterministicKeysResult.vrfPublicKey,
       });
       console.log(`LinkDeviceFlow: Successfully stored authenticator data for account: ${accountId}, device number: ${this.session.deviceNumber}`);
 
@@ -509,14 +601,14 @@ export class LinkDeviceFlow {
   }
 
   /**
-   * 1. Re-derives VRF and NEAR keys using real accountID (instead of temporary keys)
+   * 1. Derives deterministic VRF and NEAR keys using real accountID (instead of temporary keys)
    * 2. Executes Key Replacement transaction to replace temporary key with the real key
    * 3. Signs the registration transaction and broadcasts it.
    *
    * For Option E: VRF credentials already exist, just ensure they're stored
    * For Option F: Generate WebAuthn credential + derive VRF credentials
    */
-  private async migrateKeysAndCredentials(): Promise<{
+  private async deriveDeterministicKeysAndRegisterAccount(): Promise<{
     encryptedVrfKeypair: EncryptedVRFKeypair;
     vrfPublicKey: string;
     nearPublicKey: string;
@@ -827,6 +919,17 @@ export class LinkDeviceFlow {
   }
 
   /**
+   * Stop registration retry timeout
+   */
+  private stopRegistrationRetry(): void {
+    if (this.registrationRetryTimeout) {
+      console.log(`LinkDeviceFlow: Stopping registration retry timeout`);
+      clearTimeout(this.registrationRetryTimeout);
+      this.registrationRetryTimeout = undefined;
+    }
+  }
+
+  /**
    * Get current flow state
    */
   getState() {
@@ -843,8 +946,10 @@ export class LinkDeviceFlow {
   cancel(): void {
     console.log(`LinkDeviceFlow: Cancel called`);
     this.stopPolling();
+    this.stopRegistrationRetry();
     this.session = null;
     this.error = undefined;
+    this.registrationRetryCount = 0;
   }
 
   /**
