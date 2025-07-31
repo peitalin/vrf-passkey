@@ -10,20 +10,19 @@ export interface ClientUserData {
   deviceNumber: number; // Device number for multi-device support (1-indexed)
 
   // User metadata
-  registeredAt: number;
+  registeredAt?: number;
   lastLogin?: number;
-  lastUpdated: number;
+  lastUpdated?: number;
 
   // WebAuthn/Passkey data (merged from WebAuthnManager)
-  clientNearPublicKey?: string;
-  prfSupported?: boolean;
-  passkeyCredential?: {
+  clientNearPublicKey: string;
+  passkeyCredential: {
     id: string;
     rawId: string;
   };
 
   // VRF credentials for stateless authentication
-  encryptedVrfKeypair?: {
+  encryptedVrfKeypair: {
     encrypted_vrf_data_b64u: string;
     chacha20_nonce_b64u: string;
   };
@@ -210,10 +209,8 @@ export class PasskeyClientDBManager {
 
   async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
     try {
-      const userData = await this.getUser(nearAccountId);
-      return !!userData
-          && !!userData.clientNearPublicKey
-          && !!userData.passkeyCredential
+      const authenticators = await this.getAuthenticatorsByUser(nearAccountId);
+      return !!authenticators[0]?.credentialId;
     } catch (error) {
       console.warn('Error checking passkey credential:', error);
       return false;
@@ -225,11 +222,9 @@ export class PasskeyClientDBManager {
    * @param nearAccountId - Full NEAR account ID (e.g., "username.testnet" or "username.relayer.testnet")
    * @param additionalData - Additional user data to store
    */
-  async registerUser(
-    nearAccountId: AccountId,
-    additionalData?: Partial<ClientUserData>
-  ): Promise<ClientUserData> {
-    const validation = this.validateNearAccountId(nearAccountId);
+  async registerUser(storeUserData: StoreUserDataInput): Promise<ClientUserData> {
+
+    const validation = this.validateNearAccountId(storeUserData.nearAccountId);
     if (!validation.valid) {
       throw new Error(`Cannot register user with invalid account ID: ${validation.error}`);
     }
@@ -237,17 +232,19 @@ export class PasskeyClientDBManager {
     const now = Date.now();
 
     const userData: ClientUserData = {
-      nearAccountId: toAccountId(nearAccountId),
-      deviceNumber: additionalData?.deviceNumber || 1, // Default to device 1 (1-indexed)
+      nearAccountId: toAccountId(storeUserData.nearAccountId),
+      deviceNumber: storeUserData.deviceNumber || 1, // Default to device 1 (1-indexed)
       registeredAt: now,
       lastLogin: now,
       lastUpdated: now,
+      clientNearPublicKey: storeUserData.clientNearPublicKey,
+      passkeyCredential: storeUserData.passkeyCredential,
       preferences: {
         useRelayer: false,
         useNetwork: 'testnet',
         // Default preferences can be set here
       },
-      ...additionalData,
+      encryptedVrfKeypair: storeUserData.encryptedVrfKeypair,
     };
 
     await this.storeUser(userData);
@@ -320,14 +317,13 @@ export class PasskeyClientDBManager {
   async storeWebAuthnUserData(userData: {
     nearAccountId: AccountId;
     deviceNumber?: number; // Device number for multi-device support (1-indexed)
-    clientNearPublicKey?: string;
+    clientNearPublicKey: string;
     lastUpdated?: number;
-    prfSupported?: boolean;
-    passkeyCredential?: {
+    passkeyCredential: {
       id: string;
       rawId: string;
     };
-    encryptedVrfKeypair?: {
+    encryptedVrfKeypair: {
       encrypted_vrf_data_b64u: string;
       chacha20_nonce_b64u: string;
     };
@@ -349,8 +345,12 @@ export class PasskeyClientDBManager {
       const deviceNumberToUse = userData.deviceNumber || 1;
       console.log("DEBUG: Creating new user with deviceNumber =", deviceNumberToUse,
                   "(original =", userData.deviceNumber, ")");
-      existingUser = await this.registerUser(userData.nearAccountId, {
-        deviceNumber: deviceNumberToUse // Use provided device number or default to 1
+      existingUser = await this.registerUser({
+        nearAccountId: userData.nearAccountId,
+        deviceNumber: deviceNumberToUse, // Use provided device number or default to 1
+        clientNearPublicKey: userData.clientNearPublicKey,
+        passkeyCredential: userData.passkeyCredential,
+        encryptedVrfKeypair: userData.encryptedVrfKeypair,
       });
     }
 
@@ -361,8 +361,6 @@ export class PasskeyClientDBManager {
 
     await this.updateUser(userData.nearAccountId, {
       clientNearPublicKey: userData.clientNearPublicKey,
-      prfSupported: userData.prfSupported,
-      passkeyCredential: userData.passkeyCredential,
       encryptedVrfKeypair: userData.encryptedVrfKeypair,
       deviceNumber: finalDeviceNumber, // Use provided device number or keep existing
       lastUpdated: userData.lastUpdated || Date.now()
