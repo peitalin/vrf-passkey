@@ -1,4 +1,3 @@
-import { RELAYER_ACCOUNT_ID } from '../config';
 
 export interface ValidationResult {
   valid: boolean;
@@ -81,16 +80,4 @@ export function validateNearAccountId(
   }
 
   return { valid: true };
-}
-
-/**
- * Validate NEAR account ID with specific suffix requirements for server registration
- * Must be <username>.<relayerAccountId>, <username>.testnet, or <username>.near
- */
-export function validateServerRegistrationAccountId(nearAccountId: string): ValidationResult {
-  const validSuffixes = [RELAYER_ACCOUNT_ID, 'testnet', 'near'];
-  return validateNearAccountId(nearAccountId, {
-    allowedSuffixes: validSuffixes,
-    requireTopLevelDomain: false // Allow subdomain suffixes like '.web3-authn-v2.testnet'
-  });
 }

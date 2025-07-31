@@ -214,12 +214,13 @@ export interface PasskeyContextType {
  *   contractId: 'web3-authn-v2.testnet',
  *   relayerAccount: 'web3-authn-v2.testnet',
  *   relayServerUrl: 'https://faucet.testnet.near.org',
- *   initialUseRelayer: true
+ *   initialUseRelayer: true,
+ *   nearExplorerBaseUrl: 'https://testnet.nearblocks.io',
  * }
  */
 export interface PasskeyContextProviderProps {
   children: ReactNode;
-  config?: PasskeyManagerConfigs;
+  config: PasskeyManagerConfigs;
 }
 
 // === CONVENIENCE RE-EXPORTS ===

@@ -548,10 +548,13 @@ export interface PasskeyManagerConfigs {
   contractId: 'web3-authn-v2.testnet' | 'web3-authn.near' | string;
   relayerAccount: string;
   // Relay Server is used to create new NEAR accounts
-  // Optional: defaults to testnet faucet
-  relayServerUrl?: string;
+  relayServerUrl: string;
   // Whether to use the relayer by default on initial load
-  initialUseRelayer?: boolean;
+  // Optional: defaults to testnet faucet
+  initialUseRelayer: boolean;
+  // NEAR Explorer base URL for transaction links
+  nearExplorerBaseUrl: string;
+  defaultGasString: string;
 }
 
 // === TRANSACTION TYPES ===

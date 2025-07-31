@@ -23,15 +23,8 @@ import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
 // import { Provider } from "@near-js/providers";
 import {
-  EncryptionResult,
-  RegistrationCheckResult,
-  RegistrationResult,
-  KeyActionResult,
-  TransactionSignResult,
-  RecoverKeypairResult,
   WasmTransaction,
   WasmSignature,
-  WasmSignedTransaction,
 } from "../wasm_signer_worker/wasm_signer_worker.js";
 
 interface ContractResult<T> extends QueryResponseKind {

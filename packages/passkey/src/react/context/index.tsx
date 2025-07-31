@@ -32,6 +32,7 @@ import type {
   ScanAndLinkDeviceOptionsDevice1,
 } from '../types';
 import { AccountRecoveryHooksOptions } from '@/core/types/passkeyManager';
+import { PasskeyManagerConfigs } from "@/core/types/passkeyManager";
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
@@ -39,9 +40,21 @@ const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 let globalPasskeyManager: PasskeyManager | null = null;
 let globalConfig: any = null;
 
+export const PASSKEY_MANAGER_DEFAULT_CONFIGS: PasskeyManagerConfigs = {
+  // nearRpcUrl: 'https://rpc.testnet.near.org',
+  nearRpcUrl: 'https://test.rpc.fastnear.com',
+  nearNetwork: 'testnet' as const,
+  contractId: 'web3-authn-v2.testnet',
+  relayerAccount: 'web3-authn-v2.testnet',
+  initialUseRelayer: true,
+  nearExplorerBaseUrl: 'https://testnet.nearblocks.io',
+  relayServerUrl: 'http://localhost:3000',
+  defaultGasString: "30000000000000", // 30 TGas: Gas constants as strings
+}
+
 export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   children,
-  config: userConfig
+  config = PASSKEY_MANAGER_DEFAULT_CONFIGS,
 }) => {
 
   // Authentication state (actual login status)
@@ -70,14 +83,8 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   // Initialize PasskeyManager with singleton pattern to prevent double initialization in StrictMode
   const passkeyManager = useMemo(() => {
-    const defaultConfig = {
-      nearNetwork: 'testnet' as const,
-      relayerAccount: 'web3-authn-v2.testnet',
-      contractId: 'web3-authn-v2.testnet',
-      nearRpcUrl: 'https://rpc.testnet.near.org'
-    };
 
-    const finalConfig = { ...defaultConfig, ...userConfig };
+    const finalConfig = { ...PASSKEY_MANAGER_DEFAULT_CONFIGS, ...config };
 
     // Check if we already have a global instance with the same config
     const configChanged = JSON.stringify(globalConfig) !== JSON.stringify(finalConfig);
@@ -91,11 +98,11 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     }
 
     return globalPasskeyManager;
-  }, [userConfig]);
+  }, [config]);
 
   // Use relayer hook
   const relayerHook = useRelayer({
-    initialValue: userConfig?.initialUseRelayer ?? false
+    initialValue: config?.initialUseRelayer ?? false
   });
 
   // Use account input hook

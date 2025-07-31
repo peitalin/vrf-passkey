@@ -8,6 +8,7 @@ import { getNonceBlockHashAndHeight } from './actions';
 import { base64UrlEncode } from '../../utils';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
+import { DEVICE_LINKING_CONFIG } from '../../config';
 
 import type {
   DeviceLinkingQRData,
@@ -61,14 +62,20 @@ export class LinkDeviceFlow {
   private error?: Error;
   // AddKey polling
   private pollingInterval?: NodeJS.Timeout;
-  private KEY_POLLING_INTERVAL = 4000;
+  private readonly KEY_POLLING_INTERVAL = DEVICE_LINKING_CONFIG.TIMEOUTS.POLLING_INTERVAL_MS;
   // Registration retries
   private registrationRetryTimeout?: NodeJS.Timeout;
   private registrationRetryCount = 0;
-  private readonly MAX_REGISTRATION_RETRIES = 5;
-  private readonly RETRY_DELAY_MS = 2000; // 2 second delay between retries
+  private readonly MAX_REGISTRATION_RETRIES = DEVICE_LINKING_CONFIG.RETRY.MAX_REGISTRATION_ATTEMPTS;
+  private readonly RETRY_DELAY_MS = DEVICE_LINKING_CONFIG.TIMEOUTS.REGISTRATION_RETRY_DELAY_MS;
+  // Temporary key cleanup
+  private tempKeyCleanupTimer?: NodeJS.Timeout;
+  private readonly TEMP_KEY_CLEANUP_DELAY_MS = DEVICE_LINKING_CONFIG.TIMEOUTS.TEMP_KEY_CLEANUP_MS;
 
-  constructor(context: PasskeyManagerContext, options: StartDeviceLinkingOptionsDevice2) {
+  constructor(
+    context: PasskeyManagerContext,
+    options: StartDeviceLinkingOptionsDevice2
+  ) {
     this.context = context;
     this.options = options;
   }
@@ -127,7 +134,7 @@ export class LinkDeviceFlow {
           vrfChallenge,
           phase: DeviceLinkingPhase.IDLE,
           createdAt: Date.now(),
-          expiresAt: Date.now() + (15 * 60 * 1000) // 15 minute timeout
+          expiresAt: Date.now() + DEVICE_LINKING_CONFIG.TIMEOUTS.SESSION_EXPIRATION_MS
         };
 
         console.log(`LinkDeviceFlow: Option E - Generated proper NEAR keypair for ${accountId}`);
@@ -147,7 +154,7 @@ export class LinkDeviceFlow {
           vrfChallenge: null, // Will be generated later
           phase: DeviceLinkingPhase.IDLE,
           createdAt: Date.now(),
-          expiresAt: Date.now() + (15 * 60 * 1000), // 15 minute timeout
+          expiresAt: Date.now() + DEVICE_LINKING_CONFIG.TIMEOUTS.SESSION_EXPIRATION_MS,
           tempPrivateKey: tempNearKeyResult.privateKey // Store temp private key for signing later
         };
         console.log(`LinkDeviceFlow: Option F - Generated temporary NEAR keypair`);
@@ -206,17 +213,64 @@ export class LinkDeviceFlow {
   /**
    * Generate temporary NEAR keypair without TouchID/VRF for Option F flow
    * This creates a proper Ed25519 keypair that can be used for the QR code
+   * Includes memory cleanup and automatic expiration
    */
   private async generateTemporaryNearKeypair(): Promise<{ publicKey: string; privateKey: string }> {
     // Generate a temporary random NEAR Ed25519 keypair
     const keyPair = KeyPair.fromRandom('ed25519');
     const publicKeyNear = keyPair.getPublicKey().toString();
     const privateKeyNear = keyPair.toString();
-    console.log(`LinkDeviceFlow: Generated temporary Ed25519 keypair`);
+
+    console.log(`LinkDeviceFlow: Generated temporary Ed25519 keypair with automatic cleanup`);
+
+    // Schedule automatic cleanup of the temporary key from memory
+    this.scheduleTemporaryKeyCleanup(publicKeyNear);
+
     return {
       publicKey: publicKeyNear,
       privateKey: privateKeyNear
     };
+  }
+
+  /**
+   * Schedule automatic cleanup of temporary private key from memory
+   * This provides defense-in-depth against memory exposure
+   */
+  private scheduleTemporaryKeyCleanup(publicKey: string): void {
+    // Clear any existing cleanup timer
+    if (this.tempKeyCleanupTimer) {
+      clearTimeout(this.tempKeyCleanupTimer);
+    }
+
+    this.tempKeyCleanupTimer = setTimeout(() => {
+      this.cleanupTemporaryKeyFromMemory();
+      console.log(`LinkDeviceFlow: Automatic cleanup executed for temporary key: ${publicKey.substring(0, 20)}...`);
+    }, this.TEMP_KEY_CLEANUP_DELAY_MS);
+
+    console.log(`LinkDeviceFlow: Scheduled automatic cleanup in ${this.TEMP_KEY_CLEANUP_DELAY_MS / 1000 / 60} minutes for key: ${publicKey.substring(0, 20)}...`);
+  }
+
+  /**
+   * Immediately clean up temporary private key from memory
+   * Called on successful completion, cancellation, or timeout
+   */
+  private cleanupTemporaryKeyFromMemory(): void {
+    if (this.session?.tempPrivateKey) {
+      // Overwrite the private key string with zeros
+      const keyLength = this.session.tempPrivateKey.length;
+      this.session.tempPrivateKey = '0'.repeat(keyLength);
+
+      // Then set to empty string to release memory
+      this.session.tempPrivateKey = '';
+
+      console.log('LinkDeviceFlow: Temporary private key cleaned from memory');
+    }
+
+    // Clear the cleanup timer
+    if (this.tempKeyCleanupTimer) {
+      clearTimeout(this.tempKeyCleanupTimer);
+      this.tempKeyCleanupTimer = undefined;
+    }
   }
 
   /**
@@ -734,6 +788,9 @@ export class LinkDeviceFlow {
           } catch (err) {
             console.warn(`️LinkDeviceFlow: Could not clean up temp VRF credentials:`, err);
           }
+
+          // Clean up temporary private key from memory after successful completion
+          this.cleanupTemporaryKeyFromMemory();
         }
 
         // Return all derived values - no more session state confusion!
@@ -868,6 +925,9 @@ export class LinkDeviceFlow {
 
       console.log(`LinkDeviceFlow: Cleaning up failed linking attempt for ${accountId || 'unknown account'}`);
 
+      // Clean up temporary private key from memory first
+      this.cleanupTemporaryKeyFromMemory();
+
       // Remove any authenticator data for both base and device-specific accounts (if they were discovered)
       if (accountId && credential) {
 
@@ -947,6 +1007,7 @@ export class LinkDeviceFlow {
     console.log(`LinkDeviceFlow: Cancel called`);
     this.stopPolling();
     this.stopRegistrationRetry();
+    this.cleanupTemporaryKeyFromMemory(); // Clean up temporary private key
     this.session = null;
     this.error = undefined;
     this.registrationRetryCount = 0;

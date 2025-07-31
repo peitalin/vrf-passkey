@@ -1,10 +1,9 @@
-import { NEAR_EXPLORER_BASE_URL } from "../../../config";
 
 export const UserDetails = ({
   username,
   fullAccountId,
   isOpen,
-  nearExplorerBaseUrl = NEAR_EXPLORER_BASE_URL
+  nearExplorerBaseUrl
 }: {
   username: string;
   fullAccountId?: string;

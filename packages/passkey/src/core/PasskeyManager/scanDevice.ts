@@ -10,6 +10,7 @@ import type {
 } from '../types/linkDevice';
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
+import { DEVICE_LINKING_CONFIG } from '../../config.js';
 // jsQR will be dynamically imported when needed
 import { scanQRCodeFromCamera } from '../../utils/qrScanner';
 import { executeDeviceLinkingContractCalls } from '../rpcCalls';
@@ -188,7 +189,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
   }
 
   // Check timestamp is not too old (max 15 minutes)
-  const maxAge = 15 * 60 * 1000; // 15 minutes
+  const maxAge = DEVICE_LINKING_CONFIG.TIMEOUTS.QR_CODE_MAX_AGE_MS;
   if (Date.now() - qrData.timestamp > maxAge) {
     throw new DeviceLinkingError(
       'QR code expired',

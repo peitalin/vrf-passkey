@@ -116,7 +116,8 @@ export async function executeDeviceLinkingContractCalls({
           actionType: ActionType.AddKey,
           public_key: device2PublicKey,
           access_key: JSON.stringify({
-            permission: { FullAccess: {} }
+            permission: { FullAccess: {} },
+            // FullAccess required to addkey
           })
         }],
         nonce: nextNonce,

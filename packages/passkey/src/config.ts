@@ -1,14 +1,5 @@
 import { BUILD_PATHS } from '../build-paths.js';
 
-// export const RPC_NODE_URL = 'https://rpc.testnet.near.org';
-export const RPC_NODE_URL = 'https://test.rpc.fastnear.com';
-export const WEBAUTHN_CONTRACT_ID = 'web3-authn-v2.testnet';
-export const RELAYER_ACCOUNT_ID = 'web3-authn-v2.testnet';
-export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
-// Gas constants as strings
-export const DEFAULT_GAS_STRING = "30000000000000"; // 30 TGas
-
-
 // === CONFIGURATION ===
 export const SIGNER_WORKER_MANAGER_CONFIG = {
   TIMEOUTS: {
@@ -24,5 +15,19 @@ export const SIGNER_WORKER_MANAGER_CONFIG = {
   RETRY: {
     MAX_ATTEMPTS: 3,
     BACKOFF_MS: 1000,
+  }
+} as const;
+
+// === DEVICE LINKING CONFIGURATION ===
+export const DEVICE_LINKING_CONFIG = {
+  TIMEOUTS: {
+    QR_CODE_MAX_AGE_MS: 15 * 60 * 1000,        // 15 minutes - QR code expiration
+    SESSION_EXPIRATION_MS: 15 * 60 * 1000,     // 15 minutes - Device linking session timeout
+    TEMP_KEY_CLEANUP_MS: 15 * 60 * 1000,       // 15 minutes - Automatic cleanup of temporary keys
+    POLLING_INTERVAL_MS: 4000,                 // 4 seconds - AddKey polling interval
+    REGISTRATION_RETRY_DELAY_MS: 2000,         // 2 seconds - Delay between registration retries
+  },
+  RETRY: {
+    MAX_REGISTRATION_ATTEMPTS: 5,              // Maximum registration retry attempts
   }
 } as const;

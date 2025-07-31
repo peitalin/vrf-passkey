@@ -1,5 +1,4 @@
 import type { AccessKeyView } from '@near-js/types';
-import { DEFAULT_GAS_STRING } from '../../config';
 import { ActionParams } from '../types';
 import { ActionType } from '../types/actions';
 import type { VerifyAndSignTransactionResult } from '../types/passkeyManager';
@@ -229,7 +228,7 @@ async function wasmAuthenticateAndSignTransaction(
           actionType: ActionType.FunctionCall,
           method_name: action.methodName,
           args: JSON.stringify(action.args),
-          gas: action.gas || DEFAULT_GAS_STRING,
+          gas: action.gas || context.configs.defaultGasString,
           deposit: action.deposit || "0"
         };
 
