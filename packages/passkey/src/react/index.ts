@@ -22,29 +22,41 @@ export { QRCodeScanner } from './components/QRCodeScanner';
 
 // === TYPES ===
 export type {
-  LoginState,
   PasskeyContextType,
   PasskeyContextProviderProps,
-  RegistrationResult,
+  LoginState,
   LoginResult,
-  ExecuteActionCallbacks,
+  RegistrationResult,
   ActionExecutionResult,
+  ExecuteActionCallbacks,
+  // SSE Events
+  RegistrationSSEEvent,
+  LoginSSEvent,
+  ActionSSEEvent,
+  DeviceLinkingSSEEvent,
+  AccountRecoverySSEEvent,
+  // Re-exported from PasskeyManager types
+  RegistrationHooksOptions,
+  LoginHooksOptions,
+  BaseHooksOptions,
+  ActionHooksOptions,
+
+  // Toasts
   ToastOptions,
   ToastStyleOptions,
   ManagedToast,
-
+  // UI State
   AccountInputState,
   UseAccountInputReturn,
   UseRelayerOptions,
   UseRelayerReturn,
-  // Re-exported from PasskeyManager types
-  RegistrationOptions,
-  LoginOptions,
-  HooksOptions,
-  RegistrationSSEEvent,
-  LoginEvent,
-  ActionEvent
 } from './types';
+
+// === ACCOUNT RECOVERY ENUMS ===
+export {
+  AccountRecoveryPhase,
+  AccountRecoveryStatus,
+} from '../core/types/passkeyManager';
 
 // === DEVICE LINKING ENUMS ===
 export {

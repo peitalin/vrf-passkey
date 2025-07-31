@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
+
 import { usePasskeyContext, DeviceLinkingPhase, DeviceLinkingStatus } from '@web3authn/passkey/react'
 // Import the improved QRCodeScanner from the SDK
 import { QRCodeScanner } from '@web3authn/passkey/react'
-import toast from 'react-hot-toast'
 
 export function LinkDeviceScanQR() {
   const {

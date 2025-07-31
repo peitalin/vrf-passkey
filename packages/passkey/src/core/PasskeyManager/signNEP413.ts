@@ -1,5 +1,5 @@
 import type { PasskeyManagerContext } from './index';
-import type { HooksOptions } from '../types/passkeyManager';
+import type { BaseHooksOptions } from '../types/passkeyManager';
 import { ActionPhase, ActionStatus } from '../types/passkeyManager';
 import type { AccountId } from '../types/accountIds';
 import { getNonceBlockHashAndHeight } from './actions';
@@ -55,7 +55,7 @@ export async function signNEP413Message(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   params: SignNEP413MessageParams,
-  options?: HooksOptions
+  options?: BaseHooksOptions
 ): Promise<SignNEP413MessageResult> {
 
   const { nearClient, webAuthnManager } = context;

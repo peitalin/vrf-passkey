@@ -1,11 +1,15 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
-import { usePasskeyContext, RegistrationPhase, RegistrationStatus, LoginPhase, LoginStatus } from '@web3authn/passkey/react'
+import { useState, useRef } from 'react'
+import { usePasskeyContext, RegistrationPhase, RegistrationStatus, LoginPhase, LoginStatus, ActionPhase, ActionStatus } from '@web3authn/passkey/react'
 import toast from 'react-hot-toast'
 
-import type { RegistrationSSEEvent } from '@web3authn/passkey/react'
+import {
+  type RegistrationSSEEvent,
+  AccountRecoveryPhase,
+  AccountRecoveryStatus
+} from '@web3authn/passkey/react'
+
 import { Toggle } from './Toggle'
 import { usePostfixPosition } from '../hooks/usePostfixPosition'
-import type { LastTxDetails } from '../types'
 import { LinkDeviceShowQR } from './LinkDeviceShowQR'
 
 
@@ -111,7 +115,11 @@ export function PasskeyLoginMenu() {
     try {
       const flow = startAccountRecoveryFlow({
         onEvent: async (event) => {
-          if (event.phase === 'action-complete' && event.status === 'success') {
+          console.log('Recovery event:', event);
+          if (
+            event.phase === AccountRecoveryPhase.STEP_5_ACCOUNT_RECOVERY_COMPLETE
+            && event.status === AccountRecoveryStatus.SUCCESS
+          ) {
             await refreshLoginState(targetAccountId);
           }
         },

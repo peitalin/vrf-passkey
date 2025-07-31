@@ -2,10 +2,9 @@ import type { NearClient, SignedTransaction } from '../NearClient';
 import { MinimalNearClient } from '../NearClient';
 import { validateNearAccountId } from '../../utils/validation';
 import type {
-  RegistrationOptions,
+  RegistrationHooksOptions,
   RegistrationResult,
   RegistrationSSEEvent,
-  OperationHooks,
 } from '../types/passkeyManager';
 import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
@@ -34,7 +33,7 @@ import { base64UrlEncode } from '../../utils/encoders';
 export async function registerPasskey(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-  options: RegistrationOptions
+  options: RegistrationHooksOptions
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, hooks, useRelayer } = options;

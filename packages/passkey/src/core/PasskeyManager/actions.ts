@@ -4,7 +4,7 @@ import { ActionParams } from '../types';
 import { ActionType } from '../types/actions';
 import type { VerifyAndSignTransactionResult } from '../types/passkeyManager';
 import type { ActionArgs } from '../types/actions';
-import type { HooksOptions, ActionResult } from '../types/passkeyManager';
+import type { ActionHooksOptions, ActionResult } from '../types/passkeyManager';
 import type { TransactionContext, BlockInfo } from '../types/rpc';
 import type { PasskeyManagerContext } from './index';
 import type { NearClient } from '../NearClient';
@@ -21,7 +21,7 @@ export async function executeAction(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   actionArgs: ActionArgs | ActionArgs[],
-  options?: HooksOptions,
+  options?: ActionHooksOptions,
 ): Promise<ActionResult> {
 
   const { onEvent, onError, hooks, waitUntil } = options || {};
@@ -135,7 +135,7 @@ async function validateActionInputs(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   actionArgs: ActionArgs,
-  options?: HooksOptions,
+  options?: ActionHooksOptions,
 ): Promise<TransactionContext> {
 
   const { onEvent, onError, hooks } = options || {};
@@ -162,14 +162,9 @@ async function validateActionInputs(
   });
 
   const userData = await webAuthnManager.getUser(nearAccountId);
-  // Check if user has PRF support
-  const usesPrf = userData?.prfSupported === true;
   const nearPublicKeyStr = userData?.clientNearPublicKey;
   if (!nearPublicKeyStr) {
     throw new Error('Client NEAR public key not found in user data');
-  }
-  if (!usesPrf) {
-    throw new Error('This application requires PRF support. Please use a PRF-capable authenticator.');
   }
 
   return getNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId });
@@ -184,7 +179,7 @@ async function wasmAuthenticateAndSignTransaction(
   nearAccountId: AccountId,
   transactionContext: TransactionContext,
   actionArgs: ActionArgs[],
-  options?: HooksOptions,
+  options?: ActionHooksOptions,
 ): Promise<VerifyAndSignTransactionResult> {
 
   const { onEvent, onError, hooks } = options || {};
@@ -360,7 +355,7 @@ async function wasmAuthenticateAndSignTransaction(
 export async function broadcastTransaction(
   context: PasskeyManagerContext,
   signingResult: VerifyAndSignTransactionResult,
-  options?: HooksOptions,
+  options?: ActionHooksOptions,
 ): Promise<ActionResult> {
 
   const { onEvent, onError, hooks } = options || {};

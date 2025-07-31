@@ -12,7 +12,7 @@ import type { NearClient } from './NearClient';
 import type { AccountId } from './types/accountIds';
 import type { ContractStoredAuthenticator } from './PasskeyManager/recoverAccount';
 import type { PasskeyManagerContext } from './PasskeyManager';
-import type { DeviceLinkingEvent } from './types/passkeyManager';
+import type { DeviceLinkingSSEEvent } from './types/passkeyManager';
 
 import { StoredAuthenticator } from './types/webauthn';
 import { ActionPhase } from './types/passkeyManager';
@@ -102,7 +102,7 @@ export async function executeDeviceLinkingContractCalls({
   txBlockHash: string,
   vrfChallenge: VRFChallenge,
   credential: any, // PublicKeyCredential type
-  onEvent?: (event: DeviceLinkingEvent) => void
+  onEvent?: (event: DeviceLinkingSSEEvent) => void
 }): Promise<{ addKeyTxResult: FinalExecutionOutcome; contractTxResult: FinalExecutionOutcome }> {
 
   // Sign both transactions with one PRF authentication
@@ -145,17 +145,9 @@ export async function executeDeviceLinkingContractCalls({
     credential: credential,
     nearRpcUrl: context.webAuthnManager.configs.nearRpcUrl,
     onEvent: (progress) => {
-      if (progress.phase == ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
-        onEvent?.({
-          step: 4,
-          phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-          status: DeviceLinkingStatus.PROGRESS,
-          message: `Signing transactions: ${progress.message}`
-        })
-      }
       if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
         onEvent?.({
-          step: 5,
+          step: 3,
           phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
           status: DeviceLinkingStatus.SUCCESS,
           message: `Transactions signed`
@@ -189,7 +181,7 @@ export async function executeDeviceLinkingContractCalls({
 
     // Send success events immediately after AddKey succeeds
     onEvent?.({
-      step: 5,
+      step: 3,
       phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
       status: DeviceLinkingStatus.SUCCESS,
       message: `AddKey transaction completed successfully!`

@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import type {
   DeviceLinkingQRData,
   LinkDeviceResult,
-  DeviceLinkingEvent
+  DeviceLinkingSSEEvent
 } from '@/index';
 import { useQRCamera } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
@@ -13,7 +13,7 @@ export interface QRCodeScannerProps {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingEvent) => void;
+  onEvent?: (event: DeviceLinkingSSEEvent) => void;
   fundingAmount?: string;
   isOpen?: boolean;
   cameraId?: string;

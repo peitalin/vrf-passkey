@@ -1,3 +1,4 @@
+
 export const bufferEncode = (value: ArrayBuffer): string => {
   return btoa(String.fromCharCode(...new Uint8Array(value)))
     .replace(/\+/g, "-")

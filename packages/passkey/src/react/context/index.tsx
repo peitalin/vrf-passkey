@@ -11,7 +11,8 @@ import {
   AccountRecoveryFlow,
   DeviceLinkingPhase,
   type SignNEP413MessageParams,
-  type SignNEP413MessageResult
+  type SignNEP413MessageResult,
+  ActionArgs
 } from '@/index';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
@@ -22,13 +23,15 @@ import type {
   LoginState,
   AccountInputState,
   RegistrationResult,
-  LoginOptions,
+  LoginHooksOptions,
   LoginResult,
-  RegistrationOptions,
-  HooksOptions,
+  RegistrationHooksOptions,
+  BaseHooksOptions,
+  ActionHooksOptions,
   StartDeviceLinkingOptionsDevice2,
   ScanAndLinkDeviceOptionsDevice1,
 } from '../types';
+import { AccountRecoveryHooksOptions } from '@/core/types/passkeyManager';
 
 const PasskeyContext = createContext<PasskeyContextType | undefined>(undefined);
 
@@ -144,7 +147,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     }));
   }, [passkeyManager]);
 
-  const loginPasskey = async (nearAccountId: string, options: LoginOptions) => {
+  const loginPasskey = async (nearAccountId: string, options: LoginHooksOptions) => {
     const result: LoginResult = await passkeyManager.loginPasskey(nearAccountId, {
       ...options,
       onEvent: async (event) => {
@@ -176,7 +179,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result
   }
 
-  const registerPasskey = async (nearAccountId: string, options: RegistrationOptions) => {
+  const registerPasskey = async (nearAccountId: string, options: RegistrationHooksOptions) => {
     const result: RegistrationResult = await passkeyManager.registerPasskey(nearAccountId, {
       ...options,
       onEvent: async (event) => {
@@ -212,7 +215,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   const recoverAccountWithAccountId = async (
     accountId: string,
-    options?: HooksOptions,
+    options?: AccountRecoveryHooksOptions,
     reuseCredential?: PublicKeyCredential
   ) => {
     const result = await passkeyManager.recoverAccountWithAccountId(accountId, options, reuseCredential);
@@ -237,7 +240,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result;
   }
 
-  const startAccountRecoveryFlow = (options?: HooksOptions): AccountRecoveryFlow => {
+  const startAccountRecoveryFlow = (options?: AccountRecoveryHooksOptions): AccountRecoveryFlow => {
     return passkeyManager.startAccountRecoveryFlow(options);
   }
 
@@ -274,41 +277,45 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return await passkeyManager.scanAndLinkDevice(options);
   }
 
+  const executeAction = async (nearAccountId: string, actionArgs: ActionArgs, options?: ActionHooksOptions) => {
+    return await passkeyManager.executeAction(nearAccountId, actionArgs, options);
+  }
+
   const signNEP413Message = async (
     nearAccountId: string,
     params: SignNEP413MessageParams,
-    options?: HooksOptions
+    options?: BaseHooksOptions
   ) => {
     return await passkeyManager.signNEP413Message(nearAccountId, params, options);
   }
 
   // Function to manually refresh login state
-    const refreshLoginState = useCallback(async (nearAccountId?: string) => {
-      try {
-      const loginState = await passkeyManager.getLoginState(nearAccountId);
+  const refreshLoginState = useCallback(async (nearAccountId?: string) => {
+    try {
+    const loginState = await passkeyManager.getLoginState(nearAccountId);
 
-        if (loginState.nearAccountId) {
-          // User is only logged in if VRF worker has private key in memory
-          const isVRFLoggedIn = loginState.vrfActive;
+      if (loginState.nearAccountId) {
+        // User is only logged in if VRF worker has private key in memory
+        const isVRFLoggedIn = loginState.vrfActive;
 
-          setLoginState(prevState => ({
-            ...prevState,
-            nearAccountId: loginState.nearAccountId,
-            nearPublicKey: loginState.publicKey,
-            isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
-          }));
+        setLoginState(prevState => ({
+          ...prevState,
+          nearAccountId: loginState.nearAccountId,
+          nearPublicKey: loginState.publicKey,
+          isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
+        }));
 
-        console.log('Refreshed login state:', {
-            nearAccountId: loginState.nearAccountId,
-            publicKey: loginState.publicKey,
-            isLoggedIn: isVRFLoggedIn,
-            vrfActive: loginState.vrfActive,
-            hasUserData: !!loginState.userData
-          });
-        }
-      } catch (error) {
-      console.error('Error refreshing login state:', error);
+      console.log('Refreshed login state:', {
+          nearAccountId: loginState.nearAccountId,
+          publicKey: loginState.publicKey,
+          isLoggedIn: isVRFLoggedIn,
+          vrfActive: loginState.vrfActive,
+          hasUserData: !!loginState.userData
+        });
       }
+    } catch (error) {
+    console.error('Error refreshing login state:', error);
+    }
   }, [passkeyManager]);
 
   // Load user data on mount
@@ -317,36 +324,39 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   }, [refreshLoginState]);
 
   const value: PasskeyContextType = {
-    // UI acccount name input state (form/input tracking)
-    accountInputState,
+    // Core PasskeyManager instance - provides ALL functionality
+    passkeyManager,
+
+    // Simple login/register functions
+    registerPasskey,
+    loginPasskey,
+    logout,                      // Clears VRF session (logs out)
+
+    // Execute actions
+    executeAction,
+    // NEP-413 message signing
+    signNEP413Message,           // Sign NEP-413 messages
+
+    // Account recovery functions
+    recoverAccountWithAccountId, // Recover account with accountID and TouchId
+    startAccountRecoveryFlow,   // Create account recovery flow to discover accounts onchain, and recover accounts
+    // Device linking functions
+    startDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
+    scanAndLinkDevice,          // Scan QR and link device (Device1 side)
+
+    // Login state
+    getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
+    refreshLoginState,           // Manually refresh login state
+    loginState,
+
     // Account input management
+    // UI account name input state (form/input tracking)
+    accountInputState,
     setInputUsername: accountInputHook.setInputUsername,
     refreshAccountData: accountInputHook.refreshAccountData,
     useRelayer: relayerHook.useRelayer,
     setUseRelayer: relayerHook.setUseRelayer,
     toggleRelayer: relayerHook.toggleRelayer,
-
-    // Simple login/register functions
-    logout,                      // Clears VRF session (logs out)
-    loginPasskey,
-    registerPasskey,
-
-    // Account recovery functions
-    recoverAccountWithAccountId, // Recover account with accountID and TouchId
-    startAccountRecoveryFlow,    // Create account recovery flow to discover accounts onchain, and recover accounts
-    startDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
-    scanAndLinkDevice,           // Scan QR and link device (Device1 side)
-
-    // NEP-413 message signing
-    signNEP413Message,           // Sign NEP-413 messages
-
-    // Authentication state (actual state from contract/backend)
-    getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),
-    refreshLoginState,           // Manually refresh login state
-    loginState,
-
-    // Core PasskeyManager instance - provides ALL functionality
-    passkeyManager,
   };
 
   return <PasskeyContext.Provider value={value}>{children}</PasskeyContext.Provider>;

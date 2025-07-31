@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { usePasskeyContext, DeviceLinkingPhase, DeviceLinkingStatus } from '@web3authn/passkey/react'
 import toast from 'react-hot-toast'
+
+import { usePasskeyContext, DeviceLinkingPhase, DeviceLinkingStatus } from '@web3authn/passkey/react'
 
 export function LinkDeviceShowQR() {
   const {
@@ -45,17 +46,20 @@ export function LinkDeviceShowQR() {
               break;
             case DeviceLinkingPhase.STEP_6_REGISTRATION:
               if (event.status === DeviceLinkingStatus.SUCCESS) {
-                toast.success('Device linking completed successfully!', { id: 'device-link' });
-                setDeviceLinkingState({ mode: 'idle', isProcessing: false });
-                flowRef.current = null; // Clear ref when completed
+                toast.success('New device passkey registered onchain!', { id: 'device-link' });
               }
               break;
             case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
               if (event.status === DeviceLinkingStatus.SUCCESS) {
-                toast.success(event.message || 'Device linking completed successfully!', { id: 'device-link' });
+                toast.success(event.message || 'Device linking completed!', { id: 'device-link' });
                 setDeviceLinkingState({ mode: 'idle', isProcessing: false });
                 flowRef.current = null; // Clear ref when completed
               }
+              break;
+            case DeviceLinkingPhase.REGISTRATION_ERROR:
+                toast.error(event.message, { id: 'device-link' });
+                setDeviceLinkingState({ mode: 'idle', isProcessing: false });
+                flowRef.current = null; // Clear ref when completed
               break;
           }
         },

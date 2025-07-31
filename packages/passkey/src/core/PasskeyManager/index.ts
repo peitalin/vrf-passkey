@@ -6,13 +6,15 @@ import { recoverAccount, AccountRecoveryFlow, type RecoveryResult } from './reco
 import { MinimalNearClient, type NearClient } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
-  RegistrationOptions,
   RegistrationResult,
-  LoginOptions,
   LoginResult,
-  HooksOptions,
+  BaseHooksOptions,
+  RegistrationHooksOptions,
+  LoginHooksOptions,
+  ActionHooksOptions,
   ActionResult,
   LoginState,
+  AccountRecoveryHooksOptions,
 } from '../types/passkeyManager';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
@@ -79,7 +81,7 @@ export class PasskeyManager {
    */
   async registerPasskey(
     nearAccountId: string,
-    options: RegistrationOptions
+    options: RegistrationHooksOptions
   ): Promise<RegistrationResult> {
     return registerPasskey(this.getContext(), toAccountId(nearAccountId), options);
   }
@@ -90,7 +92,7 @@ export class PasskeyManager {
    */
   async loginPasskey(
     nearAccountId: string,
-    options?: LoginOptions
+    options?: LoginHooksOptions
   ): Promise<LoginResult> {
     return loginPasskey(this.getContext(), toAccountId(nearAccountId), options);
   }
@@ -162,7 +164,7 @@ export class PasskeyManager {
   async executeAction(
     nearAccountId: string,
     actionArgs: ActionArgs,
-    options?: HooksOptions
+    options?: ActionHooksOptions
   ): Promise<ActionResult> {
     return executeAction(this.getContext(), toAccountId(nearAccountId), actionArgs, options);
   }
@@ -211,7 +213,7 @@ export class PasskeyManager {
   async signNEP413Message(
     nearAccountId: string,
     params: SignNEP413MessageParams,
-    options?: HooksOptions
+    options?: BaseHooksOptions
   ): Promise<SignNEP413MessageResult> {
     return signNEP413Message(this.getContext(), toAccountId(nearAccountId), params, options);
   }
@@ -331,7 +333,7 @@ export class PasskeyManager {
    */
   async recoverAccountWithAccountId(
     accountId: string,
-    options?: HooksOptions,
+    options?: AccountRecoveryHooksOptions,
     reuseCredential?: PublicKeyCredential
   ): Promise<RecoveryResult> {
     return recoverAccount(this.getContext(), toAccountId(accountId), options, reuseCredential);
@@ -358,7 +360,7 @@ export class PasskeyManager {
    * console.log('Recovery state:', flow.getState());
    * ```
    */
-  startAccountRecoveryFlow(options?: HooksOptions): AccountRecoveryFlow {
+  startAccountRecoveryFlow(options?: AccountRecoveryHooksOptions): AccountRecoveryFlow {
     return new AccountRecoveryFlow(this.getContext(), options);
   }
 
@@ -367,15 +369,15 @@ export class PasskeyManager {
 // Re-export types for convenience
 export type {
   PasskeyManagerConfigs,
-  RegistrationOptions,
+  RegistrationHooksOptions,
   RegistrationResult,
   RegistrationSSEEvent,
-  LoginOptions,
+  LoginHooksOptions,
   LoginResult,
-  LoginEvent,
-  HooksOptions,
+  LoginSSEvent,
+  BaseHooksOptions,
+  ActionHooksOptions,
   ActionResult,
-  ActionEvent,
   EventCallback,
   OperationHooks,
 } from '../types/passkeyManager';

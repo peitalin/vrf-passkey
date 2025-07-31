@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { usePasskeyContext } from '@web3authn/passkey/react';
+
 import { PasskeyLoginMenu } from '../components/PasskeyLoginMenu';
 import { GreetingMenu } from '../components/GreetingMenu';
 import { TransactionDetails } from '../components/TransactionDetails';
-import { usePasskeyContext } from '@web3authn/passkey/react';
 import type { LastTxDetails } from '../types';
 import { LinkDeviceScanQR } from '../components/LinkDeviceScanQR';
 

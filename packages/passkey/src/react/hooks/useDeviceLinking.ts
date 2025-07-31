@@ -3,14 +3,14 @@ import { usePasskeyContext } from '../context';
 import {
   type DeviceLinkingQRData,
   type LinkDeviceResult,
-  type DeviceLinkingEvent
+  type DeviceLinkingSSEEvent
 } from '@/index';
 
 export interface UseDeviceLinkingOptions {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingEvent) => void;
+  onEvent?: (event: DeviceLinkingSSEEvent) => void;
   fundingAmount?: string;
 }
 

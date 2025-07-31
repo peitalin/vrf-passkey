@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import type {
-  LoginOptions,
-  RegistrationOptions,
-  HooksOptions,
+  LoginHooksOptions,
+  RegistrationHooksOptions,
+  BaseHooksOptions,
+  ActionHooksOptions,
   PasskeyManager,
   PasskeyManagerConfigs,
   RecoveryResult,
@@ -17,7 +18,7 @@ import type {
   ScanAndLinkDeviceOptionsDevice1
 } from '../core/types/linkDevice';
 import type {
-  DeviceLinkingEvent,
+  DeviceLinkingSSEEvent,
   DeviceLinkingPhase,
   DeviceLinkingStatus,
   RegistrationPhase,
@@ -25,11 +26,14 @@ import type {
   LoginPhase,
   LoginStatus,
   ActionPhase,
-  ActionStatus
+  ActionStatus,
+  AccountRecoveryHooksOptions,
+  ActionResult
 } from '../core/types/passkeyManager';
+import { ActionArgs } from '@/core/types/actions';
 
 // Type-safe event handler for device linking events
-export type DeviceLinkingEventHandler = (event: DeviceLinkingEvent) => void;
+export type DeviceLinkingSSEEventHandler = (event: DeviceLinkingSSEEvent) => void;
 
 // Re-export enums for convenience
 export {
@@ -144,27 +148,42 @@ export interface UseRelayerReturn {
 
 // === CONTEXT TYPES ===
 export interface PasskeyContextType {
-  // Authentication state (actual state from contract/backend)
-  loginState: LoginState;
-  // UI input state (form/input tracking)
-  accountInputState: AccountInputState;
-  // Simple utility functions
+  // Core PasskeyManager instance - provides all user-facing functionality
+  passkeyManager: PasskeyManager;
+
+  ////////////////////////////
+  // PasskeyManager functions
+  ////////////////////////////
+
+  // Registration and login functions
+  registerPasskey: (nearAccountId: string, options: RegistrationHooksOptions) => Promise<RegistrationResult>;
+  loginPasskey: (nearAccountId: string, options: LoginHooksOptions) => Promise<LoginResult>;
   logout: () => void;
-  loginPasskey: (nearAccountId: string, options: LoginOptions) => Promise<LoginResult>;
-  registerPasskey: (nearAccountId: string, options: RegistrationOptions) => Promise<RegistrationResult>;
+
+  // Execute actions
+  executeAction: (
+    nearAccountId: string,
+    actionArgs: ActionArgs,
+    options?: ActionHooksOptions
+  ) => Promise<ActionResult>;
+
+  // NEP-413 message signing
+  signNEP413Message: (nearAccountId: string, params: SignNEP413MessageParams, options?: BaseHooksOptions) => Promise<SignNEP413MessageResult>;
+
+  // Account recovery functions
   recoverAccountWithAccountId: (
     nearAccountId: string,
-    options?: HooksOptions,
+    options?: AccountRecoveryHooksOptions,
     reuseCredential?: PublicKeyCredential
   ) => Promise<RecoveryResult>;
-  // Account recovery functions
-  startAccountRecoveryFlow: (options: HooksOptions) => AccountRecoveryFlow;
+  startAccountRecoveryFlow: (options: AccountRecoveryHooksOptions) => AccountRecoveryFlow;
+
   // Device linking functions
   startDeviceLinkingFlow: (options: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
   scanAndLinkDevice: (options: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
-  // NEP-413 message signing
-  signNEP413Message: (nearAccountId: string, params: SignNEP413MessageParams, options?: HooksOptions) => Promise<SignNEP413MessageResult>;
-  // Consolidated login state function - preferred over individual getters
+
+  // Login State
+  loginState: LoginState;
   getLoginState: (nearAccountId?: string) => Promise<{
     isLoggedIn: boolean;
     nearAccountId: string | null;
@@ -173,17 +192,16 @@ export interface PasskeyContextType {
     userData: any | null;
     vrfSessionDuration?: number;
   }>;
-  // Manually refresh login state
   refreshLoginState: (nearAccountId?: string) => Promise<void>;
+
   // Account input management
+  // UI account name input state (form/input tracking)
+  accountInputState: AccountInputState;
   setInputUsername: (username: string) => void;
   refreshAccountData: () => Promise<void>;
-  // Relayer management
   useRelayer: boolean;
   setUseRelayer: (value: boolean) => void;
   toggleRelayer: () => void;
-  // Core PasskeyManager instance - provides all user-facing functionality
-  passkeyManager: PasskeyManager;
 }
 
 /** Config options for PasskeyContextProvider
@@ -207,12 +225,16 @@ export interface PasskeyContextProviderProps {
 // === CONVENIENCE RE-EXPORTS ===
 export type {
   // Core manager types
-  RegistrationOptions,
-  LoginOptions,
-  HooksOptions,
+  RegistrationHooksOptions,
+  LoginHooksOptions,
+  BaseHooksOptions,
+  ActionHooksOptions,
+  // SSE Events
   RegistrationSSEEvent,
-  LoginEvent,
-  ActionEvent,
+  LoginSSEvent,
+  ActionSSEEvent,
+  DeviceLinkingSSEEvent,
+  AccountRecoverySSEEvent,
 } from '../core/types/passkeyManager';
 
 export type {

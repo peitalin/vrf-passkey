@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
-import { usePasskeyContext } from '@web3authn/passkey/react';
+import { ActionPhase, usePasskeyContext } from '@web3authn/passkey/react';
 import type { ActionArgs, FunctionCallAction, TransferAction } from '@web3authn/passkey/react';
 import { ActionType, TxExecutionStatus } from '@web3authn/passkey/react';
 
@@ -63,23 +63,26 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     await passkeyManager.executeAction(nearAccountId, actionToExecute, {
       onEvent: (event) => {
         switch (event.phase) {
-          case 'preparation':
+          case ActionPhase.STEP_1_PREPARATION:
             toast.loading('Processing transaction...', { id: 'action' });
             break;
-          case 'authentication':
+          case ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION:
             toast.loading(event.message, { id: 'action' });
             break;
-          case 'contract-verification':
+          case ActionPhase.STEP_4_AUTHENTICATION_COMPLETE:
             toast.loading(event.message, { id: 'action' });
             break;
-          case 'transaction-signing':
-          case 'broadcasting':
+          case ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS:
+          case ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE:
             toast.loading(event.message, { id: 'action' });
             break;
-          case 'action-complete':
+          case ActionPhase.STEP_7_BROADCASTING:
+            toast.success('Sending Transaction', { id: 'action' });
+            break;
+          case ActionPhase.STEP_8_ACTION_COMPLETE:
             toast.success('Transaction completed successfully!', { id: 'action' });
             break;
-          case 'action-error':
+          case ActionPhase.ACTION_ERROR || ActionPhase.WASM_ERROR:
             toast.error(`Transaction failed: ${event.error}`, { id: 'action' });
             break;
         }
@@ -153,23 +156,23 @@ export const GreetingMenu: React.FC<GreetingMenuProps> = ({ disabled = false, on
     await passkeyManager.executeAction(nearAccountId, transferAction, {
       onEvent: (event) => {
         switch (event.phase) {
-          case 'preparation':
+          case ActionPhase.STEP_1_PREPARATION:
             toast.loading('Processing NEAR transfer...', { id: 'transfer' });
             break;
-          case 'authentication':
+          case ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION:
             toast.loading(event.message, { id: 'transfer' });
             break;
-          case 'contract-verification':
+          case ActionPhase.STEP_4_AUTHENTICATION_COMPLETE:
             toast.loading(event.message, { id: 'transfer' });
             break;
-          case 'transaction-signing':
-          case 'broadcasting':
+          case ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS:
+          case ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE:
             toast.loading(event.message, { id: 'transfer' });
             break;
-          case 'action-complete':
+          case ActionPhase.STEP_7_BROADCASTING:
             toast.success(`Successfully sent ${amount} NEAR to ${recipient}!`, { id: 'transfer' });
             break;
-          case 'action-error':
+          case ActionPhase.ACTION_ERROR || ActionPhase.WASM_ERROR:
             toast.error(`Transfer failed: ${event.error}`, { id: 'transfer' });
             break;
         }

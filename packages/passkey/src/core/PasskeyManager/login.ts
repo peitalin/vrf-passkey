@@ -1,8 +1,8 @@
 import type {
-  LoginOptions,
+  LoginHooksOptions,
   LoginResult,
   LoginState,
-  LoginEvent,
+  LoginSSEvent,
 } from '../types/passkeyManager';
 import { LoginPhase, LoginStatus } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
@@ -14,7 +14,7 @@ import type { AccountId } from '../types/accountIds';
 export async function loginPasskey(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-  options?: LoginOptions
+  options?: LoginHooksOptions
 ): Promise<LoginResult> {
 
   const { onEvent, onError, hooks } = options || {};
@@ -94,7 +94,7 @@ export async function loginPasskey(
 async function handleLoginUnlockVRF(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-  onEvent?: (event: LoginEvent) => void,
+  onEvent?: (event: LoginSSEvent) => void,
   onError?: (error: Error) => void,
   hooks?: { beforeCall?: () => void | Promise<void>; afterCall?: (success: boolean, result?: any) => void | Promise<void> }
 ): Promise<LoginResult> {

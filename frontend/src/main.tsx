@@ -1,13 +1,14 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { HomePage } from './pages/HomePage';
-import { Navbar } from './components/Navbar';
-import { PasskeyProvider } from '@web3authn/passkey/react';
 import { Toaster } from 'react-hot-toast';
 
-import './index.css';
+import { PasskeyProvider } from '@web3authn/passkey/react';
 import '@web3authn/passkey/react/styles';
+
+import { HomePage } from './pages/HomePage';
+import { Navbar } from './components/Navbar';
+import './index.css';
 
 // Simple App component to manage layout and potentially shared state later
 function App() {

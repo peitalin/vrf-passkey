@@ -1,3 +1,4 @@
+
 export const shortenString = (str: string | null | undefined, headChars = 6, tailChars = 4) => {
   if (!str) return '';
   if (str.length <= headChars + tailChars + 2) return str; // If already short or has a prefix like "ed25519:"

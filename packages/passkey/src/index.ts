@@ -13,26 +13,33 @@ export { base64UrlEncode, base64UrlDecode } from './utils/encoders';
 
 export type {
   PasskeyManagerConfigs,
-  RegistrationOptions,
+  // Registration
   RegistrationResult,
   RegistrationSSEEvent,
-  LoginOptions,
+  // Login
   LoginResult,
-  LoginEvent,
-  HooksOptions,
+  LoginSSEvent,
+  // Actions
   ActionResult,
-  ActionEvent,
+  // Account Recovery
+  AccountRecoveryPhase,
+  AccountRecoveryStatus,
+  AccountRecoverySSEEvent,
+  // Device Linking
+  DeviceLinkingSSEEvent,
+  // Hooks Options
+  BaseHooksOptions,
+  LoginHooksOptions,
+  RegistrationHooksOptions,
+  ActionHooksOptions,
+  OperationHooks,
   EventCallback,
-  OperationHooks
 } from './core/types/passkeyManager';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 
 // === Device Linking Types ===
-export {
-  DeviceLinkingPhase,
-  type DeviceLinkingEvent
-} from './core/types/passkeyManager';
+export { DeviceLinkingPhase, } from './core/types/passkeyManager';
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
@@ -86,7 +93,6 @@ export {
   NearAccountService,
   getServerConfig,
   validateServerConfig,
-  getTestServerConfig
 } from './server';
 
 export type {

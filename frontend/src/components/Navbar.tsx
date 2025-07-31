@@ -1,9 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import {
-  usePasskeyContext,
-  ProfileButton
-} from '@web3authn/passkey/react';
+
+import { usePasskeyContext, ProfileButton } from '@web3authn/passkey/react';
 
 export const Navbar: React.FC = () => {
 
