@@ -687,6 +687,145 @@ pub async fn handle_sign_transactions_with_actions_msg(tx_batch_request: SignTra
     Ok(result)
 }
 
+/// Internal implementation for batch transaction signing after verification is complete.
+/// This function handles the actual signing logic for multiple transactions using a shared
+/// decrypted private key. It processes each transaction individually, provides detailed logging
+/// for each step, and handles errors gracefully while continuing with remaining transactions.
+///
+/// # Arguments
+/// * `tx_requests` - Array of transaction payloads to sign
+/// * `decryption` - Shared decryption parameters for private key access
+/// * `logs` - Existing log entries to append to
+///
+/// # Returns
+/// * `TransactionSignResult` - Contains batch signing results with individual transaction details
+async fn sign_near_transactions_with_actions_impl(
+    tx_requests: Vec<TransactionPayload>,
+    decryption: &Decryption,
+    mut logs: Vec<String>,
+) -> Result<TransactionSignResult, String> {
+
+    if tx_requests.is_empty() {
+        let error_msg = "No transactions provided".to_string();
+        logs.push(error_msg.clone());
+        return Ok(TransactionSignResult::failed(logs, error_msg));
+    }
+
+    // Decrypt private key using the shared decryption data (use first transaction's signer account)
+    let first_transaction = &tx_requests[0];
+
+    // Validate that all transactions use the same NEAR account ID
+    for tx in &tx_requests {
+        if first_transaction.near_account_id != tx.near_account_id {
+            let error_msg = format!("All transactions must use the same NEAR account ID");
+            return Ok(TransactionSignResult::failed(logs, error_msg));
+        }
+    }
+
+    logs.push(format!("Processing {} transactions", tx_requests.len()));
+    let signing_key = crate::crypto::decrypt_private_key_with_prf(
+        &first_transaction.near_account_id,
+        &decryption.chacha20_prf_output,
+        &decryption.encrypted_private_key_data,
+        &decryption.encrypted_private_key_iv,
+    ).map_err(|e| format!("Decryption failed: {}", e))?;
+
+    logs.push("Private key decrypted successfully".to_string());
+
+    // Process each transaction
+    let mut signed_transactions_wasm = Vec::new();
+    let mut transaction_hashes = Vec::new();
+
+    for (index, tx_data) in tx_requests.iter().enumerate() {
+        logs.push(format!("Processing transaction {} of {}", index + 1, tx_requests.len()));
+
+        // Parse and build actions for this transaction
+        let action_params: Vec<ActionParams> = match serde_json::from_str::<Vec<ActionParams>>(&tx_data.actions) {
+            Ok(params) => {
+                logs.push(format!("Transaction {}: Parsed {} actions", index + 1, params.len()));
+                params
+            }
+            Err(e) => {
+                let error_msg = format!("Transaction {}: Failed to parse actions: {}", index + 1, e);
+                logs.push(error_msg.clone());
+                return Ok(TransactionSignResult::failed(logs, error_msg));
+            }
+        };
+
+        let actions = match build_actions_from_params(action_params) {
+            Ok(actions) => {
+                logs.push(format!("Transaction {}: Actions built successfully", index + 1));
+                actions
+            }
+            Err(e) => {
+                let error_msg = format!("Transaction {}: Failed to build actions: {}", index + 1, e);
+                logs.push(error_msg.clone());
+                return Ok(TransactionSignResult::failed(logs, error_msg));
+            }
+        };
+
+        // Build and sign transaction
+        let transaction = match build_transaction_with_actions(
+            &tx_data.near_account_id,
+            &tx_data.receiver_id,
+            tx_data.nonce.parse().map_err(|e| format!("Invalid nonce: {}", e))?,
+            &tx_data.block_hash_bytes,
+            &signing_key,
+            actions,
+        ) {
+            Ok(tx) => {
+                logs.push(format!("Transaction {}: Built successfully", index + 1));
+                tx
+            }
+            Err(e) => {
+                let error_msg = format!("Transaction {}: Failed to build transaction: {}", index + 1, e);
+                logs.push(error_msg.clone());
+                return Ok(TransactionSignResult::failed(logs, error_msg));
+            }
+        };
+
+        let signed_tx_bytes = match sign_transaction(transaction, &signing_key) {
+            Ok(bytes) => {
+                logs.push(format!("Transaction {}: Signed successfully", index + 1));
+                bytes
+            }
+            Err(e) => {
+                let error_msg = format!("Transaction {}: Failed to sign transaction: {}", index + 1, e);
+                logs.push(error_msg.clone());
+                return Ok(TransactionSignResult::failed(logs, error_msg));
+            }
+        };
+
+        // Calculate transaction hash from signed transaction bytes (before moving the bytes)
+        let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
+        logs.push(format!("Transaction {}: Hash calculated - {}", index + 1, transaction_hash));
+
+        // Create SignedTransaction from signed bytes
+        let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes)
+            .map_err(|e| {
+                let error_msg = format!("Transaction {}: Failed to deserialize SignedTransaction: {}", index + 1, e);
+                logs.push(error_msg.clone());
+                error_msg
+            })?;
+
+        let signed_tx_wasm = WasmSignedTransaction::from(&signed_tx);
+
+        signed_transactions_wasm.push(signed_tx_wasm);
+        transaction_hashes.push(transaction_hash);
+    }
+
+    logs.push(format!("All {} transactions signed successfully", signed_transactions_wasm.len()));
+    info!("RUST: Batch signing completed successfully");
+
+    Ok(TransactionSignResult::new(
+        true,
+        Some(transaction_hashes),
+        Some(signed_transactions_wasm),
+        logs,
+        None,
+    ))
+}
+
 // ******************************************************************************
 // *                                                                            *
 // *                    HANDLER 7: EXTRACT COSE PUBLIC KEY                      *
@@ -807,143 +946,6 @@ pub async fn handle_sign_transaction_with_keypair_msg(request: SignTransactionWi
         true,
         Some(vec![transaction_hash]),
         Some(vec![signed_tx_wasm]),
-        logs,
-        None,
-    ))
-}
-
-// ******************************************************************************
-// *                                                                            *
-// *                         INTERNAL IMPLEMENTATION                            *
-// *                                                                            *
-// ******************************************************************************
-
-/// Internal implementation for batch transaction signing after verification is complete.
-/// This function handles the actual signing logic for multiple transactions using a shared
-/// decrypted private key. It processes each transaction individually, provides detailed logging
-/// for each step, and handles errors gracefully while continuing with remaining transactions.
-///
-/// # Arguments
-/// * `tx_requests` - Array of transaction payloads to sign
-/// * `decryption` - Shared decryption parameters for private key access
-/// * `logs` - Existing log entries to append to
-///
-/// # Returns
-/// * `TransactionSignResult` - Contains batch signing results with individual transaction details
-async fn sign_near_transactions_with_actions_impl(
-    tx_requests: Vec<TransactionPayload>,
-    decryption: &Decryption,
-    mut logs: Vec<String>,
-) -> Result<TransactionSignResult, String> {
-
-    if tx_requests.is_empty() {
-        let error_msg = "No transactions provided".to_string();
-        logs.push(error_msg.clone());
-        return Ok(TransactionSignResult::failed(logs, error_msg));
-    }
-
-    logs.push(format!("Processing {} transactions", tx_requests.len()));
-
-    // Decrypt private key using the shared decryption data (use first transaction's signer account)
-    let first_transaction = &tx_requests[0];
-    let signing_key = crate::crypto::decrypt_private_key_with_prf(
-        &first_transaction.near_account_id,
-        &decryption.chacha20_prf_output,
-        &decryption.encrypted_private_key_data,
-        &decryption.encrypted_private_key_iv,
-    ).map_err(|e| format!("Decryption failed: {}", e))?;
-
-    logs.push("Private key decrypted successfully".to_string());
-
-    // Process each transaction
-    let mut signed_transactions_wasm = Vec::new();
-    let mut transaction_hashes = Vec::new();
-
-    for (index, tx_data) in tx_requests.iter().enumerate() {
-        logs.push(format!("Processing transaction {} of {}", index + 1, tx_requests.len()));
-
-        // Parse and build actions for this transaction
-        let action_params: Vec<ActionParams> = match serde_json::from_str::<Vec<ActionParams>>(&tx_data.actions) {
-            Ok(params) => {
-                logs.push(format!("Transaction {}: Parsed {} actions", index + 1, params.len()));
-                params
-            }
-            Err(e) => {
-                let error_msg = format!("Transaction {}: Failed to parse actions: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        let actions = match build_actions_from_params(action_params) {
-            Ok(actions) => {
-                logs.push(format!("Transaction {}: Actions built successfully", index + 1));
-                actions
-            }
-            Err(e) => {
-                let error_msg = format!("Transaction {}: Failed to build actions: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        // Build and sign transaction
-        let transaction = match build_transaction_with_actions(
-            &tx_data.near_account_id,
-            &tx_data.receiver_id,
-            tx_data.nonce.parse().map_err(|e| format!("Invalid nonce: {}", e))?,
-            &tx_data.block_hash_bytes,
-            &signing_key,
-            actions,
-        ) {
-            Ok(tx) => {
-                logs.push(format!("Transaction {}: Built successfully", index + 1));
-                tx
-            }
-            Err(e) => {
-                let error_msg = format!("Transaction {}: Failed to build transaction: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        let signed_tx_bytes = match sign_transaction(transaction, &signing_key) {
-            Ok(bytes) => {
-                logs.push(format!("Transaction {}: Signed successfully", index + 1));
-                bytes
-            }
-            Err(e) => {
-                let error_msg = format!("Transaction {}: Failed to sign transaction: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        // Calculate transaction hash from signed transaction bytes (before moving the bytes)
-        let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
-        logs.push(format!("Transaction {}: Hash calculated - {}", index + 1, transaction_hash));
-
-        // Create SignedTransaction from signed bytes
-        let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes)
-            .map_err(|e| {
-                let error_msg = format!("Transaction {}: Failed to deserialize SignedTransaction: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                error_msg
-            })?;
-
-        let signed_tx_wasm = WasmSignedTransaction::from(&signed_tx);
-
-        signed_transactions_wasm.push(signed_tx_wasm);
-        transaction_hashes.push(transaction_hash);
-    }
-
-    logs.push(format!("All {} transactions signed successfully", signed_transactions_wasm.len()));
-    info!("RUST: Batch signing completed successfully");
-
-    Ok(TransactionSignResult::new(
-        true,
-        Some(transaction_hashes),
-        Some(signed_transactions_wasm),
         logs,
         None,
     ))

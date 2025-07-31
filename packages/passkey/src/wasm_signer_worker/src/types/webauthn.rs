@@ -248,21 +248,14 @@ pub struct PrfOutputs {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct VrfChallenge {
-    #[serde(rename = "vrfInput")]
     pub vrf_input: String,
-    #[serde(rename = "vrfOutput")]
     pub vrf_output: String,
-    #[serde(rename = "vrfProof")]
     pub vrf_proof: String,
-    #[serde(rename = "vrfPublicKey")]
     pub vrf_public_key: String,
-    #[serde(rename = "userId")]
     pub user_id: String,
-    #[serde(rename = "rpId")]
     pub rp_id: String,
-    #[serde(rename = "blockHeight")]
     pub block_height: u64,
-    #[serde(rename = "blockHash")]
     pub block_hash: String,
 }

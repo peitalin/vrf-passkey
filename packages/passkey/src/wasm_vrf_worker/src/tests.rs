@@ -4,7 +4,7 @@
 use serde_json;
 
 // Import existing types, functions, and constants from other modules
-use crate::types::{VRFInputData, EncryptedVRFKeypair, VRFWorkerMessage, VRFWorkerResponse};
+use crate::types::{VRFInputData, EncryptedVRFKeypair, VRFWorkerMessage, VRFWorkerResponse, VRFChallengeData};
 use crate::utils::{base64_url_encode, base64_url_decode};
 use crate::config::{
     CHACHA20_KEY_SIZE,
@@ -222,4 +222,65 @@ fn test_worker_message_prf_field_extraction() {
     assert_eq!(decoded_output, test_prf_bytes, "Decoded PRF output should match original bytes");
 
     println!("[Passed] Worker message PRF field extraction test passed");
+}
+
+#[test]
+fn test_vrf_challenge_camelcase_deserialization() {
+    // Test that VRFChallengeData correctly deserializes from camelCase JSON
+    // This verifies the #[serde(rename_all = "camelCase")] attribute works correctly
+
+    // Create a JSON string with camelCase field names (as TypeScript would send)
+    let camelcase_json = r#"{
+        "vrfInput": "dGVzdF9pbnB1dF9kYXRh",
+        "vrfOutput": "dGVzdF9vdXRwdXRfZGF0YQ",
+        "vrfProof": "dGVzdF9wcm9vZl9kYXRh",
+        "vrfPublicKey": "dGVzdF9wdWJsaWNfa2V5X2RhdGE",
+        "userId": "test-user.testnet",
+        "rpId": "example.com",
+        "blockHeight": 12345,
+        "blockHash": "dGVzdF9ibG9ja19oYXNoX2RhdGE"
+    }"#;
+
+    // Deserialize the JSON into VRFChallengeData
+    let vrf_challenge: VRFChallengeData = serde_json::from_str(camelcase_json)
+        .expect("Should deserialize VRFChallengeData from camelCase JSON");
+
+    // Verify all fields are correctly mapped from camelCase to snake_case
+    assert_eq!(vrf_challenge.vrf_input, "dGVzdF9pbnB1dF9kYXRh");
+    assert_eq!(vrf_challenge.vrf_output, "dGVzdF9vdXRwdXRfZGF0YQ");
+    assert_eq!(vrf_challenge.vrf_proof, "dGVzdF9wcm9vZl9kYXRh");
+    assert_eq!(vrf_challenge.vrf_public_key, "dGVzdF9wdWJsaWNfa2V5X2RhdGE");
+    assert_eq!(vrf_challenge.user_id, "test-user.testnet");
+    assert_eq!(vrf_challenge.rp_id, "example.com");
+    assert_eq!(vrf_challenge.block_height, 12345);
+    assert_eq!(vrf_challenge.block_hash, "dGVzdF9ibG9ja19oYXNoX2RhdGE");
+
+    // Test round-trip serialization/deserialization
+    let serialized_json = serde_json::to_string(&vrf_challenge)
+        .expect("Should serialize VRFChallengeData to JSON");
+
+    let round_trip_challenge: VRFChallengeData = serde_json::from_str(&serialized_json)
+        .expect("Should deserialize VRFChallengeData from round-trip JSON");
+
+    // Verify round-trip preserves all data
+    assert_eq!(vrf_challenge.vrf_input, round_trip_challenge.vrf_input);
+    assert_eq!(vrf_challenge.vrf_output, round_trip_challenge.vrf_output);
+    assert_eq!(vrf_challenge.vrf_proof, round_trip_challenge.vrf_proof);
+    assert_eq!(vrf_challenge.vrf_public_key, round_trip_challenge.vrf_public_key);
+    assert_eq!(vrf_challenge.user_id, round_trip_challenge.user_id);
+    assert_eq!(vrf_challenge.rp_id, round_trip_challenge.rp_id);
+    assert_eq!(vrf_challenge.block_height, round_trip_challenge.block_height);
+    assert_eq!(vrf_challenge.block_hash, round_trip_challenge.block_hash);
+
+    // Test that the serialized JSON contains camelCase field names (for TypeScript compatibility)
+    assert!(serialized_json.contains("\"vrfInput\""), "Serialized JSON should contain camelCase vrfInput");
+    assert!(serialized_json.contains("\"vrfOutput\""), "Serialized JSON should contain camelCase vrfOutput");
+    assert!(serialized_json.contains("\"vrfProof\""), "Serialized JSON should contain camelCase vrfProof");
+    assert!(serialized_json.contains("\"vrfPublicKey\""), "Serialized JSON should contain camelCase vrfPublicKey");
+    assert!(serialized_json.contains("\"userId\""), "Serialized JSON should contain camelCase userId");
+    assert!(serialized_json.contains("\"rpId\""), "Serialized JSON should contain camelCase rpId");
+    assert!(serialized_json.contains("\"blockHeight\""), "Serialized JSON should contain camelCase blockHeight");
+    assert!(serialized_json.contains("\"blockHash\""), "Serialized JSON should contain camelCase blockHash");
+
+    println!("[Passed] VRFChallenge camelCase deserialization test passed");
 }

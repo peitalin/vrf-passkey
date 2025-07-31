@@ -40,76 +40,6 @@ impl From<u32> for WorkerRequestType {
         }
     }
 }
-
-impl From<WorkerResponseType> for u32 {
-    fn from(value: WorkerResponseType) -> Self {
-        match value {
-            // Success responses
-            WorkerResponseType::DeriveNearKeypairAndEncryptSuccess => 0,
-            WorkerResponseType::RecoverKeypairFromPasskeySuccess => 1,
-            WorkerResponseType::CheckCanRegisterUserSuccess => 2,
-            WorkerResponseType::DecryptPrivateKeyWithPrfSuccess => 3,
-            WorkerResponseType::SignTransactionsWithActionsSuccess => 4,
-            WorkerResponseType::ExtractCosePublicKeySuccess => 5,
-            WorkerResponseType::SignTransactionWithKeyPairSuccess => 6,
-            WorkerResponseType::SignNep413MessageSuccess => 7,
-            WorkerResponseType::SignVerifyAndRegisterUserSuccess => 8,
-
-            // Failure responses
-            WorkerResponseType::DeriveNearKeypairAndEncryptFailure => 20,
-            WorkerResponseType::RecoverKeypairFromPasskeyFailure => 21,
-            WorkerResponseType::CheckCanRegisterUserFailure => 22,
-            WorkerResponseType::DecryptPrivateKeyWithPrfFailure => 23,
-            WorkerResponseType::SignTransactionsWithActionsFailure => 24,
-            WorkerResponseType::ExtractCosePublicKeyFailure => 25,
-            WorkerResponseType::SignTransactionWithKeyPairFailure => 26,
-            WorkerResponseType::SignNep413MessageFailure => 27,
-            WorkerResponseType::SignVerifyAndRegisterUserFailure => 28,
-
-            // Progress responses - for real-time updates during operations
-            WorkerResponseType::RegistrationProgress => 50,
-            WorkerResponseType::RegistrationComplete => 51,
-            WorkerResponseType::ExecuteActionsProgress => 52,
-            WorkerResponseType::ExecuteActionsComplete => 53,
-        }
-    }
-}
-
-impl From<u32> for WorkerResponseType {
-    fn from(value: u32) -> Self {
-        match value {
-            // Success responses
-            0 => WorkerResponseType::DeriveNearKeypairAndEncryptSuccess,
-            1 => WorkerResponseType::RecoverKeypairFromPasskeySuccess,
-            2 => WorkerResponseType::CheckCanRegisterUserSuccess,
-            3 => WorkerResponseType::DecryptPrivateKeyWithPrfSuccess,
-            4 => WorkerResponseType::SignTransactionsWithActionsSuccess,
-            5 => WorkerResponseType::ExtractCosePublicKeySuccess,
-            6 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
-            7 => WorkerResponseType::SignNep413MessageSuccess,
-            8 => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
-
-            // Failure responses
-            20 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
-            21 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
-            22 => WorkerResponseType::CheckCanRegisterUserFailure,
-            23 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
-            24 => WorkerResponseType::SignTransactionsWithActionsFailure,
-            25 => WorkerResponseType::ExtractCosePublicKeyFailure,
-            26 => WorkerResponseType::SignTransactionWithKeyPairFailure,
-            27 => WorkerResponseType::SignNep413MessageFailure,
-            28 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
-
-            // Progress responses - for real-time updates during operations
-            40 => WorkerResponseType::RegistrationProgress,
-            41 => WorkerResponseType::RegistrationComplete,
-            42 => WorkerResponseType::ExecuteActionsProgress,
-            43 => WorkerResponseType::ExecuteActionsComplete,
-            _ => panic!("Invalid WorkerResponseType value: {}", value),
-        }
-    }
-}
-
 impl WorkerRequestType {
     pub fn name(&self) -> &'static str {
         match self {
@@ -158,6 +88,75 @@ pub enum WorkerResponseType {
     ExecuteActionsProgress,
     ExecuteActionsComplete,
 }
+impl From<WorkerResponseType> for u32 {
+    fn from(value: WorkerResponseType) -> Self {
+        match value {
+            // Success responses
+            WorkerResponseType::DeriveNearKeypairAndEncryptSuccess => 0,
+            WorkerResponseType::RecoverKeypairFromPasskeySuccess => 1,
+            WorkerResponseType::CheckCanRegisterUserSuccess => 2,
+            WorkerResponseType::DecryptPrivateKeyWithPrfSuccess => 3,
+            WorkerResponseType::SignTransactionsWithActionsSuccess => 4,
+            WorkerResponseType::ExtractCosePublicKeySuccess => 5,
+            WorkerResponseType::SignTransactionWithKeyPairSuccess => 6,
+            WorkerResponseType::SignNep413MessageSuccess => 7,
+            WorkerResponseType::SignVerifyAndRegisterUserSuccess => 8,
+
+            // Failure responses
+            WorkerResponseType::DeriveNearKeypairAndEncryptFailure => 9,
+            WorkerResponseType::RecoverKeypairFromPasskeyFailure => 10,
+            WorkerResponseType::CheckCanRegisterUserFailure => 11,
+            WorkerResponseType::DecryptPrivateKeyWithPrfFailure => 12,
+            WorkerResponseType::SignTransactionsWithActionsFailure => 13,
+            WorkerResponseType::ExtractCosePublicKeyFailure => 14,
+            WorkerResponseType::SignTransactionWithKeyPairFailure => 15,
+            WorkerResponseType::SignNep413MessageFailure => 16,
+            WorkerResponseType::SignVerifyAndRegisterUserFailure => 17,
+
+            // Progress responses - for real-time updates during operations
+            WorkerResponseType::RegistrationProgress => 18,
+            WorkerResponseType::RegistrationComplete => 19,
+            WorkerResponseType::ExecuteActionsProgress => 20,
+            WorkerResponseType::ExecuteActionsComplete => 21,
+        }
+    }
+}
+impl From<u32> for WorkerResponseType {
+    fn from(value: u32) -> Self {
+        match value {
+            // Success responses
+            0 => WorkerResponseType::DeriveNearKeypairAndEncryptSuccess,
+            1 => WorkerResponseType::RecoverKeypairFromPasskeySuccess,
+            2 => WorkerResponseType::CheckCanRegisterUserSuccess,
+            3 => WorkerResponseType::DecryptPrivateKeyWithPrfSuccess,
+            4 => WorkerResponseType::SignTransactionsWithActionsSuccess,
+            5 => WorkerResponseType::ExtractCosePublicKeySuccess,
+            6 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
+            7 => WorkerResponseType::SignNep413MessageSuccess,
+            8 => WorkerResponseType::SignVerifyAndRegisterUserSuccess,
+
+            // Failure responses
+            9 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
+            10 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
+            11 => WorkerResponseType::CheckCanRegisterUserFailure,
+            12 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
+            13 => WorkerResponseType::SignTransactionsWithActionsFailure,
+            14 => WorkerResponseType::ExtractCosePublicKeyFailure,
+            15 => WorkerResponseType::SignTransactionWithKeyPairFailure,
+            16 => WorkerResponseType::SignNep413MessageFailure,
+            17 => WorkerResponseType::SignVerifyAndRegisterUserFailure,
+
+            // Progress responses - for real-time updates during operations
+            18 => WorkerResponseType::RegistrationProgress,
+            19 => WorkerResponseType::RegistrationComplete,
+            20 => WorkerResponseType::ExecuteActionsProgress,
+            21 => WorkerResponseType::ExecuteActionsComplete,
+            _ => panic!("Invalid WorkerResponseType value: {}", value),
+        }
+    }
+}
+
+
 /// Main worker message structure
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignerWorkerMessage {
