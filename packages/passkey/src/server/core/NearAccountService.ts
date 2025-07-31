@@ -56,7 +56,14 @@ export class NearAccountService {
     this.signer = await getSignerFromKeystore(this.config.relayerAccountId, this.config.networkId, this.keyStore);
     this.relayerAccount = new Account(this.config.relayerAccountId, this.rpcProvider, this.signer);
     this.isInitialized = true;
-    console.log(`NearAccountService initialized for network: ${this.config.networkId}, relayer: ${this.config.relayerAccountId}`);
+    console.log(`
+      NearAccountService initialized for network: ${this.config.networkId}
+      relayer: ${this.config.relayerAccountId}
+      nearRpcUrl: ${this.config.nearRpcUrl}
+      webAuthnContractId: ${this.config.webAuthnContractId}
+      defaultInitialBalance: ${this.config.defaultInitialBalance}
+      defaultCreateAccountAndRegisterGas: ${this.config.defaultCreateAccountAndRegisterGas}
+    `);
   }
 
   /**
@@ -155,7 +162,7 @@ export class NearAccountService {
             actionCreators.functionCall(
               'create_account_and_register_user',
               contractArgs,
-              BigInt('30000000000000'), // 30 TGas
+              BigInt(this.config.defaultCreateAccountAndRegisterGas),
               BigInt(this.config.defaultInitialBalance) // Initial balance
             )
           ]

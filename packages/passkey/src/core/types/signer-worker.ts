@@ -113,12 +113,12 @@ export enum ProgressMessageType {
 // packages/passkey/src/wasm_signer_worker/src/types/progress.rs
 // The string values come from the progress_step_name() function in that file
 export enum ProgressStep {
-  PREPARATION = 'preparation',                           // Rust: Preparation = 30
-  WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',   // Rust: WebauthnAuthentication = 31
-  AUTHENTICATION_COMPLETE = 'authentication-complete',   // Rust: AuthenticationComplete = 32
-  TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust: TransactionSigningProgress = 33
-  TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust: TransactionSigningComplete = 34
-  ERROR = 'error',                                       // Rust: Error = 35
+  PREPARATION = 'preparation',                           // Rust: Preparation
+  WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',   // Rust: WebauthnAuthentication
+  AUTHENTICATION_COMPLETE = 'authentication-complete',   // Rust: AuthenticationComplete
+  TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust: TransactionSigningProgress
+  TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust: TransactionSigningComplete
+  ERROR = 'error',                                       // Rust: Error
 }
 
 export interface ProgressStepMap {
@@ -198,10 +198,10 @@ export function isWorkerProgress<T extends WorkerRequestType>(
   response: WorkerResponseForRequest<T>
 ): response is WorkerProgressResponse {
   return (
-    response.type === WorkerResponseType.ExecuteActionsProgress ||
-    response.type === WorkerResponseType.ExecuteActionsComplete ||
     response.type === WorkerResponseType.RegistrationProgress ||
-    response.type === WorkerResponseType.RegistrationComplete
+    response.type === WorkerResponseType.RegistrationComplete ||
+    response.type === WorkerResponseType.ExecuteActionsProgress ||
+    response.type === WorkerResponseType.ExecuteActionsComplete
   );
 }
 

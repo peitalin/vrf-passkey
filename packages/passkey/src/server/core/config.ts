@@ -5,24 +5,33 @@ import type { ServerConfig } from './types';
  * Works across Node.js, Vercel, and Cloudflare Workers
  */
 export function getServerConfig(env?: Record<string, string>): ServerConfig {
-  // Support both process.env (Node.js/Vercel) and passed env object (Cloudflare Workers)
+
+  const requiredEnvVars = [
+    'RELAYER_ACCOUNT_ID',
+    'RELAYER_PRIVATE_KEY',
+  ];
+
   const getEnvVar = (key: string): string => {
-    const value = env?.[key] || (typeof process !== 'undefined' && process.env?.[key]);
-    if (!value) {
+    const value = process?.env?.[key];
+    if (!value && requiredEnvVars.includes(key)) {
       throw new Error(`Missing required environment variable: ${key}`);
     }
-    return value;
+    return value!;
   };
 
   return {
+    // Required Environment Variables
     relayerAccountId: getEnvVar('RELAYER_ACCOUNT_ID'),
     relayerPrivateKey: getEnvVar('RELAYER_PRIVATE_KEY'),
-    nearRpcUrl: getEnvVar('NEAR_RPC_URL'),
-    webAuthnContractId: getEnvVar('WEBAUTHN_CONTRACT_ID'),
+    // Use defaults if not set
+    nearRpcUrl: getEnvVar('NEAR_RPC_URL') || 'https://rpc.testnet.near.org',
+    webAuthnContractId: getEnvVar('WEBAUTHN_CONTRACT_ID') || 'web3-authn-v2.testnet',
     networkId: getEnvVar('NETWORK_ID') || 'testnet',
     defaultInitialBalance: getEnvVar('DEFAULT_INITIAL_BALANCE') || '50000000000000000000000', // 0.05 NEAR
+    defaultCreateAccountAndRegisterGas: getEnvVar('DEFAULT_CREATE_ACCOUNT_AND_REGISTER_GAS') || '50000000000000', // 50 TGas
   };
 }
+
 
 /**
  * Validate server configuration
@@ -45,18 +54,4 @@ export function validateServerConfig(config: ServerConfig): void {
   if (!config.relayerPrivateKey.startsWith('ed25519:')) {
     throw new Error('Relayer private key must be in format "ed25519:base58privatekey"');
   }
-}
-
-/**
- * Get default configuration for testing
- */
-export function getTestServerConfig(): ServerConfig {
-  return {
-    relayerAccountId: 'test-relayer.testnet',
-    relayerPrivateKey: 'ed25519:test-private-key',
-    nearRpcUrl: 'https://rpc.testnet.near.org',
-    webAuthnContractId: 'web3-authn-v2.testnet',
-    networkId: 'testnet',
-    defaultInitialBalance: '50000000000000000000000', // 0.05 NEAR in yoctoNEAR
-  };
 }

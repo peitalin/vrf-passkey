@@ -3,27 +3,9 @@ import type { EncryptedVRFKeypair } from './vrf-worker';
 import { AccountId } from "./accountIds";
 import { SignedTransaction } from "../NearClient";
 
-// Device Linking Enums
-export enum DeviceLinkingPhase {
-  STEP_1_QR_CODE_GENERATED = 'qr-code-generated',   // Device2: QR code created and displayed
-  STEP_2_SCANNING = 'scanning',                     // Device1: Scanning QR code
-  STEP_3_AUTHORIZATION = 'authorization',           // Device1: TouchID authorization
-  STEP_4_POLLING = 'polling',                       // Device2: Polling contract for mapping
-  STEP_5_ADDKEY_DETECTED = 'addkey-detected',       // Device2: AddKey transaction detected
-  STEP_6_REGISTRATION = 'registration',             // Device2: Registration and credential storage
-  STEP_7_LINKING_COMPLETE = 'linking-complete',     // Final completion
-  STEP_8_AUTO_LOGIN = 'auto-login',                 // Auto-login after registration
-  IDLE = 'idle',                                    // Idle state
-  REGISTRATION_ERROR = 'registration-error',        // Error during registration
-  LOGIN_ERROR = 'login-error',                      // Error during login
-  DEVICE_LINKING_ERROR = 'error',                   // General error state
-}
-
-export enum DeviceLinkingStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
-}
+//////////////////////////
+// Progress Events Enums
+//////////////////////////
 
 // Registration Enums
 export enum RegistrationPhase {
@@ -36,7 +18,6 @@ export enum RegistrationPhase {
   STEP_7_REGISTRATION_COMPLETE = 'registration-complete',
   REGISTRATION_ERROR = 'error',
 }
-
 export enum RegistrationStatus {
   PROGRESS = 'progress',
   SUCCESS = 'success',
@@ -51,7 +32,6 @@ export enum LoginPhase {
   STEP_4_LOGIN_COMPLETE = 'login-complete',
   LOGIN_ERROR = 'login-error',
 }
-
 export enum LoginStatus {
   PROGRESS = 'progress',
   SUCCESS = 'success',
@@ -71,8 +51,43 @@ export enum ActionPhase {
   STEP_8_ACTION_COMPLETE = 'action-complete',
   ACTION_ERROR = 'action-error',
 }
-
 export enum ActionStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
+// Account Recovery Enums
+export enum AccountRecoveryPhase {
+  STEP_1_PREPARATION = 'preparation',
+  STEP_2_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',
+  STEP_3_SYNC_AUTHENTICATORS_ONCHAIN = 'sync-authenticators-onchain',
+  STEP_4_AUTHENTICATOR_SAVED = 'authenticator-saved',
+  STEP_5_ACCOUNT_RECOVERY_COMPLETE = 'account-recovery-complete',
+  ERROR = 'error',
+}
+export enum AccountRecoveryStatus {
+  PROGRESS = 'progress',
+  SUCCESS = 'success',
+  ERROR = 'error',
+}
+
+// Device Linking Enums
+export enum DeviceLinkingPhase {
+  STEP_1_QR_CODE_GENERATED = 'qr-code-generated',   // Device2: QR code created and displayed
+  STEP_2_SCANNING = 'scanning',                     // Device1: Scanning QR code
+  STEP_3_AUTHORIZATION = 'authorization',           // Device1: TouchID authorization
+  STEP_4_POLLING = 'polling',                       // Device2: Polling contract for mapping
+  STEP_5_ADDKEY_DETECTED = 'addkey-detected',       // Device2: AddKey transaction detected
+  STEP_6_REGISTRATION = 'registration',             // Device2: Registration and credential storage
+  STEP_7_LINKING_COMPLETE = 'linking-complete',     // Final completion
+  STEP_8_AUTO_LOGIN = 'auto-login',                 // Auto-login after registration
+  IDLE = 'idle',                                    // Idle state
+  REGISTRATION_ERROR = 'registration-error',        // Error during registration
+  LOGIN_ERROR = 'login-error',                      // Error during login
+  DEVICE_LINKING_ERROR = 'error',                   // General error state
+}
+export enum DeviceLinkingStatus {
   PROGRESS = 'progress',
   SUCCESS = 'success',
   ERROR = 'error',
@@ -93,25 +108,42 @@ export interface OperationHooks {
 // Base SSE Event Types (unified for Registration and Actions)
 export interface BaseSSEEvent {
   step: number;
-  phase: RegistrationPhase | LoginPhase | ActionPhase | DeviceLinkingPhase;
-  status: RegistrationStatus | LoginStatus | ActionStatus | DeviceLinkingStatus;
+  phase: RegistrationPhase | LoginPhase | ActionPhase | DeviceLinkingPhase | AccountRecoveryPhase;
+  status: RegistrationStatus | LoginStatus | ActionStatus | DeviceLinkingStatus | AccountRecoveryStatus;
   message: string;
 }
 
 // Registration-specific events
-export interface BaseSSERegistrationEvent extends BaseSSEEvent {
+export interface BaseRegistrationSSEEvent extends BaseSSEEvent {
   phase: RegistrationPhase;
   status: RegistrationStatus;
 }
 
 // Action-specific events
-export interface BaseSSEActionEvent extends BaseSSEEvent {
+export interface BaseActionSSEEvent extends BaseSSEEvent {
   phase: ActionPhase;
   status: ActionStatus;
 }
 
+// Login-specific events
+export interface BaseLoginSSEEvent extends BaseSSEEvent {
+  phase: LoginPhase;
+  status: LoginStatus;
+}
+
+export interface BaseDeviceLinkingSSEEvent extends BaseSSEEvent {
+  phase: DeviceLinkingPhase;
+  status: DeviceLinkingStatus;
+}
+
+// Action-specific events
+export interface BaseAccountRecoveryEvent extends BaseSSEEvent {
+  phase: AccountRecoveryPhase;
+  status: AccountRecoveryStatus;
+}
+
 // Progress Events
-export interface onProgressEvents extends BaseSSEActionEvent {
+export interface onProgressEvents extends BaseActionSSEEvent {
   step: number;
   status: ActionStatus;
   message: string;
@@ -119,24 +151,16 @@ export interface onProgressEvents extends BaseSSEActionEvent {
   logs?: string[];
 }
 
-// Login-specific events
-export interface BaseSSELoginEvent extends BaseSSEEvent {
-  phase: LoginPhase;
-  status: LoginStatus;
-}
+/////////////////////////////////////////////
+// SDK-Sent-Events: Registration Event Types
+/////////////////////////////////////////////
 
-export interface DeviceLinkingEvent extends BaseSSEEvent {
-  phase: DeviceLinkingPhase;
-  status: DeviceLinkingStatus;
-}
-
-// Registration Event Types
-export interface RegistrationEventStep1 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep1 extends BaseRegistrationSSEEvent {
   step: 1;
   phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION;
 }
 
-export interface RegistrationEventStep2 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep2 extends BaseRegistrationSSEEvent {
   step: 2;
   phase: RegistrationPhase.STEP_2_KEY_GENERATION;
   status: RegistrationStatus.SUCCESS;
@@ -146,37 +170,37 @@ export interface RegistrationEventStep2 extends BaseSSERegistrationEvent {
   vrfPublicKey: string | null | undefined;
 }
 
-export interface RegistrationEventStep3 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep3 extends BaseRegistrationSSEEvent {
   step: 3;
   phase: RegistrationPhase.STEP_3_ACCESS_KEY_ADDITION;
   error?: string;
 }
 
-export interface RegistrationEventStep4 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep4 extends BaseRegistrationSSEEvent {
   step: 4;
   phase: RegistrationPhase.STEP_4_ACCOUNT_VERIFICATION;
   error?: string;
 }
 
-export interface RegistrationEventStep5 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep5 extends BaseRegistrationSSEEvent {
   step: 5;
   phase: RegistrationPhase.STEP_5_DATABASE_STORAGE;
   error?: string;
 }
 
-export interface RegistrationEventStep6 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep6 extends BaseRegistrationSSEEvent {
   step: 6;
   phase: RegistrationPhase.STEP_6_CONTRACT_REGISTRATION;
   error?: string;
 }
 
-export interface RegistrationEventStep7 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep7 extends BaseRegistrationSSEEvent {
   step: 7;
   phase: RegistrationPhase.STEP_7_REGISTRATION_COMPLETE;
   status: RegistrationStatus.SUCCESS;
 }
 
-export interface RegistrationEventStep0 extends BaseSSERegistrationEvent {
+export interface RegistrationEventStep0 extends BaseRegistrationSSEEvent {
   step: 0;
   phase: RegistrationPhase.REGISTRATION_ERROR;
   status: RegistrationStatus.ERROR;
@@ -193,65 +217,109 @@ export type RegistrationSSEEvent =
   | RegistrationEventStep7
   | RegistrationEventStep0;
 
-// Action Event Types
-export interface ActionEventStep1 extends BaseSSEActionEvent {
+/////////////////////////////////////////////
+// SDK-Sent-Events: Login Event Types
+/////////////////////////////////////////////
+
+export interface LoginSSEventStep1 extends BaseLoginSSEEvent {
+  step: 1;
+  phase: LoginPhase.STEP_1_PREPARATION;
+}
+
+export interface LoginSSEventStep2 extends BaseLoginSSEEvent {
+  step: 2;
+  phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION;
+}
+
+export interface LoginSSEventStep3 extends BaseLoginSSEEvent {
+  step: 3;
+  phase: LoginPhase.STEP_3_VRF_UNLOCK;
+}
+
+export interface LoginSSEventStep4 extends BaseLoginSSEEvent {
+  step: 4;
+  phase: LoginPhase.STEP_4_LOGIN_COMPLETE;
+  status: LoginStatus.SUCCESS;
+  nearAccountId: string;
+  clientNearPublicKey: string;
+}
+
+export interface LoginSSEventStep0 extends BaseLoginSSEEvent {
+  step: 0;
+  phase: LoginPhase.LOGIN_ERROR;
+  status: LoginStatus.ERROR;
+  error: string;
+}
+
+export type LoginSSEvent =
+  | LoginSSEventStep1
+  | LoginSSEventStep2
+  | LoginSSEventStep3
+  | LoginSSEventStep4
+  | LoginSSEventStep0;
+
+/////////////////////////////////////////////
+// SDK-Sent-Events: Action Event Types
+/////////////////////////////////////////////
+
+export interface ActionEventStep1 extends BaseActionSSEEvent {
   step: 1;
   phase: ActionPhase.STEP_1_PREPARATION;
 }
 
-export interface ActionEventStep2 extends BaseSSEActionEvent {
+export interface ActionEventStep2 extends BaseActionSSEEvent {
   step: 2;
   phase: ActionPhase.STEP_2_GENERATING_CHALLENGE;
 }
 
-export interface ActionEventStep3 extends BaseSSEActionEvent {
+export interface ActionEventStep3 extends BaseActionSSEEvent {
   step: 3;
   phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION;
   data?: any;
   logs?: string[];
 }
 
-export interface ActionEventStep4 extends BaseSSEActionEvent {
+export interface ActionEventStep4 extends BaseActionSSEEvent {
   step: 4;
   phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE;
   data?: any;
   logs?: string[];
 }
 
-export interface ActionEventStep5 extends BaseSSEActionEvent {
+export interface ActionEventStep5 extends BaseActionSSEEvent {
   step: 5;
   phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS;
 }
 
-export interface ActionEventStep6 extends BaseSSEActionEvent {
+export interface ActionEventStep6 extends BaseActionSSEEvent {
   step: 6;
   phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE;
   status: ActionStatus.SUCCESS;
   data?: any;
 }
 
-export interface ActionEventStep7 extends BaseSSEActionEvent {
+export interface ActionEventStep7 extends BaseActionSSEEvent {
   step: 7;
   phase: ActionPhase.STEP_7_BROADCASTING;
   status: ActionStatus.PROGRESS;
   data?: any;
 }
 
-export interface ActionEventStep8 extends BaseSSEActionEvent {
+export interface ActionEventStep8 extends BaseActionSSEEvent {
   step: 8;
   phase: ActionPhase.STEP_8_ACTION_COMPLETE;
   status: ActionStatus.SUCCESS;
   data?: any;
 }
 
-export interface ActionEventError extends BaseSSEActionEvent {
+export interface ActionEventError extends BaseActionSSEEvent {
   step: 0;
   phase: ActionPhase.ACTION_ERROR;
   status: ActionStatus.ERROR;
   error: string;
 }
 
-export interface ActionEventWasmError extends BaseSSEActionEvent {
+export interface ActionEventWasmError extends BaseActionSSEEvent {
   step: 0;
   phase: ActionPhase.WASM_ERROR;
   status: ActionStatus.ERROR;
@@ -270,84 +338,161 @@ export type ActionSSEEvent =
   | ActionEventError
   | ActionEventWasmError;
 
-// Login Event Types
-export interface LoginEventStep1 extends BaseSSELoginEvent {
+/////////////////////////////////////////////
+// SDK-Sent-Events: Device Linking Event Types
+/////////////////////////////////////////////
+
+export interface DeviceLinkingEventStep1 extends BaseDeviceLinkingSSEEvent {
   step: 1;
-  phase: LoginPhase.STEP_1_PREPARATION;
+  phase: DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED;
 }
 
-export interface LoginEventStep2 extends BaseSSELoginEvent {
+export interface DeviceLinkingEventStep2 extends BaseDeviceLinkingSSEEvent {
   step: 2;
-  phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION;
+  phase: DeviceLinkingPhase.STEP_2_SCANNING;
 }
 
-export interface LoginEventStep3 extends BaseSSELoginEvent {
+export interface DeviceLinkingEventStep3 extends BaseDeviceLinkingSSEEvent {
   step: 3;
-  phase: LoginPhase.STEP_3_VRF_UNLOCK;
+  phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION;
 }
 
-export interface LoginEventStep4 extends BaseSSELoginEvent {
+export interface DeviceLinkingEventStep4 extends BaseDeviceLinkingSSEEvent {
   step: 4;
-  phase: LoginPhase.STEP_4_LOGIN_COMPLETE;
-  status: LoginStatus.SUCCESS;
-  nearAccountId: string;
-  clientNearPublicKey: string;
+  phase: DeviceLinkingPhase.STEP_4_POLLING;
 }
 
-export interface LoginEventStep0 extends BaseSSELoginEvent {
+export interface DeviceLinkingEventStep5 extends BaseDeviceLinkingSSEEvent {
+  step: 5;
+  phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED;
+}
+
+export interface DeviceLinkingEventStep6 extends BaseDeviceLinkingSSEEvent {
+  step: 6;
+  phase: DeviceLinkingPhase.STEP_6_REGISTRATION;
+}
+
+export interface DeviceLinkingEventStep7 extends BaseDeviceLinkingSSEEvent {
+  step: 7;
+  phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE;
+}
+
+export interface DeviceLinkingEventStep8 extends BaseDeviceLinkingSSEEvent {
+  step: 8;
+  phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN;
+}
+
+export interface DeviceLinkingErrorEvent extends BaseDeviceLinkingSSEEvent {
   step: 0;
-  phase: LoginPhase.LOGIN_ERROR;
-  status: LoginStatus.ERROR;
+  phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR
+  | DeviceLinkingPhase.LOGIN_ERROR
+  | DeviceLinkingPhase.REGISTRATION_ERROR;
+  status: DeviceLinkingStatus.ERROR;
   error: string;
 }
 
-export type LoginEvent =
-  | LoginEventStep1
-  | LoginEventStep2
-  | LoginEventStep3
-  | LoginEventStep4
-  | LoginEventStep0;
+export type DeviceLinkingSSEEvent =
+  | DeviceLinkingEventStep1
+  | DeviceLinkingEventStep2
+  | DeviceLinkingEventStep3
+  | DeviceLinkingEventStep4
+  | DeviceLinkingEventStep5
+  | DeviceLinkingEventStep6
+  | DeviceLinkingEventStep7
+  | DeviceLinkingEventStep8
+  | DeviceLinkingErrorEvent;
 
-// Legacy Action Events (for backward compatibility - to be deprecated)
-export interface ActionStartedEvent {
-  actionType: string;
-  receiverId: string;
+/////////////////////////////////////////////
+// SDK-Sent-Events: Account Recovery Event Types
+/////////////////////////////////////////////
+
+export interface AccountRecoveryEventStep1 extends BaseAccountRecoveryEvent {
+  step: 1;
+  phase: AccountRecoveryPhase.STEP_1_PREPARATION;
 }
 
-export interface ActionProgressEvent {
-  step: 'preparing' | 'authenticating' | 'signing' | 'broadcasting';
-  message: string;
+export interface AccountRecoveryEventStep2 extends BaseAccountRecoveryEvent {
+  step: 2;
+  phase: AccountRecoveryPhase.STEP_2_WEBAUTHN_AUTHENTICATION;
 }
 
-export interface ActionCompletedEvent {
-  transactionId?: string;
-  result: any;
+export interface AccountRecoveryEventStep3 extends BaseAccountRecoveryEvent {
+  step: 3;
+  phase: AccountRecoveryPhase.STEP_3_SYNC_AUTHENTICATORS_ONCHAIN;
+  data?: any;
+  logs?: string[];
 }
 
-export interface ActionFailedEvent {
+export interface AccountRecoveryEventStep4 extends BaseAccountRecoveryEvent {
+  step: 4;
+  phase: AccountRecoveryPhase.STEP_4_AUTHENTICATOR_SAVED;
+  status: AccountRecoveryStatus.SUCCESS;
+  data?: any;
+}
+
+export interface AccountRecoveryEventStep5 extends BaseAccountRecoveryEvent {
+  step: 5;
+  phase: AccountRecoveryPhase.STEP_5_ACCOUNT_RECOVERY_COMPLETE;
+  status: AccountRecoveryStatus.SUCCESS;
+  data?: any;
+}
+
+export interface AccountRecoveryError extends BaseAccountRecoveryEvent {
+  step: 0;
+  phase: AccountRecoveryPhase.ERROR;
+  status: AccountRecoveryStatus.ERROR;
   error: string;
-  actionType?: string;
 }
 
-export type ActionEvent =
-  | { type: 'actionStarted'; data: ActionStartedEvent }
-  | { type: 'actionProgress'; data: ActionProgressEvent }
-  | { type: 'actionCompleted'; data: ActionCompletedEvent }
-  | { type: 'actionFailed'; data: ActionFailedEvent };
+export type AccountRecoverySSEEvent =
+  | AccountRecoveryEventStep1
+  | AccountRecoveryEventStep2
+  | AccountRecoveryEventStep3
+  | AccountRecoveryEventStep4
+  | AccountRecoveryEventStep5
+  | AccountRecoveryError;
+
+//////////////////////////////////
+/// Hooks Options
+//////////////////////////////////
+
+export interface BaseHooksOptions {
+  onEvent?: EventCallback<RegistrationSSEEvent | LoginSSEvent | ActionSSEEvent | DeviceLinkingSSEEvent | AccountRecoverySSEEvent>;
+  onError?: (error: Error) => void;
+  hooks?: OperationHooks;
+}
 
 // Function Options
-export interface RegistrationOptions {
+export interface RegistrationHooksOptions {
   onEvent?: EventCallback<RegistrationSSEEvent>;
   onError?: (error: Error) => void;
+  hooks?: OperationHooks;
   useRelayer?: boolean;
+}
+
+export interface LoginHooksOptions {
+  onEvent?: EventCallback<LoginSSEvent>;
+  onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
 
-export interface LoginOptions {
-  onEvent?: EventCallback<LoginEvent>;
+export interface ActionHooksOptions {
+  onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
+  waitUntil?: TxExecutionStatus;
 }
+
+export interface AccountRecoveryHooksOptions {
+  onEvent?: EventCallback<AccountRecoverySSEEvent>;
+  onError?: (error: Error) => void;
+  hooks?: OperationHooks;
+  waitUntil?: TxExecutionStatus;
+}
+
+//////////////////////////////////
+/// State Types
+//////////////////////////////////
 
 export interface LoginState {
   isLoggedIn: boolean;
@@ -358,12 +503,6 @@ export interface LoginState {
   vrfSessionDuration?: number;
 }
 
-export interface HooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
-  onError?: (error: Error) => void;
-  hooks?: OperationHooks;
-  waitUntil?: TxExecutionStatus;
-}
 
 // Result Types
 export interface RegistrationResult {

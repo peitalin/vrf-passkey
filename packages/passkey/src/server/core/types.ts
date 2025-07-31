@@ -22,6 +22,7 @@ export interface ServerConfig {
   webAuthnContractId: string;
   networkId: string;
   defaultInitialBalance: string;
+  defaultCreateAccountAndRegisterGas: string;
 }
 
 // Account creation and registration types (imported from relay-server types)

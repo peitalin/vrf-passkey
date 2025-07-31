@@ -26,7 +26,7 @@ export interface WebAuthnAuthenticationCredential {
     userHandle: string | null; // base64url-encoded or null
   };
   // Dual PRF outputs extracted in main thread just before transferring to worker
-  clientExtensionResults?: AuthenticationExtensionsClientOutputs;
+  clientExtensionResults: AuthenticationExtensionsClientOutputs | null;
   // clientExtensionResults: {
   //   prf: {
   //     results: {
@@ -51,7 +51,7 @@ export interface WebAuthnRegistrationCredential {
     transports: string[],
   };
   // Dual PRF outputs extracted in main thread just before transferring to worker
-  clientExtensionResults?: AuthenticationExtensionsClientOutputs;
+  clientExtensionResults: AuthenticationExtensionsClientOutputs | null;
   // clientExtensionResults: {
   //   prf: {
   //     results: {

@@ -1,9 +1,10 @@
 import {
   ActionResult,
-  DeviceLinkingEvent,
+  BaseDeviceLinkingSSEEvent,
   EventCallback,
   OperationHooks,
-  DeviceLinkingPhase
+  DeviceLinkingPhase,
+  DeviceLinkingSSEEvent
 } from './passkeyManager';
 import { VRFChallenge } from './vrf-worker';
 import { AccountId } from './accountIds';
@@ -60,7 +61,7 @@ export enum DeviceLinkingErrorCode {
 
 export interface StartDeviceLinkingOptionsDevice2 {
   cameraId?: string;
-  onEvent?: EventCallback<DeviceLinkingEvent>;
+  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
@@ -73,7 +74,7 @@ export interface ScanAndLinkDeviceOptionsDevice1 {
     width?: number;
     height?: number;
   };
-  onEvent?: EventCallback<DeviceLinkingEvent>;
+  onEvent?: EventCallback<BaseDeviceLinkingSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }
