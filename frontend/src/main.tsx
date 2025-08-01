@@ -17,11 +17,12 @@ function App() {
       <PasskeyProvider
         config={{
           nearRpcUrl: 'https://rpc.testnet.near.org',
-          contractId: 'web3-authn-v2.testnet',
+          // nearRpcUrl: 'https://test.rpc.fastnear.com',
+          contractId: 'web3-authn-v3.testnet',
           nearNetwork: 'testnet',
           nearExplorerUrl: 'https://testnet.nearblocks.io',
           relayer: {
-            accountId: 'web3-authn-v2.testnet',
+            accountId: 'web3-authn-v3.testnet',
             url: 'http://localhost:3000',
             initialUseRelayer: true,
           },
