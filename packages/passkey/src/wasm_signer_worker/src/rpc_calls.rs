@@ -156,6 +156,22 @@ pub async fn verify_authentication_response_rpc_call(
     let contract_result = result.get("result")
         .ok_or("Missing result in RPC response")?;
 
+    // Check if there's an error in the contract result (contract execution error)
+    if let Some(error) = contract_result.get("error") {
+        let error_msg = if let Some(error_str) = error.as_str() {
+            error_str.to_string()
+        } else {
+            serde_json::to_string(error).unwrap_or_else(|_| "Unknown contract error".to_string())
+        };
+        warn!("RUST: Contract execution error: {}", error_msg);
+        return Ok(ContractVerificationResult {
+            success: false,
+            verified: false,
+            error: Some(error_msg),
+            logs: vec![],
+        });
+    }
+
     let result_bytes = contract_result.get("result")
         .and_then(|r| r.as_array())
         .ok_or("Missing or invalid result.result array")?;
@@ -354,6 +370,25 @@ pub fn parse_check_can_register_response(result: serde_json::Value) -> Result<Co
 
     // Debug: log the full contract result structure
     debug!("RUST: Full contract result: {}", serde_json::to_string_pretty(&contract_result).unwrap_or_default());
+
+    // Check if there's an error in the contract result (contract execution error)
+    if let Some(error) = contract_result.get("error") {
+        let error_msg = if let Some(error_str) = error.as_str() {
+            error_str.to_string()
+        } else {
+            serde_json::to_string(error).unwrap_or_else(|_| "Unknown contract error".to_string())
+        };
+        warn!("RUST: Contract execution error: {}", error_msg);
+        return Ok(ContractRegistrationResult {
+            success: false,
+            verified: false,
+            error: Some(error_msg),
+            logs: vec![],
+            registration_info: None,
+            signed_transaction_borsh: None,
+            pre_signed_delete_transaction: None,
+        });
+    }
 
     let result_bytes = contract_result.get("result")
         .and_then(|r| r.as_array())

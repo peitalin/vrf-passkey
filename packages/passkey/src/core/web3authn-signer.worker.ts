@@ -185,10 +185,24 @@ self.onmessage = async (event: MessageEvent<WorkerMessage<WorkerRequestType>>): 
   } catch (error: any) {
     console.error('[signer-worker]: Message processing failed:', error);
 
+    // Extract error message from JsValue or Error object
+    let errorMessage = 'Unknown error occurred';
+    if (error && typeof error === 'object') {
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.toString) {
+        errorMessage = error.toString();
+      } else {
+        errorMessage = JSON.stringify(error);
+      }
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+
     self.postMessage({
       type: WorkerResponseType.DeriveNearKeypairAndEncryptFailure,
       payload: {
-        error: error?.message || 'Unknown error occurred',
+        error: errorMessage,
         context: { type: event.data.type }
       }
     });

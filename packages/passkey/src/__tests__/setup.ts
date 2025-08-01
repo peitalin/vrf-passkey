@@ -53,8 +53,8 @@ const DEFAULT_TEST_CONFIG = {
   nearRpcUrl: 'https://free.rpc.fastnear.com',
 
   // Contract and account configuration
-  contractId: 'web3-authn-v2.testnet',
-  relayerAccount: 'web3-authn-v2.testnet',
+  contractId: 'web3-authn-v3.testnet',
+  relayerAccount: 'web3-authn-v3.testnet',
 
   // WebAuthn configuration
   rpId: 'localhost',
@@ -64,7 +64,7 @@ const DEFAULT_TEST_CONFIG = {
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
 
   // Test account configuration
-  testReceiverAccountId: 'web3-authn-v2.testnet', // Default receiver for transfer tests
+  testReceiverAccountId: 'web3-authn-v3.testnet', // Default receiver for transfer tests
 };
 
 /**

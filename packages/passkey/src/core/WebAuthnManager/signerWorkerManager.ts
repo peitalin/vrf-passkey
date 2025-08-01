@@ -418,9 +418,13 @@ export class SignerWorkerManager {
         error: wasmResult.error,
       };
     } catch (error: any) {
+      // Preserve the detailed error message instead of converting to generic error
+      console.error('checkCanRegisterUser failed:', error);
       return {
         success: false,
-        error: error.message
+        verified: false,
+        error: error.message || 'Unknown error occurred',
+        logs: [],
       };
     }
   }

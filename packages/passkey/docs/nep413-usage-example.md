@@ -12,7 +12,7 @@ import { PasskeyManager } from '@web3authn/passkey';
 const passkeyManager = new PasskeyManager({
   nearRpcUrl: 'https://rpc.testnet.near.org',
   nearNetwork: 'testnet',
-  contractId: 'web3-authn-v2.testnet',
+  contractId: 'web3-authn-v3.testnet',
   relayerAccount: 'relayer.testnet'
 });
 

@@ -14,6 +14,7 @@ import { VRFChallenge } from '../types/vrf-worker';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 import { base64UrlEncode } from '../../utils/encoders';
+import { getUserFriendlyErrorMessage } from '../../utils/errors';
 
 /**
  * Core registration function that handles passkey registration
@@ -312,9 +313,8 @@ export async function registerPasskey(
       onEvent
     );
 
-    const errorMessage = error.message?.includes('one of the credentials already registered')
-      ? `A passkey for '${nearAccountId}' already exists. Please try logging in instead.`
-      : `Registration failed: ${error.message}`;
+    // Use centralized error handling
+    const errorMessage = getUserFriendlyErrorMessage(error, 'registration', nearAccountId);
 
     const errorObject = new Error(errorMessage);
     onError?.(errorObject);

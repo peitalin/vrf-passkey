@@ -44,10 +44,10 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: PasskeyManagerConfigs = {
   // nearRpcUrl: 'https://rpc.testnet.near.org',
   nearRpcUrl: 'https://test.rpc.fastnear.com',
   nearNetwork: 'testnet' as const,
-  contractId: 'web3-authn-v2.testnet',
+  contractId: 'web3-authn-v3.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
   relayer: {
-    accountId: 'web3-authn-v2.testnet',
+    accountId: 'web3-authn-v3.testnet',
     url: 'http://localhost:3000',
     initialUseRelayer: true,
   },

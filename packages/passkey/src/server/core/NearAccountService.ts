@@ -280,6 +280,12 @@ export class NearAccountService {
             if (log.includes('AccountDoesNotExist')) {
               return `Referenced account does not exist`;
             }
+            if (log.includes('Cannot deserialize the contract state')) {
+              return `Contract state deserialization failed. This may be due to a contract upgrade. Please try again or contact support.`;
+            }
+            if (log.includes('GuestPanic')) {
+              return `Contract execution panic: ${log}`;
+            }
           }
         }
       }

@@ -7,6 +7,7 @@ import type {
 import { LoginPhase, LoginStatus } from '../types/passkeyManager';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
+import { getUserFriendlyErrorMessage } from '../../utils/errors';
 
 /**
  * Core login function that handles passkey authentication without React dependencies
@@ -188,16 +189,19 @@ async function handleLoginUnlockVRF(
     return result;
 
   } catch (error: any) {
+    // Use centralized error handling
+    const errorMessage = getUserFriendlyErrorMessage(error, 'login');
+
     onError?.(error);
     onEvent?.({
       step: 0,
       phase: LoginPhase.LOGIN_ERROR,
       status: LoginStatus.ERROR,
-      message: error.message,
+      message: errorMessage,
       error: error
     });
 
-    const result = { success: false, error: error.message };
+    const result = { success: false, error: errorMessage };
     hooks?.afterCall?.(false, result);
     return result;
   }
