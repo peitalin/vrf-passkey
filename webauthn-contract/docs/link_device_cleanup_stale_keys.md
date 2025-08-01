@@ -20,7 +20,15 @@ The direct approach of having the contract (`web3-authn-v2.testnet`) delete keys
 }
 ```
 
-## Solution: Temporary Access Key Approach
+## Solutions:
+Either we:
+1. Pre-sign a DeleteKey transaction on Device1, and broadcast it when the user closes the QR Scanner:
+- The issue is that the user could accidentally close the QR scanner on device1 before device2 polling detects the added key (and performs the rest of the link device flow), so we have a minor race condition.
+
+2. We could try delegate temporary access key to the contract so that the contract can execute the DeleteKey action via a schedule yield-resume call (auto cleanup in 200 blocks) if device2 doesn't execute the swap key action.
+
+
+## Solution 2: Temporary Access Key Approach
 
 Since direct delegation isn't possible, we use a temporary access key approach:
 

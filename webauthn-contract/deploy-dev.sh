@@ -3,7 +3,7 @@ source .env
 
 # Deploy the contract
 cargo near deploy build-non-reproducible-wasm $WEBAUTHN_CONTRACT_ID \
-	with-init-call init \
+	with-init-call init json-args '{}' \
 	prepaid-gas '100.0 Tgas' \
 	attached-deposit '0 NEAR' \
 	network-config testnet \
