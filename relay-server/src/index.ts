@@ -18,7 +18,7 @@ const nearAccountService = new NearAccountService({
   // you can make it the same account as the webauthn contract id.
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
-  webAuthnContractId: 'web3-authn-v2.testnet',
+  webAuthnContractId: 'web3-authn-v3.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
   networkId: 'testnet',
   accountInitialBalance: '50000000000000000000000', // 0.05 NEAR
@@ -33,7 +33,7 @@ app.use(cors({
   credentials: true,
 }));
 // Global error handler
-app.use((err: Error, req: Request, res: Response) => {
+app.use((err: Error, req: Request, res: Response, next: any) => {
   console.error(err.stack);
   res.status(500).send('Internal NearAccountService error');
 });
@@ -79,12 +79,13 @@ app.post(
         res.status(200).json(result);
       } else {
         // Return error response with appropriate HTTP status code
-        console.error('Atomic account creation and registration failed:', result.error);
+        console.error('account creation and registration failed:', result.error);
         res.status(400).json(result);
       }
 
     } catch (error: any) {
-      console.error('Atomic account creation and registration failed:', error.message);
+      console.error('account creation and registration failed:', error.message);
+      console.error('Error stack:', error.stack);
       res.status(500).json({
         success: false,
         error: error.message || 'Unknown server error'
