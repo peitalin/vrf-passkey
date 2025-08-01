@@ -47,7 +47,7 @@ export async function createAccountAndRegisterWithRelayServer(
 }> {
   const { configs } = context;
 
-  if (!configs.relayServerUrl) {
+  if (!configs.relayer.url) {
     throw new Error('Relay server URL is required for atomic registration');
   }
 
@@ -89,7 +89,7 @@ export async function createAccountAndRegisterWithRelayServer(
     });
 
     // Call the atomic endpoint
-    const response = await fetch(`${configs.relayServerUrl}/create_account_and_register_user`, {
+    const response = await fetch(`${configs.relayer.url}/create_account_and_register_user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestData)

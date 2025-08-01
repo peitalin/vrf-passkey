@@ -42,8 +42,9 @@ export async function loginPasskey(
         message: errorMessage,
         error: errorMessage
       });
-      hooks?.afterCall?.(false, error);
-      return { success: false, error: errorMessage };
+      const result = { success: false, error: errorMessage };
+      hooks?.afterCall?.(false, result);
+      return result;
     }
 
     // Handle login and unlock VRF keypair in VRF WASM worker for WebAuthn challenge generation
@@ -64,8 +65,9 @@ export async function loginPasskey(
       message: err.message,
       error: err.message
     });
-    hooks?.afterCall?.(false, err);
-    return { success: false, error: err.message };
+    const result = { success: false, error: err.message };
+    hooks?.afterCall?.(false, result);
+    return result;
   }
 }
 
@@ -194,8 +196,10 @@ async function handleLoginUnlockVRF(
       message: error.message,
       error: error
     });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: error.message };
+
+    const result = { success: false, error: error.message };
+    hooks?.afterCall?.(false, result);
+    return result;
   }
 }
 

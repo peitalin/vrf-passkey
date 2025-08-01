@@ -45,11 +45,12 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: PasskeyManagerConfigs = {
   nearRpcUrl: 'https://test.rpc.fastnear.com',
   nearNetwork: 'testnet' as const,
   contractId: 'web3-authn-v2.testnet',
-  relayerAccount: 'web3-authn-v2.testnet',
-  initialUseRelayer: true,
-  nearExplorerBaseUrl: 'https://testnet.nearblocks.io',
-  relayServerUrl: 'http://localhost:3000',
-  defaultGasString: "30000000000000", // 30 TGas: Gas constants as strings
+  nearExplorerUrl: 'https://testnet.nearblocks.io',
+  relayer: {
+    accountId: 'web3-authn-v2.testnet',
+    url: 'http://localhost:3000',
+    initialUseRelayer: true,
+  },
 }
 
 export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
@@ -85,7 +86,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   const passkeyManager = useMemo(() => {
 
     const finalConfig = { ...PASSKEY_MANAGER_DEFAULT_CONFIGS, ...config };
-
     // Check if we already have a global instance with the same config
     const configChanged = JSON.stringify(globalConfig) !== JSON.stringify(finalConfig);
 
@@ -102,13 +102,13 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
 
   // Use relayer hook
   const relayerHook = useRelayer({
-    initialValue: config?.initialUseRelayer ?? false
+    initialValue: config?.relayer.initialUseRelayer ?? false
   });
 
   // Use account input hook
   const accountInputHook = useAccountInput({
     passkeyManager,
-    relayerAccount: passkeyManager.configs.relayerAccount,
+    relayerAccount: passkeyManager.configs.relayer.accountId,
     useRelayer: relayerHook.useRelayer,
     currentNearAccountId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn
@@ -284,7 +284,11 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return await passkeyManager.scanAndLinkDevice(options);
   }
 
-  const executeAction = async (nearAccountId: string, actionArgs: ActionArgs, options?: ActionHooksOptions) => {
+  const executeAction = async (
+    nearAccountId: string,
+    actionArgs: ActionArgs,
+    options?: ActionHooksOptions
+  ) => {
     return await passkeyManager.executeAction(nearAccountId, actionArgs, options);
   }
 
@@ -299,7 +303,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Function to manually refresh login state
   const refreshLoginState = useCallback(async (nearAccountId?: string) => {
     try {
-    const loginState = await passkeyManager.getLoginState(nearAccountId);
+      const loginState = await passkeyManager.getLoginState(nearAccountId);
 
       if (loginState.nearAccountId) {
         // User is only logged in if VRF worker has private key in memory
@@ -312,7 +316,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
           isLoggedIn: isVRFLoggedIn  // Only logged in if VRF is active
         }));
 
-      console.log('Refreshed login state:', {
+        console.log('Refreshed login state:', {
           nearAccountId: loginState.nearAccountId,
           publicKey: loginState.publicKey,
           isLoggedIn: isVRFLoggedIn,
@@ -321,7 +325,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
         });
       }
     } catch (error) {
-    console.error('Error refreshing login state:', error);
+      console.error('Error refreshing login state:', error);
     }
   }, [passkeyManager]);
 

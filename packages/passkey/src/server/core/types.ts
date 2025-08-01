@@ -15,7 +15,7 @@ export interface ServerResponse {
 }
 
 // Server configuration interface
-export interface ServerConfig {
+export interface AccountServiceConfig {
   relayerAccountId: string;
   relayerPrivateKey: string;
   nearRpcUrl: string;

@@ -7,8 +7,9 @@ import type { Signer } from '@near-js/signers';
 import { actionCreators } from '@near-js/transactions';
 import type { FinalExecutionOutcome } from '@near-js/types';
 
+import { validateConfigs } from './config';
 import type {
-  ServerConfig,
+  AccountServiceConfig,
   AccountCreationRequest,
   AccountCreationResult,
   CreateAccountAndRegisterRequest,
@@ -22,7 +23,7 @@ import type {
  * Core business logic for account creation and registration operations
  */
 export class NearAccountService {
-  private config: ServerConfig;
+  private config: AccountServiceConfig;
   private keyStore: KeyStore;
   private isInitialized = false;
   private rpcProvider: Provider;
@@ -33,8 +34,22 @@ export class NearAccountService {
   private transactionQueue: Promise<any> = Promise.resolve();
   private queueStats = { pending: 0, completed: 0, failed: 0 };
 
-  constructor(config: ServerConfig) {
-    this.config = config;
+  constructor(config: AccountServiceConfig) {
+    validateConfigs(config);
+    this.config = {
+      // Use defaults if not set
+      relayerAccountId: config.relayerAccountId,
+      relayerPrivateKey: config.relayerPrivateKey,
+      webAuthnContractId: config.webAuthnContractId,
+      nearRpcUrl: config.nearRpcUrl
+        || 'https://rpc.testnet.near.org',
+      networkId: config.networkId
+        || 'testnet',
+      defaultInitialBalance: config.defaultInitialBalance
+        || '50000000000000000000000', // 0.05 NEAR
+      defaultCreateAccountAndRegisterGas: config.defaultCreateAccountAndRegisterGas
+        || '50000000000000', // 50 TGas
+    };
     this.keyStore = new InMemoryKeyStore();
     this.rpcProvider = new JsonRpcProvider({ url: config.nearRpcUrl }) as Provider;
     console.log(`NearAccountService initialized with RPC URL: ${config.nearRpcUrl}`);

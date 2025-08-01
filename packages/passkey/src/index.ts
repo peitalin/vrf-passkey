@@ -91,12 +91,11 @@ export type { PasskeyErrorDetails } from './core/types/errors';
 // Core NEAR Account Service for server-side operations
 export {
   NearAccountService,
-  getServerConfig,
-  validateServerConfig,
+  validateConfigs,
 } from './server';
 
 export type {
-  ServerConfig,
+  AccountServiceConfig,
   AccountCreationRequest,
   AccountCreationResult,
   CreateAccountAndRegisterRequest,

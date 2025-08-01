@@ -93,8 +93,10 @@ export async function executeAction(
       message: `Action failed: ${error.message}`,
       error: error.message
     });
-    hooks?.afterCall?.(false, error);
-    return { success: false, error: error.message };
+
+    const result = { success: false, error: error.message };
+    hooks?.afterCall?.(false, result);
+    return result;
   }
 }
 
@@ -228,7 +230,7 @@ async function wasmAuthenticateAndSignTransaction(
           actionType: ActionType.FunctionCall,
           method_name: action.methodName,
           args: JSON.stringify(action.args),
-          gas: action.gas || context.configs.defaultGasString,
+          gas: action.gas || "30000000000000",
           deposit: action.deposit || "0"
         };
 

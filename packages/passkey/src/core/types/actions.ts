@@ -43,7 +43,7 @@ export interface FunctionCallAction extends BaseAction {
   methodName: string;
   /** Arguments to pass to the method (will be JSON.stringify'd automatically) */
   args: Record<string, any>;
-  /** Maximum gas to use for this call (default: '30000000000000') */
+  /** Maximum gas to use for this call (default: '30000000000000' 30 TGas) */
   gas?: string;
   /** Amount of NEAR tokens to attach in yoctoNEAR (default: '0') */
   deposit?: string;

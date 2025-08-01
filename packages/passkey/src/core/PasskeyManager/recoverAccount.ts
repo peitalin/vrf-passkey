@@ -451,7 +451,8 @@ function handleRecoveryError(
     error: errorMessage
   };
 
-  hooks?.afterCall?.(false, new Error(errorMessage));
+  const result = { success: false, accountId, error: errorMessage };
+  hooks?.afterCall?.(false, result);
   return errorResult;
 }
 

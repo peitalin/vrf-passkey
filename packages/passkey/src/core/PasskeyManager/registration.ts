@@ -211,17 +211,15 @@ export async function registerPasskey(
     registrationState.accountCreated = true;
     registrationState.contractRegistered = true;
     registrationState.contractTransactionId = accountAndRegistrationResult.transactionId || null;
-
     // Handle preSignedDeleteTransaction based on flow type
-    if (useRelayer) {
-      // For atomic transactions, no delete transaction is needed (rollback is automatic)
-      registrationState.preSignedDeleteTransaction = null;
-      console.debug('registration completed - no delete transaction needed');
-    } else {
+    // => Relayer: no delete transaction is needed via relay (atomic tx)
+    // => Testnet Faucet: delete transaction is needed for rollback
+    registrationState.preSignedDeleteTransaction = null;
+
+    if (!useRelayer) {
       // For sequential flow, store the delete transaction for rollback
       registrationState.preSignedDeleteTransaction = accountAndRegistrationResult.preSignedDeleteTransaction;
       console.debug('Pre-signed delete transaction captured for rollback');
-
       // Generate hash for verification/testing
       if (registrationState.preSignedDeleteTransaction) {
         const preSignedDeleteTransactionHash = generateTransactionHash(registrationState.preSignedDeleteTransaction);
@@ -329,11 +327,9 @@ export async function registerPasskey(
       error: errorMessage
     } as RegistrationSSEEvent);
 
-    hooks?.afterCall?.(false, error);
-    return {
-      success: false,
-      error: errorMessage
-    };
+    const result = { success: false, error: errorMessage };
+    hooks?.afterCall?.(false, result);
+    return result;
   }
 }
 
