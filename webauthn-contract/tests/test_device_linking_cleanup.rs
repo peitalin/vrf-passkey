@@ -17,11 +17,11 @@ async fn test_device_linking_automatic_cleanup() -> Result<(), Box<dyn std::erro
         Ok(())
     }
 
-    // Initialize the contract
+    // Initialize contract
     let init_outcome = contract
         .call("init")
-        .args_json(json!({"contract_name": "webauthn-contract.testnet"}))
-        .gas(Gas::from_tgas(30))
+        .args_json(json!({}))
+        .gas(Gas::from_tgas(100))
         .transact()
         .await?;
     assert!(init_outcome.is_success(), "Initialization failed: {:?}", init_outcome.outcome());

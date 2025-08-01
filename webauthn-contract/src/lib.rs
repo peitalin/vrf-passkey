@@ -44,9 +44,8 @@ pub use verify_authentication_response::{
 impl WebAuthnContract {
 
     #[init]
-    pub fn init(contract_name: String) -> Self {
+    pub fn init() -> Self {
         Self {
-            contract_name,
             greeting: "Hello".to_string(),
             vrf_settings: VRFSettings::default(),
             admins: IterableSet::new(StorageKey::Admins),

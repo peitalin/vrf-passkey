@@ -2,22 +2,10 @@
 //!
 //! This module provides verification functions for VRF outputs and proofs generated
 //! by frontend wasm-workers using the `vrf-wasm` crate with browser RNG.
-//!
-//! Frontend responsibilities (using vrf-wasm):
-//! - Generate VRF keypairs with WasmRng or WasmRngFromSeed
-//! - Create VRF proofs using ECVRFKeyPair::prove()
-//! - Serialize proofs and public keys using bincode
-//! - Send serialized data to contract
-//!
-//! Contract responsibilities (this module):
-//! - Deserialize VRF proofs and public keys
-//! - Verify VRF proofs using ECVRFProof::verify()
-//! - Extract VRF outputs using ECVRFProof::to_hash()
-//! - Validate freshness and domain separation
 
 // Wrappers for the `vrf-wasm` and `vrf-contract-verifier` crates
 mod vrf_contract_verifier_wrapper;
-mod vrf_wasm_verifier_wrapper;
+// mod vrf_wasm_verifier_wrapper;
 
 pub use vrf_contract_verifier_wrapper::verify_vrf_1;
 // pub use vrf_wasm_verifier_wrapper::verify_vrf_2;

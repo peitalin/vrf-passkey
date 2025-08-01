@@ -1,5 +1,7 @@
 //! Lib `vrf-wasm` Integration Test
 //!
+//! NOTE: Uncomment verify_vrf_2 in lib.rs to run these tests
+//!
 //! Comprehensive test suite for VRF verification using native vrf-wasm library
 //! with browser feature flag. Tests against wasm_worker_vrf_utils module.
 

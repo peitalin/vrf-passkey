@@ -66,7 +66,7 @@ pub enum StorageKey {
 #[derive(PanicOnDefault)]
 pub struct WebAuthnContract {
     pub greeting: String,
-    pub contract_name: String,
+    // Admins
     pub admins: IterableSet<AccountId>,
     // VRF challenge verification settings
     pub vrf_settings: VRFSettings,

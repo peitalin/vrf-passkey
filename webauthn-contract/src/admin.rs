@@ -8,14 +8,6 @@ use near_sdk::{log, near,  env, require, AccountId, serde_json};
 #[near]
 impl WebAuthnContract {
 
-    pub fn get_contract_name(&self) -> String {
-        self.contract_name.clone()
-    }
-
-    pub fn set_contract_name(&mut self, contract_name: String) {
-        self.contract_name = contract_name;
-    }
-
     /// Checks if msg.sender (env::predecessor_account_id()) has permission to register a new user
     /// Returns true if predecessor is the user themselves, contract owner, or an admin
     /// @non-view - uses env::predecessor_account_id()

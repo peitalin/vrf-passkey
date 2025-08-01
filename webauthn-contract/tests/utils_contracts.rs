@@ -11,7 +11,6 @@ pub async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn
     // Initialize contract
     let _init_result = contract
         .call("init")
-        .args_json(json!({"contract_name": "vrf-test"}))
         .gas(Gas::from_tgas(100))
         .transact()
         .await?;

@@ -462,7 +462,6 @@ async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn std
     // Initialize contract
     let _result = contract
         .call("init")
-        .args_json(json!({"contract_name": "vrf-authentication-test"}))
         .gas(Gas::from_tgas(100))
         .transact()
         .await?;

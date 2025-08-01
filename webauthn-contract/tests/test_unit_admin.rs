@@ -14,7 +14,7 @@ async fn test_admin_functionality() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the contract
     let init_outcome = contract
         .call("init")
-        .args_json(json!({"contract_name": "web3-authn-v2.testnet"}))
+        .args_json(json!({}))
         .transact()
         .await?;
     assert!(init_outcome.is_success(), "Initialization failed: {:?}", init_outcome.outcome());

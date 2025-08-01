@@ -2,7 +2,6 @@ use serde_cbor::Value as CborValue;
 use p256::ecdsa::VerifyingKey;
 use p256::PublicKey as P256PublicKey;
 
-
 pub fn extract_p256_coordinates_from_cose(cose_key: &CborValue) -> Result<(Vec<u8>, Vec<u8>), String> {
     if let CborValue::Map(map) = cose_key {
         let x = map

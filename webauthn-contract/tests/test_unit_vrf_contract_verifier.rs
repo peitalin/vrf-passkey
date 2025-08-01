@@ -1,5 +1,7 @@
 //! `vrf-contract-verifier` Integration Test
 //!
+//! NOTE: Uncomment verify_vrf_1 in lib.rs to run these tests
+//!
 //! Comprehensive test suite for VRF verification using the external vrf-contract-verifier library.
 //! Tests the contract's verify_vrf_1 method which uses vrf-contract-verifier.
 

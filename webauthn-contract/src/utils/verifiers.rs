@@ -9,9 +9,8 @@ use crate::utils::p256_utils::{
     get_uncompressed_p256_pubkey,
 };
 
-
 pub(crate) fn verify_attestation_signature(
-    att_stmt: &CborValue,
+    attestation_stmt: &CborValue,
     auth_data: &[u8],
     client_data_hash: &[u8],
     credential_public_key: &[u8],
@@ -23,13 +22,13 @@ pub(crate) fn verify_attestation_signature(
             Ok(true)
         }
         "packed" => verify_packed_signature(
-            att_stmt,
+            attestation_stmt,
             auth_data,
             client_data_hash,
             credential_public_key,
         ),
         "fido-u2f" => verify_u2f_signature(
-            att_stmt,
+            attestation_stmt,
             auth_data,
             client_data_hash,
             credential_public_key,
@@ -39,12 +38,12 @@ pub(crate) fn verify_attestation_signature(
 }
 
 pub(crate)fn verify_packed_signature(
-    att_stmt: &CborValue,
+    attestation_stmt: &CborValue,
     auth_data: &[u8],
     client_data_hash: &[u8],
     credential_public_key: &[u8],
 ) -> Result<bool, String> {
-    if let CborValue::Map(stmt_map) = att_stmt {
+    if let CborValue::Map(stmt_map) = attestation_stmt {
         // Extract signature
         let signature_bytes = stmt_map
             .get(&CborValue::Text("sig".to_string()))
@@ -126,7 +125,7 @@ pub(crate) fn verify_p256_signature(
 
 
 pub(crate) fn verify_u2f_signature(
-    att_stmt: &CborValue,
+    attestation_stmt: &CborValue,
     auth_data: &[u8],
     client_data_hash: &[u8],
     credential_public_key: &[u8],
@@ -134,7 +133,7 @@ pub(crate) fn verify_u2f_signature(
     log!("Starting FIDO U2F signature verification");
 
     // Extract signature from attestation statement
-    let signature_bytes = if let CborValue::Map(stmt_map) = att_stmt {
+    let signature_bytes = if let CborValue::Map(stmt_map) = attestation_stmt {
         stmt_map
             .get(&CborValue::Text("sig".to_string()))
             .and_then(|v| {
@@ -149,8 +148,6 @@ pub(crate) fn verify_u2f_signature(
         return Err("Invalid U2F attestation statement format".to_string());
     };
 
-    log!("Extracted signature ({} bytes)", signature_bytes.len());
-
     // Parse authenticator data to extract components
     if auth_data.len() < 37 {
         return Err("Authenticator data too short for U2F".to_string());
@@ -158,7 +155,6 @@ pub(crate) fn verify_u2f_signature(
 
     // Extract RP ID hash (first 32 bytes of authData)
     let rp_id_hash = &auth_data[0..32];
-    log!("RP ID hash: {:?}", rp_id_hash);
 
     // Extract credential ID from authenticator data
     // AuthData format: rpIdHash(32) + flags(1) + counter(4) + aaguid(16) + credIdLen(2) + credId(variable) + pubKey(variable)
@@ -173,18 +169,9 @@ pub(crate) fn verify_u2f_signature(
     }
 
     let credential_id = &auth_data[55..55 + cred_id_len];
-    log!(
-        "Credential ID ({} bytes): {:?}",
-        credential_id.len(),
-        credential_id
-    );
 
     // Parse credential public key to get uncompressed P-256 point
     let uncompressed_pubkey = get_uncompressed_p256_pubkey(credential_public_key)?;
-    log!(
-        "Uncompressed public key ({} bytes)",
-        uncompressed_pubkey.len()
-    );
 
     // Construct U2F signature data: 0x00 || appParam || chlngParam || keyHandle || pubKey
     let mut u2f_signature_data = Vec::new();
@@ -194,14 +181,9 @@ pub(crate) fn verify_u2f_signature(
     u2f_signature_data.extend_from_slice(credential_id); // Key handle (variable)
     u2f_signature_data.extend_from_slice(&uncompressed_pubkey); // User public key (65 bytes)
 
-    log!(
-        "U2F signature data length: {} bytes",
-        u2f_signature_data.len()
-    );
-
     // For U2F attestation, we need the attestation certificate's public key
     // If no certificate is provided, we use self-attestation (credential public key)
-    let verifying_key = if let CborValue::Map(stmt_map) = att_stmt {
+    let verifying_key = if let CborValue::Map(stmt_map) = attestation_stmt {
         if let Some(_x5c) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
             // Certificate chain present - extract public key from attestation certificate
             log!("U2F attestation with certificate chain - not yet implemented");
@@ -475,17 +457,17 @@ mod tests {
         let mock_signature = _create_mock_der_signature();
 
         // Build attestation statement (self-attestation, no x5c)
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
+        let mut attestation_stmt_map = BTreeMap::new();
+        attestation_stmt_map.insert(
             CborValue::Text("sig".to_string()),
             CborValue::Bytes(mock_signature),
         );
-        let att_stmt = CborValue::Map(att_stmt_map);
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
 
         // Test the verification (this will fail because we have a mock signature,
         // but it should get through the parsing logic without errors)
         let result = verify_u2f_signature(
-            &att_stmt,
+            &attestation_stmt,
             &auth_data,
             &client_data_hash,
             &cose_public_key,
@@ -522,15 +504,15 @@ mod tests {
         let client_data_hash = [0u8; 32];
         let mock_signature = _create_mock_der_signature();
 
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
+        let mut attestation_stmt_map = BTreeMap::new();
+        attestation_stmt_map.insert(
             CborValue::Text("sig".to_string()),
             CborValue::Bytes(mock_signature),
         );
-        let att_stmt = CborValue::Map(att_stmt_map);
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
 
         let result = verify_u2f_signature(
-            &att_stmt,
+            &attestation_stmt,
             &auth_data,
             &client_data_hash,
             &cose_public_key,
@@ -545,15 +527,15 @@ mod tests {
     fn test_verify_u2f_signature_missing_signature() {
 
         // Empty attestation statement (missing signature)
-        let att_stmt_map = BTreeMap::new();
-        let att_stmt = CborValue::Map(att_stmt_map);
+        let attestation_stmt_map = BTreeMap::new();
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
 
         let auth_data = vec![0u8; 100]; // Mock auth data
         let client_data_hash = [0u8; 32];
         let cose_public_key = _build_p256_cose_key(&[1u8; 32], &[2u8; 32]);
 
         let result = verify_u2f_signature(
-            &att_stmt,
+            &attestation_stmt,
             &auth_data,
             &client_data_hash,
             &cose_public_key,
@@ -567,12 +549,12 @@ mod tests {
     fn test_verify_u2f_signature_invalid_auth_data() {
         // Valid attestation statement
         let mock_signature = _create_mock_der_signature();
-        let mut att_stmt_map = BTreeMap::new();
-        att_stmt_map.insert(
+        let mut attestation_stmt_map = BTreeMap::new();
+        attestation_stmt_map.insert(
             CborValue::Text("sig".to_string()),
             CborValue::Bytes(mock_signature),
         );
-        let att_stmt = CborValue::Map(att_stmt_map);
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
 
         // Invalid auth data (too short)
         let auth_data = vec![0u8; 30]; // Too short for U2F
@@ -580,7 +562,7 @@ mod tests {
         let cose_public_key = _build_p256_cose_key(&[1u8; 32], &[2u8; 32]);
 
         let result = verify_u2f_signature(
-            &att_stmt,
+            &attestation_stmt,
             &auth_data,
             &client_data_hash,
             &cose_public_key,

@@ -1,5 +1,3 @@
-use near_sdk::{bs58, PublicKey};
-use near_workspaces::types::KeyType;
 
 mod utils_mocks;
 use utils_mocks::{
