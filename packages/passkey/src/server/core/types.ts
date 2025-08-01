@@ -18,11 +18,11 @@ export interface ServerResponse {
 export interface AccountServiceConfig {
   relayerAccountId: string;
   relayerPrivateKey: string;
-  nearRpcUrl: string;
   webAuthnContractId: string;
+  nearRpcUrl: string;
   networkId: string;
-  defaultInitialBalance: string;
-  defaultCreateAccountAndRegisterGas: string;
+  accountInitialBalance: string;
+  createAccountAndRegisterGas: string;
 }
 
 // Account creation and registration types (imported from relay-server types)

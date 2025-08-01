@@ -45,14 +45,13 @@ export class NearAccountService {
         || 'https://rpc.testnet.near.org',
       networkId: config.networkId
         || 'testnet',
-      defaultInitialBalance: config.defaultInitialBalance
+      accountInitialBalance: config.accountInitialBalance
         || '50000000000000000000000', // 0.05 NEAR
-      defaultCreateAccountAndRegisterGas: config.defaultCreateAccountAndRegisterGas
-        || '50000000000000', // 50 TGas
+      createAccountAndRegisterGas: config.createAccountAndRegisterGas
+        || '120000000000000', // 120 TGas
     };
     this.keyStore = new InMemoryKeyStore();
     this.rpcProvider = new JsonRpcProvider({ url: config.nearRpcUrl }) as Provider;
-    console.log(`NearAccountService initialized with RPC URL: ${config.nearRpcUrl}`);
   }
 
   async getRelayerAccount(): Promise<Account> {
@@ -72,13 +71,28 @@ export class NearAccountService {
     this.relayerAccount = new Account(this.config.relayerAccountId, this.rpcProvider, this.signer);
     this.isInitialized = true;
     console.log(`
-      NearAccountService initialized for network: ${this.config.networkId}
-      relayer: ${this.config.relayerAccountId}
-      nearRpcUrl: ${this.config.nearRpcUrl}
-      webAuthnContractId: ${this.config.webAuthnContractId}
-      defaultInitialBalance: ${this.config.defaultInitialBalance}
-      defaultCreateAccountAndRegisterGas: ${this.config.defaultCreateAccountAndRegisterGas}
+    NearAccountService initialized with:
+    • networkId: ${this.config.networkId}
+    • nearRpcUrl: ${this.config.nearRpcUrl}
+    • relayerAccountId: ${this.config.relayerAccountId}
+    • webAuthnContractId: ${this.config.webAuthnContractId}
+    • accountInitialBalance: ${this.config.accountInitialBalance} (${this.formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
+    • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${this.formatGasToTGas(this.config.createAccountAndRegisterGas)})
     `);
+  }
+
+  // Format NEAR gas (string) to TGas for display
+  private formatGasToTGas(gasString: string): string {
+    const gasAmount = BigInt(gasString);
+    const tGas = Number(gasAmount) / 1e12;
+    return `${tGas.toFixed(0)} TGas`;
+  }
+
+  // Convert yoctoNEAR to NEAR for display
+  private formatYoctoToNear(yoctoAmount: string | bigint): string {
+    const amount = typeof yoctoAmount === 'string' ? BigInt(yoctoAmount) : yoctoAmount;
+    const nearAmount = Number(amount) / 1e24;
+    return nearAmount.toFixed(3);
   }
 
   /**
@@ -101,7 +115,7 @@ export class NearAccountService {
         }
         console.log(`Account ${request.accountId} is available for creation`);
 
-        const initialBalance = BigInt(this.config.defaultInitialBalance);
+        const initialBalance = BigInt(this.config.accountInitialBalance);
         const publicKey = PublicKey.fromString(request.publicKey);
 
         console.log(`Creating account: ${request.accountId}`);
@@ -177,8 +191,8 @@ export class NearAccountService {
             actionCreators.functionCall(
               'create_account_and_register_user',
               contractArgs,
-              BigInt(this.config.defaultCreateAccountAndRegisterGas),
-              BigInt(this.config.defaultInitialBalance) // Initial balance
+              BigInt(this.config.createAccountAndRegisterGas),
+              BigInt(this.config.accountInitialBalance) // Initial balance
             )
           ]
         });
