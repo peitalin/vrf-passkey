@@ -19,9 +19,12 @@ function App() {
           nearRpcUrl: 'https://rpc.testnet.near.org',
           contractId: 'web3-authn-v2.testnet',
           nearNetwork: 'testnet',
-          relayerAccount: 'web3-authn-v2.testnet',
-          relayServerUrl: 'http://localhost:3000',
-          initialUseRelayer: false
+          nearExplorerUrl: 'https://testnet.nearblocks.io',
+          relayer: {
+            accountId: 'web3-authn-v2.testnet',
+            url: 'http://localhost:3000',
+            initialUseRelayer: true,
+          },
         }}
       >
         <Toaster
