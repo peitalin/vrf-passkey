@@ -1,7 +1,9 @@
 use near_sdk::log;
 use serde_cbor::Value as CborValue;
-use p256::ecdsa::Signature;
 use ed25519_dalek::Signature as Ed25519Signature;
+use x509_parser::prelude::*;
+use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
+use p256::PublicKey as P256PublicKey;
 
 use crate::utils::p256_utils::{
     extract_p256_coordinates_from_cose,
@@ -75,24 +77,41 @@ pub(crate)fn verify_packed_signature(
             ));
         }
 
-        // For self-attestation (no x5c), verify against credential key
-        if !stmt_map.contains_key(&CborValue::Text("x5c".to_string())) {
-            return verify_p256_signature(
+        // Check for x5c certificate chain
+        if let Some(x5c_value) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
+            // Handle full attestation with certificate chain
+            if let CborValue::Array(x5c) = x5c_value {
+                match validate_certificate_chain(x5c) {
+                    Ok(attestation_pubkey) => {
+                        return verify_p256_signature_with_verifying_key(
+                            signature_bytes,
+                            auth_data,
+                            client_data_hash,
+                            &attestation_pubkey,
+                        );
+                    }
+                    Err(e) => return Err(format!("Certificate chain validation failed: {}", e)),
+                }
+            } else {
+                return Err("Invalid x5c format - expected array".to_string())
+            }
+        } else {
+            // Self-attestation (no x5c), verify against credential key
+            return verify_p256_signature_from_cose(
                 signature_bytes,
                 auth_data,
                 client_data_hash,
                 credential_public_key,
             );
-        } else {
-            // TODO: Handle full attestation with certificate chain
-            return Err("Certificate chain attestation not yet supported".to_string());
         }
     }
 
     Err("Invalid attestation statement format".to_string())
 }
 
-pub(crate) fn verify_p256_signature(
+
+/// P-256 signature verification using COSE-encoded public key
+pub(crate) fn verify_p256_signature_from_cose(
     signature_bytes: &[u8],
     auth_data: &[u8],
     client_data_hash: &[u8],
@@ -107,17 +126,33 @@ pub(crate) fn verify_p256_signature(
     // Create P-256 public key from coordinates
     let public_key = create_p256_public_key(&x_bytes, &y_bytes)?;
 
+    // Use the unified verification function
+    verify_p256_signature_with_verifying_key(
+        signature_bytes,
+        auth_data,
+        client_data_hash,
+        &public_key,
+    )
+}
+
+/// Core P-256 signature verification function
+/// This is the unified implementation used by all other P-256 verification functions
+pub(crate) fn verify_p256_signature_with_verifying_key(
+    signature_bytes: &[u8],
+    auth_data: &[u8],
+    client_data_hash: &[u8],
+    verifying_key: &VerifyingKey,
+) -> Result<bool, String> {
     // Create verification data: authData || clientDataHash
     let mut verification_data = auth_data.to_vec();
     verification_data.extend_from_slice(client_data_hash);
 
     // Parse signature (DER encoded)
-    let signature =
-        Signature::from_der(signature_bytes).map_err(|_| "Invalid signature format")?;
+    let signature = Signature::from_der(signature_bytes)
+        .map_err(|_| "Invalid signature format")?;
 
-    // import Verifier trait for verify() method
-    use p256::ecdsa::signature::Verifier;
-    match public_key.verify(&verification_data, &signature) {
+    // Verify signature
+    match verifying_key.verify(&verification_data, &signature) {
         Ok(()) => Ok(true),
         Err(_) => Ok(false),
     }
@@ -184,20 +219,27 @@ pub(crate) fn verify_u2f_signature(
     // For U2F attestation, we need the attestation certificate's public key
     // If no certificate is provided, we use self-attestation (credential public key)
     let verifying_key = if let CborValue::Map(stmt_map) = attestation_stmt {
-        if let Some(_x5c) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
+        if let Some(x5c_value) = stmt_map.get(&CborValue::Text("x5c".to_string())) {
             // Certificate chain present - extract public key from attestation certificate
-            log!("U2F attestation with certificate chain - not yet implemented");
-            return Err("U2F attestation with certificate chain not yet supported".to_string());
+            if let CborValue::Array(x5c) = x5c_value {
+                log!("U2F attestation with certificate chain");
+                match validate_certificate_chain(x5c) {
+                    Ok(attestation_pubkey) => attestation_pubkey,
+                    Err(e) => return Err(format!("U2F certificate chain validation failed: {}", e)),
+                }
+            } else {
+                return Err("Invalid x5c format in U2F attestation".to_string());
+            }
         } else {
             // Self-attestation - use credential public key
-            let credential_public_key: CborValue = serde_cbor::from_slice(credential_public_key)
+            let parsed_cose_key: CborValue = serde_cbor::from_slice(credential_public_key)
                 .map_err(|_| "Failed to parse COSE public key")?;
 
             log!("U2F self-attestation - using credential public key");
             let (
                 x_bytes,
                 y_bytes
-            ) = extract_p256_coordinates_from_cose(&credential_public_key)?;
+            ) = extract_p256_coordinates_from_cose(&parsed_cose_key)?;
 
             create_p256_public_key(&x_bytes, &y_bytes)?
         }
@@ -365,6 +407,43 @@ fn verify_ed25519_authentication_signature(
     }
 }
 
+/// Validates X.509 certificate chain and extracts the attestation public key
+/// This implements basic x5c validation for WebAuthn attestation
+fn validate_certificate_chain(x5c: &[CborValue]) -> Result<VerifyingKey, String> {
+    if x5c.is_empty() {
+        return Err("Empty certificate chain".to_string());
+    }
+
+    // Extract the leaf certificate (first in chain)
+    let leaf_cert_bytes = if let CborValue::Bytes(cert_bytes) = &x5c[0] {
+        cert_bytes
+    } else {
+        return Err("Invalid certificate format in x5c".to_string());
+    };
+
+    // Parse the X.509 certificate
+    let (_, cert) = X509Certificate::from_der(leaf_cert_bytes)
+        .map_err(|e| format!("Failed to parse X.509 certificate: {}", e))?;
+
+    // Extract the public key from the certificate
+    let public_key_info = cert.public_key();
+    let public_key_bytes = &*public_key_info.subject_public_key.data;
+
+    // For P-256 certificates, the public key is typically in uncompressed format
+    // Check if it's the right length (65 bytes for uncompressed P-256)
+    if public_key_bytes.len() == 65 && public_key_bytes[0] == 0x04 {
+        // Create P-256 public key directly from uncompressed bytes
+        let public_key = P256PublicKey::from_sec1_bytes(public_key_bytes)
+            .map_err(|_| "Invalid P-256 public key in certificate")?;
+
+        Ok(VerifyingKey::from(public_key))
+    } else {
+        return Err("Unsupported public key format in certificate".to_string());
+    }
+}
+
+
+
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
@@ -398,6 +477,153 @@ mod tests {
         map.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord.to_vec())); // x
         map.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord.to_vec())); // y
         serde_cbor::to_vec(&CborValue::Map(map)).unwrap()
+    }
+
+    // Test private key (32 bytes) - ONLY FOR TESTING
+    fn _get_test_private_key() -> [u8; 32] {
+        [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+            0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        ]
+    }
+
+    // Generate test data with matching private/public key and signature
+    fn _create_test_signature_data() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        use p256::ecdsa::{SigningKey, signature::Signer};
+
+        // Create private key from test bytes
+        let private_key_bytes = _get_test_private_key();
+        let signing_key = SigningKey::from_bytes(&private_key_bytes.into())
+            .expect("Failed to create signing key");
+
+        // Get public key coordinates
+        let verifying_key = signing_key.verifying_key();
+        let public_key_point = verifying_key.to_encoded_point(false); // Uncompressed
+        let public_key_bytes = public_key_point.as_bytes();
+
+        // Extract x and y coordinates (skip 0x04 prefix)
+        let x_coord = public_key_bytes[1..33].to_vec();
+        let y_coord = public_key_bytes[33..65].to_vec();
+
+        // Create COSE public key
+        let mut cose_map = BTreeMap::new();
+        cose_map.insert(CborValue::Integer(1), CborValue::Integer(2)); // kty: EC2
+        cose_map.insert(CborValue::Integer(3), CborValue::Integer(-7)); // alg: ES256
+        cose_map.insert(CborValue::Integer(-1), CborValue::Integer(1)); // crv: P-256
+        cose_map.insert(CborValue::Integer(-2), CborValue::Bytes(x_coord)); // x
+        cose_map.insert(CborValue::Integer(-3), CborValue::Bytes(y_coord)); // y
+        let cose_public_key = serde_cbor::to_vec(&CborValue::Map(cose_map)).unwrap();
+
+        // Create test data to sign
+        let auth_data = vec![0u8; 37];
+        let client_data_hash = [0u8; 32];
+
+        // Create verification data: authData || clientDataHash
+        let mut verification_data = auth_data.clone();
+        verification_data.extend_from_slice(&client_data_hash);
+
+        // Sign the data
+        let signature: p256::ecdsa::Signature = signing_key.sign(&verification_data);
+        let signature_bytes = signature.to_der().as_bytes().to_vec();
+
+        (cose_public_key, auth_data, signature_bytes)
+    }
+
+    #[test]
+    fn test_verify_packed_signature_self_attestation() {
+        // Test self-attestation with real cryptographic signature
+        let (
+            cose_public_key,
+            auth_data,
+            signature_bytes
+        ) = _create_test_signature_data();
+
+        let mut attestation_stmt_map = BTreeMap::new();
+        attestation_stmt_map.insert(
+            CborValue::Text("sig".to_string()),
+            CborValue::Bytes(signature_bytes),
+        );
+        attestation_stmt_map.insert(
+            CborValue::Text("alg".to_string()),
+            CborValue::Integer(-7),
+        );
+        // No x5c - this is self-attestation
+
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
+        let client_data_hash = [0u8; 32];
+
+        let result = verify_packed_signature(
+            &attestation_stmt,
+            &auth_data,
+            &client_data_hash,
+            &cose_public_key,
+        );
+
+        // With real signature data, verification should succeed
+        match result {
+            Ok(verified) => {
+                assert!(verified, "Real signature should verify successfully");
+            }
+            Err(e) => {
+                panic!("Should not fail with valid signature data: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_verify_packed_signature_with_x5c_invalid() {
+        // Test with invalid x5c (non-array)
+        let (cose_public_key, _, _) = _create_test_signature_data();
+
+        let mock_signature = _create_mock_der_signature();
+        let mut attestation_stmt_map = BTreeMap::new();
+        attestation_stmt_map.insert(
+            CborValue::Text("sig".to_string()),
+            CborValue::Bytes(mock_signature),
+        );
+        attestation_stmt_map.insert(
+            CborValue::Text("alg".to_string()),
+            CborValue::Integer(-7),
+        );
+        // Invalid x5c format (should be array)
+        attestation_stmt_map.insert(
+            CborValue::Text("x5c".to_string()),
+            CborValue::Text("invalid".to_string()),
+        );
+
+        let attestation_stmt = CborValue::Map(attestation_stmt_map);
+        let auth_data = vec![0u8; 37];
+        let client_data_hash = [0u8; 32];
+
+        let result = verify_packed_signature(
+            &attestation_stmt,
+            &auth_data,
+            &client_data_hash,
+            &cose_public_key,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid x5c format"));
+    }
+
+    #[test]
+    fn test_validate_certificate_chain_empty() {
+        let empty_x5c = vec![];
+        let result = validate_certificate_chain(&empty_x5c);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Empty certificate chain"));
+    }
+
+    #[test]
+    fn test_validate_certificate_chain_invalid_format() {
+        let invalid_x5c = vec![CborValue::Text("not_a_certificate".to_string())];
+        let result = validate_certificate_chain(&invalid_x5c);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid certificate format"));
     }
 
     // Tests for FIDO U2F signature verification

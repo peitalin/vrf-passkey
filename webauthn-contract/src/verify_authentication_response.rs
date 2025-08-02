@@ -1,5 +1,4 @@
 use near_sdk::{env, log, near};
-use near_sdk::store::IterableMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE;
 use base64::Engine;
 
@@ -517,7 +516,7 @@ mod tests {
         // Store the authenticator first (simulating prior registration)
         if !contract.authenticators.contains_key(&user_account_id) {
             let storage_key_bytes = format!("auth_{}", user_account_id).into_bytes();
-            let new_map = IterableMap::new(storage_key_bytes);
+            let new_map = near_sdk::store::IterableMap::new(storage_key_bytes);
             contract.authenticators.insert(user_account_id.clone(), new_map);
         }
         if let Some(user_authenticators) = contract.authenticators.get_mut(&user_account_id) {

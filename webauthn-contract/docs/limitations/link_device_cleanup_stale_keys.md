@@ -27,6 +27,15 @@ Either we:
 
 2. We could try delegate temporary access key to the contract so that the contract can execute the DeleteKey action via a schedule yield-resume call (auto cleanup in 200 blocks) if device2 doesn't execute the swap key action.
 
+## Solution 1: Pre-signed DeleteKey on Device1
+Device1 pre-signs a DeleteKey transaction targeting the temporary key. If linking fails or user cancels, this transaction is broadcast to clean up the stale key.
+
+### Implementation Overview
+
+1. **Pre-sign on Device1**: Generate signed DeleteKey transaction for the temporary key
+2. **Store locally**: Keep signed transaction in browser storage during linking process
+3. **Conditional broadcast**: Submit transaction if linking fails or user cancels
+
 
 ## Solution 2: Temporary Access Key Approach
 

@@ -909,8 +909,8 @@ mod tests {
 
         let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
         let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
-        let user_id = "test_user_123".to_string();
-        let args = json!({
+        let _user_id = "test_user_123".to_string();
+        let _args = json!({
             "some_key": "some_value"
         });
 

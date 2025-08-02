@@ -1,5 +1,4 @@
 use near_workspaces::types::Gas;
-use serde_json::json;
 
 #[tokio::test]
 async fn test_basic_contract_init() -> Result<(), Box<dyn std::error::Error>> {

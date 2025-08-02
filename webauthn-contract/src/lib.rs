@@ -83,6 +83,16 @@ impl WebAuthnContract {
         self.vrf_settings.clone()
     }
 
+    ///////////////////////////////////////////////////
+    // Main WebAuthn registration and verification functions are found in:
+    // - webauthn-contract/src/verify_registration_response.rs
+    // - webauthn-contract/src/verify_authentication_response.rs
+    ///////////////////////////////////////////////////
+
+    ///////////////////////////////////////////////////
+    // Test VRF-WASM verification functions
+    ///////////////////////////////////////////////////
+
     // // vrf-contract-verifier (view-only verification)
     // pub fn verify_vrf_1(
     //     &self,
@@ -126,127 +136,112 @@ impl WebAuthnContract {
     // }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use near_sdk::test_utils::{accounts, VMContextBuilder};
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
-    use std::collections::BTreeMap;
-    use crate::utils::vrf_verifier::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use near_sdk::test_utils::{accounts, VMContextBuilder};
+//     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_ENGINE};
+//     use std::collections::BTreeMap;
 
-    // === TEST HELPERS ===
+//     // === TEST HELPERS ===
 
-    /// Helper to get a VMContext with predictable randomness for testing
-    fn get_context_with_seed(random_byte_val: u8) -> VMContextBuilder {
-        let mut builder = VMContextBuilder::new();
-        let seed: Vec<u8> = (0..32).map(|_| random_byte_val).collect();
-        builder
-            .current_account_id(accounts(0))
-            .signer_account_id(accounts(1))
-            .predecessor_account_id(accounts(1))
-            .is_view(false)
-            .random_seed(seed.try_into().unwrap());
-        builder
-    }
+//     /// Create a valid mock WebAuthn registration response
+//     fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> WebAuthnRegistrationCredential {
+//         let client_data = format!(
+//             r#"{{"type":"webauthn.create","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
+//             challenge_b64
+//         );
+//         let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
 
+//         // Create valid attestation object for "none" format
+//         let mut attestation_map = BTreeMap::new();
+//         attestation_map.insert(
+//             serde_cbor::Value::Text("fmt".to_string()),
+//             serde_cbor::Value::Text("none".to_string()),
+//         );
 
-    /// Create a valid mock WebAuthn registration response
-    fn create_mock_webauthn_registration_response_with_challenge(challenge_b64: &str) -> WebAuthnRegistrationCredential {
-        let client_data = format!(
-            r#"{{"type":"webauthn.create","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
-            challenge_b64
-        );
-        let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
+//         // Create valid authenticator data
+//         let mut auth_data = Vec::new();
+//         let rp_id_hash = env::sha256(b"test-contract.testnet");
+//         auth_data.extend_from_slice(&rp_id_hash);
+//         auth_data.push(0x45); // UP (0x01) + UV (0x04) + AT (0x40)
+//         auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]); // Counter = 1
 
-        // Create valid attestation object for "none" format
-        let mut attestation_map = BTreeMap::new();
-        attestation_map.insert(
-            serde_cbor::Value::Text("fmt".to_string()),
-            serde_cbor::Value::Text("none".to_string()),
-        );
+//         // AAGUID (16 bytes)
+//         auth_data.extend_from_slice(&[0x00u8; 16]);
 
-        // Create valid authenticator data
-        let mut auth_data = Vec::new();
-        let rp_id_hash = env::sha256(b"test-contract.testnet");
-        auth_data.extend_from_slice(&rp_id_hash);
-        auth_data.push(0x45); // UP (0x01) + UV (0x04) + AT (0x40)
-        auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]); // Counter = 1
+//         // Credential ID
+//         let cred_id = b"test_vrf_credential";
+//         auth_data.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
+//         auth_data.extend_from_slice(cred_id);
 
-        // AAGUID (16 bytes)
-        auth_data.extend_from_slice(&[0x00u8; 16]);
+//         // Create valid COSE Ed25519 public key
+//         let mock_ed25519_pubkey = [0x42u8; 32];
+//         let mut cose_map = BTreeMap::new();
+//         cose_map.insert(serde_cbor::Value::Integer(1), serde_cbor::Value::Integer(1)); // kty: OKP
+//         cose_map.insert(serde_cbor::Value::Integer(3), serde_cbor::Value::Integer(-8)); // alg: EdDSA
+//         cose_map.insert(serde_cbor::Value::Integer(-1), serde_cbor::Value::Integer(6)); // crv: Ed25519
+//         cose_map.insert(serde_cbor::Value::Integer(-2), serde_cbor::Value::Bytes(mock_ed25519_pubkey.to_vec()));
+//         let cose_key = serde_cbor::to_vec(&serde_cbor::Value::Map(cose_map)).unwrap();
+//         auth_data.extend_from_slice(&cose_key);
 
-        // Credential ID
-        let cred_id = b"test_vrf_credential";
-        auth_data.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
-        auth_data.extend_from_slice(cred_id);
+//         attestation_map.insert(
+//             serde_cbor::Value::Text("authData".to_string()),
+//             serde_cbor::Value::Bytes(auth_data),
+//         );
+//         attestation_map.insert(
+//             serde_cbor::Value::Text("attStmt".to_string()),
+//             serde_cbor::Value::Map(BTreeMap::new()),
+//         );
 
-        // Create valid COSE Ed25519 public key
-        let mock_ed25519_pubkey = [0x42u8; 32];
-        let mut cose_map = BTreeMap::new();
-        cose_map.insert(serde_cbor::Value::Integer(1), serde_cbor::Value::Integer(1)); // kty: OKP
-        cose_map.insert(serde_cbor::Value::Integer(3), serde_cbor::Value::Integer(-8)); // alg: EdDSA
-        cose_map.insert(serde_cbor::Value::Integer(-1), serde_cbor::Value::Integer(6)); // crv: Ed25519
-        cose_map.insert(serde_cbor::Value::Integer(-2), serde_cbor::Value::Bytes(mock_ed25519_pubkey.to_vec()));
-        let cose_key = serde_cbor::to_vec(&serde_cbor::Value::Map(cose_map)).unwrap();
-        auth_data.extend_from_slice(&cose_key);
+//         let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
+//         let attestation_object_b64 = BASE64_URL_ENGINE.encode(&attestation_object_bytes);
 
-        attestation_map.insert(
-            serde_cbor::Value::Text("authData".to_string()),
-            serde_cbor::Value::Bytes(auth_data),
-        );
-        attestation_map.insert(
-            serde_cbor::Value::Text("attStmt".to_string()),
-            serde_cbor::Value::Map(BTreeMap::new()),
-        );
+//         WebAuthnRegistrationCredential {
+//             id: "test_vrf_credential".to_string(),
+//             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
+//             response: AuthenticatorAttestationResponse {
+//                 client_data_json: client_data_b64,
+//                 attestation_object: attestation_object_b64,
+//                 transports: Some(vec!["internal".to_string()]),
+//             },
+//             authenticator_attachment: None,
+//             type_: "public-key".to_string(),
+//             client_extension_results: None,
+//         }
+//     }
 
-        let attestation_object_bytes = serde_cbor::to_vec(&serde_cbor::Value::Map(attestation_map)).unwrap();
-        let attestation_object_b64 = BASE64_URL_ENGINE.encode(&attestation_object_bytes);
+//     /// Create a valid mock WebAuthn authentication response
+//     fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> WebAuthnAuthenticationCredential {
+//         let client_data = format!(
+//             r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
+//             challenge_b64
+//         );
+//         let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
 
-        WebAuthnRegistrationCredential {
-            id: "test_vrf_credential".to_string(),
-            raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
-            response: AuthenticatorAttestationResponse {
-                client_data_json: client_data_b64,
-                attestation_object: attestation_object_b64,
-                transports: Some(vec!["internal".to_string()]),
-            },
-            authenticator_attachment: None,
-            type_: "public-key".to_string(),
-            client_extension_results: None,
-        }
-    }
+//         // Create valid authenticator data
+//         let mut auth_data = Vec::new();
+//         let rp_id_hash = env::sha256(b"test-contract.testnet");
+//         auth_data.extend_from_slice(&rp_id_hash);
+//         auth_data.push(0x05); // UP (0x01) + UV (0x04)
+//         auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]); // Counter = 2
 
-    /// Create a valid mock WebAuthn authentication response
-    fn create_mock_webauthn_authentication_response_with_challenge(challenge_b64: &str) -> WebAuthnAuthenticationCredential {
-        let client_data = format!(
-            r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://test-contract.testnet","crossOrigin":false}}"#,
-            challenge_b64
-        );
-        let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
+//         let auth_data_b64 = BASE64_URL_ENGINE.encode(&auth_data);
 
-        // Create valid authenticator data
-        let mut auth_data = Vec::new();
-        let rp_id_hash = env::sha256(b"test-contract.testnet");
-        auth_data.extend_from_slice(&rp_id_hash);
-        auth_data.push(0x05); // UP (0x01) + UV (0x04)
-        auth_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]); // Counter = 2
-
-        let auth_data_b64 = BASE64_URL_ENGINE.encode(&auth_data);
-
-        WebAuthnAuthenticationCredential {
-            id: "test_vrf_credential".to_string(),
-            raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
-            response: AuthenticatorAssertionResponse {
-                client_data_json: client_data_b64,
-                authenticator_data: auth_data_b64,
-                signature: BASE64_URL_ENGINE.encode(&vec![0u8; 64]), // Mock signature
-                user_handle: None,
-            },
-            authenticator_attachment: None,
-            type_: "public-key".to_string(),
-            client_extension_results: None,
-        }
-    }
+//         WebAuthnAuthenticationCredential {
+//             id: "test_vrf_credential".to_string(),
+//             raw_id: BASE64_URL_ENGINE.encode(b"test_vrf_credential"),
+//             response: AuthenticatorAssertionResponse {
+//                 client_data_json: client_data_b64,
+//                 authenticator_data: auth_data_b64,
+//                 signature: BASE64_URL_ENGINE.encode(&vec![0u8; 64]), // Mock signature
+//                 user_handle: None,
+//             },
+//             authenticator_attachment: None,
+//             type_: "public-key".to_string(),
+//             client_extension_results: None,
+//         }
+//     }
 
 
-}
+// }
