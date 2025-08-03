@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-import { usePasskeyContext, ProfileButton } from '@web3authn/passkey/react';
+import { usePasskeyContext, ProfileSettingsButton } from '@web3authn/passkey/react';
 
 export const Navbar: React.FC = () => {
 
@@ -21,7 +21,13 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      {loginState.isLoggedIn && <ProfileButton />}
+      {
+        loginState.isLoggedIn &&
+        <ProfileSettingsButton
+          username={loginState.nearAccountId}
+          onLogout={() => {}}
+        />
+      }
     </nav>
   );
 };
