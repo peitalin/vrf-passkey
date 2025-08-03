@@ -21,8 +21,8 @@ const nearAccountService = new NearAccountService({
   webAuthnContractId: 'web3-authn-v3.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
   networkId: 'testnet',
-  accountInitialBalance: '50000000000000000000000', // 0.05 NEAR
-  createAccountAndRegisterGas: '120000000000000', // 120 TGas
+  accountInitialBalance: '30000000000000000000000', // 0.03 NEAR
+  createAccountAndRegisterGas: '45000000000000', // 45 TGas (tested)
 });
 
 const app: Express = express();

@@ -49,8 +49,7 @@ const DEFAULT_TEST_CONFIG = {
 
   // NEAR network configuration
   nearNetwork: 'testnet' as const,
-  // nearRpcUrl: 'https://rpc.testnet.near.org',
-  nearRpcUrl: 'https://free.rpc.fastnear.com',
+  nearRpcUrl: 'https://rpc.testnet.near.org',
 
   // Contract and account configuration
   contractId: 'web3-authn-v3.testnet',

@@ -448,7 +448,7 @@ export class SignerWorkerManager {
     vrfChallenge: VRFChallenge,
     credential: PublicKeyCredential,
     contractId: string;
-    deterministicVrfPublicKey?: string; // Optional deterministic VRF key for dual registration
+    deterministicVrfPublicKey: string; // Required deterministic VRF key for dual registration
     signerAccountId: string;
     nearAccountId: AccountId;
     nearPublicKeyStr: string;

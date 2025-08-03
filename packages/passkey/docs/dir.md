@@ -16,7 +16,7 @@ This document provides a comprehensive overview of the `reveries-passkey` reposi
 
 ```
 reveries-passkey/
-├── packages/           # Monorepo packages
+├── packages/          # Monorepo packages
 ├── frontend/          # React demo application
 ├── webauthn-contract/ # NEAR smart contract (Rust)
 ├── relay-server/      # Minimal Express server
@@ -120,8 +120,8 @@ webauthn-contract/
 │   ├── utils/            # Utility modules
 │   │   ├── mod.rs        # Module declarations
 │   │   ├── p256_utils.rs # P-256 curve utilities
-│   │   ├── parsers.rs    # Data parsing utilities
-│   │   ├── validation.rs # Input validation
+│   │   ├── parsers.rs    # Webauthn data parsing utilities
+│   │   ├── validation.rs # Webauthn validation utilities
 │   │   ├── verifiers.rs  # Verification logic
 │   │   └── vrf_verifier/ # VRF verification
 │   ├── lib.rs            # Main contract entry point
