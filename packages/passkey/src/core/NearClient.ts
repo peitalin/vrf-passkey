@@ -21,11 +21,40 @@ import {
 import { PublicKey } from "@near-js/crypto";
 import { base64Encode } from "../utils";
 import { DEFAULT_WAIT_STATUS } from "./types/rpc";
-// import { Provider } from "@near-js/providers";
 import {
   WasmTransaction,
   WasmSignature,
 } from "../wasm_signer_worker/wasm_signer_worker.js";
+// import { Provider } from "@near-js/providers";
+import { getAccessKey, getAccessKeys } from '@near-js/client';
+
+// Type definitions for getAccessKeys function
+interface ViewAccountParams {
+  account: string;
+  block_id?: string;
+}
+
+interface FullAccessKey {
+  public_key: string;
+  access_key: {
+    nonce: bigint;
+    permission: 'FullAccess';
+  };
+}
+
+interface FunctionCallAccessKey {
+  public_key: string;
+  access_key: {
+    nonce: bigint;
+    permission: {
+      FunctionCall: {
+        allowance?: string;
+        receiver_id: string;
+        method_names: string[];
+      };
+    };
+  };
+}
 
 interface ContractResult<T> extends QueryResponseKind {
   result?: T | string | number | any;
@@ -90,6 +119,10 @@ export interface NearClient {
     blockQuery?: BlockReference
   ): Promise<T>;
   view<A, T>(params: { account: string; method: string; args: A }): Promise<T>;
+  getAccessKeys(params: ViewAccountParams): Promise<{
+    fullAccessKeys: FullAccessKey[];
+    functionCallAccessKeys: FunctionCallAccessKey[];
+  }>;
 }
 
 export class MinimalNearClient implements NearClient {
@@ -258,5 +291,50 @@ export class MinimalNearClient implements NearClient {
 
   async view<A, T>(params: { account: string; method: string; args: A }): Promise<T> {
     return this.callFunction<A, T>(params.account, params.method, params.args);
+  }
+
+  async getAccessKeys({ account, block_id }: ViewAccountParams): Promise<{
+    fullAccessKeys: FullAccessKey[];
+    functionCallAccessKeys: FunctionCallAccessKey[];
+  }> {
+    // Build RPC parameters similar to the official implementation
+    const params: any = {
+      request_type: 'view_access_key_list',
+      account_id: account,
+      finality: 'final'
+    };
+
+    // Add block_id if provided (for specific block queries)
+    if (block_id) {
+      params.block_id = block_id;
+      delete params.finality; // block_id takes precedence over finality
+    }
+
+    // Make the RPC call directly to match the official implementation
+    const accessKeyList = await this.makeRpcCall<AccessKeyList>(
+      RpcCallType.Query,
+      params,
+      'View Access Key List'
+    );
+
+    // Separate full access keys and function call access keys
+    const fullAccessKeys: FullAccessKey[] = [];
+    const functionCallAccessKeys: FunctionCallAccessKey[] = [];
+
+    // Process each access key (matching the official categorization logic)
+    for (const key of accessKeyList.keys) {
+      if (key.access_key.permission === 'FullAccess') {
+        // Full Access Keys: Keys with FullAccess permission
+        fullAccessKeys.push(key as FullAccessKey);
+      } else if (key.access_key.permission && typeof key.access_key.permission === 'object' && 'FunctionCall' in key.access_key.permission) {
+        // Function Call Keys: Keys with limited permissions for specific contract calls
+        functionCallAccessKeys.push(key as FunctionCallAccessKey);
+      }
+    }
+
+    return {
+      fullAccessKeys,
+      functionCallAccessKeys
+    };
   }
 }
