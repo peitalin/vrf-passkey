@@ -20,6 +20,7 @@ const nearAccountService = new NearAccountService({
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
   webAuthnContractId: 'web3-authn-v3.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
+  // nearRpcUrl: 'https://test.rpc.fastnear.com'
   networkId: 'testnet',
   accountInitialBalance: '30000000000000000000000', // 0.03 NEAR
   createAccountAndRegisterGas: '45000000000000', // 45 TGas (tested)
