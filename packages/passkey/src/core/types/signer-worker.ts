@@ -216,6 +216,7 @@ export function isWorkerSuccess<T extends WorkerRequestType>(
     response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
     response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
     response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
+    response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.SignVerifyAndRegisterUserSuccess
   );
 }
@@ -231,6 +232,7 @@ export function isWorkerError<T extends WorkerRequestType>(
     response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
     response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
     response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
+    response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.SignVerifyAndRegisterUserFailure
   );
 }

@@ -3,7 +3,7 @@ import { registerPasskey } from './registration';
 import { loginPasskey, getLoginState, getRecentLogins, logoutAndClearVrfSession } from './login';
 import { executeAction } from './actions';
 import { recoverAccount, AccountRecoveryFlow, type RecoveryResult } from './recoverAccount';
-import { MinimalNearClient, type NearClient } from '../NearClient';
+import { MinimalNearClient, type NearClient, type SignedTransaction } from '../NearClient';
 import type {
   PasskeyManagerConfigs,
   RegistrationResult,
@@ -16,8 +16,7 @@ import type {
   LoginState,
   AccountRecoveryHooksOptions,
 } from '../types/passkeyManager';
-import type { AccountId } from '../types/accountIds';
-import { toAccountId } from '../types/accountIds';
+import { toAccountId, type AccountId } from '../types/accountIds';
 import { ActionType, type ActionArgs } from '../types/actions';
 import type {
   DeviceLinkingQRData,
@@ -26,12 +25,18 @@ import type {
   ScanAndLinkDeviceOptionsDevice1
 } from '../types/linkDevice';
 import { LinkDeviceFlow } from './linkDevice';
-import { scanAndLinkDevice, linkDeviceWithQRData } from './scanDevice';
+import { linkDeviceWithQRCode } from './scanDevice';
+import {
+  ScanQRCodeFlow,
+  type ScanQRCodeFlowOptions,
+  type ScanQRCodeFlowEvents,
+} from '../../utils/qrScanner';
 import {
   signNEP413Message,
   type SignNEP413MessageParams,
   type SignNEP413MessageResult
 } from './signNEP413';
+import { getOptimalCameraFacingMode } from '@/utils';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -69,6 +74,10 @@ export class PasskeyManager {
       nearClient: this.nearClient,
       configs: this.configs
     }
+  }
+
+  getNearClient(): NearClient {
+    return this.nearClient;
   }
 
   ///////////////////////////////////////
@@ -139,25 +148,52 @@ export class PasskeyManager {
   ///////////////////////////////////////
 
   /**
-   * Execute a blockchain action/transaction using the new user-friendly API
+   * Execute a NEAR blockchain action using passkey-derived credentials
+   * Supports all NEAR action types: Transfer, FunctionCall, AddKey, etc.
+   *
+   * @param nearAccountId - NEAR account ID to execute action with
+   * @param actionArgs - Action to execute (single action or array for batched transactions)
+   * @param options - Action options for event handling
+   * - onEvent: EventCallback<ActionSSEEvent> - Optional event callback
+   * - onError: (error: Error) => void - Optional error callback
+   * - hooks: OperationHooks - Optional operation hooks
+   * - waitUntil: TxExecutionStatus - Optional waitUntil status
+   * @returns Promise resolving to action result
    *
    * @example
    * ```typescript
-   * // Function call
-   * await passkeyManager.executeAction('alice.near', {
-   *   type: 'FunctionCall',
-   *   receiverId: 'contract.near',
-   *   methodName: 'set_greeting',
-   *   args: { message: 'Hello World!' },
-   *   gas: '30000000000000',
-   *   deposit: '0'
-   * });
-   *
-   * // Transfer
-   * await passkeyManager.executeAction('alice.near', {
-   *   type: 'Transfer',
+   * // Basic transfer
+   * const result = await passkeyManager.executeAction('alice.near', {
+   *   type: ActionType.Transfer,
    *   receiverId: 'bob.near',
    *   amount: '1000000000000000000000000' // 1 NEAR
+   * });
+   *
+   * // Function call with gas and deposit (already available in ActionArgs)
+   * const result = await passkeyManager.executeAction('alice.near', {
+   *   type: ActionType.FunctionCall,
+   *   receiverId: 'contract.near',
+   *   methodName: 'set_value',
+   *   args: { value: 42 },
+   *   gas: '50000000000000', // 50 TGas
+   *   deposit: '100000000000000000000000' // 0.1 NEAR
+   * });
+   *
+   * // Batched transaction
+   * const result = await passkeyManager.executeAction('alice.near', [
+   *   {
+   *     type: ActionType.Transfer,
+   *     receiverId: 'bob.near',
+   *     amount: '1000000000000000000000000'
+   *   },
+   *   {
+   *     type: ActionType.FunctionCall,
+   *     receiverId: 'contract.near',
+   *     methodName: 'log_transfer',
+   *     args: { recipient: 'bob.near' }
+   *   }
+   * ], {
+   *   onEvent: (event) => console.log('Action progress:', event)
    * });
    * ```
    */
@@ -248,96 +284,172 @@ export class PasskeyManager {
    * @example
    * ```typescript
    *
-   * // Device2: Generate QR and start polling
-   * const flow = passkeyManager.startDeviceLinkingFlow({ onEvent: ... });
-   * const { qrData, qrCodeDataURL } = await flow.generateQR('alice.near');
+   * // Device2: First generates a QR code and start polling
+   * const device2Flow = passkeyManager.startDeviceLinkingFlow({ onEvent: ... });
+   * const { qrData, qrCodeDataURL } = await device2Flow.generateQR('alice.near');
    *
-   * // Device1: Scan and authorize
-   * const result = await passkeyManager.scanAndLinkDevice({ onEvent: ... });
+   * // Device1: Scan QR and automatically link device
+   * const device1Flow = passkeyManager.createScanQRCodeFlow({
+   *   deviceLinkingOptions: {
+   *     fundingAmount: '5000000000000000000000',
+   *     onEvent: (event) => console.log('Device linking:', event)
+   *   }
+   * });
+   * device1Flow.attachVideoElement(videoRef.current);
+   * await device1Flow.start(); // Automatically links when QR is detected
    *
    * // Device2: Flow automatically completes when AddKey is detected
    * // it polls the chain for `store_device_linking_mapping` contract events
-   * const state = flow.getState();
+   * const state = device2Flow.getState();
    * ```
    */
   startDeviceLinkingFlow(options: StartDeviceLinkingOptionsDevice2): LinkDeviceFlow {
     return new LinkDeviceFlow(this.getContext(), options);
   }
 
-  /**
-   * Device1: Scan QR code and execute AddKey transaction (convenience method)
+    /**
+   * Device1: Create a ScanQRCodeFlow for QR scanning with custom QR detection handling
+   * Provides a flexible flow that scans for QR codes and calls your custom handler when detected
+   *
+   * @param options Configuration for device linking and QR scanning
+   * @param options.deviceLinkingOptions Options for the device linking process (funding, callbacks)
+   * @param options.scanQRCodeFlowOptions Optional QR scanning configuration (camera, timeout)
+   * @param options.scanQRCodeFlowEvents Optional event handlers for scanning progress and QR detection
+   *
+   * @example
+   * ```typescript
+   * const flow = passkeyManager.createScanQRCodeFlow({
+   *   deviceLinkingOptions: {
+   *     fundingAmount: '5000000000000000000000', // 0.005 NEAR
+   *     onEvent: (event) => console.log('Device linking event:', event),
+   *     onError: (error) => console.error('Device linking error:', error)
+   *   },
+   *   scanQRCodeFlowOptions: {
+   *     cameraId: 'camera1',
+   *     timeout: 30000
+   *   },
+   *   scanQRCodeFlowEvents: {
+   *     onQRDetected: async (qrData) => {
+   *       // Handle QR detection - automatically link the device
+   *       console.log('QR detected:', qrData);
+   *       const result = await passkeyManager.linkDeviceWithQRCode(qrData, {
+   *         fundingAmount: '5000000000000000000000',
+   *         onEvent: (event) => console.log('Device linking:', event),
+   *         onError: (error) => console.error('Linking error:', error)
+   *       });
+   *       console.log('Device linked successfully:', result);
+   *     },
+   *     onScanProgress: (duration) => console.log('Scanning for', duration, 'ms'),
+   *     onCameraReady: (stream) => console.log('Camera ready')
+   *   }
+   * });
+   *
+   * // Attach to video element and start scanning
+   * flow.attachVideoElement(videoRef.current);
+   * await flow.start();
+   *
+   * // QR detection and device linking is handled by your onQRDetected callback
+   * ```
    */
-  async scanAndLinkDevice(options: ScanAndLinkDeviceOptionsDevice1): Promise<LinkDeviceResult> {
-    return scanAndLinkDevice(this.getContext(), options);
+  createScanQRCodeFlow(
+    options: {
+      deviceLinkingOptions: ScanAndLinkDeviceOptionsDevice1;
+      scanQRCodeFlowOptions?: ScanQRCodeFlowOptions;
+      scanQRCodeFlowEvents?: ScanQRCodeFlowEvents;
+      cameraConfigs?: {
+        facingMode?: 'user' | 'environment';
+        width?: number;
+        height?: number;
+      };
+      timeout?: number;
+    }
+  ): ScanQRCodeFlow {
+    return new ScanQRCodeFlow(
+      {
+        cameraId: options?.scanQRCodeFlowOptions?.cameraId,
+        cameraConfigs: {
+          facingMode: getOptimalCameraFacingMode(),
+          ...options?.cameraConfigs
+        },
+        timeout: 20000 // 20 seconds waiting for QR camera
+      },
+      {
+        onQRDetected: (qrData) => {
+          options?.scanQRCodeFlowEvents?.onQRDetected?.(qrData);
+        },
+        onError: (err) => {
+          console.error('useQRCamera: QR scan error -', err);
+          options?.scanQRCodeFlowEvents?.onError?.(err);
+        },
+        onCameraReady: (stream) => {
+          // Camera stream is ready, but video element attachment is handled separately
+          options?.scanQRCodeFlowEvents?.onCameraReady?.(stream);
+        },
+        onScanProgress: (duration) => {
+          options?.scanQRCodeFlowEvents?.onScanProgress?.(duration);
+        }
+      }
+    );
   }
 
   /**
    * Device1: Link device using pre-scanned QR data (skips QR scanning step)
+   * Use this when you already have QR data from scanning
+   *
+   * @param qrData The QR data obtained from scanning Device2's QR code
+   * @param options Device linking options including funding amount and event callbacks
+   * @returns Promise that resolves to the linking result
+   *
+   * @example
+   * ```typescript
+   * // If you have QR data from somewhere else (not from createScanQRCodeFlow)
+   * const qrData = await passkeyManager.scanQRCodeWithCamera();
+   * const result = await passkeyManager.linkDeviceWithQRCode(qrData, {
+   *   fundingAmount: '5000000000000000000000', // 0.005 NEAR
+   *   onEvent: (event) => console.log('Device linking event:', event),
+   *   onError: (error) => console.error('Device linking error:', error)
+   * });
+   * console.log('Device linked:', result);
+   * ```
    */
-  async linkDeviceWithQRData(
+  async linkDeviceWithQRCode(
     qrData: DeviceLinkingQRData,
-    options: Omit<ScanAndLinkDeviceOptionsDevice1, 'cameraId' | 'cameraConfigs'>
+    options: ScanAndLinkDeviceOptionsDevice1
   ): Promise<LinkDeviceResult> {
-    return linkDeviceWithQRData(this.getContext(), qrData, options);
+    return linkDeviceWithQRCode(this.getContext(), qrData, options);
   }
 
   /**
    * Delete a device key from an account
    */
-  async deleteDeviceKey(publicKeyToDelete: string): Promise<void> {
-    // // Validate that we're not deleting the last key
-    // const keysView = await getDeviceKeys(this.getContext(), accountId);
-    // if (keysView.keys.length <= 1) {
-    //   throw new Error('Cannot delete the last access key from an account');
-    // }
-
-    // // Find the key to delete
-    // const keyToDelete = keysView.keys.find(k => k.publicKey === publicKeyToDelete);
-    // if (!keyToDelete) {
-    //   throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
-    // }
-
-    // if (!keyToDelete.canDelete) {
-    //   throw new Error(`Cannot delete this access key`);
-    // }
-
-    // // Use the executeAction method with DeleteKey action
-    // return this.executeAction(accountId, {
-    //   type: ActionType.DeleteKey,
-    //   receiverId: accountId,
-    //   publicKey: publicKeyToDelete
-    // }, options);
-  }
-
-  ///////////////////////////////////////
-  // ACCOUNT RECOVERY METHODS
-  ///////////////////////////////////////
-
-  /**
-   * Recover account access using a passkey on this device
-   * @param accountId The NEAR account ID to recover. Must be an account derived from a passkey you own on this device
-   * @param options Optional action configuration and event handlers
-   * @param reuseCredential Optional WebAuthn credential to reuse from discovery phase
-   * @returns Recovery result with account details
-   *
-   * @example
-   * ```typescript
-   * const result = await passkeyManager.recoverAccountWithAccountId(
-   *   'alice.near',
-   *   {
-   *     onEvent: (event) => console.log('Recovery progress:', event.message),
-   *     onError: (error) => console.error('Recovery error:', error)
-   *   }
-   * );
-   * ```
-   */
-  async recoverAccountWithAccountId(
+  async deleteDeviceKey(
     accountId: string,
-    options?: AccountRecoveryHooksOptions,
-    reuseCredential?: PublicKeyCredential
-  ): Promise<RecoveryResult> {
-    return recoverAccount(this.getContext(), toAccountId(accountId), options, reuseCredential);
+    publicKeyToDelete: string,
+    options?: ActionHooksOptions
+  ): Promise<ActionResult> {
+    // Validate that we're not deleting the last key
+    const keysView = await this.nearClient.viewAccessKeyList(toAccountId(accountId));
+    if (keysView.keys.length <= 1) {
+      throw new Error('Cannot delete the last access key from an account');
+    }
+
+    // Find the key to delete
+    const keyToDelete = keysView.keys.find(k => k.public_key === publicKeyToDelete);
+    if (!keyToDelete) {
+      throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
+    }
+
+    // Use the executeAction method with DeleteKey action
+    return this.executeAction(accountId, {
+      type: ActionType.DeleteKey,
+      receiverId: accountId,
+      publicKey: publicKeyToDelete
+    }, options);
   }
+
+  ///////////////////////////////////////
+  // ACCOUNT RECOVERY FLOW
+  ///////////////////////////////////////
 
   /**
    * Creates an AccountRecoveryFlow instance, for step-by-step account recovery UX
@@ -418,3 +530,11 @@ export type {
   SignNEP413MessageParams,
   SignNEP413MessageResult
 } from './signNEP413';
+
+// Re-export QR scanning flow
+export {
+  ScanQRCodeFlow,
+  type ScanQRCodeFlowOptions,
+  type ScanQRCodeFlowEvents,
+  ScanQRCodeFlowState
+} from '../../utils/qrScanner';

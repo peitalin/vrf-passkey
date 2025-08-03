@@ -121,31 +121,72 @@ export class SignerWorkerManager {
       const responses: WorkerResponseForRequest<T>[] = [];
 
       worker.onmessage = (event) => {
-        // Use strong typing from WASM-generated types
-        const response = event.data as WorkerResponseForRequest<T>;
-        responses.push(response);
+        try {
+          // Use strong typing from WASM-generated types
+          const response = event.data as WorkerResponseForRequest<T>;
+          responses.push(response);
 
-        // Handle progress updates using WASM-generated numeric enum values
-        if (isWorkerProgress(response)) {
-          const progressResponse = response as WorkerProgressResponse;
-          onEvent?.(progressResponse.payload as onProgressEvents);
-          return; // Continue listening for more messages
-        }
+          // Add detailed logging for debugging
+          console.log('Worker response received:', {
+            type: response?.type,
+            hasPayload: !!response?.payload,
+            payloadKeys: response?.payload ? Object.keys(response.payload) : [],
+            fullResponse: response
+          });
 
-        // Handle errors using WASM-generated enum
-        if (isWorkerError(response)) {
+          // Handle progress updates using WASM-generated numeric enum values
+          if (isWorkerProgress(response)) {
+            const progressResponse = response as WorkerProgressResponse;
+            onEvent?.(progressResponse.payload as onProgressEvents);
+            return; // Continue listening for more messages
+          }
+
+          // Handle errors using WASM-generated enum
+          if (isWorkerError(response)) {
+            clearTimeout(timeoutId);
+            worker.terminate();
+            const errorResponse = response as WorkerErrorResponse;
+            console.error('Worker error response:', errorResponse);
+            reject(new Error(errorResponse.payload.error));
+            return;
+          }
+
+          // Handle successful completion types using strong typing
+          if (isWorkerSuccess(response)) {
+            clearTimeout(timeoutId);
+            worker.terminate();
+            console.log('Worker success response:', response);
+            resolve(response as WorkerResponseForRequest<T>);
+            return;
+          }
+
+          // If we reach here, the response doesn't match any expected type
+          console.error('Unexpected worker response format:', {
+            response,
+            responseType: typeof response,
+            isObject: typeof response === 'object',
+            hasType: response && typeof response === 'object' && 'type' in response,
+            type: (response as any)?.type
+          });
+
+          // Check if it's a generic Error object
+          if (response && typeof response === 'object' && 'message' in response && 'stack' in response) {
+            clearTimeout(timeoutId);
+            worker.terminate();
+            console.error('Worker sent generic Error object:', response);
+            reject(new Error(`Worker sent generic error: ${(response as Error).message}`));
+            return;
+          }
+
+          // Unknown response format
           clearTimeout(timeoutId);
           worker.terminate();
-          const errorResponse = response as WorkerErrorResponse;
-          reject(new Error(errorResponse.payload.error));
-          return;
-        }
-
-        // Handle successful completion types using strong typing
-        if (isWorkerSuccess(response)) {
+          reject(new Error(`Unknown worker response format: ${JSON.stringify(response)}`));
+        } catch (error) {
           clearTimeout(timeoutId);
           worker.terminate();
-          resolve(response as WorkerResponseForRequest<T>);
+          console.error('Error processing worker message:', error);
+          reject(new Error(`Worker message processing error: ${error instanceof Error ? error.message : String(error)}`));
         }
       };
 

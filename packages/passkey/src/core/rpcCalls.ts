@@ -8,7 +8,7 @@
  */
 
 import type { FinalExecutionOutcome } from '@near-js/types';
-import type { NearClient } from './NearClient';
+import type { NearClient, SignedTransaction } from './NearClient';
 import type { AccountId } from './types/accountIds';
 import type { ContractStoredAuthenticator } from './PasskeyManager/recoverAccount';
 import type { PasskeyManagerContext } from './PasskeyManager';
@@ -45,6 +45,9 @@ export interface AuthenticatorsResult {
 /**
  * Query the contract to get the account linked to a device public key
  * Used in device linking flow to check if a device key has been added
+ *
+ * NEAR does not provide a way to lookup the AccountID an access key has access to.
+ * So we store a temporary mapping in the contract to lookup pubkey -> account ID.
  */
 export async function getDeviceLinkingAccountContractCall(
   nearClient: NearClient,
@@ -57,7 +60,6 @@ export async function getDeviceLinkingAccountContractCall(
       'get_device_linking_account',
       { device_public_key: devicePublicKey }
     );
-    console.log('getDeviceLinkingAccountContractCall: result:', result);
 
     // Handle different result formats
     if (result && Array.isArray(result) && result.length >= 2) {
@@ -89,6 +91,7 @@ export async function executeDeviceLinkingContractCalls({
   device2PublicKey,
   nextNonce,
   nextNextNonce,
+  nextNextNextNonce,
   txBlockHash,
   vrfChallenge,
   credential,
@@ -99,13 +102,18 @@ export async function executeDeviceLinkingContractCalls({
   device2PublicKey: string,
   nextNonce: string,
   nextNextNonce: string,
+  nextNextNextNonce: string,
   txBlockHash: string,
   vrfChallenge: VRFChallenge,
   credential: any, // PublicKeyCredential type
   onEvent?: (event: DeviceLinkingSSEEvent) => void
-}): Promise<{ addKeyTxResult: FinalExecutionOutcome; contractTxResult: FinalExecutionOutcome }> {
+}): Promise<{
+  addKeyTxResult: FinalExecutionOutcome;
+  storeDeviceLinkingTxResult: FinalExecutionOutcome;
+  signedDeleteKeyTransaction: SignedTransaction
+}> {
 
-  // Sign both transactions with one PRF authentication
+  // Sign three transactions with one PRF authentication
   const signedTransactions = await context.webAuthnManager.signTransactionsWithActions({
     transactions: [
       // Transaction 1: AddKey - Add Device2's key to Device1's account
@@ -137,6 +145,16 @@ export async function executeDeviceLinkingContractCalls({
           deposit: '0'
         }],
         nonce: nextNextNonce,
+      },
+      // Transaction 3: Remove Device2's temporary key if it fails to complete linking after a timeout
+      {
+        nearAccountId: device1AccountId,
+        receiverId: device1AccountId,
+        actions: [{
+          actionType: ActionType.DeleteKey,
+          public_key: device2PublicKey
+        }],
+        nonce: nextNextNextNonce,
       }
     ],
     // Common parameters
@@ -163,9 +181,13 @@ export async function executeDeviceLinkingContractCalls({
   if (!signedTransactions[1].signedTransaction) {
     throw new Error('Contract mapping transaction signing failed');
   }
+  if (!signedTransactions[2].signedTransaction) {
+    throw new Error('DeleteKey transaction signing failed');
+  }
 
-  // Broadcast both transactions
-  let addKeyTxResult: FinalExecutionOutcome, contractTxResult: FinalExecutionOutcome;
+  // Broadcast just the first 2 transactions: addKey and store device linking mapping
+  let addKeyTxResult: FinalExecutionOutcome;
+  let storeDeviceLinkingTxResult: FinalExecutionOutcome;
   try {
     console.log('LinkDeviceFlow: Broadcasting AddKey transaction...');
     console.log('LinkDeviceFlow: AddKey transaction details:', {
@@ -196,20 +218,19 @@ export async function executeDeviceLinkingContractCalls({
     });
 
     // Standard timeout since nonce conflict should be resolved by the 2s delay
-    contractTxResult = await context.nearClient.sendTransaction(
+    storeDeviceLinkingTxResult = await context.nearClient.sendTransaction(
       contractTx,
       DEFAULT_WAIT_STATUS.linkDeviceAccountMapping
     );
-    console.log('LinkDeviceFlow: Contract mapping transaction result:', contractTxResult?.transaction?.hash);
-
+    console.log('LinkDeviceFlow: Contract mapping transaction result:', storeDeviceLinkingTxResult?.transaction?.hash);
   } catch (txError: any) {
-    console.error('LinkDeviceFlow: AddKey transaction broadcasting failed:', txError);
+    console.error('LinkDeviceFlow: Transaction broadcasting failed:', txError);
     console.error('LinkDeviceFlow: Transaction error details:', {
       message: txError.message,
       stack: txError.stack,
       name: txError.name
     });
-    throw new Error(`AddKey transaction broadcasting failed: ${txError.message}`);
+    throw new Error(`Transaction broadcasting failed: ${txError.message}`);
   }
 
   console.log('LinkDeviceFlow: Sending final success event...');
@@ -220,7 +241,11 @@ export async function executeDeviceLinkingContractCalls({
     message: `Device linking completed successfully!`
   });
 
-  return { addKeyTxResult, contractTxResult };
+  return {
+    addKeyTxResult,
+    storeDeviceLinkingTxResult,
+    signedDeleteKeyTransaction: signedTransactions[2].signedTransaction
+  };
 }
 
 // ===========================

@@ -167,7 +167,6 @@ export class AccountRecoveryFlow {
       );
 
       this.phase = 'complete';
-      console.debug('AccountRecoveryFlow: Recovery completed successfully');
       return recoveryResult;
 
     } catch (error: any) {

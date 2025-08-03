@@ -11,42 +11,15 @@ import type {
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/passkeyManager';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import { DEVICE_LINKING_CONFIG } from '../../config.js';
-// jsQR will be dynamically imported when needed
-import { scanQRCodeFromCamera } from '../../utils/qrScanner';
 import { executeDeviceLinkingContractCalls } from '../rpcCalls';
-
-/**
- * Device1 (original device): Scan QR code and execute AddKey transaction (convenience method)
- */
-export async function scanAndLinkDevice(
-  context: PasskeyManagerContext,
-  options: ScanAndLinkDeviceOptionsDevice1
-): Promise<LinkDeviceResult> {
-  const { onEvent, onError } = options || {};
-  try {
-    // 1. Scan QR code
-    const qrData = await scanQRCodeFromCamera(options.cameraId, options.cameraConfigs);
-
-    // 2. Use the extracted linking function with the scanned QR data
-    return await linkDeviceWithQRData(context, qrData, {
-      fundingAmount: options.fundingAmount,
-      onEvent,
-      onError
-    });
-
-  } catch (error: any) {
-    onError?.(error);
-    throw error;
-  }
-}
 
 /**
  * Device1 (original device): Link device using pre-scanned QR data
  */
-export async function linkDeviceWithQRData(
+export async function linkDeviceWithQRCode(
   context: PasskeyManagerContext,
   qrData: DeviceLinkingQRData,
-  options: Omit<ScanAndLinkDeviceOptionsDevice1, 'cameraId' | 'cameraConfigs'>
+  options: ScanAndLinkDeviceOptionsDevice1
 ): Promise<LinkDeviceResult> {
   const { onEvent, onError } = options || {};
 
@@ -80,7 +53,7 @@ export async function linkDeviceWithQRData(
     }
 
     onEvent?.({
-      step: 4,
+      step: 3,
       phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
       status: DeviceLinkingStatus.PROGRESS,
       message: `Performing TouchID authentication for device linking...`
@@ -103,6 +76,7 @@ export async function linkDeviceWithQRData(
       nearAccountId: device1AccountId
     });
     const nextNextNonce = (BigInt(nextNonce) + BigInt(1)).toString();
+    const nextNextNextNonce = (BigInt(nextNonce) + BigInt(2)).toString();
 
     const vrfInputData: VRFInputData = {
       userId: device1AccountId,
@@ -122,19 +96,24 @@ export async function linkDeviceWithQRData(
     });
 
     onEvent?.({
-      step: 4,
+      step: 6,
       phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
       status: DeviceLinkingStatus.PROGRESS,
       message: 'TouchID successful! Signing AddKey transaction...'
     });
 
     // Execute device linking transactions using the centralized RPC function
-    const { addKeyTxResult, contractTxResult } = await executeDeviceLinkingContractCalls({
+    const {
+      addKeyTxResult,
+      storeDeviceLinkingTxResult,
+      signedDeleteKeyTransaction
+    } = await executeDeviceLinkingContractCalls({
       context,
       device1AccountId,
       device2PublicKey,
       nextNonce,
       nextNextNonce,
+      nextNextNextNonce,
       txBlockHash,
       vrfChallenge,
       credential,
@@ -144,9 +123,12 @@ export async function linkDeviceWithQRData(
     const result = {
       success: true,
       device2PublicKey: qrData.device2PublicKey,
-      transactionId: addKeyTxResult?.transaction?.hash || contractTxResult?.transaction?.hash || 'unknown',
+      transactionId: addKeyTxResult?.transaction?.hash
+        || storeDeviceLinkingTxResult?.transaction?.hash
+        || 'unknown',
       fundingAmount,
-      linkedToAccount: device1AccountId // Include which account the key was added to
+      linkedToAccount: device1AccountId, // Include which account the key was added to
+      signedDeleteKeyTransaction
     };
 
     onEvent?.({
@@ -159,7 +141,8 @@ export async function linkDeviceWithQRData(
     return result;
 
   } catch (error: any) {
-    console.error('LinkDeviceFlow: scanAndLinkDevice caught error:', error);
+    console.error('LinkDeviceFlow: linkDeviceWithQRData caught error:', error);
+
     const errorMessage = `Failed to scan and link device: ${error.message}`;
     onError?.(new Error(errorMessage));
 

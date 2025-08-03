@@ -1,6 +1,5 @@
 import {
   ActionResult,
-  BaseDeviceLinkingSSEEvent,
   EventCallback,
   OperationHooks,
   DeviceLinkingPhase,
@@ -8,6 +7,7 @@ import {
 } from './passkeyManager';
 import { VRFChallenge } from './vrf-worker';
 import { AccountId } from './accountIds';
+import { SignedTransaction } from '../NearClient';
 
 // Re-export DeviceLinkingPhase from passkeyManager
 export { DeviceLinkingPhase } from './passkeyManager';
@@ -38,6 +38,7 @@ export interface LinkDeviceResult extends ActionResult {
   transactionId?: string;
   fundingAmount: string;
   linkedToAccount?: string; // The account ID that the device key was added to
+  signedDeleteKeyTransaction?: SignedTransaction;
 }
 
 export class DeviceLinkingError extends Error {
@@ -68,13 +69,7 @@ export interface StartDeviceLinkingOptionsDevice2 {
 
 export interface ScanAndLinkDeviceOptionsDevice1 {
   fundingAmount: string;
-  cameraId?: string;
-  cameraConfigs?: {
-    facingMode?: 'user' | 'environment';
-    width?: number;
-    height?: number;
-  };
-  onEvent?: EventCallback<BaseDeviceLinkingSSEEvent>;
+  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
   onError?: (error: Error) => void;
   hooks?: OperationHooks;
 }

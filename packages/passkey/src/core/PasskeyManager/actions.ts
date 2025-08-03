@@ -61,26 +61,18 @@ export async function executeAction(
     );
 
     // 3. Transaction Broadcasting
-    console.log('[executeAction] Starting transaction broadcasting...');
     const actionResult = await broadcastTransaction(
       context,
       signingResult,
       { onEvent, onError, hooks, waitUntil }
     );
 
-    console.log('[executeAction] Broadcasting completed, calling afterCall hook...', {
-      hasHooks: !!hooks,
-      hasAfterCall: !!hooks?.afterCall,
-      actionResult
-    });
     try {
       hooks?.afterCall?.(true, actionResult);
-      console.log('[executeAction] afterCall hook completed successfully');
     } catch (hookError: any) {
       console.error('[executeAction] Error in afterCall hook:', hookError);
       // Don't fail the entire transaction if the hook fails
     }
-    console.log('[executeAction] Returning result');
     return actionResult;
 
   } catch (error: any) {
