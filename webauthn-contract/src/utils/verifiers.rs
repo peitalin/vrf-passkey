@@ -442,7 +442,9 @@ fn validate_certificate_chain(x5c: &[CborValue]) -> Result<VerifyingKey, String>
     }
 }
 
-
+/////////////////////////////////////
+/// TESTS
+/////////////////////////////////////
 
 mod tests {
     use super::*;

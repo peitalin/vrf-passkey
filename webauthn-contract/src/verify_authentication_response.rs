@@ -7,13 +7,20 @@ use crate::contract_state::WebAuthnContractExt;
 use crate::utils::{
     parsers::parse_authenticator_data,
     verifiers::verify_authentication_signature,
+    validation::{
+        validate_webauthn_client_data,
+        validate_webauthn_origin,
+        validate_webauthn_user_flags,
+        validate_webauthn_rp_id_hash
+    },
 };
 use crate::types::{
     AuthenticatorDevice,
     WebAuthnAuthenticationCredential
 };
-use crate::verify_registration_response::{
-    ClientDataJSON,
+
+use crate::utils::vrf_verifier::{
+    verify_vrf_and_extract_challenge,
     VRFVerificationData
 };
 
@@ -67,7 +74,7 @@ impl WebAuthnContract {
         log!("  - RP ID (domain): {}", vrf_data.rp_id);
 
         // 1. Validate VRF and extract WebAuthn challenge (view-only)
-        let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
+        let vrf_challenge_b64url = match verify_vrf_and_extract_challenge(&vrf_data, &self.vrf_settings) {
             Some(challenge) => challenge,
             None => return VerifiedAuthenticationResponse {
                 verified: false,
@@ -88,7 +95,6 @@ impl WebAuthnContract {
                 };
             }
         };
-
         let stored_authenticator = match self.get_authenticator(user_account_id.clone(), credential_id_b64url.clone()) {
             Some(auth) => auth,
             None => {
@@ -114,45 +120,27 @@ impl WebAuthnContract {
         let authenticator_device = AuthenticatorDevice {
             credential_id: BASE64_URL_ENGINE.decode(&credential_id_b64url).unwrap_or_default(),
             credential_public_key: stored_authenticator.credential_public_key.clone(),
-            counter: 0, // VRF uses stateless verification, counter not used for replay protection
+            counter: 0, // VRF WebAuthn uses stateless verification, counter not used for replay protection
             transports: stored_authenticator.transports.clone(),
         };
 
-        // 5. Extract clientDataJSON from WebAuthn client data
-        let client_data_json_bytes = match BASE64_URL_ENGINE.decode(&webauthn_authentication.response.client_data_json) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                log!("Failed to decode clientDataJSON from base64url");
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        let client_data: ClientDataJSON = match serde_json::from_slice(&client_data_json_bytes) {
-            Ok(data) => data,
-            Err(e) => {
-                log!("Failed to parse clientDataJSON: {}", e);
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        // Extract RP ID from origin (e.g., "https://example.com" -> "example.com")
-        let rp_id = client_data.origin
-            .strip_prefix("https://")
-            .or_else(|| client_data.origin.strip_prefix("http://"))
-            .unwrap_or(&client_data.origin);
+        // 5. Optional: Verify VRF RP ID matches stored RP ID for additional origin binding
+        if vrf_data.rp_id != stored_authenticator.expected_rp_id {
+            log!("VRF RP ID mismatch: expected {}, got {}", stored_authenticator.expected_rp_id, vrf_data.rp_id);
+            return VerifiedAuthenticationResponse {
+                verified: false,
+                authentication_info: None,
+            };
+        }
+        log!("VRF RP ID verification passed: {}", vrf_data.rp_id);
 
         // 6. Verify WebAuthn authentication with VRF-generated challenge
         let webauthn_result = self.internal_verify_authentication_response(
             webauthn_authentication,
-            vrf_challenge_b64url,       // VRF-generated challenge
-            client_data.origin.clone(), // Use actual origin from WebAuthn
-            rp_id.to_string(),          // Extract RP ID from origin
+            // expected values to verify webauthn_authentication response against
+            vrf_challenge_b64url,                 // expected VRF challenge
+            stored_authenticator.expected_origin, // expected origin
+            stored_authenticator.expected_rp_id,  // expected RP ID
             authenticator_device,
             Some(true), // require_user_verification for VRF mode
         );
@@ -168,8 +156,7 @@ impl WebAuthnContract {
 
     /// Internal WebAuthn authentication verification
     /// Equivalent to @simplewebauthn/server's verifyAuthenticationResponse function
-    #[private]
-    pub fn internal_verify_authentication_response(
+    fn internal_verify_authentication_response(
         &self,
         response: WebAuthnAuthenticationCredential,
         expected_challenge: String,
@@ -185,22 +172,18 @@ impl WebAuthnContract {
 
         let require_user_verification = require_user_verification.unwrap_or(false);
 
-        // Step 1: Parse and validate clientDataJSON
-        let client_data_json_bytes = match BASE64_URL_ENGINE.decode(&response.response.client_data_json) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                log!("Failed to decode clientDataJSON from base64url");
-                return VerifiedAuthenticationResponse {
-                    verified: false,
-                    authentication_info: None,
-                };
-            }
-        };
-
-        let client_data: ClientDataJSON = match serde_json::from_slice(&client_data_json_bytes) {
+        // Step 1-3: Parse and validate clientDataJSON, type, and challenge
+        let (
+            client_data,
+            client_data_json_bytes
+        ) = match validate_webauthn_client_data(
+            &response.response.client_data_json,
+            &expected_challenge,
+            "webauthn.get"
+        ) {
             Ok(data) => data,
             Err(e) => {
-                log!("Failed to parse clientDataJSON: {}", e);
+                log!("{}", e);
                 return VerifiedAuthenticationResponse {
                     verified: false,
                     authentication_info: None,
@@ -208,32 +191,16 @@ impl WebAuthnContract {
             }
         };
 
-        // Step 2: Verify type is "webauthn.get"
-        if client_data.type_ != "webauthn.get" {
-            log!("Invalid type: expected webauthn.get, got {}", client_data.type_);
+        // Step 4: Verify origin matches expected pattern
+        if let Err(e) = validate_webauthn_origin(&client_data.origin, &expected_origin, &expected_rp_id, self.tld_config.as_ref()) {
+            log!("{}", e);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
             };
         }
 
-        // Step 3: Verify challenge matches expected_challenge
-        if client_data.challenge != expected_challenge {
-            log!("Challenge mismatch: expected {}, got {}", expected_challenge, client_data.challenge);
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 4: Verify origin matches expected_origin
-        if client_data.origin != expected_origin {
-            log!("Origin mismatch: expected {}, got {}", expected_origin, client_data.origin);
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
+        log!("Origin verification passed for: {}", client_data.origin);
 
         // Step 5: Parse authenticator data
         let authenticator_data_bytes = match BASE64_URL_ENGINE.decode(&response.response.authenticator_data) {
@@ -259,33 +226,25 @@ impl WebAuthnContract {
         };
 
         // Step 6: Verify RP ID hash
-        let expected_rp_id_hash = env::sha256(expected_rp_id.as_bytes());
-        if auth_data.rp_id_hash != expected_rp_id_hash {
-            log!("RP ID hash mismatch");
+        if let Err(e) = validate_webauthn_rp_id_hash(&auth_data.rp_id_hash, &expected_rp_id) {
+            log!("{}", e);
             return VerifiedAuthenticationResponse {
                 verified: false,
                 authentication_info: None,
             };
         }
 
-        // Step 7: Check user verification if required
-        let user_verified = (auth_data.flags & 0x04) != 0;
-        if require_user_verification && !user_verified {
-            log!("User verification required but not performed");
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
-
-        // Step 8: Verify user presence (UP flag must be set)
-        if (auth_data.flags & 0x01) == 0 {
-            log!("User presence flag not set");
-            return VerifiedAuthenticationResponse {
-                verified: false,
-                authentication_info: None,
-            };
-        }
+        // Step 7-8: Check user verification and presence flags
+        let user_verified = match validate_webauthn_user_flags(auth_data.flags, require_user_verification) {
+            Ok(verified) => verified,
+            Err(e) => {
+                log!("{}", e);
+                return VerifiedAuthenticationResponse {
+                    verified: false,
+                    authentication_info: None,
+                };
+            }
+        };
 
         // Step 9: Verify counter (anti-replay)
         // Allow both counters to be 0 (authenticator doesn't support counters)
@@ -367,8 +326,11 @@ impl WebAuthnContract {
             }),
         }
     }
-
 }
+
+/////////////////////////////////////
+/// TESTS
+/////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
@@ -494,7 +456,9 @@ mod tests {
             transports: Some(vec![crate::contract_state::AuthenticatorTransport::Internal]),
             registered: "1234567890".to_string(),
             vrf_public_keys: vec![vrf_public_key], // Store VRF public key for stateless auth
-            device_number: 0
+            device_number: 0,
+            expected_origin: "https://test-contract.testnet".to_string(), // Mock origin for testing
+            expected_rp_id: "testnet".to_string(), // Mock parent domain RP ID for testing
         }
     }
 

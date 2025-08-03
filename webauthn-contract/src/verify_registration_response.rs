@@ -6,53 +6,25 @@ use serde_cbor::Value as CborValue;
 use crate::WebAuthnContract;
 use crate::contract_state::WebAuthnContractExt;
 use crate::types::WebAuthnRegistrationCredential;
-use crate::utils::parsers::{
-    parse_attestation_object,
-    parse_authenticator_data
+use crate::utils::{
+    parsers::{
+        parse_attestation_object,
+        parse_authenticator_data,
+    },
+    verifiers::verify_attestation_signature,
+    validation::{
+        validate_webauthn_client_data,
+        validate_webauthn_origin,
+        validate_webauthn_user_flags,
+        validate_webauthn_rp_id_hash
+    },
+    vrf_verifier::{
+        verify_vrf_and_extract_challenge,
+        VRFVerificationData
+    },
 };
-use crate::utils::verifiers::verify_attestation_signature;
-use crate::utils::vrf_verifier;
-
-// VRF Verification Data Structure
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug, Clone)]
-pub struct VRFVerificationData {
-    /// SHA256 hash of concatenated VRF input components:
-    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash
-    /// This hashed data is used for VRF proof verification
-    pub vrf_input_data: Vec<u8>,
-    /// Used as the WebAuthn challenge (VRF output)
-    pub vrf_output: Vec<u8>,
-    /// Proves vrf_output was correctly derived from vrf_input_data
-    pub vrf_proof: Vec<u8>,
-    /// VRF public key used to verify the proof
-    pub public_key: Vec<u8>,
-    /// User ID (account_id in NEAR protocol) - cryptographically bound in VRF input
-    pub user_id: String,
-    /// Relying Party ID (domain) used in VRF input construction
-    pub rp_id: String,
-    /// Block height for freshness validation (must be recent)
-    pub block_height: u64,
-    /// Block hash included in VRF input (for entropy only, not validated on-chain)
-    /// NOTE: NEAR contracts cannot access historical block hashes, so this is used
-    /// purely for additional entropy in the VRF input construction
-    pub block_hash: Vec<u8>,
-
-}
 
 // WebAuthn verification structures
-#[near_sdk::near(serializers = [json, borsh])]
-#[derive(Debug)]
-pub struct ClientDataJSON {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub challenge: String,
-    pub origin: String,
-    #[serde(rename = "crossOrigin", default)]
-    pub cross_origin: bool,
-}
-
-
 #[near_sdk::near(serializers = [json])]
 #[derive(Debug, Clone)]
 pub struct VerifyRegistrationResponse {
@@ -74,14 +46,6 @@ pub struct RegistrationInfo {
     pub credential_public_key: Vec<u8>,
 }
 
-/// VRF authentication response with output
-#[near_sdk::near(serializers = [json])]
-#[derive(Debug, Clone)]
-pub struct VerifiedVRFAuthenticationResponse {
-    pub verified: bool,
-    pub vrf_output: Option<Vec<u8>>, // 64-byte VRF output if verification succeeds
-    pub authentication_info: Option<String>,
-}
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -110,15 +74,13 @@ impl WebAuthnContract {
         new_public_key: PublicKey,
         vrf_data: VRFVerificationData,
         webauthn_registration: WebAuthnRegistrationCredential,
-        deterministic_vrf_public_key: Option<Vec<u8>>,
+        deterministic_vrf_public_key: Vec<u8>,
     ) -> Promise {
 
-        log!("Creating account and verifying registration for: {}", new_account_id);
-
-        // First promise: setup the new account
         // Use the attached deposit as the initial balance for the new account
         let initial_balance_yoctonear = env::attached_deposit().as_yoctonear();
-        log!("  - Initial balance: {} yoctoNEAR (from attached deposit)", initial_balance_yoctonear);
+        log!("Creating account and verifying registration for: {}", new_account_id);
+        log!("  - Initial balance: {} yoctoNEAR", initial_balance_yoctonear);
 
         let setup_promise = Promise::new(new_account_id.clone())
             .create_account()
@@ -142,6 +104,7 @@ impl WebAuthnContract {
         setup_promise.then(verification_promise)
     }
 
+    // Must be `#[private] pub fn` to be called as a promise
     #[private]
     pub fn verify_and_register_user_for_account(
         &mut self,
@@ -151,9 +114,10 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Vec<u8>,
         device_number: Option<u8>,
     ) -> VerifyRegistrationResponse {
+
         log!("Verifying VRF proof and WebAuthn registration for account: {}", account_id);
         // 1. Validate VRF and extract WebAuthn challenge (view-only)
-        let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
+        let vrf_challenge_b64url = match verify_vrf_and_extract_challenge(&vrf_data, &self.vrf_settings) {
             Some(challenge) => challenge,
             None => return VerifyRegistrationResponse {
                 verified: false,
@@ -163,7 +127,7 @@ impl WebAuthnContract {
 
         // 2. Verify WebAuthn registration credential
         // check VRF challenge and RP ID must match WebAuthn registration values
-        let webauthn_result = self.verify_webauthn_credential(
+        let webauthn_result = self.internal_verify_registration_credential(
             webauthn_registration.clone(),
             vrf_challenge_b64url,   // VRF challenge
             vrf_data.rp_id.clone(), // VRF RP ID input
@@ -277,8 +241,8 @@ impl WebAuthnContract {
             }
         };
 
-        // 2. Verify VRF and extract WebAuthn challenge
-        let vrf_challenge_b64url = match self.verify_vrf_and_extract_challenge(&vrf_data) {
+        // 2. Verify VRF and extract WebAuthn challenge (view-only)
+        let vrf_challenge_b64url = match verify_vrf_and_extract_challenge(&vrf_data, &self.vrf_settings) {
             Some(challenge) => challenge,
             None => return VerifyCanRegisterResponse {
                 verified: false,
@@ -288,7 +252,7 @@ impl WebAuthnContract {
 
         // 3. WebAuthn registration verification
         // Check VRF challenge and RP ID matches WebAuthn registration values
-        let webauthn_response = self.verify_webauthn_credential(
+        let webauthn_response = self.internal_verify_registration_credential(
             webauthn_registration,
             vrf_challenge_b64url,   // Use the VRF challenge from VRF data
             vrf_data.rp_id.clone(), // Use the RP ID from VRF data
@@ -307,81 +271,6 @@ impl WebAuthnContract {
         }
     }
 
-    /// VIEW-ONLY: Validate VRF proof and extract WebAuthn challenge
-    /// Returns the challenge and parameters needed for WebAuthn verification
-    /// This function performs no state modifications and can be called from both
-    /// registration and view functions
-    ///
-    /// # Arguments
-    /// * `vrf_data` - VRF verification data containing proof, input, output and metadata
-    ///
-    /// # Returns
-    /// * `Result<(String, String, Vec<u8>), VerifyRegistrationResponse>` - On success returns:
-    ///   - WebAuthn challenge derived from VRF output (base64url encoded)
-    ///   - Expected origin for WebAuthn verification
-    ///   - VRF public key
-    ///   On failure returns VerifyRegistrationResponse with error details
-    ///
-    /// # Private
-    /// This is a private view function that only reads contract state
-    #[private]
-    pub fn verify_vrf_and_extract_challenge(&self, vrf_data: &VRFVerificationData) -> Option<String> {
-
-        // 1. Validate block height freshness
-        let current_height = env::block_height();
-        if current_height < vrf_data.block_height ||
-           current_height > vrf_data.block_height + self.vrf_settings.max_block_age {
-            log!("VRF challenge is stale or invalid: current_height={}, vrf_height={}",
-                 current_height, vrf_data.block_height);
-            return None;
-        } else {
-            log!("VRF block height validation passed: current={}, vrf={}, window={} blocks",
-                current_height, vrf_data.block_height, self.vrf_settings.max_block_age);
-        }
-
-        // 2. Verify the VRF proof and validate VRF output
-        log!("VRF Verification:");
-        log!("  - Input data: {} bytes", vrf_data.vrf_input_data.len());
-        log!("  - Expected output: {} bytes", vrf_data.vrf_output.len());
-        log!("  - Proof: {} bytes", vrf_data.vrf_proof.len());
-
-        let vrf_verification = match vrf_verifier::verify_vrf_1(
-            &vrf_data.vrf_proof,
-            &vrf_data.public_key,
-            &vrf_data.vrf_input_data
-        ) {
-            Ok(vrf_output) => VerifiedVRFAuthenticationResponse {
-                verified: true,
-                vrf_output: Some(vrf_output.to_vec()),
-                authentication_info: Some("VRF verification successful".to_string()),
-            },
-            Err(_) => VerifiedVRFAuthenticationResponse {
-                verified: false,
-                vrf_output: None,
-                authentication_info: Some("VRF verification failed".to_string()),
-            }
-        };
-
-        if !vrf_verification.verified {
-            log!("VRF proof verification failed");
-            return None;
-        }
-
-        // 3. Validate that the claimed VRF output matches the verified output
-        let verified_vrf_output = vrf_verification.vrf_output.expect("VRF output should be present");
-        if verified_vrf_output != vrf_data.vrf_output {
-            log!("VRF output mismatch: client claimed output doesn't match verified output");
-            return None;
-        }
-
-        // 4. Extract WebAuthn challenge from VRF output
-        let vrf_webauthn_challenge = &vrf_data.vrf_output[0..32]; // First 32 bytes as challenge
-        let vrf_challenge_b64url = BASE64_URL_ENGINE.encode(vrf_webauthn_challenge);
-        log!("VRF proof verified, extracted challenge: {} bytes", vrf_webauthn_challenge.len());
-
-        Some(vrf_challenge_b64url)
-    }
-
     /// Core WebAuthn attestation verification logic that validates the registration response
     ///
     /// # Arguments
@@ -394,10 +283,7 @@ impl WebAuthnContract {
     ///
     /// # Returns
     /// * `VerifyRegistrationResponse` - Contains verification status and registration info
-    ///
-    /// # Private
-    /// This is a private view function that does not modify contract state
-    fn verify_webauthn_credential(
+    fn internal_verify_registration_credential(
         &self,
         credential: WebAuthnRegistrationCredential,
         expected_challenge: String,
@@ -420,23 +306,15 @@ impl WebAuthnContract {
         // 6. Extract credential public key
         // 7. Store authenticator
 
-        // Step 1: Parse and validate clientDataJSON
-        let client_data_json_bytes =
-            match BASE64_URL_ENGINE.decode(&credential.response.client_data_json) {
-                Ok(bytes) => bytes,
-                Err(_) => {
-                    log!("Failed to decode clientDataJSON from base64url");
-                    return VerifyRegistrationResponse {
-                        verified: false,
-                        registration_info: None,
-                    };
-                }
-            };
-
-        let client_data: ClientDataJSON = match serde_json::from_slice(&client_data_json_bytes) {
+        // Step 1-3: Parse and validate clientDataJSON, type, and challenge
+        let (client_data, client_data_json_bytes) = match validate_webauthn_client_data(
+            &credential.response.client_data_json,
+            &expected_challenge,
+            "webauthn.create"
+        ) {
             Ok(data) => data,
             Err(e) => {
-                log!("Failed to parse clientDataJSON: {}", e);
+                log!("{}", e);
                 return VerifyRegistrationResponse {
                     verified: false,
                     registration_info: None,
@@ -444,43 +322,16 @@ impl WebAuthnContract {
             }
         };
 
-        // Step 2: Verify challenge matches expected_challenge
-        if client_data.challenge != expected_challenge {
-            log!(
-                "Challenge mismatch: expected {}, got {}",
-                expected_challenge,
-                client_data.challenge
-            );
+        // Step 3: Verify origin matches expected pattern
+        if let Err(e) = validate_webauthn_origin(&client_data.origin, &expected_origin, &expected_rp_id, self.tld_config.as_ref()) {
+            log!("{}", e);
             return VerifyRegistrationResponse {
                 verified: false,
                 registration_info: None,
             };
         }
 
-        // Step 3: Verify origin matches expected_origin
-        if client_data.origin != expected_origin {
-            log!(
-                "Origin mismatch: expected {}, got {}",
-                expected_origin,
-                client_data.origin
-            );
-            return VerifyRegistrationResponse {
-                verified: false,
-                registration_info: None,
-            };
-        }
-
-        // Verify type is "webauthn.create"
-        if client_data.type_ != "webauthn.create" {
-            log!(
-                "Invalid type: expected webauthn.create, got {}",
-                client_data.type_
-            );
-            return VerifyRegistrationResponse {
-                verified: false,
-                registration_info: None,
-            };
-        }
+        log!("Origin verification passed for: {}", client_data.origin);
 
         // Step 4: Parse and validate attestationObject
         let attestation_object_bytes =
@@ -533,27 +384,17 @@ impl WebAuthnContract {
         };
 
         // Verify RP ID hash
-        let expected_rp_id_hash = env::sha256(expected_rp_id.as_bytes());
-        if auth_data.rp_id_hash != expected_rp_id_hash {
-            log!("RP ID hash mismatch");
+        if let Err(e) = validate_webauthn_rp_id_hash(&auth_data.rp_id_hash, &expected_rp_id) {
+            log!("{}", e);
             return VerifyRegistrationResponse {
                 verified: false,
                 registration_info: None,
             };
         }
 
-        // Check user verification if required
-        if require_user_verification && (auth_data.flags & 0x04) == 0 {
-            log!("User verification required but not performed");
-            return VerifyRegistrationResponse {
-                verified: false,
-                registration_info: None,
-            };
-        }
-
-        // Verify user presence (UP flag must be set)
-        if (auth_data.flags & 0x01) == 0 {
-            log!("User presence flag not set");
+        // Check user verification and presence flags
+        if let Err(e) = validate_webauthn_user_flags(auth_data.flags, require_user_verification) {
+            log!("{}", e);
             return VerifyRegistrationResponse {
                 verified: false,
                 registration_info: None,
@@ -614,13 +455,11 @@ impl WebAuthnContract {
             }),
         }
     }
-
-
 }
 
-/////////////////////////////////
+/////////////////////////////////////
 /// TESTS
-/////////////////////////////////
+/////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
@@ -932,7 +771,7 @@ mod tests {
             new_public_key,
             vrf_data,
             webauthn_registration,
-            None,
+            vec![1u8; 32], // Mock deterministic VRF public key
         );
 
         // In test environment, promises are not actually executed

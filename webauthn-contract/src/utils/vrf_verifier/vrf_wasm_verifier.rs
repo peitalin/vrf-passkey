@@ -1,3 +1,10 @@
+//!
+//! NOTE: Use lighter weight vrf_contract_verifier instead of vrf_wasm
+//!
+//! We use vrf-wasm for browser-based VRF generation
+//! and use vrf-contract-verifier for contract-based VRF verification
+//! This module is just for compatibility testing.
+//!
 
 // use vrf_wasm::ecvrf::{ECVRFProof, ECVRFPublicKey};
 // use vrf_wasm::vrf::VRFProof; // Trait for verify() and to_hash() methods
