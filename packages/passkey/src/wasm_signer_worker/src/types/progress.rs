@@ -34,10 +34,10 @@ use serde::{Serialize, Deserialize};
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProgressMessageType {
-    RegistrationProgress = 16,
-    RegistrationComplete = 17,
-    ExecuteActionsProgress = 18,
-    ExecuteActionsComplete = 19,
+    RegistrationProgress = 18,
+    RegistrationComplete = 19,
+    ExecuteActionsProgress = 20,
+    ExecuteActionsComplete = 21,
 }
 
 impl TryFrom<u32> for ProgressMessageType {
@@ -45,10 +45,10 @@ impl TryFrom<u32> for ProgressMessageType {
 
     fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
         match value {
-            16 => Ok(ProgressMessageType::RegistrationProgress),
-            17 => Ok(ProgressMessageType::RegistrationComplete),
-            18 => Ok(ProgressMessageType::ExecuteActionsProgress),
-            19 => Ok(ProgressMessageType::ExecuteActionsComplete),
+            18 => Ok(ProgressMessageType::RegistrationProgress),
+            19 => Ok(ProgressMessageType::RegistrationComplete),
+            20 => Ok(ProgressMessageType::ExecuteActionsProgress),
+            21 => Ok(ProgressMessageType::ExecuteActionsComplete),
             _ => Err(format!("Invalid ProgressMessageType value: {}", value)),
         }
     }
