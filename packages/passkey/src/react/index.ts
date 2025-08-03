@@ -1,5 +1,31 @@
-// === REACT CONTEXT ===
-export { PasskeyProvider, usePasskeyContext } from './context/index';
+/**
+ * React Components for Web3Authn Passkey
+ *
+ * This package provides React components and hooks for integrating Web3Authn Passkey
+ * functionality into React applications.
+ *
+ * **Important:** All React components and hooks must be used inside a PasskeyManager context.
+ * Wrap your app with PasskeyProvider to provide the required context.
+ *
+ * @example
+ * ```tsx
+ * import { PasskeyProvider, QRCodeScanner, ProfileSettingsButton } from '@web3authn/passkey/react';
+ *
+ * function App() {
+ *   return (
+ *     <PasskeyProvider configs={passkeyConfigs}>
+ *       <div>
+ *         <QRCodeScanner onDeviceLinked={(result) => console.log(result)} />
+ *         <ProfileSettingsButton username="alice" onLogout={() => console.log('logout')} />
+ *       </div>
+ *     </PasskeyProvider>
+ *   );
+ * }
+ * ```
+ */
+
+// Context
+export { PasskeyProvider, usePasskeyContext } from './context';
 
 // === REACT HOOKS ===
 
@@ -7,7 +33,7 @@ export { useNearClient } from './hooks/useNearClient';
 export type { NearClient } from '../core/NearClient';
 export { useAccountInput } from './hooks/useAccountInput';
 export { useRelayer } from './hooks/useRelayer';
-export { useQRCamera } from './hooks/useQRCamera';
+export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
 export { useDeviceLinking } from './hooks/useDeviceLinking';
 export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/useDeviceLinking';
@@ -16,7 +42,7 @@ export type { UseQRFileUploadOptions, UseQRFileUploadReturn } from './hooks/useQ
 export { TxExecutionStatus } from '../core/types/actions';
 
 // === REACT COMPONENTS ===
-export { ProfileButton } from './components/ProfileSettingsButton';
+export { ProfileSettingsButton } from './components/ProfileSettingsButton';
 // QR Scanner (jsQR library lazy-loaded in qrScanner.ts utility)
 export { QRCodeScanner } from './components/QRCodeScanner';
 
@@ -104,16 +130,4 @@ export type {
   DeleteAccountAction
 } from '../core/types/actions';
 
-// === RE-EXPORT ACTION HELPER FUNCTIONS ===
-export {
-  functionCall,
-  transfer,
-  createAccount,
-  deployContract,
-  stake,
-  addFullAccessKey,
-  addFunctionCallKey,
-  deleteKey,
-  deleteAccount,
-  ActionType
-} from '../core/types/actions';
+export { ActionType } from '../core/types/actions';

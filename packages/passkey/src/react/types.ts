@@ -171,16 +171,10 @@ export interface PasskeyContextType {
   signNEP413Message: (nearAccountId: string, params: SignNEP413MessageParams, options?: BaseHooksOptions) => Promise<SignNEP413MessageResult>;
 
   // Account recovery functions
-  recoverAccountWithAccountId: (
-    nearAccountId: string,
-    options?: AccountRecoveryHooksOptions,
-    reuseCredential?: PublicKeyCredential
-  ) => Promise<RecoveryResult>;
   startAccountRecoveryFlow: (options: AccountRecoveryHooksOptions) => AccountRecoveryFlow;
 
   // Device linking functions
   startDeviceLinkingFlow: (options: StartDeviceLinkingOptionsDevice2) => LinkDeviceFlow;
-  scanAndLinkDevice: (options: ScanAndLinkDeviceOptionsDevice1) => Promise<LinkDeviceResult>;
 
   // Login State
   loginState: LoginState;

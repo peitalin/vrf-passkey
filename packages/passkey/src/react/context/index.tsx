@@ -220,33 +220,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     return result;
   }
 
-  const recoverAccountWithAccountId = async (
-    accountId: string,
-    options?: AccountRecoveryHooksOptions,
-    reuseCredential?: PublicKeyCredential
-  ) => {
-    const result = await passkeyManager.recoverAccountWithAccountId(accountId, options, reuseCredential);
-
-    // Update login state if recovery was successful and includes login state
-    if (result.success && result.loginState) {
-      setLoginState(prevState => ({
-        ...prevState,
-        isLoggedIn: result.loginState!.isLoggedIn,
-        nearAccountId: accountId,
-        nearPublicKey: result.publicKey || null,
-      }));
-
-      console.log('Recovery completed - Login state updated:', {
-        accountId,
-        isLoggedIn: result.loginState.isLoggedIn,
-        vrfActive: result.loginState.vrfActive,
-        publicKey: result.publicKey
-      });
-    }
-
-    return result;
-  }
-
   const startAccountRecoveryFlow = (options?: AccountRecoveryHooksOptions): AccountRecoveryFlow => {
     return passkeyManager.startAccountRecoveryFlow(options);
   }
@@ -273,15 +246,6 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
         }
       }
     });
-  }
-
-  /**
-   * Device1: Scan QR code and execute AddKey transaction
-   * @param options - DeviceLinkingOptionsDevice1
-   * @returns LinkDeviceResult
-   */
-  const scanAndLinkDevice = async (options: ScanAndLinkDeviceOptionsDevice1) => {
-    return await passkeyManager.scanAndLinkDevice(options);
   }
 
   const executeAction = async (
@@ -349,11 +313,9 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
     signNEP413Message,           // Sign NEP-413 messages
 
     // Account recovery functions
-    recoverAccountWithAccountId, // Recover account with accountID and TouchId
     startAccountRecoveryFlow,   // Create account recovery flow to discover accounts onchain, and recover accounts
     // Device linking functions
     startDeviceLinkingFlow,     // Create device linking flow for Whatsapp-style QR scan + device linking
-    scanAndLinkDevice,          // Scan QR and link device (Device1 side)
 
     // Login state
     getLoginState: (nearAccountId?: string) => passkeyManager.getLoginState(nearAccountId),

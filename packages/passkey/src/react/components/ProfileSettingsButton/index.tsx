@@ -1,3 +1,4 @@
+import React from 'react';
 import { KeyIcon } from '../icons/KeyIcon';
 import { PaymentMethodsIcon } from '../icons/PaymentMethodsIcon';
 import { ProfileTrigger } from './ProfileTrigger';
@@ -6,7 +7,7 @@ import { useProfileState } from './hooks/useProfileState';
 import { useProfileDimensions } from './hooks/useProfileDimensions';
 import { useProfileAnimations } from './hooks/useProfileAnimations';
 import { usePasskeyContext } from '../../context';
-import type { ProfileMenuItem, ProfileCalculationParams, ToggleColorProps } from './types';
+import type { ProfileMenuItem, ProfileCalculationParams, ProfileButtonProps } from './types';
 import './Web3AuthProfileButton.css';
 
 // Configuration constants
@@ -19,14 +20,33 @@ const MENU_CONFIG = {
   bottomBuffer: 4,
 } as const;
 
-export interface ProfileButtonProps {
-  username?: string | null;
-  nearAccountId?: string | null;
-  onLogout?: () => void;
-  toggleColors?: ToggleColorProps;
-}
-
-export const ProfileButton: React.FC<ProfileButtonProps> = ({
+/**
+ * Profile Settings Button Component
+ *
+ * A comprehensive profile management component that provides user settings,
+ * account management, and device linking capabilities.
+ *
+ * **Important:** This component must be used inside a PasskeyManager context.
+ * Wrap your app with PasskeyProvider or ensure PasskeyManager is available in context.
+ *
+ * @example
+ * ```tsx
+ * import { PasskeyProvider } from '@web3authn/passkey/react';
+ * import { ProfileSettingsButton } from '@web3authn/passkey/react';
+ *
+ * function App() {
+ *   return (
+ *     <PasskeyProvider configs={passkeyConfigs}>
+ *       <ProfileSettingsButton
+ *         username="alice"
+ *         onLogout={() => console.log('User logged out')}
+ *       />
+ *     </PasskeyProvider>
+ *   );
+ * }
+ * ```
+ */
+export const ProfileSettingsButton: React.FC<ProfileButtonProps> = ({
   username: usernameProp,
   nearAccountId: nearAccountIdProp,
   onLogout: onLogoutProp,

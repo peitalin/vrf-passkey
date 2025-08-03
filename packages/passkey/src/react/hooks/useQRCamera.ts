@@ -1,6 +1,36 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getOptimalCameraFacingMode } from '../deviceDetection';
 import type { DeviceLinkingQRData } from '@/index';
+import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '../../utils/qrScanner';
+
+/**
+ * QR Camera Scanning Hook
+ *
+ * Provides camera-based QR code scanning functionality for device linking.
+ *
+ * **Important:** This hook must be used inside a PasskeyManager context.
+ * Wrap your app with PasskeyProvider or ensure PasskeyManager is available in context.
+ *
+ * @example
+ * ```tsx
+ * import { PasskeyProvider } from '@web3authn/passkey/react';
+ * import { useQRCamera } from '@web3authn/passkey/react';
+ *
+ * function QRScanner() {
+ *   const qrCamera = useQRCamera({
+ *     onQRDetected: (qrData) => console.log('QR detected:', qrData),
+ *     onError: (error) => console.error('Error:', error)
+ *   });
+ *
+ *   return <video ref={qrCamera.videoRef} />;
+ * }
+ * ```
+ */
+export enum QRScanMode {
+  CAMERA = 'camera',
+  FILE = 'file',
+  AUTO = 'auto'
+}
 
 export interface UseQRCameraOptions {
   onQRDetected?: (qrData: DeviceLinkingQRData) => void;
@@ -16,8 +46,9 @@ export interface UseQRCameraReturn {
   error: string | null;
   cameras: MediaDeviceInfo[];
   selectedCamera: string;
-  scanMode: 'camera' | 'file' | 'auto';
+  scanMode: QRScanMode;
   isFrontCamera: boolean;
+  scanDurationMs: number;
 
   // Refs for UI
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -27,7 +58,7 @@ export interface UseQRCameraReturn {
   startScanning: () => Promise<void>;
   stopScanning: () => void;
   handleCameraChange: (deviceId: string) => void;
-  setScanMode: (mode: 'camera' | 'file' | 'auto') => void;
+  setScanMode: (mode: QRScanMode) => void;
   setError: (error: string | null) => void;
 
   // Utilities
@@ -45,278 +76,160 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number | undefined>(undefined);
-  const isScanningRef = useRef(false);
-  const scanStartTimeRef = useRef<number>(0);
+  const flowRef = useRef<ScanQRCodeFlow | null>(null);
 
   // State
   const [isScanning, setIsScanning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>(cameraId || '');
-  const [scanMode, setScanMode] = useState<'camera' | 'file' | 'auto'>('auto');
+  const [scanMode, setScanMode] = useState<QRScanMode>(QRScanMode.CAMERA);
   const [isFrontCamera, setIsFrontCamera] = useState<boolean>(false);
+  const [scanDurationMs, setScanDurationMs] = useState<number>(0);
 
-  const SCAN_TIMEOUT_MS = 60000; // 60 seconds timeout
+  // Initialize flow
+  useEffect(() => {
+    flowRef.current = new ScanQRCodeFlow(
+      {
+        cameraId: selectedCamera,
+        cameraConfigs: {
+          facingMode: getOptimalCameraFacingMode()
+        },
+        timeout: 60000 // 60 seconds
+      },
+      {
+        onQRDetected: (qrData) => {
+          console.log('useQRCamera: Valid QR data detected -', {
+            devicePublicKey: qrData.device2PublicKey,
+            accountId: qrData.accountId,
+            timestamp: new Date(qrData.timestamp || 0).toISOString()
+          });
+          setIsProcessing(false);
+          setIsScanning(false);
+          setScanDurationMs(0);
+          onQRDetected?.(qrData);
+        },
+        onError: (err) => {
+          console.error('useQRCamera: QR scan error -', err);
+          setError(err.message);
+          setIsProcessing(false);
+          setIsScanning(false);
+          setScanDurationMs(0);
+          onError?.(err);
+        },
+        onCameraReady: (stream) => {
+          // Camera stream is ready, but video element attachment is handled separately
+          console.log('useQRCamera: Camera stream ready');
+        },
+        onScanProgress: (duration) => {
+          setScanDurationMs(duration);
+        }
+      }
+    );
 
-  // Use imported device detection utility
-  const getOptimalFacingMode = useCallback(() => getOptimalCameraFacingMode(), []);
+    return () => {
+      if (flowRef.current) {
+        flowRef.current.destroy();
+        flowRef.current = null;
+      }
+    };
+  }, []); // Only initialize once
 
-    // Initialize camera devices
+  // Load cameras on mount
   useEffect(() => {
     const loadCameras = async () => {
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        const videoDevices = await enumerateVideoDevices();
         setCameras(videoDevices);
 
         if (videoDevices.length > 0 && !selectedCamera) {
-          // Default to first camera
-          setSelectedCamera(videoDevices[0].deviceId);
-          setIsFrontCamera(false); // We'll detect this when stream starts
+          const firstCamera = videoDevices[0];
+          setSelectedCamera(firstCamera.deviceId);
+          setIsFrontCamera(detectFrontCamera(firstCamera));
         }
-      } catch (error) {
-        console.error('Error enumerating cameras:', error);
-        setError('Failed to access camera devices');
+      } catch (error: any) {
+        setError(error.message);
       }
     };
 
     loadCameras();
-  }, [selectedCamera]);
-
-  // Monitor isScanning state changes
-  useEffect(() => {
-    isScanningRef.current = isScanning;
-  }, [isScanning]);
-
-  // Auto-start scanning when modal opens
-  useEffect(() => {
-    if (isOpen && scanMode === 'auto') {
-      startScanning();
-    } else if (!isOpen) {
-      stopScanning();
-    }
-
-    return () => { stopScanning(); };
-  }, [isOpen, scanMode]);
-
-  // Parse and validate QR data
-  const parseAndValidateQRData = useCallback((qrData: string): DeviceLinkingQRData => {
-    let parsedData: DeviceLinkingQRData;
-    try {
-      parsedData = JSON.parse(qrData);
-    } catch {
-      if (qrData.startsWith('http')) {
-        throw new Error('QR code contains a URL, not device linking data');
-      }
-      if (qrData.includes('ed25519:')) {
-        throw new Error('QR code contains a NEAR key, not device linking data');
-      }
-      throw new Error('Invalid QR code format - expected JSON device linking data');
-    }
-
-    const missing = [];
-    if (!parsedData.device2PublicKey) missing.push('devicePublicKey');
-    if (!parsedData.timestamp) missing.push('timestamp');
-    if (missing.length > 0) {
-      throw new Error(`Invalid device linking QR code: Missing ${missing.join(', ')}`);
-    }
-
-    return parsedData;
   }, []);
 
-  // Handle QR detection from camera
-  const handleQRDetected = useCallback(async (qrData: string) => {
-    console.log('useQRCamera: QR detected -', { length: qrData.length, preview: qrData.substring(0, 100) });
-
-    try {
-      setIsProcessing(true);
-
-      const parsedQRData = parseAndValidateQRData(qrData);
-      console.log('useQRCamera: Valid QR data -', {
-        devicePublicKey: parsedQRData.device2PublicKey,
-        accountId: parsedQRData.accountId,
-        timestamp: new Date(parsedQRData.timestamp || 0).toISOString()
-      });
-
-      onQRDetected?.(parsedQRData);
-
-    } catch (err: any) {
-      console.error('useQRCamera: QR processing failed -', err.message);
-      setError(err.message || 'Failed to process QR code');
-      onError?.(err);
-    } finally {
-      console.log('useQRCamera: QR detection complete - stopping scanning...');
-      setIsProcessing(false);
-      stopScanning();
+  // Update flow camera when selectedCamera changes
+  useEffect(() => {
+    if (flowRef.current && selectedCamera) {
+      flowRef.current.switchCamera(selectedCamera);
     }
-  }, [parseAndValidateQRData, onQRDetected, onError]);
+  }, [selectedCamera]);
 
-  // Frame scanning logic
-  const scanFrame = useCallback(async () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-
-    if (!video || !canvas || !isOpen || !isScanningRef.current) {
-      console.log('useQRCamera: scanFrame conditions not met - stopping scan loop');
-      return;
+  // Attach/detach video element when ref changes
+  useEffect(() => {
+    if (videoRef.current && flowRef.current) {
+      flowRef.current.attachVideoElement(videoRef.current);
     }
 
-    // Check for scanning timeout
-    const elapsedTime = Date.now() - scanStartTimeRef.current;
-    if (elapsedTime > SCAN_TIMEOUT_MS) {
-      setIsScanning(false);
-      isScanningRef.current = false;
-      setError(`QR scanning timeout - no valid QR code found within ${SCAN_TIMEOUT_MS / 1000} seconds. Please ensure the QR code is clearly visible and try again.`);
-      onError?.(new Error(`QR scanning timeout after ${SCAN_TIMEOUT_MS / 1000} seconds`));
-      return;
-    }
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) {
-      console.log('useQRCamera: No canvas context available');
-      return;
-    }
-
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      try {
-        const { default: jsQR } = await import('jsqr');
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: "dontInvert"
-        });
-
-        if (code) {
-          setIsScanning(false);
-          isScanningRef.current = false;
-          await handleQRDetected(code.data);
-          return;
-        }
-      } catch (err) {
-        console.error('useQRCamera: QR scanning error:', err);
+    return () => {
+      if (flowRef.current) {
+        flowRef.current.detachVideoElement();
       }
-    }
+    };
+  }, [videoRef.current]);
 
-    if (isScanningRef.current && isOpen) {
-      animationRef.current = requestAnimationFrame(scanFrame);
-    }
-  }, [isOpen, handleQRDetected, onError]);
+  // Start/stop scanning based on isOpen and scanMode
+  useEffect(() => {
+    const flow = flowRef.current;
+    if (!flow) return;
 
-  // Start scanning function
-  const startScanning = useCallback(async () => {
-    try {
+    if (isOpen && scanMode === QRScanMode.CAMERA) {
       setError(null);
-
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: selectedCamera || undefined,
-          width: { ideal: 720, min: 480 },
-          height: { ideal: 720, min: 480 },
-          aspectRatio: { ideal: 1.0 },
-          facingMode: selectedCamera ? undefined : getOptimalFacingMode()
-        }
-      };
-
-      console.log('useQRCamera: Camera constraints:', constraints);
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
-      }
-
-      // Detect camera facing mode from actual stream settings
-      const videoTrack = mediaStream.getVideoTracks()[0];
-      if (videoTrack) {
-        const settings = videoTrack.getSettings();
-        setIsFrontCamera(settings.facingMode === 'user');
-      }
-
+      setIsProcessing(true);
       setIsScanning(true);
-      isScanningRef.current = true;
-      scanStartTimeRef.current = Date.now();
-
-      setTimeout(() => {
-        requestAnimationFrame(scanFrame);
-      }, 500);
-
-    } catch (err: any) {
-      setError(`Camera access denied: ${err.message}`);
-      onError?.(err);
+      setScanDurationMs(0);
+      flow.startQRScanner();
+    } else {
+      flow.stop();
       setIsScanning(false);
-      isScanningRef.current = false;
+      setIsProcessing(false);
+      setScanDurationMs(0);
     }
-  }, [selectedCamera, scanFrame, onError]);
+  }, [isOpen, scanMode]);
 
-  // Stop scanning function
+  // Manual controls
+  const startScanning = useCallback(async () => {
+    if (flowRef.current) {
+      setError(null);
+      setIsProcessing(true);
+      setIsScanning(true);
+      setScanDurationMs(0);
+      await flowRef.current.startQRScanner();
+    }
+  }, []);
+
   const stopScanning = useCallback(() => {
-    console.log('useQRCamera: stopScanning called - cleaning up camera...');
-
-    setIsScanning(false);
-    isScanningRef.current = false;
-    scanStartTimeRef.current = 0;
-
-    if (animationRef.current) {
-      console.log('useQRCamera: Cancelling animation frame');
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = undefined;
+    if (flowRef.current) {
+      flowRef.current.stop();
+      setIsScanning(false);
+      setIsProcessing(false);
+      setScanDurationMs(0);
     }
-
-    if (videoRef.current) {
-      console.log('useQRCamera: Cleaning up video element');
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
-      videoRef.current.load();
-    }
-
-    if (stream) {
-      console.log('useQRCamera: Stopping camera tracks');
-      stream.getTracks().forEach(track => {
-        if (track.readyState === 'live') {
-          console.log('useQRCamera: Stopping track:', track.kind, track.label);
-          track.stop();
-        }
-        track.onended = track.onmute = track.onunmute = null;
-      });
-      setStream(null);
-    }
-
-    window.gc?.();
-    console.log('useQRCamera: Cleanup complete');
-  }, [stream]);
-
-
+  }, []);
 
   // Handle camera change
-  const handleCameraChange = useCallback((deviceId: string) => {
+  const handleCameraChange = useCallback(async (deviceId: string) => {
     setSelectedCamera(deviceId);
 
     const selectedCameraDevice = cameras.find(camera => camera.deviceId === deviceId);
     if (selectedCameraDevice) {
-      const label = selectedCameraDevice.label.toLowerCase();
-      const isNewCameraFront = label.includes('front') ||
-                              label.includes('user') ||
-                              label.includes('selfie') ||
-                              label.includes('facetime') ||
-                              label.includes('facing front');
-      setIsFrontCamera(isNewCameraFront);
+      setIsFrontCamera(detectFrontCamera(selectedCameraDevice));
     }
 
-    if (isScanning) {
-      stopScanning();
-      setTimeout(startScanning, 100);
-    }
-  }, [cameras, isScanning, stopScanning, startScanning]);
+    // The useEffect will handle updating the flow
+  }, [cameras]);
 
-    return {
+  const getOptimalFacingMode = useCallback(() => getOptimalCameraFacingMode(), []);
+
+  return {
     // State
     isScanning,
     isProcessing,
@@ -325,8 +238,9 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
     selectedCamera,
     scanMode,
     isFrontCamera,
+    scanDurationMs,
 
-    // Refs
+    // Refs for UI
     videoRef,
     canvasRef,
 
@@ -338,6 +252,6 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
     setError,
 
     // Utilities
-    getOptimalFacingMode,
+    getOptimalFacingMode
   };
 };
