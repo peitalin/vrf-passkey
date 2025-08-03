@@ -214,7 +214,7 @@ const actionResult = await executeAction(context, realAccountId, {
         transports: credential.response.transports || ['internal']
       }
     },
-    deterministic_vrf_public_key: null
+    deterministic_vrf_public_key: deterministicVrfPublicKey
   },
   gas: '50000000000000',
   deposit: '0'

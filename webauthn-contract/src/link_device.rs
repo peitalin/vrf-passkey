@@ -58,17 +58,23 @@ impl WebAuthnContract {
             (target_account_id.clone(), device_number)
         );
 
-        // Emit structured log event that Device2 can poll
-        log!(
-            "DEVICE_KEY_MAPPED:{}:{}:{}:{}",
-            device_public_key,
-            target_account_id,
-            device_number,
-            env::block_timestamp()
-        );
-
         // Initiate automatic cleanup after 200 blocks using yield-resume pattern
-        let data_id = self.initiate_cleanup(device_public_key.clone());
+        let data_id_register = 0;
+        // Create yield promise for cleanup_device_linking
+        env::promise_yield_create(
+            "cleanup_device_linking",
+            serde_json::to_vec(&serde_json::json!({
+                "device_public_key": device_public_key.clone()
+            })).unwrap().as_slice(),
+            Gas::from_tgas(10),
+            GasWeight(0),
+            data_id_register
+        );
+        // Retrieve data_id for later resume
+        let data_id: CryptoHash = env::read_register(data_id_register)
+            .expect("Failed to read data_id")
+            .try_into()
+            .expect("Failed to convert to CryptoHash");
 
         log!(
             "Device linking mapping stored successfully for account {} with device number {}",
@@ -90,42 +96,6 @@ impl WebAuthnContract {
         self.device_numbers.get(&account_id).copied().unwrap_or(0)
     }
 
-    /// Initiate automatic cleanup using yield-resume pattern (executes after 200 blocks)
-    pub fn initiate_cleanup(&mut self, device_public_key: String) -> CryptoHash {
-        let data_id_register = 0;
-
-        // Create yield promise for cleanup_device_linking
-        env::promise_yield_create(
-            "cleanup_device_linking",
-            serde_json::to_vec(&serde_json::json!({
-                "device_public_key": device_public_key
-            })).unwrap().as_slice(),
-            Gas::from_tgas(10),
-            GasWeight(0),
-            data_id_register
-        );
-
-        // Retrieve data_id for later resume
-        let data_id: CryptoHash = env::read_register(data_id_register)
-            .expect("Failed to read data_id")
-            .try_into()
-            .expect("Failed to convert to CryptoHash");
-
-        data_id
-    }
-
-    /// Resume cleanup execution with custom payload
-    pub fn resume_cleanup(&self, data_id: CryptoHash, result_data: String) -> bool {
-        // Resume execution with custom payload
-        env::promise_yield_resume(
-            &data_id,
-            serde_json::to_vec(&serde_json::json!({
-                "status": "completed",
-                "result": result_data
-            })).unwrap().as_slice()
-        )
-    }
-
     /// Clean up temporary device linking mapping after successful registration
     /// This should be called after Device2 completes link_device_register_user
     /// OR automatically called by the yield-resume pattern after 200 blocks
@@ -133,10 +103,11 @@ impl WebAuthnContract {
         self.device_linking_map.remove(&device_public_key);
         log!("Cleaned up device linking mapping for key: {}", device_public_key);
     }
-
-
-
 }
+
+/////////////////////////////////////
+/// TESTS
+/////////////////////////////////////
 
 #[cfg(test)]
 mod tests {

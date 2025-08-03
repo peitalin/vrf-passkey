@@ -1,5 +1,6 @@
 use super::{WebAuthnContract, WebAuthnContractExt};
 use near_sdk::{log, near,  env, require, AccountId, serde_json};
+use crate::contract_state::TldConfiguration;
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -16,7 +17,6 @@ impl WebAuthnContract {
         let predecessor = env::predecessor_account_id();
         let contract_account = env::current_account_id();
         let is_admin = self.admins.contains(&predecessor);
-
         if predecessor != *user_id && predecessor != contract_account && !is_admin {
             false
         } else {
@@ -100,7 +100,36 @@ impl WebAuthnContract {
             "total_credential_ids": total_credential_ids,
             "admins_count": self.admins.len(),
             "storage_usage": storage_usage,
+            "tld_config": match &self.tld_config {
+                Some(config) => serde_json::json!({
+                    "enabled": config.enabled,
+                    "multi_part_tlds_count": config.multi_part_tlds.len()
+                }),
+                None => serde_json::json!({
+                    "enabled": false,
+                    "multi_part_tlds_count": 0
+                })
+            }
         })
     }
 
+    /// Get current TLD configuration (view function)
+    pub fn get_tld_config(&self) -> Option<&TldConfiguration> {
+        self.tld_config.as_ref()
+    }
+
+    /// Set TLD configuration (only admins can call this)
+    /// Pass None to disable complex TLD support (standard domains only)
+    pub fn set_tld_config(&mut self, tld_config: Option<TldConfiguration>) {
+        // Only admins or contract owner can update TLD configuration
+        self.only_admin();
+        match &tld_config {
+            Some(config) => {
+                let tld_len = config.multi_part_tlds.len();
+                log!("TLD configuration enabled: multi_part_tlds_count={}", tld_len);
+            },
+            None => log!("TLD configuration disabled - standard domains only")
+        }
+        self.tld_config = tld_config;
+    }
 }

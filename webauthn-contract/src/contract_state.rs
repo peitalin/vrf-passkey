@@ -2,6 +2,28 @@ use near_sdk::{AccountId, PanicOnDefault, BorshStorageKey};
 use near_sdk::store::{LookupMap, IterableSet, IterableMap};
 use near_sdk::borsh::BorshSerialize;
 
+/// TLD configuration for domain parsing
+/// Allows contract deployment to specify which complex TLD patterns to support
+#[near_sdk::near(serializers=[borsh, json])]
+#[derive(Debug, Clone)]
+pub struct TldConfiguration {
+    /// List of two-part TLDs that require 3 parts for registrable domain
+    /// Format: (second_level_domain, top_level_domain)
+    /// Example: ("co", "uk") for .co.uk domains
+    pub multi_part_tlds: Vec<(String, String)>,
+    /// Whether to enable complex TLD support (default: false for standard domains only)
+    pub enabled: bool,
+}
+
+impl Default for TldConfiguration {
+    fn default() -> Self {
+        Self {
+            multi_part_tlds: vec![], // Empty by default - only standard domains supported
+            enabled: false,          // Disabled by default for simplicity and performance
+        }
+    }
+}
+
 /// VRF configuration settings
 #[near_sdk::near(serializers=[borsh, json])]
 #[derive(Debug, Clone)]
@@ -32,6 +54,8 @@ pub struct StoredAuthenticator {
     pub registered: String, // ISO timestamp of registration
     pub vrf_public_keys: Vec<Vec<u8>>, // VRF public keys for stateless authentication (max 5, FIFO)
     pub device_number: u8, // Device number for this authenticator (1-indexed for UX)
+    pub expected_origin: String, // Origin URL where this authenticator was registered (e.g., "https://example.com")
+    pub expected_rp_id: String, // RP ID where this authenticator was registered (e.g., "example.com")
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
@@ -70,6 +94,8 @@ pub struct WebAuthnContract {
     pub admins: IterableSet<AccountId>,
     // VRF challenge verification settings
     pub vrf_settings: VRFSettings,
+    // TLD configuration for domain parsing
+    pub tld_config: Option<TldConfiguration>,
     // Authenticators: 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users

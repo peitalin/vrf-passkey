@@ -107,6 +107,6 @@ interface CreateAccountAndRegisterRequest {
   new_public_key: string;
   vrf_data: ContractVrfData;
   webauthn_registration: WebAuthnRegistrationCredential;
-  deterministic_vrf_public_key?: Uint8Array;
+  deterministic_vrf_public_key: Uint8Array;
 }
 ```

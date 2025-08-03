@@ -13,6 +13,10 @@ use crate::verify_registration_response::{
     VerifyRegistrationResponse,
 };
 use crate::types::WebAuthnRegistrationCredential;
+use crate::utils::parsers::{
+    decode_client_data_json,
+    extract_rp_id
+};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -21,22 +25,16 @@ use crate::types::WebAuthnRegistrationCredential;
 #[near]
 impl WebAuthnContract {
 
-    /////////////////////////////////////
-    /// USER REGISTRATION
-    /////////////////////////////////////
-
     /// Register a new user in the contract
     /// @payable - This function can be called with attached NEAR tokens
     #[payable]
     pub fn register_user(&mut self, user_id: AccountId) -> bool {
-
         require!(self.only_sender_or_admin(&user_id), "Must be called by the user, owner, or admins");
 
         if self.registered_users.contains(&user_id) {
             log!("User {} already registered", user_id);
             return false;
         }
-
         // Add to registry
         self.registered_users.insert(user_id.clone());
         log!("User {} registered successfully", user_id);
@@ -56,7 +54,6 @@ impl WebAuthnContract {
                 result.push((credential_id.clone(), authenticator.clone()));
             }
         }
-
         result
     }
 
@@ -69,47 +66,14 @@ impl WebAuthnContract {
             .cloned()
     }
 
-    /// Store a new authenticator with VRF public keys (supports single or multiple keys)
-    #[private]
-    pub fn store_authenticator(
-        &mut self,
-        user_id: AccountId,
-        credential_id: String,
-        credential_public_key: Vec<u8>,
-        transports: Option<Vec<AuthenticatorTransport>>,
-        registered: String,
-        vrf_public_keys: Vec<Vec<u8>>, // Changed from single key to vector of keys
-        device_number: u8, // Device number for this authenticator
-    ) -> bool {
-        require!(self.only_sender_or_admin(&user_id), "Must be called by the msg.sender, owner, or admins");
-
-        let vrf_count = vrf_public_keys.len();
-        let authenticator = StoredAuthenticator {
-            credential_public_key,
-            transports,
-            registered,
-            vrf_public_keys, // Store all VRF keys
-            device_number,   // Store device number
-        };
-
-        // Check if user's authenticator map exists, if not create it
-        if !self.authenticators.contains_key(&user_id) {
-            // Create new IterableMap with a unique storage key based on user_id
-            let storage_key_bytes = format!("auth_{}", user_id).into_bytes();
-            let new_map = IterableMap::new(storage_key_bytes);
-            self.authenticators.insert(user_id.clone(), new_map);
+    /// Get all credential IDs associated with an account ID
+    /// This enables reverse lookup for account recovery (account -> credential IDs)
+    pub fn get_credential_ids_by_account(&self, account_id: AccountId) -> Vec<String> {
+        if let Some(user_authenticators) = self.authenticators.get(&account_id) {
+            user_authenticators.keys().cloned().collect()
+        } else {
+            Vec::new()
         }
-
-        // Insert the authenticator into the user's map
-        if let Some(user_authenticators) = self.authenticators.get_mut(&user_id) {
-            user_authenticators.insert(credential_id.clone(), authenticator);
-        }
-
-        // Update credential->user mapping for account recovery
-        self.add_credential_user_mapping(credential_id, user_id.clone());
-
-        log!("Stored authenticator for user {} with {} VRF key(s)", user_id, vrf_count);
-        true
     }
 
     /// Stores the authenticator and user data after successful registration verification for a specific account
@@ -132,11 +96,7 @@ impl WebAuthnContract {
     /// * `bootstrap_vrf_public_key` - Vec<u8> containing bootstrap VRF public key
     /// * `deterministic_vrf_public_key` - Optional Vec<u8> containing deterministic VRF public key
     /// * for key recovery purposes
-    ///
-    /// # Private
-    /// This is a private non-view function that modifies contract state
-    #[private]
-    pub fn store_authenticator_and_user_for_account(
+    pub(crate) fn store_authenticator_and_user_for_account(
         &mut self,
         account_id: AccountId,
         device_number: u8,
@@ -168,13 +128,28 @@ impl WebAuthnContract {
         // Get current timestamp as ISO string
         let current_timestamp = env::block_timestamp_ms().to_string();
 
+        // Extract origin and RP ID from the registration credential for secure verification
+        let (client_data, _) = match decode_client_data_json(&credential.response.client_data_json) {
+            Ok(data) => data,
+            Err(e) => {
+                log!("Failed to decode client data during storage: {}", e);
+                return VerifyRegistrationResponse {
+                    verified: false,
+                    registration_info: None,
+                };
+            }
+        };
+        let expected_origin = client_data.origin;
+        let expected_rp_id = extract_rp_id(&expected_origin, true, self.tld_config.as_ref());
+
         // Prepare VRF keys for storage
         let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
         vrf_keys.push(deterministic_vrf_public_key);
         log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
+        log!("Storing authenticator with origin binding: {} -> {}", expected_origin, expected_rp_id);
 
-        // Store the authenticator with multiple VRF public keys
-        self.store_authenticator(
+        // Store the authenticator with multiple VRF public keys and origin binding
+        self.internal_store_authenticator(
             account_id.clone(),
             credential_id_b64url.clone(),
             registration_info.credential_public_key.clone(),
@@ -182,6 +157,8 @@ impl WebAuthnContract {
             current_timestamp,
             vrf_keys,
             device_number,
+            expected_origin,
+            expected_rp_id,
         );
 
         // 2. Register user in user registry if not already registered
@@ -198,60 +175,49 @@ impl WebAuthnContract {
         }
     }
 
-    /// Add a new VRF public key to an existing authenticator (FIFO queue with max 5 keys)
-    pub fn add_vrf_key_to_authenticator(
+    /// Store a new authenticator with VRF public keys (supports single or multiple keys)
+    fn internal_store_authenticator(
         &mut self,
+        user_id: AccountId,
         credential_id: String,
-        new_vrf_key: Vec<u8>,
+        credential_public_key: Vec<u8>,
+        transports: Option<Vec<AuthenticatorTransport>>,
+        registered: String,
+        vrf_public_keys: Vec<Vec<u8>>, // Changed from single key to vector of keys
+        device_number: u8, // Device number for this authenticator
+        expected_origin: String, // Origin URL where this authenticator was registered
+        expected_rp_id: String, // RP ID where this authenticator was registered
     ) -> bool {
-        let user_id = env::predecessor_account_id();
+        require!(self.only_sender_or_admin(&user_id), "Must be called by the msg.sender, owner, or admins");
 
-        // Get the user's authenticator map and find the specific authenticator
+        let vrf_count = vrf_public_keys.len();
+        let authenticator = StoredAuthenticator {
+            credential_public_key,
+            transports,
+            registered,
+            vrf_public_keys, // Store all VRF keys
+            device_number,   // Store device number
+            expected_origin, // Store expected origin for verification
+            expected_rp_id,  // Store expected RP ID for verification
+        };
+
+        // Check if user's authenticator map exists, if not create it
+        if !self.authenticators.contains_key(&user_id) {
+            // Create new IterableMap with a unique storage key based on user_id
+            let storage_key_bytes = format!("auth_{}", user_id).into_bytes();
+            let new_map = IterableMap::new(storage_key_bytes);
+            self.authenticators.insert(user_id.clone(), new_map);
+        }
+
+        // Insert the authenticator into the user's map
         if let Some(user_authenticators) = self.authenticators.get_mut(&user_id) {
-            if let Some(authenticator) = user_authenticators.get_mut(&credential_id) {
-                // Check if key already exists to avoid duplicates
-                if !authenticator.vrf_public_keys.contains(&new_vrf_key) {
-                    // Add new key
-                    authenticator.vrf_public_keys.push(new_vrf_key);
-
-                    // If exceeds max size, remove oldest (FIFO)
-                    if authenticator.vrf_public_keys.len() > self.vrf_settings.max_authenticators_per_account {
-                        authenticator.vrf_public_keys.remove(0); // Remove first (oldest)
-                    }
-
-                    let n_keys = authenticator.vrf_public_keys.len();
-                    log!("Added VRF key to authenticator for user {} (total keys: {})", user_id, n_keys);
-                    true
-                } else {
-                    log!("VRF key already exists for user {}, credential {}", user_id, credential_id);
-                    false
-                }
-            } else {
-                log!("No authenticator found for user {}, credential {}", user_id, credential_id);
-                false
-            }
-        } else {
-            log!("No authenticators found for user {}", user_id);
-            false
+            user_authenticators.insert(credential_id.clone(), authenticator);
         }
-    }
 
-    /////////////////////////////////
-    /// CREDENTIAL LOOKUP
-    /////////////////////////////////
+        // Update credential->user mapping for account recovery
+        self.credential_to_users.insert(credential_id, user_id.clone());
+        log!("Stored authenticator for user {} with {} VRF key(s)", user_id, vrf_count);
 
-    /// Get all credential IDs associated with an account ID
-    /// This enables reverse lookup for account recovery (account -> credential IDs)
-    pub fn get_credential_ids_by_account(&self, account_id: AccountId) -> Vec<String> {
-        if let Some(user_authenticators) = self.authenticators.get(&account_id) {
-            user_authenticators.keys().cloned().collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Helper method to add a credential->user mapping (used during registration)
-    fn add_credential_user_mapping(&mut self, credential_id: String, user_id: AccountId) {
-        self.credential_to_users.insert(credential_id, user_id);
+        true
     }
 }

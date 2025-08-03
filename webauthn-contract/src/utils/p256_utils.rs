@@ -69,6 +69,10 @@ pub fn get_uncompressed_p256_pubkey(cose_public_key_bytes: &[u8]) -> Result<Vec<
     Ok(uncompressed)
 }
 
+/////////////////////////////////////
+/// TESTS
+/////////////////////////////////////
+
 mod tests {
     use super::*;
     use std::collections::BTreeMap;

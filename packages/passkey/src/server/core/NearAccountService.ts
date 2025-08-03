@@ -181,7 +181,7 @@ export class NearAccountService {
           new_public_key: request.new_public_key,
           vrf_data: request.vrf_data,
           webauthn_registration: request.webauthn_registration,
-          deterministic_vrf_public_key: request.deterministic_vrf_public_key || null,
+          deterministic_vrf_public_key: request.deterministic_vrf_public_key,
         };
 
         // Call the contract's atomic function
