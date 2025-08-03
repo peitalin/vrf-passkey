@@ -76,12 +76,15 @@ impl WebAuthnContract {
         webauthn_registration: WebAuthnRegistrationCredential,
         deterministic_vrf_public_key: Vec<u8>,
     ) -> Promise {
-
         // Use the attached deposit as the initial balance for the new account
         let initial_balance_yoctonear = env::attached_deposit().as_yoctonear();
-        log!("Creating account and verifying registration for: {}", new_account_id);
-        log!("  - Initial balance: {} yoctoNEAR", initial_balance_yoctonear);
+        log!("Creating account and verifying registration for: {} with balance: {}",
+            new_account_id, initial_balance_yoctonear);
 
+        // We need to chain promises to ensure the account is created before
+        // registering the user with Web3Authn contract.
+
+        // First promise: create the account + add key
         let setup_promise = Promise::new(new_account_id.clone())
             .create_account()
             .transfer(NearToken::from_yoctonear(initial_balance_yoctonear))
@@ -95,12 +98,13 @@ impl WebAuthnContract {
                 "vrf_data": vrf_data,
                 "webauthn_registration": webauthn_registration,
                 "deterministic_vrf_public_key": deterministic_vrf_public_key,
+                // "device_number": 1, defaults to 1 for initial registration
             })).unwrap(),
             NearToken::from_yoctonear(0), // No payment needed for verification
-            Gas::from_tgas(100), // 100 TGas should be sufficient
+            Gas::from_tgas(30), // 30 TGas should be sufficient (actual usage ~23.4 TGas)
         );
 
-        // Chain them together - both must succeed for the transaction to succeed
+        // Chain them together: both must succeed for the transaction to succeed
         setup_promise.then(verification_promise)
     }
 

@@ -4,6 +4,7 @@
 //! account creation with VRF-based WebAuthn registration in a single atomic transaction.
 
 use near_workspaces::types::Gas;
+use near_sdk::NearToken;
 use serde_json::json;
 
 mod utils_mocks;
@@ -17,6 +18,7 @@ use utils_mocks::{
 mod utils_contracts;
 use utils_contracts::deploy_test_contract;
 
+const ACCOUNT_CREATION_GAS_LIMIT: u64 = 70;
 
 #[tokio::test]
 async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +58,7 @@ async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }))
-        .gas(Gas::from_tgas(300)) // More gas for account creation
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT)) // More gas for account creation
         .transact()
         .await?;
 
@@ -101,7 +103,7 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }))
-        .gas(Gas::from_tgas(200))
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
         .transact()
         .await?;
 
@@ -172,7 +174,7 @@ async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::E
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }))
-        .gas(Gas::from_tgas(200))
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
         .transact()
         .await?;
 
@@ -231,7 +233,7 @@ async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::erro
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }))
-        .gas(Gas::from_tgas(200))
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
         .transact()
         .await?;
 
@@ -278,7 +280,7 @@ async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::e
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key
         }))
-        .gas(Gas::from_tgas(200))
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
         .transact()
         .await?;
 

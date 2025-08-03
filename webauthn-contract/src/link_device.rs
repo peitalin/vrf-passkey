@@ -66,7 +66,7 @@ impl WebAuthnContract {
             serde_json::to_vec(&serde_json::json!({
                 "device_public_key": device_public_key.clone()
             })).unwrap().as_slice(),
-            Gas::from_tgas(10),
+            Gas::from_tgas(8), // actual usage 3.10 Tgas + 2.38 Tgas = 5.48 Tgas
             GasWeight(0),
             data_id_register
         );
