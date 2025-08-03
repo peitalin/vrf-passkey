@@ -39,7 +39,10 @@ export type {
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 
 // === Device Linking Types ===
-export { DeviceLinkingPhase, } from './core/types/passkeyManager';
+export {
+  DeviceLinkingPhase,
+  DeviceLinkingStatus
+} from './core/types/passkeyManager';
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
@@ -69,19 +72,6 @@ export type {
   AddKeyAction,
   DeleteKeyAction,
   DeleteAccountAction
-} from './core/types/actions';
-
-// Action helper functions for easy action creation
-export {
-  functionCall,
-  transfer,
-  createAccount,
-  deployContract,
-  stake,
-  addFullAccessKey,
-  addFunctionCallKey,
-  deleteKey,
-  deleteAccount
 } from './core/types/actions';
 
 // === ERROR TYPES ===

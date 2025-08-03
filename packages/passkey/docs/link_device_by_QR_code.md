@@ -314,43 +314,6 @@ interface DeviceLinkingSession {
 }
 ```
 
-## Usage Examples
-
-### Option E (Account Provided)
-
-```typescript
-// Device2: Generate QR with known account
-const flow = passkeyManager.startDeviceLinkingFlow({
-  onEvent: (event) => console.log(event.message)
-});
-const { qrData, qrCodeDataURL } = await flow.generateQR('alice.near');
-
-// Device1: Scan and authorize
-const result = await passkeyManager.scanAndLinkDevice({
-  onEvent: (event) => console.log(event.message)
-});
-```
-
-### Option F (Account Discovery)
-
-```typescript
-// Device2: Generate QR without account (seamless UX)
-const flow = passkeyManager.startDeviceLinkingFlow({
-  onEvent: (event) => console.log(event.message)
-});
-const { qrData, qrCodeDataURL } = await flow.generateQR(); // No account ID
-
-// Device1: Scan and authorize (same as Option E)
-const result = await passkeyManager.scanAndLinkDevice({
-  onEvent: (event) => console.log(event.message)
-});
-
-// Device2: Flow automatically handles account discovery and key replacement
-const state = flow.getState();
-```
-
-## Security Considerations
-
 ### TouchID Requirements
 
 - **Device1**: TouchID required for authorization transaction

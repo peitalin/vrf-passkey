@@ -1,6 +1,6 @@
 # PasskeyManager E2E Test Suite
 
-Comprehensive Playwright-based end-to-end testing for the PasskeyManager SDK with WebAuthn virtual authenticator support.
+Playwright end-to-end testing for the PasskeyManager SDK with WebAuthn virtual authenticator support.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@ Comprehensive Playwright-based end-to-end testing for the PasskeyManager SDK wit
 
 ## Test Architecture
 
-The test suite uses **Playwright** with a **Chromium** browser to test real WebAuthn functionality using virtual authenticators. Tests run against a local development server and import the built SDK from copied assets.
+The test suite uses Playwright with a Chromium browser to test real WebAuthn functionality using virtual authenticators. Tests run against a local development server and import the built SDK from copied assets.
 
 ### Key Components
 
@@ -198,60 +198,6 @@ npm run build:check:fresh || (npm run build && mkdir -p ../../frontend/public/sd
 - **Tests**: Presigned delete transactions, account cleanup
 - **Features**: NEAR testnet account management
 - **Duration**: ~10-15 seconds
-
-### Debug Test Files
-
-#### `debug_import_map.test.ts`
-- **Purpose**: Verify import map setup
-- **Tests**: Module resolution, dependency loading
-- **Usage**: Troubleshoot import issues
-
-#### `debug_setup_error.test.ts`
-- **Purpose**: Verify test environment setup
-- **Tests**: PasskeyManager instantiation, method availability
-- **Usage**: Troubleshoot setup failures
-
-
-## Troubleshooting
-
-### Common Issues
-
-#### Build Errors
-```bash
-# Clean build
-npm run build:clean && npm run build
-
-# Check build freshness
-npm run build:check:fresh
-```
-
-#### Import Errors
-```bash
-# Verify assets are copied
-ls -la ../../frontend/public/sdk/
-
-# Run debug import test
-npm test -- debug_import_map.test.ts
-```
-
-#### WebAuthn Issues
-```bash
-# Check virtual authenticator setup
-npm test -- debug_setup_error.test.ts
-
-# Run with headed mode to see browser
-npm test -- --headed
-```
-
-#### Worker Communication Issues
-```bash
-# Check worker files exist in SDK workers directory
-ls -la ../../frontend/public/sdk/workers/web3authn-*.worker.js
-ls -la ../../frontend/public/sdk/workers/wasm_*worker*.*
-
-# Run VRF worker tests specifically
-npm test -- vrfWorkerManager_dual_prf.test.ts
-```
 
 #### Test Reports
 HTML reports generated at: `test-results/`

@@ -7,7 +7,6 @@ export function LinkDeviceShowQR() {
   const {
     loginState,
     startDeviceLinkingFlow,
-    scanAndLinkDevice,
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
@@ -33,7 +32,7 @@ export function LinkDeviceShowQR() {
       toast.loading('Generating QR code...', { id: 'device-link' });
 
       console.log('Creating new device linking flow...');
-      const flow = startDeviceLinkingFlow({
+      const device2Flow = startDeviceLinkingFlow({
         onEvent: (event) => {
           console.log('Device linking event:', event);
           switch (event.phase) {
@@ -71,10 +70,10 @@ export function LinkDeviceShowQR() {
         }
       });
 
-      // Store flow for cleanup IMMEDIATELY before calling generateQR
-      flowRef.current = flow;
+      // Store flow for cleanup before calling generateQR
+      flowRef.current = device2Flow;
 
-      const { qrCodeDataURL } = await flow.generateQR();
+      const { qrCodeDataURL } = await device2Flow.generateQR();
       setDeviceLinkingState(prev => ({ ...prev, qrCodeDataURL }));
 
     } catch (error: any) {

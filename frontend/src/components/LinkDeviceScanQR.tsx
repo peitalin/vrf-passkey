@@ -7,11 +7,7 @@ import { QRCodeScanner } from '@web3authn/passkey/react'
 
 export function LinkDeviceScanQR() {
   const {
-    loginState: {
-      isLoggedIn,
-      nearPublicKey,
-      nearAccountId
-    },
+    loginState: { isLoggedIn }
   } = usePasskeyContext();
 
   const [isSecureContext] = useState(() => window.isSecureContext);
@@ -21,23 +17,16 @@ export function LinkDeviceScanQR() {
     showScanner: boolean;
   }>({ mode: 'idle', isProcessing: false, showScanner: false });
 
-  // Debug state changes
-  useEffect(() => {
-    console.log('LinkDeviceScanQR: State changed:', deviceLinkingState);
-  }, [deviceLinkingState]);
-
   // Device linking handlers
   const onLinkDeviceAsDevice1 = async () => {
     if (!isLoggedIn) {
       toast.error('Please login first to scan and link devices');
       return;
     }
-
     setDeviceLinkingState({ mode: 'device1', isProcessing: false, showScanner: true });
   };
 
   const handleDeviceLinked = (result: any) => {
-    console.log('LinkDeviceScanQR: Device linked successfully:', result);
     toast.success(`Device linked successfully to ${result.linkedToAccount}!`);
     setDeviceLinkingState({ mode: 'idle', isProcessing: false, showScanner: false });
   };
