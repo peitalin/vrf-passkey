@@ -293,56 +293,98 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
  * Load PasskeyManager only after environment is ready
  */
 async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<void> {
+  // Wait for page to be completely stable before attempting imports
+  await page.waitForLoadState('networkidle');
+  await page.waitForFunction(() => document.readyState === 'complete');
 
-  await page.evaluate(async (setupOptions) => {
-    console.log('Importing PasskeyManager from built SDK...');
-    // @ts-ignore
-    const { PasskeyManager } = await import('/sdk/esm/index.js');
+  // Use waitForFunction with robust error handling and retry logic
+  const maxRetries = 3;
+  let lastError: any = null;
 
-    if (!PasskeyManager) {
-      throw new Error('PasskeyManager not found in SDK module');
-    }
-    console.log('PasskeyManager imported successfully:', typeof PasskeyManager);
-
-    // Create and validate configuration
-    const configs = {
-      nearNetwork: setupOptions.nearNetwork as 'testnet',
-      relayerAccount: setupOptions.relayerAccount,
-      contractId: setupOptions.contractId,
-      nearRpcUrl: setupOptions.nearRpcUrl,
-      useRelayer: setupOptions.useRelayer || false,
-      relayServerUrl: setupOptions.relayServerUrl,
-      // Additional centralized configuration
-      frontendUrl: setupOptions.frontendUrl,
-      rpId: setupOptions.rpId,
-      testReceiverAccountId: setupOptions.testReceiverAccountId
-    };
-
-    // Validate required configs
-    if (!configs.nearRpcUrl) throw new Error('nearRpcUrl is required but not provided');
-    if (!configs.contractId) throw new Error('contractId is required but not provided');
-    if (!configs.relayerAccount) throw new Error('relayerAccount is required but not provided');
-
-    // Create PasskeyManager instance
-    const passkeyManager = new PasskeyManager(configs);
-    console.log('PasskeyManager instance created successfully');
-
-    // Test basic functionality
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const loginState = await passkeyManager.getLoginState();
-      console.log('getLoginState test successful:', loginState);
-    } catch (testError: any) {
-      console.warn('getLoginState test failed:', testError.message);
+      console.log(`Attempt ${attempt}/${maxRetries}: Loading PasskeyManager...`);
+
+      await page.waitForFunction(async (setupOptions) => {
+        try {
+          console.log('Importing PasskeyManager from built SDK...');
+          // @ts-ignore
+          const { PasskeyManager } = await import('/sdk/esm/index.js');
+
+          if (!PasskeyManager) {
+            throw new Error('PasskeyManager not found in SDK module');
+          }
+          console.log('PasskeyManager imported successfully:', typeof PasskeyManager);
+
+          // Create and validate configuration
+          const configs = {
+            nearNetwork: setupOptions.nearNetwork as 'testnet',
+            relayerAccount: setupOptions.relayerAccount,
+            contractId: setupOptions.contractId,
+            nearRpcUrl: setupOptions.nearRpcUrl,
+            useRelayer: setupOptions.useRelayer || false,
+            relayServerUrl: setupOptions.relayServerUrl,
+            // Additional centralized configuration
+            frontendUrl: setupOptions.frontendUrl,
+            rpId: setupOptions.rpId,
+            testReceiverAccountId: setupOptions.testReceiverAccountId
+          };
+
+          // Validate required configs
+          if (!configs.nearRpcUrl) throw new Error('nearRpcUrl is required but not provided');
+          if (!configs.contractId) throw new Error('contractId is required but not provided');
+          if (!configs.relayerAccount) throw new Error('relayerAccount is required but not provided');
+
+          // Create PasskeyManager instance
+          const passkeyManager = new PasskeyManager(configs);
+          console.log('PasskeyManager instance created successfully');
+
+          // Test basic functionality
+          try {
+            const loginState = await passkeyManager.getLoginState();
+            console.log('getLoginState test successful:', loginState);
+          } catch (testError: any) {
+            console.warn('getLoginState test failed:', testError.message);
+          }
+
+          // Store in window for test access
+          (window as any).PasskeyManager = PasskeyManager;
+          (window as any).passkeyManager = passkeyManager;
+          (window as any).configs = configs;
+
+          return { success: true, message: 'PasskeyManager loaded successfully' };
+        } catch (error: any) {
+          console.error('Failed to load PasskeyManager:', error);
+          return {
+            success: false,
+            error: error.message,
+            stack: error.stack
+          };
+        }
+      }, configs, {
+        timeout: 30000, // 30 second timeout
+        polling: 1000   // Check every second
+      });
+
+      // If we reach here, the function succeeded
+      console.log(`Step 4 Complete: PasskeyManager loaded and instantiated (attempt ${attempt})`);
+      return;
+
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`Attempt ${attempt} failed:`, error.message);
+
+      if (attempt < maxRetries) {
+        console.log(`Retrying in 2 seconds... (${maxRetries - attempt} attempts remaining)`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for page to be stable again before retry
+        await page.waitForLoadState('domcontentloaded');
+      }
     }
+  }
 
-    // Store in window for test access
-    (window as any).PasskeyManager = PasskeyManager;
-    (window as any).passkeyManager = passkeyManager;
-    (window as any).configs = configs;
-
-  }, configs);
-
-  console.log('Step 4 Complete: PasskeyManager loaded and instantiated');
+  // All retries failed
+  throw new Error(`Failed to load PasskeyManager after ${maxRetries} attempts. Last error: ${lastError?.message}`);
 }
 
 /**
@@ -350,43 +392,53 @@ async function loadPasskeyManagerDynamically(page: Page, configs: any): Promise<
  * Ensure base64UrlEncode is available as safety measure
  */
 async function ensureGlobalFallbacks(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    // Defense in depth: Ensure base64UrlEncode is globally available
-    // This prevents "base64UrlEncode is not defined" errors even if timing issues occur
-    if (typeof (window as any).base64UrlEncode === 'undefined') {
-      try {
-        // @ts-ignore
-        const { base64UrlEncode } = await import('/sdk/esm/utils/encoders.js');
-        (window as any).base64UrlEncode = base64UrlEncode;
-        console.log('base64UrlEncode made available globally as fallback');
-      } catch (encoderError) {
-        console.error('Failed to import base64UrlEncode fallback:', encoderError);
+  await page.waitForFunction(async () => {
+    try {
+      // Defense in depth: Ensure base64UrlEncode is globally available
+      // This prevents "base64UrlEncode is not defined" errors even if timing issues occur
+      if (typeof (window as any).base64UrlEncode === 'undefined') {
+        try {
+          // @ts-ignore
+          const { base64UrlEncode } = await import('/sdk/esm/utils/encoders.js');
+          (window as any).base64UrlEncode = base64UrlEncode;
+          console.log('base64UrlEncode made available globally as fallback');
+        } catch (encoderError) {
+          console.error('Failed to import base64UrlEncode fallback:', encoderError);
+        }
       }
-    }
 
-    // Also ensure base64UrlDecode is available for credential ID decoding
-    if (typeof (window as any).base64UrlDecode === 'undefined') {
-      try {
-        // @ts-ignore
-        const { base64UrlDecode } = await import('/sdk/esm/utils/encoders.js');
-        (window as any).base64UrlDecode = base64UrlDecode;
-        console.log('base64UrlDecode made available globally for credential ID decoding');
-      } catch (encoderError) {
-        console.error('Failed to import base64UrlDecode fallback:', encoderError);
+      // Also ensure base64UrlDecode is available for credential ID decoding
+      if (typeof (window as any).base64UrlDecode === 'undefined') {
+        try {
+          // @ts-ignore
+          const { base64UrlDecode } = await import('/sdk/esm/utils/encoders.js');
+          (window as any).base64UrlDecode = base64UrlDecode;
+          console.log('base64UrlDecode made available globally for credential ID decoding');
+        } catch (encoderError) {
+          console.error('Failed to import base64UrlDecode fallback:', encoderError);
+        }
       }
-    }
 
-    // Ensure toAccountId is available globally for tests
-    if (typeof (window as any).toAccountId === 'undefined') {
-      try {
-        // @ts-ignore
-        const { toAccountId } = await import('/sdk/esm/index.js');
-        (window as any).toAccountId = toAccountId;
-        console.log('toAccountId made available globally for tests');
-      } catch (accountIdError) {
-        console.error('Failed to import toAccountId fallback:', accountIdError);
+      // Ensure toAccountId is available globally for tests
+      if (typeof (window as any).toAccountId === 'undefined') {
+        try {
+          // @ts-ignore
+          const { toAccountId } = await import('/sdk/esm/index.js');
+          (window as any).toAccountId = toAccountId;
+          console.log('toAccountId made available globally for tests');
+        } catch (accountIdError) {
+          console.error('Failed to import toAccountId fallback:', accountIdError);
+        }
       }
+
+      return true; // Success indicator
+    } catch (error) {
+      console.error('Global fallbacks setup failed:', error);
+      return false;
     }
+  }, {
+    timeout: 15000, // 15 second timeout
+    polling: 500    // Check every 500ms
   });
 
   console.log('Step 5 Complete: Global fallbacks in place');
