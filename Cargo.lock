@@ -4258,7 +4258,6 @@ dependencies = [
  "generic-array",
  "getrandom 0.2.16",
  "hex",
- "near-sdk",
  "rand_chacha",
  "rand_core",
  "schemars 0.8.22",
