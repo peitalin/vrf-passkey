@@ -92,7 +92,7 @@ pub async fn generate_test_vrf_wasm_data() -> Result<VrfTestData, Box<dyn std::e
 
 pub fn generate_account_creation_data() -> (String, String, String, u64, String) {
     let rp_id = "example.com";
-    let user_id = "test_user";
+    let user_id = "test_user.testnet"; // Fixed: Added .testnet to make it a valid NEAR account ID
     let session_id = "test_session";
     let block_height = 123456789u64;
     let new_public_key = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";

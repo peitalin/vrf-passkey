@@ -20,7 +20,10 @@ async fn test_device_linking_automatic_cleanup() -> Result<(), Box<dyn std::erro
     // Initialize contract
     let init_outcome = contract
         .call("init")
-        .args_json(json!({}))
+        .args_json(json!({
+            "vrf_settings": null,
+            "tld_config": null
+        }))
         .gas(Gas::from_tgas(100))
         .transact()
         .await?;

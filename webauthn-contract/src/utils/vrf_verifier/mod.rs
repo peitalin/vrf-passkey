@@ -16,8 +16,8 @@ use base64::{
 use crate::contract_state::VRFSettings;
 
 // Constants for validation
-const VRF_PROOF_SIZE: usize = 80;       // P-256 VRF proof size
-const VRF_PUBLIC_KEY_SIZE: usize = 33;  // Compressed P-256 public key size
+const VRF_PROOF_SIZE: usize = 80;       // ECVRF Ristretto proof size
+const VRF_PUBLIC_KEY_SIZE: usize = 32;  // ECVRF Ristretto public key size
 const VRF_OUTPUT_SIZE: usize = 64;      // VRF output size
 const VRF_INPUT_DATA_SIZE: usize = 32;  // SHA256 hash size
 const BLOCK_HASH_SIZE: usize = 32;      // NEAR block hash size

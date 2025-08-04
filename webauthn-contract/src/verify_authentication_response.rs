@@ -467,7 +467,7 @@ mod tests {
         // Setup test environment
         let context = get_context_with_seed(84);
         testing_env!(context.build());
-        let mut contract = crate::WebAuthnContract::init();
+        let mut contract = crate::WebAuthnContract::init(None, None);
 
         // Create mock VRF data
         let mock_vrf = MockVRFData::create_mock();

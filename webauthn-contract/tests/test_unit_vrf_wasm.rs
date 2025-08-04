@@ -1,9 +1,25 @@
+//! ////////////////////////////////////////
 //! Lib `vrf-wasm` Integration Test
-//!
-//! NOTE: Uncomment verify_vrf_2 in lib.rs to run these tests
+//! ////////////////////////////////////////
 //!
 //! Comprehensive test suite for VRF verification using native vrf-wasm library
 //! with browser feature flag. Tests against wasm_worker_vrf_utils module.
+//!
+//! NOTE: add this verify_vrf_2 function in lib.rs to run these tests:
+//!
+//! use crate::WebAuthnContract;
+//! impl WebAuthnContract {
+//!     // Test vrf-wasm vs. vrf-contract-verifier compatibility (view-only verification)
+//!     pub fn verify_vrf_2(
+//!         &self,
+//!         proof_bytes: Vec<u8>,
+//!         public_key_bytes: Vec<u8>,
+//!         input: Vec<u8>,
+//!     ) -> Option<Vec<u8>> {
+//!         vrf_wasm::verify_vrf(&proof_bytes, &public_key_bytes, &input).ok()
+//!             .map(|vrf_output| vrf_output.to_vec())
+//!     }
+//! }
 
 // use near_workspaces::types::Gas;
 // use serde_json::json;

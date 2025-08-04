@@ -1,6 +1,9 @@
-use super::{WebAuthnContract, WebAuthnContractExt};
-use near_sdk::{log, near,  env, require, AccountId, serde_json};
-use crate::contract_state::TldConfiguration;
+use near_sdk::{log, near,  env, require, AccountId};
+use crate::{WebAuthnContract, WebAuthnContractExt};
+use crate::contract_state::{
+    TldConfiguration,
+    VRFSettings
+};
 
 /////////////////////////////////////
 ///////////// Contract //////////////
@@ -79,57 +82,20 @@ impl WebAuthnContract {
         self.admins.iter().cloned().collect()
     }
 
-    /// Get state statistics (view function)
-    pub fn get_state_stats(&self) -> serde_json::Value {
-        // Count authenticators and credential IDs by iterating through registered users
-        let mut total_authenticators = 0;
-        let mut total_credential_ids = 0;
-
-        for user_id in self.registered_users.iter() {
-            if let Some(user_authenticators) = self.authenticators.get(user_id) {
-                let user_auth_count = user_authenticators.keys().count();
-                total_authenticators += 1; // One authenticator entry per user
-                total_credential_ids += user_auth_count;
-            }
-        }
-        let storage_usage = env::storage_usage();
-
-        serde_json::json!({
-            "registered_users_count": self.registered_users.len(),
-            "authenticator_entries_count": total_authenticators,
-            "total_credential_ids": total_credential_ids,
-            "admins_count": self.admins.len(),
-            "storage_usage": storage_usage,
-            "tld_config": match &self.tld_config {
-                Some(config) => serde_json::json!({
-                    "enabled": config.enabled,
-                    "multi_part_tlds_count": config.multi_part_tlds.len()
-                }),
-                None => serde_json::json!({
-                    "enabled": false,
-                    "multi_part_tlds_count": 0
-                })
-            }
-        })
+    /// Get current VRF settings
+    pub fn get_vrf_settings(&self) -> VRFSettings {
+        self.vrf_settings.clone()
     }
 
-    /// Get current TLD configuration (view function)
+    /// Set VRF settings (only contract owner can call this)
+    pub fn set_vrf_settings(&mut self, settings: VRFSettings) {
+        self.only_admin();
+        self.vrf_settings = settings;
+        log!("VRF settings updated");
+    }
+
+    /// Get current TLD configuration
     pub fn get_tld_config(&self) -> Option<&TldConfiguration> {
         self.tld_config.as_ref()
-    }
-
-    /// Set TLD configuration (only admins can call this)
-    /// Pass None to disable complex TLD support (standard domains only)
-    pub fn set_tld_config(&mut self, tld_config: Option<TldConfiguration>) {
-        // Only admins or contract owner can update TLD configuration
-        self.only_admin();
-        match &tld_config {
-            Some(config) => {
-                let tld_len = config.multi_part_tlds.len();
-                log!("TLD configuration enabled: multi_part_tlds_count={}", tld_len);
-            },
-            None => log!("TLD configuration disabled - standard domains only")
-        }
-        self.tld_config = tld_config;
     }
 }

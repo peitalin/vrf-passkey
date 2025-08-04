@@ -106,6 +106,8 @@ impl WebAuthnContract {
         deterministic_vrf_public_key: Vec<u8>,
     ) -> VerifyRegistrationResponse {
 
+        require!(self.only_sender_or_admin(&account_id), "Must be called by the msg.sender, owner, or admins");
+
         log!("Storing new authenticator for account {}", account_id);
         let credential_id_b64url = BASE64_URL_ENGINE.encode(&registration_info.credential_id);
 
@@ -145,8 +147,8 @@ impl WebAuthnContract {
         // Prepare VRF keys for storage
         let mut vrf_keys = vec![bootstrap_vrf_public_key.clone()];
         vrf_keys.push(deterministic_vrf_public_key);
-        log!("Storing authenticator with dual VRF keys for account {}: bootstrap + deterministic", account_id);
-        log!("Storing authenticator with origin binding: {} -> {}", expected_origin, expected_rp_id);
+        log!("Storing authenticator with VRF keys for account {}: bootstrap + deterministic", account_id);
+        log!("Origin binding: {} -> {}", expected_origin, expected_rp_id);
 
         // Store the authenticator with multiple VRF public keys and origin binding
         self.internal_store_authenticator(
@@ -175,7 +177,7 @@ impl WebAuthnContract {
         }
     }
 
-    /// Store a new authenticator with VRF public keys (supports single or multiple keys)
+    /// Store a new authenticator with VRF public keys
     fn internal_store_authenticator(
         &mut self,
         user_id: AccountId,
@@ -188,7 +190,6 @@ impl WebAuthnContract {
         expected_origin: String, // Origin URL where this authenticator was registered
         expected_rp_id: String, // RP ID where this authenticator was registered
     ) -> bool {
-        require!(self.only_sender_or_admin(&user_id), "Must be called by the msg.sender, owner, or admins");
 
         let vrf_count = vrf_public_keys.len();
         let authenticator = StoredAuthenticator {

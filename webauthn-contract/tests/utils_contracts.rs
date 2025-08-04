@@ -8,9 +8,13 @@ pub async fn deploy_test_contract() -> Result<near_workspaces::Contract, Box<dyn
     let sandbox = near_workspaces::sandbox().await?;
     let contract = sandbox.dev_deploy(&contract_wasm).await?;
 
-    // Initialize contract
+    // Initialize contract with default settings
     let _init_result = contract
         .call("init")
+        .args_json(json!({
+            "vrf_settings": null,
+            "tld_config": null
+        }))
         .gas(Gas::from_tgas(100))
         .transact()
         .await?;

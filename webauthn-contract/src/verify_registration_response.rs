@@ -612,7 +612,7 @@ mod tests {
         // Setup test environment
         let context = get_context_with_seed(42);
         testing_env!(context.build());
-        let mut contract = crate::WebAuthnContract::init();
+        let mut contract = crate::WebAuthnContract::init(None, None);
 
         // Create mock VRF data
         let mock_vrf = MockVRFData::create_mock();
@@ -748,7 +748,7 @@ mod tests {
     fn test_create_account_and_register_user() {
         let context = get_context_with_seed(42);
         testing_env!(context.build());
-        let mut contract = crate::WebAuthnContract::init();
+        let mut contract = crate::WebAuthnContract::init(None, None);
 
         let new_account_id: AccountId = "new_account.testnet".parse().unwrap();
         let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
