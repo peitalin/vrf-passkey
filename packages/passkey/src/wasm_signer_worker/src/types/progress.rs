@@ -55,16 +55,16 @@ impl TryFrom<u32> for ProgressMessageType {
 }
 
 /// Progress step identifiers for different phases of operations
-/// Values start at 20 to avoid conflicts with WorkerResponseType enum
+/// Values start at 100 to avoid conflicts with WorkerResponseType enum
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProgressStep {
-    Preparation = 30,
-    WebauthnAuthentication = 31,
-    AuthenticationComplete = 32,
-    TransactionSigningProgress = 33,
-    TransactionSigningComplete = 34,
-    Error = 35,
+    Preparation = 100,
+    WebauthnAuthentication = 101,
+    AuthenticationComplete = 102,
+    TransactionSigningProgress = 103,
+    TransactionSigningComplete = 104,
+    Error = 105,
 }
 
 impl TryFrom<u32> for ProgressStep {
@@ -72,12 +72,12 @@ impl TryFrom<u32> for ProgressStep {
 
     fn try_from(value: u32) -> Result<Self, <Self as TryFrom<u32>>::Error> {
         match value {
-            30 => Ok(ProgressStep::Preparation),
-            31 => Ok(ProgressStep::WebauthnAuthentication),
-            32 => Ok(ProgressStep::AuthenticationComplete),
-            33 => Ok(ProgressStep::TransactionSigningProgress),
-            34 => Ok(ProgressStep::TransactionSigningComplete),
-            35 => Ok(ProgressStep::Error),
+            100 => Ok(ProgressStep::Preparation),
+            101 => Ok(ProgressStep::WebauthnAuthentication),
+            102 => Ok(ProgressStep::AuthenticationComplete),
+            103 => Ok(ProgressStep::TransactionSigningProgress),
+            104 => Ok(ProgressStep::TransactionSigningComplete),
+            105 => Ok(ProgressStep::Error),
             _ => Err(format!("Invalid ProgressStep value: {}", value)),
         }
     }

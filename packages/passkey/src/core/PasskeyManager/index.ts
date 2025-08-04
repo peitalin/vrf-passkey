@@ -272,6 +272,35 @@ export class PasskeyManager {
   }
 
   ///////////////////////////////////////
+  // === Account Recovery Flow ===
+  ///////////////////////////////////////
+
+  /**
+   * Creates an AccountRecoveryFlow instance, for step-by-step account recovery UX
+   *
+   * @example
+   * ```typescript
+   * const flow = passkeyManager.startAccountRecoveryFlow();
+   *
+   * // Phase 1: Discover available accounts
+   * const options = await flow.discover(); // Returns PasskeyOptionWithoutCredential[]
+   *
+   * // Phase 2: User selects account in UI
+   * const selectedOption = await waitForUserSelection(options);
+   *
+   * // Phase 3: Execute recovery with secure credential lookup
+   * const result = await flow.recover({
+   *   credentialId: selectedOption.credentialId,
+   *   accountId: selectedOption.accountId
+   * });
+   * console.log('Recovery state:', flow.getState());
+   * ```
+   */
+  startAccountRecoveryFlow(options?: AccountRecoveryHooksOptions): AccountRecoveryFlow {
+    return new AccountRecoveryFlow(this.getContext(), options);
+  }
+
+  ///////////////////////////////////////
   // === Link Device ===
   ///////////////////////////////////////
 
@@ -393,8 +422,9 @@ export class PasskeyManager {
   }
 
   /**
-   * Device1: Link device using pre-scanned QR data (skips QR scanning step)
-   * Use this when you already have QR data from scanning
+   * Device1: Link device using pre-scanned QR data.
+   * Either use a QR scanning library, or call this function in
+   * the onQRDetected(qrData) => {} callback of createScanQRCodeFlow.
    *
    * @param qrData The QR data obtained from scanning Device2's QR code
    * @param options Device linking options including funding amount and event callbacks
@@ -410,6 +440,25 @@ export class PasskeyManager {
    *   onError: (error) => console.error('Device linking error:', error)
    * });
    * console.log('Device linked:', result);
+   * ```
+   *
+   * Or with createScanQRCodeFlow:
+   *
+   * @example
+   * ```typescript
+   * const flow = passkeyManager.createScanQRCodeFlow({
+   *   ...
+   *   scanQRCodeFlowEvents: {
+   *     onQRDetected: async (qrData) => {
+   *       const result = await passkeyManager.linkDeviceWithQRCode(qrData, {
+   *         fundingAmount: '5000000000000000000000',
+   *         onEvent: (event) => console.log('Device linking:', event),
+   *         onError: (error) => console.error('Linking error:', error)
+   *       });
+   *     },
+   *     ...
+   *   }
+   * });
    * ```
    */
   async linkDeviceWithQRCode(
@@ -447,34 +496,6 @@ export class PasskeyManager {
     }, options);
   }
 
-  ///////////////////////////////////////
-  // ACCOUNT RECOVERY FLOW
-  ///////////////////////////////////////
-
-  /**
-   * Creates an AccountRecoveryFlow instance, for step-by-step account recovery UX
-   *
-   * @example
-   * ```typescript
-   * const flow = passkeyManager.startAccountRecoveryFlow();
-   *
-   * // Phase 1: Discover available accounts
-   * const options = await flow.discover(); // Returns PasskeyOptionWithoutCredential[]
-   *
-   * // Phase 2: User selects account in UI
-   * const selectedOption = await waitForUserSelection(options);
-   *
-   * // Phase 3: Execute recovery with secure credential lookup
-   * const result = await flow.recover({
-   *   credentialId: selectedOption.credentialId,
-   *   accountId: selectedOption.accountId
-   * });
-   * console.log('Recovery state:', flow.getState());
-   * ```
-   */
-  startAccountRecoveryFlow(options?: AccountRecoveryHooksOptions): AccountRecoveryFlow {
-    return new AccountRecoveryFlow(this.getContext(), options);
-  }
 
 }
 
