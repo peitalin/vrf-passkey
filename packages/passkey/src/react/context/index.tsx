@@ -44,10 +44,10 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: PasskeyManagerConfigs = {
   // nearRpcUrl: 'https://rpc.testnet.near.org',
   nearRpcUrl: 'https://test.rpc.fastnear.com',
   nearNetwork: 'testnet' as const,
-  contractId: 'web3-authn-v3.testnet',
+  contractId: 'web3-authn-v4.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
   relayer: {
-    accountId: 'web3-authn-v3.testnet',
+    accountId: 'web3-authn-v4.testnet',
     url: 'http://localhost:3000',
     initialUseRelayer: true,
   },
@@ -140,6 +140,7 @@ export const PasskeyProvider: React.FC<PasskeyContextProviderProps> = ({
   // Simple logout that only manages React state
   const logout = useCallback(async () => {
     try {
+      console.log("SDK LOGOUT");
       // Clear VRF session when user logs out
       await passkeyManager.logoutAndClearVrfSession();
     } catch (error) {

@@ -57,8 +57,8 @@ async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key,
             "authenticator_options": {
-                "user_verification": "Required",
-                "origin_policy": "Single"
+                "user_verification": "required",
+                "origin_policy": "single"
             }
         }))
         .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT)) // More gas for account creation
@@ -106,9 +106,9 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key,
             "authenticator_options": {
-                "user_verification": "Preferred",
+                "user_verification": "preferred",
                 "origin_policy": {
-                    "Multiple": ["app.example.com", "admin.example.com"]
+                    "multiple": ["app.example.com", "admin.example.com"]
                 }
             }
         }))
@@ -184,8 +184,8 @@ async fn test_vrf_registration_all_subdomains_policy() -> Result<(), Box<dyn std
             "webauthn_registration": webauthn_registration,
             "deterministic_vrf_public_key": deterministic_vrf_public_key,
             "authenticator_options": {
-                "user_verification": "Discouraged",
-                "origin_policy": "AllSubdomains"
+                "user_verification": "discouraged",
+                "origin_policy": "allSubdomains"
             }
         }))
         .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))

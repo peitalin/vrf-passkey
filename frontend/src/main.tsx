@@ -18,11 +18,11 @@ function App() {
         config={{
           nearRpcUrl: 'https://rpc.testnet.near.org',
           // nearRpcUrl: 'https://test.rpc.fastnear.com',
-          contractId: 'web3-authn-v3.testnet',
+          contractId: 'web3-authn-v4.testnet',
           nearNetwork: 'testnet',
           nearExplorerUrl: 'https://testnet.nearblocks.io',
           relayer: {
-            accountId: 'web3-authn-v3.testnet',
+            accountId: 'web3-authn-v4.testnet',
             url: 'http://localhost:3000',
             initialUseRelayer: true,
           },

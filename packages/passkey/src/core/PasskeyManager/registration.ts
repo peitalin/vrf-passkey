@@ -6,6 +6,7 @@ import type {
   RegistrationResult,
   RegistrationSSEEvent,
 } from '../types/passkeyManager';
+import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { RegistrationPhase, RegistrationStatus } from '../types/passkeyManager';
 import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
 import { createAccountAndRegisterWithTestnetFaucet } from './faucets/createAccountTestnetFaucet';
@@ -34,7 +35,8 @@ import { getUserFriendlyErrorMessage } from '../../utils/errors';
 export async function registerPasskey(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-  options: RegistrationHooksOptions
+  options: RegistrationHooksOptions,
+  authenticatorOptions: AuthenticatorOptions
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, hooks, useRelayer } = options;
@@ -189,7 +191,8 @@ export async function registerPasskey(
         credential,
         vrfChallenge,
         deterministicVrfKeyResult.vrfPublicKey,
-        onEvent
+        authenticatorOptions,
+        onEvent,
       );
     } else {
       console.debug('Using testnet faucet registration flow');
@@ -200,7 +203,8 @@ export async function registerPasskey(
         credential,
         vrfChallenge,
         deterministicVrfKeyResult.vrfPublicKey,
-        onEvent
+        authenticatorOptions,
+        onEvent,
       );
     }
 

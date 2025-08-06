@@ -1,5 +1,6 @@
 // TypeScript interfaces matching Rust WASM input request structs
 // These match the direct JSON input format expected by WASM functions
+import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 
 /// Input request for key generation functions
 export interface WasmDeriveKeypairRequest {
@@ -70,6 +71,7 @@ export interface WasmCheckCanRegisterUserRequest {
   vrf_challenge_data_json: string;
   webauthn_registration_json: string;
   near_rpc_url: string;
+  authenticator_options?: AuthenticatorOptions;
 }
 
 /// Input request for user registration
@@ -83,6 +85,7 @@ export interface WasmSignVerifyAndRegisterUserRequest {
   prf_output_base64: string;
   nonce: number;
   block_hash_bytes: number[];
+  authenticator_options?: AuthenticatorOptions;
 }
 
 /// Input request for registration rollback

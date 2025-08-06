@@ -114,6 +114,7 @@ pub async fn handle_derive_near_keypair_encrypt_and_sign_msg(request: DeriveKeyp
             &near_private_key, // Use the properly derived NEAR private key
             parsed_nonce,
             &registration_tx.block_hash_bytes,
+            request.authenticator_options, // Pass authenticator options
         ).await {
             Ok(registration_result) => {
                 let signed_tx_result = registration_result.unwrap_signed_transaction();
@@ -255,7 +256,8 @@ pub async fn handle_check_can_register_user_msg(request: CheckCanRegisterUserPay
         &check_request.contract_id,
         vrf_data,
         webauthn_registration,
-        &check_request.near_rpc_url
+        &check_request.near_rpc_url,
+        request.authenticator_options
     ).await
     .map_err(|e| format!("Registration check failed: {}", e))?;
 
@@ -394,6 +396,7 @@ pub async fn handle_sign_verify_and_register_user_msg(parsed_payload: SignVerify
         nonce,
         block_hash_bytes,
         Some(device_number), // Pass device number for multi-device support
+        parsed_payload.authenticator_options, // Pass authenticator options
     )
     .await
     .map_err(|e| {

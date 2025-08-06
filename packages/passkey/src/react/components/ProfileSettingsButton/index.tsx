@@ -49,7 +49,7 @@ const MENU_CONFIG = {
 export const ProfileSettingsButton: React.FC<ProfileButtonProps> = ({
   username: usernameProp,
   nearAccountId: nearAccountIdProp,
-  onLogout: onLogoutProp,
+  onLogout: onLogout,
   toggleColors,
 }) => {
   // Get values from context if not provided as props
@@ -64,7 +64,6 @@ export const ProfileSettingsButton: React.FC<ProfileButtonProps> = ({
   // Use props if provided, otherwise fall back to context
   const accountName = usernameProp || nearAccountIdProp?.split('.')?.[0] || loginState.nearAccountId?.split('.')?.[0] || 'User';
   const nearAccountId = nearAccountIdProp || loginState.nearAccountId;
-  const onLogout = onLogoutProp || logout;
 
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: ProfileMenuItem[] = [
@@ -135,6 +134,7 @@ export const ProfileSettingsButton: React.FC<ProfileButtonProps> = ({
   // Handlers
   const handleLogout = () => {
     onLogout?.();
+    logout();
     handleClose();
   };
 

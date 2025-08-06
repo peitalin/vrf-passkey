@@ -113,13 +113,16 @@ impl Default for AuthenticatorOptions {
 ///
 /// # JSON Format
 /// ```json
-/// "Required" | "Preferred" | "Discouraged"
+/// "required" | "preferred" | "discouraged"
 /// ```
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone)]
 pub enum UserVerificationPolicy {
+    #[serde(rename = "required")]
     Required,     // UV flag must be set
+    #[serde(rename = "preferred")]
     Preferred,    // UV preferred but not required
+    #[serde(rename = "discouraged")]
     Discouraged,  // UV should not be used
 }
 impl Default for UserVerificationPolicy {
@@ -177,41 +180,44 @@ impl OriginPolicy {
 ///
 /// # JSON Format
 /// ```json
-/// "Single" | {
-///   "Multiple": ["sub.example.com", "api.example.com"]
-/// } | "AllSubdomains"
+/// "single" | {
+///   "multiple": ["sub.example.com", "api.example.com"]
+/// } | "allSubdomains"
 /// ```
 ///
 /// # Examples
 ///
 /// ## Single origin (uses credential.origin):
 /// ```json
-/// "Single"
+/// "single"
 /// ```
 ///
 /// ## Multiple allowed origins (additional to credential.origin):
 /// ```json
 /// {
-///   "Multiple": ["sub.example.com", "api.example.com"]
+///   "multiple": ["sub.example.com", "api.example.com"]
 /// }
 /// ```
 ///
 /// ## Allow all subdomains of RP ID:
 /// ```json
-/// "AllSubdomains"
+/// "allSubdomains"
 /// ```
 ///
 /// # Notes
-/// - `Single` uses the credential's origin as the only allowed origin
-/// - `Multiple` adds additional origins to the credential's origin
-/// - `AllSubdomains` allows any subdomain of the RP ID
+/// - `single` uses the credential's origin as the only allowed origin
+/// - `multiple` adds additional origins to the credential's origin
+/// - `allSubdomains` allows any subdomain of the RP ID
 /// - This is converted to `OriginPolicy` during registration
-/// - The `Multiple` variant stores domain names (without protocol)
+/// - The `multiple` variant stores domain names (without protocol)
 #[near_sdk::near(serializers = [borsh, json])]
 #[derive(Debug, Clone)]
 pub enum OriginPolicyInput {
+    #[serde(rename = "single")]
     Single,                // uses credential.origin as the origin
+    #[serde(rename = "multiple")]
     Multiple(Vec<String>), // allow multiple pre-specified origins
+    #[serde(rename = "allSubdomains")]
     AllSubdomains,         // allow all sub-domains associated with RpID
 }
 
@@ -320,5 +326,41 @@ mod tests {
         }
 
         println!("✓ OriginPolicy enum serialization test passed");
+    }
+
+    #[test]
+    fn test_lowercase_json_serialization() {
+        println!("Testing lowercase JSON serialization...");
+
+        // Test UserVerificationPolicy lowercase serialization
+        let uv_required = UserVerificationPolicy::Required;
+        let json_str = serde_json::to_string(&uv_required).unwrap();
+        assert_eq!(json_str, "\"required\"");
+
+        let uv_preferred = UserVerificationPolicy::Preferred;
+        let json_str = serde_json::to_string(&uv_preferred).unwrap();
+        assert_eq!(json_str, "\"preferred\"");
+
+        // Test OriginPolicyInput lowercase serialization
+        let single = OriginPolicyInput::Single;
+        let json_str = serde_json::to_string(&single).unwrap();
+        assert_eq!(json_str, "\"single\"");
+
+        let multiple = OriginPolicyInput::Multiple(vec!["example.com".to_string()]);
+        let json_str = serde_json::to_string(&multiple).unwrap();
+        assert_eq!(json_str, "{\"multiple\":[\"example.com\"]}");
+
+        let all_subdomains = OriginPolicyInput::AllSubdomains;
+        let json_str = serde_json::to_string(&all_subdomains).unwrap();
+        assert_eq!(json_str, "\"allSubdomains\"");
+
+        // Test deserialization from lowercase
+        let deserialized_uv: UserVerificationPolicy = serde_json::from_str("\"required\"").unwrap();
+        assert!(matches!(deserialized_uv, UserVerificationPolicy::Required));
+
+        let deserialized_single: OriginPolicyInput = serde_json::from_str("\"single\"").unwrap();
+        assert!(matches!(deserialized_single, OriginPolicyInput::Single));
+
+        println!("✓ Lowercase JSON serialization test passed");
     }
 }

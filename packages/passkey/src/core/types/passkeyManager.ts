@@ -2,6 +2,7 @@ import { TxExecutionStatus } from "@near-js/types";
 import type { EncryptedVRFKeypair } from './vrf-worker';
 import { AccountId } from "./accountIds";
 import { SignedTransaction } from "../NearClient";
+import type { AuthenticatorOptions } from './authenticatorOptions';
 
 //////////////////////////
 // Progress Events Enums
@@ -545,7 +546,7 @@ export interface VerifyAndSignTransactionResult {
 export interface PasskeyManagerConfigs {
   nearRpcUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
-  contractId: 'web3-authn-v3.testnet' | 'web3-authn.near' | string;
+  contractId: 'web3-authn-v4.testnet' | 'web3-authn.near' | string;
   nearExplorerUrl?: string; // NEAR Explorer URL for transaction links
   // Relay Server is used to create new NEAR accounts
   relayer: {
@@ -554,6 +555,8 @@ export interface PasskeyManagerConfigs {
     accountId: string;
     url: string
   }
+  // authenticator options for registrations
+  authenticatorOptions?: AuthenticatorOptions;
 }
 
 // === TRANSACTION TYPES ===

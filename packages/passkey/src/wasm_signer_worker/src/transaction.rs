@@ -115,6 +115,7 @@ pub async fn sign_registration_tx_wasm(
     nonce: u64,
     block_hash_bytes: &[u8],
     device_number: Option<u8>, // Device number for multi-device support (defaults to 1)
+    authenticator_options: Option<AuthenticatorOptions>, // Authenticator options for registration
 ) -> Result<ContractRegistrationResult, String> {
     use log::info;
     use log::debug;
@@ -144,7 +145,8 @@ pub async fn sign_registration_tx_wasm(
         "vrf_data": vrf_data,
         "webauthn_registration": webauthn_registration_credential,
         "deterministic_vrf_public_key": deterministic_vrf_key_bytes,
-        "device_number": device_number // Include device number for multi-device support
+        "device_number": device_number, // Include device number for multi-device support
+        "authenticator_options": authenticator_options // Include authenticator options
     });
 
     // Step 4: Create FunctionCall action using existing infrastructure
@@ -227,6 +229,7 @@ pub async fn sign_link_device_registration_tx(
     private_key: &str, // Already derived private key (not encrypted)
     nonce: u64,
     block_hash_bytes: &[u8],
+    authenticator_options: Option<AuthenticatorOptions>, // Authenticator options for registration
 ) -> Result<ContractRegistrationResult, String> {
     use ed25519_dalek::SigningKey;
     use bs58;
@@ -260,7 +263,8 @@ pub async fn sign_link_device_registration_tx(
         args: serde_json::json!({
             "vrf_data": vrf_data,
             "webauthn_registration": webauthn_registration,
-            "deterministic_vrf_public_key": deterministic_vrf_public_key
+            "deterministic_vrf_public_key": deterministic_vrf_public_key,
+            "authenticator_options": authenticator_options
         }).to_string(),
         gas: crate::config::LINK_DEVICE_REGISTRATION_GAS.to_string(),
         deposit: "0".to_string(),

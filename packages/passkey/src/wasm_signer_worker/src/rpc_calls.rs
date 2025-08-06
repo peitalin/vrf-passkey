@@ -238,14 +238,19 @@ pub async fn check_can_register_user_rpc_call(
     vrf_data: VrfData,
     webauthn_registration_credential: WebAuthnRegistrationCredential,
     rpc_url: &str,
+    authenticator_options: Option<crate::types::handlers::AuthenticatorOptions>,
 ) -> Result<ContractRegistrationResult, String> {
     info!("RUST: Checking if user can register (view function)");
 
     // Build contract arguments
     let contract_args = serde_json::json!({
         "vrf_data": vrf_data,
-        "webauthn_registration": webauthn_registration_credential
+        "webauthn_registration": webauthn_registration_credential,
+        "authenticator_options": authenticator_options
     });
+
+    // Add logging to see what's being sent to the contract
+    info!("RUST: Contract args being sent: {}", serde_json::to_string_pretty(&contract_args).unwrap_or_else(|_| "Failed to serialize".to_string()));
 
     // Build RPC request body for VIEW function
     let rpc_body = serde_json::json!({

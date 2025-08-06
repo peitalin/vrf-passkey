@@ -18,7 +18,7 @@ const nearAccountService = new NearAccountService({
   // you can make it the same account as the webauthn contract id.
   relayerAccountId: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
-  webAuthnContractId: 'web3-authn-v3.testnet',
+  webAuthnContractId: 'web3-authn-v4.testnet',
   nearRpcUrl: 'https://rpc.testnet.near.org',
   // nearRpcUrl: 'https://test.rpc.fastnear.com'
   networkId: 'testnet',
@@ -49,7 +49,8 @@ app.post(
         new_public_key,
         vrf_data,
         webauthn_registration,
-        deterministic_vrf_public_key
+        deterministic_vrf_public_key,
+        authenticator_options
       } = req.body;
 
       // Validate required parameters
@@ -72,7 +73,8 @@ app.post(
         new_public_key,
         vrf_data,
         webauthn_registration,
-        deterministic_vrf_public_key
+        deterministic_vrf_public_key,
+        authenticator_options
       });
 
       // Return the result directly - don't throw if unsuccessful

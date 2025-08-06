@@ -22,6 +22,7 @@ import type { PasskeyManagerConfigs, onProgressEvents } from '../types/passkeyMa
 import { VRFChallenge } from '../types/vrf-worker';
 import type { VerifyAndSignTransactionResult } from '../types/passkeyManager';
 import type { AccountId } from '../types/accountIds';
+import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 
 
 /**
@@ -498,11 +499,13 @@ export class WebAuthnManager {
     contractId,
     credential,
     vrfChallenge,
+    authenticatorOptions,
     onEvent,
   }: {
     contractId: string,
     credential: PublicKeyCredential,
     vrfChallenge: VRFChallenge,
+    authenticatorOptions?: AuthenticatorOptions; // Authenticator options for registration check
     onEvent?: (update: onProgressEvents) => void
   }): Promise<{
     success: boolean;
@@ -516,6 +519,7 @@ export class WebAuthnManager {
       contractId,
       credential,
       vrfChallenge,
+      authenticatorOptions,
       onEvent,
       nearRpcUrl: this.configs.nearRpcUrl,
     });
@@ -536,6 +540,7 @@ export class WebAuthnManager {
     nearPublicKeyStr,
     nearClient,
     deviceNumber = 1, // Default to device number 1 for first device (1-indexed)
+    authenticatorOptions,
     onEvent,
   }: {
     contractId: string,
@@ -547,7 +552,8 @@ export class WebAuthnManager {
     nearPublicKeyStr: string;
     nearClient: NearClient;
     deviceNumber?: number; // Device number for multi-device support (defaults to 1)
-    onEvent?: (update: onProgressEvents) => void
+    authenticatorOptions?: AuthenticatorOptions; // Authenticator options for registration
+    onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     success: boolean;
     verified: boolean;
@@ -568,6 +574,7 @@ export class WebAuthnManager {
         nearPublicKeyStr,
         nearClient,
         deviceNumber, // Pass device number for multi-device support
+        authenticatorOptions, // Pass authenticator options
         onEvent,
         nearRpcUrl: this.configs.nearRpcUrl,
       });

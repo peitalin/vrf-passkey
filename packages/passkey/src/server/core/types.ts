@@ -1,4 +1,9 @@
 // Platform-agnostic types for server functionality
+import {
+  AuthenticatorOptions,
+  UserVerificationPolicy,
+  OriginPolicyInput
+} from '../../core/types/authenticatorOptions';
 
 // Standard request/response interfaces that work across all platforms
 export interface ServerRequest {
@@ -73,6 +78,7 @@ export interface CreateAccountAndRegisterRequest {
   vrf_data: ContractVrfData;
   webauthn_registration: WebAuthnRegistrationCredential;
   deterministic_vrf_public_key: Uint8Array;
+  authenticator_options?: AuthenticatorOptions;
 }
 
 // Result type for atomic account creation and registration
@@ -131,3 +137,6 @@ export interface NearReceiptOutcomeWithId {
     status: NearReceiptStatus;
   };
 }
+
+// Re-export authenticator types from core
+export type { AuthenticatorOptions, UserVerificationPolicy, OriginPolicyInput };

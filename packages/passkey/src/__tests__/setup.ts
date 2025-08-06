@@ -53,8 +53,8 @@ const DEFAULT_TEST_CONFIG = {
   // nearRpcUrl: 'https://test.rpc.fastnear.com',
 
   // Contract and account configuration
-  contractId: 'web3-authn-v3.testnet',
-  relayerAccount: 'web3-authn-v3.testnet',
+  contractId: 'web3-authn-v4.testnet',
+  relayerAccount: 'web3-authn-v4.testnet',
 
   // WebAuthn configuration
   rpId: 'localhost',
@@ -64,7 +64,7 @@ const DEFAULT_TEST_CONFIG = {
   relayServerUrl: 'http://localhost:3000', // Mock relay-server URL for testing
 
   // Test account configuration
-  testReceiverAccountId: 'web3-authn-v3.testnet', // Default receiver for transfer tests
+  testReceiverAccountId: 'web3-authn-v4.testnet', // Default receiver for transfer tests
 };
 
 /**
@@ -642,6 +642,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               type: 'webauthn.create',
               challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
               origin: 'https://example.localhost', // Must match contract expectations
+              rpId: 'example.localhost', // RP ID should match the origin hostname
               crossOrigin: false
             })),
             attestationObject: attestationObjectBytes,
@@ -740,6 +741,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
               type: 'webauthn.get',
               challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
               origin: 'https://example.localhost', // Must match contract expectations
+              rpId: 'example.localhost', // RP ID should match the origin hostname
               crossOrigin: false
             })),
             authenticatorData: await (async () => {
@@ -785,6 +787,7 @@ async function setupWebAuthnMocks(page: Page): Promise<void> {
                   type: 'webauthn.get',
                   challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
                   origin: 'https://example.localhost',
+                  rpId: 'example.localhost', // RP ID should match the origin hostname
                   crossOrigin: false
                 });
                 const clientDataJSONBytes = new TextEncoder().encode(clientDataJSON);

@@ -47,6 +47,7 @@ import { VRFChallenge } from '../types/vrf-worker';
 import type { onProgressEvents } from '../types/passkeyManager';
 import { AccountId, toAccountId } from "../types/accountIds";
 import { SIGNER_WORKER_MANAGER_CONFIG } from "../../config";
+import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 
 // === IMPORT AUTO-GENERATED WASM TYPES ===
 // WASM-generated types now correctly match runtime data with js_name attributes
@@ -229,6 +230,7 @@ export class SignerWorkerManager {
       contractId: string;
       nonce: string;
       blockHash: string;
+      authenticatorOptions?: AuthenticatorOptions; // Authenticator options for registration
     }
   ): Promise<{
     success: boolean;
@@ -275,6 +277,7 @@ export class SignerWorkerManager {
               // Pass VRF public key to WASM worker (device number determined by contract)
               deterministicVrfPublicKey: options.deterministicVrfPublicKey,
             } : undefined,
+            authenticatorOptions: options?.authenticatorOptions, // Pass authenticator options
           }
         }
       });
@@ -413,12 +416,14 @@ export class SignerWorkerManager {
     credential,
     contractId,
     nearRpcUrl,
+    authenticatorOptions,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
     credential: PublicKeyCredential,
     contractId: string;
     nearRpcUrl: string;
+    authenticatorOptions?: AuthenticatorOptions; // Authenticator options for registration check
     onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     success: boolean;
@@ -438,7 +443,8 @@ export class SignerWorkerManager {
             vrfChallenge,
             credential: serializeCredentialWithPRF({ credential }),
             contractId,
-            nearRpcUrl
+            nearRpcUrl,
+            authenticatorOptions
           }
         },
         onEvent,
@@ -484,6 +490,7 @@ export class SignerWorkerManager {
     nearClient,
     nearRpcUrl,
     deviceNumber = 1, // Default to device number 1 for first device (1-indexed)
+    authenticatorOptions,
     onEvent,
   }: {
     vrfChallenge: VRFChallenge,
@@ -496,7 +503,8 @@ export class SignerWorkerManager {
     nearClient: NearClient; // NEAR RPC client for getting transaction metadata
     nearRpcUrl: string; // NEAR RPC URL for contract verification
     deviceNumber?: number; // Device number for multi-device support (defaults to 1)
-    onEvent?: (update: onProgressEvents) => void
+    authenticatorOptions?: AuthenticatorOptions; // Authenticator options for registration
+    onEvent?: (update: onProgressEvents) => void;
   }): Promise<{
     verified: boolean;
     registrationInfo?: any;
@@ -552,6 +560,7 @@ export class SignerWorkerManager {
             nearRpcUrl,
             deterministicVrfPublicKey,
             deviceNumber, // Pass device number for multi-device support
+            authenticatorOptions, // Pass authenticator options
           }
         },
         onEvent,

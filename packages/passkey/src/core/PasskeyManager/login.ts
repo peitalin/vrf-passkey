@@ -285,6 +285,7 @@ export async function getRecentLogins(
 }
 
 export async function logoutAndClearVrfSession(context: PasskeyManagerContext): Promise<void> {
+  console.log("LOGOUT AND CLEAR VRF SESSION");
   const { webAuthnManager } = context;
   await webAuthnManager.clearVrfSession();
 }

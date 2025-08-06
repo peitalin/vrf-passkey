@@ -17,6 +17,7 @@ import { ActionType } from '../../core/types/actions';
 import { BUILD_PATHS } from '@build-paths';
 
 
+
 test.describe('PasskeyManager Complete E2E Test Suite', () => {
 
   test.beforeEach(async ({ page }) => {
@@ -70,6 +71,14 @@ test.describe('PasskeyManager Complete E2E Test Suite', () => {
           generateTestAccountId
         } = (window as any).testUtils as TestUtils;
         const { toAccountId } = (window as any);
+
+        // Test authenticator options configuration
+        console.log('Testing authenticator options configuration...');
+        const testAuthenticatorOptions = {
+          user_verification: 'required',
+          origin_policy: { multiple: ['app.example.com', 'admin.example.com'] }
+        };
+        console.log('Authenticator options:', testAuthenticatorOptions);
 
         console.log('Starting complete lifecycle test...');
 

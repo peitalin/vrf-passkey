@@ -16,6 +16,7 @@ import type {
   LoginState,
   AccountRecoveryHooksOptions,
 } from '../types/passkeyManager';
+import { DEFAULT_AUTHENTICATOR_OPTIONS } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { ActionType, type ActionArgs } from '../types/actions';
 import type {
@@ -92,7 +93,13 @@ export class PasskeyManager {
     nearAccountId: string,
     options: RegistrationHooksOptions
   ): Promise<RegistrationResult> {
-    return registerPasskey(this.getContext(), toAccountId(nearAccountId), options);
+    return registerPasskey(
+      this.getContext(),
+      toAccountId(nearAccountId),
+      options,
+      this.configs.authenticatorOptions || DEFAULT_AUTHENTICATOR_OPTIONS,
+      // Use config-based authenticator options with fallback to defaults
+    );
   }
 
   /**

@@ -45,6 +45,8 @@ pub struct DeriveKeypairPayload {
     pub credential: SerializedRegistrationCredential,
     #[serde(rename = "registrationTransaction")]
     pub registration_transaction: Option<LinkDeviceRegistrationTransaction>,
+    #[serde(rename = "authenticatorOptions")]
+    pub authenticator_options: Option<AuthenticatorOptions>,
 }
 
 #[wasm_bindgen]
@@ -140,6 +142,8 @@ pub struct CheckCanRegisterUserPayload {
     pub contract_id: String,
     #[serde(rename = "nearRpcUrl")]
     pub near_rpc_url: String,
+    #[serde(rename = "authenticatorOptions")]
+    pub authenticator_options: Option<AuthenticatorOptions>,
 }
 
 #[wasm_bindgen]
@@ -234,6 +238,48 @@ impl RegistrationCheckResult {
 // *                                                                            *
 // ******************************************************************************
 
+// === AUTHENTICATOR OPTIONS TYPES ===
+
+/// User verification policy for WebAuthn authenticators
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum UserVerificationPolicy {
+    #[serde(rename = "required")]
+    Required,
+    #[serde(rename = "preferred")]
+    Preferred,
+    #[serde(rename = "discouraged")]
+    Discouraged,
+}
+
+/// Origin policy input for WebAuthn registration (user-provided)
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum OriginPolicyInput {
+    #[serde(rename = "single")]
+    Single,
+    #[serde(rename = "multiple")]
+    Multiple(Vec<String>),
+    #[serde(rename = "allSubdomains")]
+    AllSubdomains,
+}
+
+/// Options for configuring WebAuthn authenticator behavior during registration
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AuthenticatorOptions {
+    #[serde(rename = "userVerification")]
+    pub user_verification: Option<UserVerificationPolicy>,
+    #[serde(rename = "originPolicy")]
+    pub origin_policy: Option<OriginPolicyInput>,
+}
+
+impl Default for AuthenticatorOptions {
+    fn default() -> Self {
+        Self {
+            user_verification: Some(UserVerificationPolicy::Preferred),
+            origin_policy: Some(OriginPolicyInput::AllSubdomains),
+        }
+    }
+}
 #[derive(Deserialize, Debug, Clone)]
 pub struct SignVerifyAndRegisterUserPayload {
     #[serde(rename = "vrfChallenge")]
@@ -258,6 +304,8 @@ pub struct SignVerifyAndRegisterUserPayload {
     pub deterministic_vrf_public_key: Option<String>,
     #[serde(rename = "deviceNumber")]
     pub device_number: Option<u8>,
+    #[serde(rename = "authenticatorOptions")]
+    pub authenticator_options: Option<AuthenticatorOptions>,
 }
 
 #[wasm_bindgen]

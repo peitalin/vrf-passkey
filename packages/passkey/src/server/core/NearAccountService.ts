@@ -170,8 +170,6 @@ export class NearAccountService {
           throw new Error(`Account ${request.new_account_id} already exists. Cannot create duplicate account.`);
         }
         console.log(`Account ${request.new_account_id} is available for atomic creation and registration`);
-
-        const publicKey = PublicKey.fromString(request.new_public_key);
         console.log(`Atomic registration for account: ${request.new_account_id}`);
         console.log(`Contract: ${this.config.webAuthnContractId}`);
 
@@ -182,6 +180,7 @@ export class NearAccountService {
           vrf_data: request.vrf_data,
           webauthn_registration: request.webauthn_registration,
           deterministic_vrf_public_key: request.deterministic_vrf_public_key,
+          authenticator_options: request.authenticator_options,
         };
 
         // Call the contract's atomic function

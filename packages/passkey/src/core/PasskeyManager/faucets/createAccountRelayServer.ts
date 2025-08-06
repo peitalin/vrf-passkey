@@ -4,6 +4,7 @@ import { PasskeyManagerContext } from '..';
 import { base64UrlDecode } from '../../../utils/encoders';
 import { removePrfOutputGuard, serializeCredential } from '../../WebAuthnManager/credentialsHelpers';
 import { WebAuthnRegistrationCredential } from '../../types/webauthn';
+import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 
 /**
  * Request data interface for the relay server's atomic account creation endpoint
@@ -24,6 +25,8 @@ export interface CreateAccountAndRegisterUserRequest {
   };
   webauthn_registration: WebAuthnRegistrationCredential;
   deterministic_vrf_public_key: number[];
+  // authenticator options
+  authenticator_options?: AuthenticatorOptions;
 }
 
 /**
@@ -38,7 +41,8 @@ export async function createAccountAndRegisterWithRelayServer(
   credential: PublicKeyCredential,
   vrfChallenge: VRFChallenge,
   deterministicVrfPublicKey: string,
-  onEvent?: (event: RegistrationSSEEvent) => void
+  authenticatorOptions?: AuthenticatorOptions,
+  onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{
   success: boolean;
   transactionId?: string;
@@ -78,7 +82,9 @@ export async function createAccountAndRegisterWithRelayServer(
         block_hash: Array.from(base64UrlDecode(vrfChallenge.blockHash)),
       },
       webauthn_registration: serializedCredential,
-      deterministic_vrf_public_key: Array.from(base64UrlDecode(deterministicVrfPublicKey))
+      deterministic_vrf_public_key: Array.from(base64UrlDecode(deterministicVrfPublicKey)),
+      authenticator_options: authenticatorOptions || context.configs.authenticatorOptions,
+      // Use config-based authenticator options
     };
 
     onEvent?.({

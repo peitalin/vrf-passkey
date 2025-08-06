@@ -5,6 +5,8 @@ import { VRFChallenge } from '@/core/types/vrf-worker';
 import { NearClient } from '@/core/NearClient';
 import { AccountId } from '@/core/types/accountIds';
 import { RegistrationPhase, RegistrationStatus } from '../../types/passkeyManager';
+import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
+import { DEFAULT_AUTHENTICATOR_OPTIONS } from '../../types/authenticatorOptions';
 
 /**
  * Create NEAR account using testnet faucet service
@@ -114,7 +116,8 @@ export async function createAccountAndRegisterWithTestnetFaucet(
   credential: PublicKeyCredential,
   vrfChallenge: VRFChallenge,
   deterministicVrfPublicKey: string,
-  onEvent?: (event: RegistrationSSEEvent) => void
+  authenticatorOptions?: AuthenticatorOptions,
+  onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<{
   success: boolean;
   transactionId?: string;
@@ -150,6 +153,9 @@ export async function createAccountAndRegisterWithTestnetFaucet(
       status: RegistrationStatus.SUCCESS,
       message: 'Account creation verified successfully'
     });
+
+    // Use config-based authenticator options with fallback to defaults
+    const finalAuthenticatorOptions = authenticatorOptions || context.configs.authenticatorOptions || DEFAULT_AUTHENTICATOR_OPTIONS;
 
     // Step 3: Register with contract
     const contractRegistrationResult = await webAuthnManager.signVerifyAndRegisterUser({
