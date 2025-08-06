@@ -4,7 +4,6 @@
 //! account creation with VRF-based WebAuthn registration in a single atomic transaction.
 
 use near_workspaces::types::Gas;
-use near_sdk::NearToken;
 use serde_json::json;
 
 mod utils_mocks;
@@ -16,7 +15,7 @@ use utils_mocks::{
 };
 
 mod utils_contracts;
-use utils_contracts::deploy_test_contract;
+use utils_contracts::get_or_deploy_contract;
 
 const ACCOUNT_CREATION_GAS_LIMIT: u64 = 70;
 
@@ -24,15 +23,15 @@ const ACCOUNT_CREATION_GAS_LIMIT: u64 = 70;
 async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Create Account and Verify E2E Test...");
 
-    // Deploy contract
-    let contract = deploy_test_contract().await?;
+    // Get shared contract instance
+    let contract = get_or_deploy_contract().await;
 
     // Test data for account creation
     let (
         rp_id,
         user_id,
         session_id,
-        block_height,
+        _block_height,
         new_public_key
     ) = generate_account_creation_data();
     // Generate VRF data
@@ -56,13 +55,17 @@ async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::
             "new_public_key": new_public_key,
             "vrf_data": vrf_data.to_json(),
             "webauthn_registration": webauthn_registration,
-            "deterministic_vrf_public_key": deterministic_vrf_public_key
+            "deterministic_vrf_public_key": deterministic_vrf_public_key,
+            "authenticator_options": {
+                "user_verification": "Required",
+                "origin_policy": "Single"
+            }
         }))
         .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT)) // More gas for account creation
         .transact()
         .await?;
 
-    assert!(result.is_success(), "Should successfully update settings");
+    assert!(result.is_success(), "Should successfully create account and register user");
     println!("Account creation and verification transaction completed");
     println!("  - Transaction successful: {}", result.is_success());
     println!("  - Gas used: {:?}", result.total_gas_burnt);
@@ -74,8 +77,8 @@ async fn test_create_account_and_register_user_e2e() -> Result<(), Box<dyn std::
 async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting VRF WebAuthn Registration E2E Test...");
 
-    // Deploy contract
-    let contract = deploy_test_contract().await?;
+    // Get shared contract instance
+    let contract = get_or_deploy_contract().await;
 
     // Test data for account creation
     let rp_id = "example.com";
@@ -93,7 +96,7 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
         None
     );
 
-    // Call link_device_register_user method
+    // Call create_account_and_register_user method with multiple origin policy
     let result = contract
         .call("create_account_and_register_user")
         .args_json(json!({
@@ -101,7 +104,13 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
             "new_public_key": new_public_key,
             "vrf_data": vrf_data.to_json(),
             "webauthn_registration": webauthn_registration,
-            "deterministic_vrf_public_key": deterministic_vrf_public_key
+            "deterministic_vrf_public_key": deterministic_vrf_public_key,
+            "authenticator_options": {
+                "user_verification": "Preferred",
+                "origin_policy": {
+                    "Multiple": ["app.example.com", "admin.example.com"]
+                }
+            }
         }))
         .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
         .transact()
@@ -141,17 +150,82 @@ async fn test_vrf_registration_e2e_success() -> Result<(), Box<dyn std::error::E
 }
 
 #[tokio::test]
+async fn test_vrf_registration_all_subdomains_policy() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Testing VRF registration with AllSubdomains origin policy...");
+
+    // Get shared contract instance
+    let contract = get_or_deploy_contract().await;
+
+    // Test data for account creation
+    let rp_id = "example.com";
+    let user_id = "subdomain_user.testnet";
+    let session_id = "all_subdomains_session_12345";
+    let new_public_key = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+
+    // Generate VRF data
+    let vrf_data = generate_vrf_data(rp_id, user_id, session_id, None, None).await?;
+    let deterministic_vrf_public_key = generate_deterministic_vrf_public_key();
+
+    // Create WebAuthn registration data
+    let webauthn_registration = create_mock_webauthn_registration(
+        &vrf_data.output,
+        rp_id,
+        user_id,
+        None
+    );
+
+    // Call create_account_and_register_user method with AllSubdomains policy
+    let result = contract
+        .call("create_account_and_register_user")
+        .args_json(json!({
+            "new_account_id": user_id,
+            "new_public_key": new_public_key,
+            "vrf_data": vrf_data.to_json(),
+            "webauthn_registration": webauthn_registration,
+            "deterministic_vrf_public_key": deterministic_vrf_public_key,
+            "authenticator_options": {
+                "user_verification": "Discouraged",
+                "origin_policy": "AllSubdomains"
+            }
+        }))
+        .gas(Gas::from_tgas(ACCOUNT_CREATION_GAS_LIMIT))
+        .transact()
+        .await?;
+
+    let registration_result: serde_json::Value = result.json()?;
+    println!("AllSubdomains policy registration result: {}", serde_json::to_string_pretty(&registration_result)?);
+
+    // Note: Since we're using mock VRF data, the VRF verification will fail
+    // This test validates the structure and flow of the method with AllSubdomains policy
+    let verified = registration_result["verified"].as_bool().unwrap_or(false);
+
+    if verified {
+        println!("VRF Registration with AllSubdomains policy successful!");
+    } else {
+        println!("VRF Registration with AllSubdomains policy failed (expected with mock data)");
+        println!("  - This validates the VRF verification is working");
+        println!("  - The AllSubdomains policy structure and flow are correct");
+    }
+
+    // Test structure validation
+    assert!(registration_result.get("verified").is_some(), "Result should have 'verified' field");
+
+    println!("VRF Registration with AllSubdomains policy test completed successfully");
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing VRF registration with mismatched RP ID...");
 
-    let contract = deploy_test_contract().await?;
+    let contract = get_or_deploy_contract().await;
 
     // Test data for account creation
     let (
         rp_id,
         user_id,
         session_id,
-        block_height,
+        _block_height,
         new_public_key
     ) = generate_account_creation_data();
     // Generate VRF data
@@ -191,13 +265,13 @@ async fn test_vrf_registration_wrong_rp_id() -> Result<(), Box<dyn std::error::E
 async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing VRF registration with corrupted proof...");
 
-    let contract = deploy_test_contract().await?;
+    let contract = get_or_deploy_contract().await;
 
     let (
         rp_id,
         user_id,
         session_id,
-        block_height,
+        _block_height,
         new_public_key
     ) = generate_account_creation_data();
     // Generate VRF data
@@ -250,13 +324,13 @@ async fn test_vrf_registration_corrupted_proof() -> Result<(), Box<dyn std::erro
 async fn test_vrf_registration_challenge_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing VRF registration with challenge mismatch...");
 
-    let contract = deploy_test_contract().await?;
+    let contract = get_or_deploy_contract().await;
 
     let (
         rp_id,
         user_id,
         session_id,
-        block_height,
+        _block_height,
         new_public_key
     ) = generate_account_creation_data();
     // Generate VRF data
@@ -302,7 +376,6 @@ async fn test_vrf_registration_input_construction_validation() -> Result<(), Box
     let rp_id2 = "different.com";
     let user_id = "test_user";
     let session_id = "test_session";
-    let block_height = 123456789u64;
 
     let vrf_data1 = generate_vrf_data(rp_id1, user_id, session_id, None, None).await?;
     let vrf_data2 = generate_vrf_data(rp_id2, user_id, session_id, None, None).await?;

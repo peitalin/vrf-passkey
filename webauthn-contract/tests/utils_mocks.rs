@@ -11,24 +11,6 @@ use std::collections::BTreeMap;
 use serde_cbor;
 use sha2::{Sha256, Digest};
 
-/// VRF proof data structure for testing
-#[derive(Debug)]
-pub struct VrfTestData {
-    pub proof: ECVRFProof,
-    pub public_key: ECVRFPublicKey,
-    pub input: Vec<u8>,
-    pub expected_output: Vec<u8>,
-}
-
-impl VrfTestData {
-    pub fn proof_bytes(&self) -> Vec<u8> {
-        bincode::serialize(&self.proof).unwrap()
-    }
-
-    pub fn pubkey_bytes(&self) -> Vec<u8> {
-        bincode::serialize(&self.public_key).unwrap()
-    }
-}
 
 // Test VRF data structure for authentication (subsequent logins)
 #[derive(Debug)]
@@ -66,30 +48,6 @@ impl VrfData {
     }
 }
 
-pub async fn generate_test_vrf_wasm_data() -> Result<VrfTestData, Box<dyn std::error::Error>> {
-    // Create deterministic keypair using WasmRngFromSeed
-    let seed = [42u8; 32];
-    let mut rng = WasmRngFromSeed::from_seed(seed);
-    let keypair = ECVRFKeyPair::generate(&mut rng);
-
-    // Test input
-    let input = b"test_vrf_wasm_input_v1.0".to_vec();
-
-    // Generate VRF proof using vrf-wasm
-    let proof = keypair.prove(&input);
-    let vrf_output = proof.to_hash();
-
-    // Verify the proof works locally
-    assert!(proof.verify(&input, &keypair.pk).is_ok(), "Generated proof should be valid");
-
-    Ok(VrfTestData {
-        proof,
-        public_key: keypair.pk,
-        input: input.clone(),
-        expected_output: vrf_output.to_vec(),
-    })
-}
-
 pub fn generate_account_creation_data() -> (String, String, String, u64, String) {
     let rp_id = "example.com";
     let user_id = "test_user.testnet"; // Fixed: Added .testnet to make it a valid NEAR account ID
@@ -121,7 +79,7 @@ pub async fn generate_vrf_data(
     let keypair = ECVRFKeyPair::generate(&mut rng);
 
     // Construct VRF input according to specification
-    let domain = b"web_authn_challenge_v1";
+    let domain = b"web3_authn_challenge_v3";
     let block_hash = b"test_block_hash_32_bytes_for_reg";
     let timestamp = 1700000000u64;
     let block_height = block_height.unwrap_or(123456789u64);
@@ -184,8 +142,8 @@ pub fn create_mock_webauthn_registration(
 
     let origin = format!("https://{}", rp_id);
     let client_data = format!(
-        r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}","crossOrigin":false}}"#,
-        challenge_b64, origin
+        r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}","rpId":"{}","crossOrigin":false}}"#,
+        challenge_b64, origin, rp_id
     );
     let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
 
@@ -256,8 +214,8 @@ pub fn create_mock_webauthn_authentication(vrf_output: &[u8], rp_id: &str) -> se
 
     let origin = format!("https://{}", rp_id);
     let client_data = format!(
-        r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}","crossOrigin":false}}"#,
-        challenge_b64, origin
+        r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}","rpId":"{}","crossOrigin":false}}"#,
+        challenge_b64, origin, rp_id
     );
     let client_data_b64 = BASE64_URL_ENGINE.encode(client_data.as_bytes());
 

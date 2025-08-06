@@ -79,7 +79,7 @@ impl From<vrf_contract_verifier::VerificationError> for VRFVerificationError {
 #[derive(Debug, Clone)]
 pub struct VRFVerificationData {
     /// SHA256 hash of concatenated VRF input components:
-    /// domain_separator + user_id + rp_id + session_id + block_height + block_hash
+    /// domain_separator + user_id + rp_id + block_height + block_hash
     /// This hashed data is used for VRF proof verification
     pub vrf_input_data: Vec<u8>,
     /// Used as the WebAuthn challenge (VRF output)

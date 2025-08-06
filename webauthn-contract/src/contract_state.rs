@@ -2,27 +2,6 @@ use near_sdk::{AccountId, PanicOnDefault, BorshStorageKey};
 use near_sdk::store::{LookupMap, IterableSet, IterableMap};
 use near_sdk::borsh::BorshSerialize;
 
-/// TLD configuration for domain parsing
-/// Allows contract deployment to specify which complex TLD patterns to support
-#[near_sdk::near(serializers=[borsh, json])]
-#[derive(Debug, Clone)]
-pub struct TldConfiguration {
-    /// List of two-part TLDs that require 3 parts for registrable domain
-    /// Format: (second_level_domain, top_level_domain)
-    /// Example: ("co", "uk") for .co.uk domains
-    pub multi_part_tlds: Vec<(String, String)>,
-    /// Whether to enable complex TLD support (default: false for standard domains only)
-    pub enabled: bool,
-}
-
-impl Default for TldConfiguration {
-    fn default() -> Self {
-        Self {
-            multi_part_tlds: vec![], // Empty by default - only standard domains supported
-            enabled: false,          // Disabled by default for simplicity and performance
-        }
-    }
-}
 
 /// VRF configuration settings
 #[near_sdk::near(serializers=[borsh, json])]
@@ -45,17 +24,18 @@ impl Default for VRFSettings {
     }
 }
 
-/// Stored authenticator data (part of contract state)
+/// Stored authenticator data (V4 format - new flexible configuration)
 #[near_sdk::near(serializers=[borsh, json])]
 #[derive(Debug, Clone)]
 pub struct StoredAuthenticator {
     pub credential_public_key: Vec<u8>,
     pub transports: Option<Vec<AuthenticatorTransport>>,
     pub registered: String, // ISO timestamp of registration
+    pub expected_rp_id: String, // Single RP ID for this authenticator
+    pub origin_policy: OriginPolicy,
+    pub user_verification: UserVerificationPolicy,
     pub vrf_public_keys: Vec<Vec<u8>>, // VRF public keys for stateless authentication (max 5, FIFO)
     pub device_number: u8, // Device number for this authenticator (1-indexed for UX)
-    pub expected_origin: String, // Origin URL where this authenticator was registered (e.g., "https://example.com")
-    pub expected_rp_id: String, // RP ID where this authenticator was registered (e.g., "example.com")
 }
 
 #[near_sdk::near(serializers = [borsh, json])]
@@ -73,6 +53,169 @@ pub enum AuthenticatorTransport {
     Hybrid,
 }
 
+/// Options for configuring WebAuthn authenticator behavior during registration
+///
+/// # JSON Format
+/// ```json
+/// {
+///   "user_verification": "Required" | "Preferred" | "Discouraged" | null,
+///   "origin_policy": {
+///     "Single": null
+///   } | {
+///     "Multiple": ["sub.example.com", "api.example.com"]
+///   } | "AllSubdomains" | null
+/// }
+/// ```
+///
+/// # Examples
+///
+/// ## Require user verification with multiple allowed origins:
+/// ```json
+/// {
+///   "user_verification": "Required",
+///   "origin_policy": {
+///     "Multiple": ["app.example.com", "admin.example.com"]
+///   }
+/// }
+/// ```
+///
+/// ## Preferred user verification with all subdomains allowed:
+/// ```json
+/// {
+///   "user_verification": "Preferred",
+///   "origin_policy": "AllSubdomains"
+/// }
+/// ```
+///
+/// ## Default options (both fields null):
+/// ```json
+/// {
+///   "user_verification": null,
+///   "origin_policy": null
+/// }
+/// ```
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub struct AuthenticatorOptions {
+    pub user_verification: Option<UserVerificationPolicy>,
+    pub origin_policy: Option<OriginPolicyInput>,
+}
+impl Default for AuthenticatorOptions {
+    fn default() -> Self {
+        Self {
+            user_verification: None,
+            origin_policy: None,
+        }
+    }
+}
+
+/// User verification policy for WebAuthn authenticators
+///
+/// # JSON Format
+/// ```json
+/// "Required" | "Preferred" | "Discouraged"
+/// ```
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub enum UserVerificationPolicy {
+    Required,     // UV flag must be set
+    Preferred,    // UV preferred but not required
+    Discouraged,  // UV should not be used
+}
+impl Default for UserVerificationPolicy {
+    fn default() -> Self {
+        Self::Preferred
+    }
+}
+
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub enum OriginPolicy {
+    Single(String),        // allow single origin
+    Multiple(Vec<String>), // allow multiple pre-specified origins
+    AllSubdomains,         // allow all sub-domains associated with RpID
+}
+impl Default for OriginPolicy {
+    fn default() -> Self {
+        Self::AllSubdomains
+    }
+}
+impl OriginPolicy {
+    pub fn validate(
+        origin_policy_input: Option<OriginPolicyInput>,
+        credential_origin: String,
+        rp_id: String,
+    ) -> Result<Self, String> {
+        let o = match origin_policy_input {
+            Some(OriginPolicyInput::Single) => {
+                // Validate that credential_origin ends with rp_id
+                if !credential_origin.ends_with(&rp_id) {
+                    return Err(format!("Credential origin '{}' does not match RP ID '{}'", credential_origin, rp_id));
+                }
+                Self::Single(credential_origin)
+            },
+            Some(OriginPolicyInput::Multiple(origins)) => {
+                let all_origins = [vec![credential_origin], origins].concat();
+                // Validate that each origin in origins ends with rp_id
+                for origin in &all_origins {
+                    if !origin.ends_with(&rp_id) {
+                        return Err(format!("Origin '{}' does not match RP ID '{}'", origin, rp_id));
+                    }
+                }
+                Self::Multiple(all_origins)
+            },
+            Some(OriginPolicyInput::AllSubdomains) => {
+                Self::AllSubdomains
+            },
+            None => Self::default(), // Defaults to all subdomains
+        };
+        Ok(o)
+    }
+}
+
+/// Origin policy input for WebAuthn registration (user-provided)
+///
+/// # JSON Format
+/// ```json
+/// "Single" | {
+///   "Multiple": ["sub.example.com", "api.example.com"]
+/// } | "AllSubdomains"
+/// ```
+///
+/// # Examples
+///
+/// ## Single origin (uses credential.origin):
+/// ```json
+/// "Single"
+/// ```
+///
+/// ## Multiple allowed origins (additional to credential.origin):
+/// ```json
+/// {
+///   "Multiple": ["sub.example.com", "api.example.com"]
+/// }
+/// ```
+///
+/// ## Allow all subdomains of RP ID:
+/// ```json
+/// "AllSubdomains"
+/// ```
+///
+/// # Notes
+/// - `Single` uses the credential's origin as the only allowed origin
+/// - `Multiple` adds additional origins to the credential's origin
+/// - `AllSubdomains` allows any subdomain of the RP ID
+/// - This is converted to `OriginPolicy` during registration
+/// - The `Multiple` variant stores domain names (without protocol)
+#[near_sdk::near(serializers = [borsh, json])]
+#[derive(Debug, Clone)]
+pub enum OriginPolicyInput {
+    Single,                // uses credential.origin as the origin
+    Multiple(Vec<String>), // allow multiple pre-specified origins
+    AllSubdomains,         // allow all sub-domains associated with RpID
+}
+
+
 /// Storage keys for the contract's persistent collections
 #[derive(BorshSerialize, BorshStorageKey)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -85,17 +228,20 @@ pub enum StorageKey {
     DeviceLinkingMap,
 }
 
-/// Main contract state
+/// Main contract state (V4)
 #[near_sdk::near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct WebAuthnContract {
-    pub greeting: String,
+    // Track contract version for migrations
+    pub contract_version: u32,
+    // Test greeting
+    pub greeting: Option<String>,
+    // Contract owner (can add/remove admins and transfer ownership)
+    pub owner: AccountId,
     // Admins
     pub admins: IterableSet<AccountId>,
     // VRF challenge verification settings
     pub vrf_settings: VRFSettings,
-    // TLD configuration for domain parsing
-    pub tld_config: Option<TldConfiguration>,
     // Authenticators: 1-to-many: AccountId -> [{ CredentialID: AuthenticatorData }, ...]
     pub authenticators: LookupMap<AccountId, IterableMap<String, StoredAuthenticator>>,
     // Registered users
@@ -108,4 +254,71 @@ pub struct WebAuthnContract {
     pub device_linking_map: LookupMap<String, (AccountId, u8)>,
     // Device counter per account: AccountId -> next device number
     pub device_numbers: LookupMap<AccountId, u8>,
+}
+
+/////////////////////////////////////
+/// TESTS
+/////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::serde_json;
+
+    #[test]
+    fn test_authenticator_options_serialization() {
+        println!("Testing AuthenticatorOptions serialization...");
+
+        // Test complex AuthenticatorOptions with all variants
+        let options = AuthenticatorOptions {
+            user_verification: Some(UserVerificationPolicy::Required),
+            origin_policy: Some(OriginPolicyInput::Multiple(vec![
+                "sub.example.com".to_string(),
+                "api.example.com".to_string(),
+            ])),
+        };
+
+        let json_str = serde_json::to_string(&options).unwrap();
+        println!("Serialized JSON: {}", json_str);
+
+        let deserialized: AuthenticatorOptions = serde_json::from_str(&json_str).unwrap();
+
+        // Verify all fields are correctly deserialized
+        assert!(matches!(deserialized.user_verification, Some(UserVerificationPolicy::Required)));
+        match deserialized.origin_policy {
+            Some(OriginPolicyInput::Multiple(origins)) => {
+                assert_eq!(origins.len(), 2);
+                assert_eq!(origins[0], "sub.example.com");
+                assert_eq!(origins[1], "api.example.com");
+            },
+            _ => panic!("Expected Multiple variant in origin_policy"),
+        }
+
+        println!("✓ AuthenticatorOptions serialization test passed");
+    }
+
+    #[test]
+    fn test_origin_policy_enum_serialization() {
+        println!("Testing OriginPolicy enum serialization...");
+
+        // Test all enum variants
+        let variants = vec![
+            OriginPolicy::Single("example.com".to_string()),
+            OriginPolicy::Multiple(vec!["app.example.com".to_string(), "admin.example.com".to_string()]),
+            OriginPolicy::AllSubdomains,
+        ];
+
+        for (i, variant) in variants.iter().enumerate() {
+            let json_str = serde_json::to_string(variant).unwrap();
+            println!("Variant {} JSON: {}", i, json_str);
+
+            let deserialized: OriginPolicy = serde_json::from_str(&json_str).unwrap();
+
+            // Verify round-trip serialization
+            let json_str2 = serde_json::to_string(&deserialized).unwrap();
+            assert_eq!(json_str, json_str2, "Round-trip serialization failed for variant {}", i);
+        }
+
+        println!("✓ OriginPolicy enum serialization test passed");
+    }
 }

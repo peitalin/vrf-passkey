@@ -2,9 +2,9 @@
 source .env
 
 # Deploy the contract
-cargo near deploy build-non-reproducible-wasm $CONTRACT_ID \
+cargo near deploy build-reproducible-wasm $CONTRACT_ID \
 	with-init-call init json-args '{}' \
-	prepaid-gas '100.0 Tgas' \
+	prepaid-gas '120.0 Tgas' \
 	attached-deposit '0 NEAR' \
 	network-config $NEAR_NETWORK_ID \
 	sign-with-plaintext-private-key \
